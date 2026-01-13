@@ -1,4 +1,4 @@
-# Julia Compiler Changes: 1.12 -> 1.13
+# Compiler Change: Julia 1.12 -> 1.13
 
 Goal: collect every PR and commit that affects the Julia compiler between the 1.12 and 1.13 releases, then summarize and categorize them for analysis.
 
