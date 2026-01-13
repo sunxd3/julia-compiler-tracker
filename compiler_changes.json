@@ -1,0 +1,5278 @@
+[
+  {
+    "sha": "e1a459ab16c4361f149bfedeeb4970ec5ee6bc38",
+    "author": "Gabriel Baraldi",
+    "date": "2025-12-16T17:00:31-03:00",
+    "subject": "Add heap sized based full gc heuristic (#60376)",
+    "pr_number": "60376",
+    "files": [
+      "base/timing.jl",
+      "src/gc-stock.c",
+      "src/gc-stock.h"
+    ]
+  },
+  {
+    "sha": "0c2681505e06fd4f55171b1a78f56ac82a4e2b83",
+    "author": "Jameson Nash",
+    "date": "2025-12-06T14:33:23-05:00",
+    "subject": "signals: Implement fake_stack_pop for Linux on x86_64 and i686 (#60013)",
+    "pr_number": "60013",
+    "files": [
+      "src/julia_threads.h",
+      "src/signals-mach.c",
+      "src/signals-unix.c"
+    ]
+  },
+  {
+    "sha": "4a666fbf2ce03ce22766829ee1df7285ad849f04",
+    "author": "Valentin Churavy",
+    "date": "2025-12-02T18:32:18+01:00",
+    "subject": "Fix buffer overflow in jloptions (#60299)",
+    "pr_number": "60299",
+    "files": [
+      "src/jloptions.c"
+    ]
+  },
+  {
+    "sha": "383c61e982f39a1ee1ab492f7cf26cc31d36f816",
+    "author": "Sam Schweigel",
+    "date": "2025-11-26T17:27:47-08:00",
+    "subject": "Remove libjulia-internal.so dependency on libstdc++ and libgcc (#60248)",
+    "pr_number": "60248",
+    "files": [
+      "Make.inc",
+      "cli/Makefile",
+      "cli/loader_lib.c",
+      "src/Makefile",
+      "src/coverage.cpp",
+      "src/gc-heap-snapshot.cpp",
+      "src/processor.cpp",
+      "src/runtime_ccall.cpp"
+    ]
+  },
+  {
+    "sha": "158029b09b6a87e6c87cd0a432960dcb3162f5f0",
+    "author": "Cody Tapscott",
+    "date": "2025-11-19T15:17:52-05:00",
+    "subject": "Add uninitialized multi-versioning trampoline for autoinit support (#60171)",
+    "pr_number": "60171",
+    "files": [
+      "src/llvm-multiversioning.cpp",
+      "test/llvmpasses/multiversioning-clone-only.ll",
+      "test/llvmpasses/multiversioning-x86.ll"
+    ]
+  },
+  {
+    "sha": "23c330930f2db3ad3d12f4b075ac0e03ac9373bd",
+    "author": "Alex Arslan",
+    "date": "2025-11-21T03:09:37-08:00",
+    "subject": "[release-1.13] Revert \"Make banner size depend on terminal size (#51811)\" (#60186)",
+    "pr_number": "51811",
+    "files": [
+      "base/client.jl",
+      "src/jloptions.c",
+      "stdlib/REPL/src/REPL.jl",
+      "stdlib/REPL/src/precompile.jl",
+      "stdlib/REPL/test/repl.jl",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "954df87a5e6f9e1158a42c883f90c88fe15d316a",
+    "author": "Sam Schweigel",
+    "date": "2025-11-09T23:48:51-08:00",
+    "subject": "Fix windows profiler deadlock (#60056)",
+    "pr_number": "60056",
+    "files": [
+      "src/gc-stock.c",
+      "src/signals-win.c",
+      "stdlib/Profile/test/runtests.jl"
+    ]
+  },
+  {
+    "sha": "8ce7579860740be6451e2bf34e2ce80e802fdbfc",
+    "author": "Jameson Nash",
+    "date": "2025-11-09T14:05:58-05:00",
+    "subject": "disable compiling for typeinf world during incremental compile (#60079)",
+    "pr_number": "60079",
+    "files": [
+      "src/aotcompile.cpp"
+    ]
+  },
+  {
+    "sha": "53e257705ea5fa6ed8b7d73d09e6b77159cd0cf8",
+    "author": "Max Horn",
+    "date": "2025-11-01T13:08:48+01:00",
+    "subject": "Fix compile-database target (#59980)",
+    "pr_number": "59980",
+    "files": [
+      "Makefile",
+      "src/Makefile",
+      "src/flisp/Makefile",
+      "src/support/Makefile"
+    ]
+  },
+  {
+    "sha": "7ccd6419c66e5bbc8a97826092839d579f46e98f",
+    "author": "Jameson Nash",
+    "date": "2025-10-31T20:55:07-06:00",
+    "subject": "cgutils: fix write barrier of atomic-setonce (#59991)",
+    "pr_number": "59991",
+    "files": [
+      "src/cgutils.cpp",
+      "test/atomics.jl"
+    ]
+  },
+  {
+    "sha": "aec242371f6419b62bd547b4ed623c6e6ab98288",
+    "author": "Mos\u00e8 Giordano",
+    "date": "2025-10-29T12:32:36+00:00",
+    "subject": "Revert \"precompile: fail in (closer to) linear time and linear error messages\" (#59981)",
+    "pr_number": "59981",
+    "files": [
+      "base/precompilation.jl",
+      "doc/src/devdocs/precompile_hang.md",
+      "src/jl_uv.c",
+      "test/loading.jl",
+      "test/precompile.jl"
+    ]
+  },
+  {
+    "sha": "301183e01cbe391c8923d9a71b5856cf670c6ffa",
+    "author": "Yichao Yu",
+    "date": "2025-10-28T13:46:20-04:00",
+    "subject": "Get rid of all PointerType::get call with element type (#59972)",
+    "pr_number": "59972",
+    "files": [
+      "src/ccall.cpp",
+      "src/cgutils.cpp",
+      "src/codegen.cpp",
+      "src/llvm-final-gc-lowering.cpp",
+      "src/llvm-propagate-addrspaces.cpp",
+      "src/llvmcalltest.cpp"
+    ]
+  },
+  {
+    "sha": "0f9b2fc19fd201f18d92f823361a4bfd24047a29",
+    "author": "Timothy",
+    "date": "2025-10-25T23:34:09+08:00",
+    "subject": "Make banner size depend on terminal size (#51811)",
+    "pr_number": "51811",
+    "files": [
+      "base/client.jl",
+      "src/jloptions.c",
+      "stdlib/REPL/src/REPL.jl",
+      "stdlib/REPL/src/precompile.jl",
+      "stdlib/REPL/test/repl.jl",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "633ef967f5785bcbc8eb154522f6e3aadca750c9",
+    "author": "Jameson Nash",
+    "date": "2025-10-23T10:08:32-04:00",
+    "subject": "precompile: fail in (closer to) linear time and linear error messages (#59765)",
+    "pr_number": "59765",
+    "files": [
+      "base/precompilation.jl",
+      "doc/src/devdocs/precompile_hang.md",
+      "src/jl_uv.c",
+      "test/loading.jl",
+      "test/precompile.jl"
+    ]
+  },
+  {
+    "sha": "d244e1bfaad74cf85dba3fb0637948f84baf16cf",
+    "author": "Kristoffer Carlsson",
+    "date": "2025-10-23T01:22:39+02:00",
+    "subject": "Use jl_effective_threads for container-aware CPU detection (#59916)",
+    "pr_number": "59916",
+    "files": [
+      "base/precompilation.jl",
+      "base/sysinfo.jl",
+      "base/util.jl",
+      "doc/src/base/constants.md",
+      "src/aotcompile.cpp",
+      "src/threading.c",
+      "test/runtests.jl"
+    ]
+  },
+  {
+    "sha": "74c32ec0b522d528d279efaed502a24e917aeeff",
+    "author": "Nathan Zimmerberg",
+    "date": "2025-10-20T17:50:04-04:00",
+    "subject": "Use libuv in absrealpath to fix Korean path names on Windows (#59910)",
+    "pr_number": "59910",
+    "files": [
+      "src/jlapi.c",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "c1353acc1008548cecd5ed51ef605df1d7003a43",
+    "author": "Jameson Nash",
+    "date": "2025-10-18T20:55:48-04:00",
+    "subject": "fix accidental save (and restore) of sigmask when interpreting try (#59878)",
+    "pr_number": "59878",
+    "files": [
+      "src/interpreter.c"
+    ]
+  },
+  {
+    "sha": "8e7ed1d5f06e7807681f696252b2b432c58690ce",
+    "author": "Jameson Nash",
+    "date": "2025-10-17T21:19:06-04:00",
+    "subject": "[Profile] further improvements for Windows-only (#59877)",
+    "pr_number": "59877",
+    "files": [
+      "doc/src/devdocs/locks.md",
+      "src/debuginfo.cpp",
+      "src/dlload.c",
+      "src/init.c",
+      "src/julia_internal.h",
+      "src/signal-handling.c",
+      "src/signals-win.c",
+      "src/stackwalk.c",
+      "src/threading.c"
+    ]
+  },
+  {
+    "sha": "1cbea07afc7334c363728e9f50876234dcc6aedf",
+    "author": "Sam Schweigel",
+    "date": "2025-10-17T13:35:52-07:00",
+    "subject": "Make `=` and `const` toplevel-preserving syntax (#59784)",
+    "pr_number": "59784",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "3a50d6fb4b384959666c52a9105ae845c5de987a",
+    "author": "Jameson Nash",
+    "date": "2025-10-15T10:03:39-04:00",
+    "subject": "signals: acquire loader lock during stackwalk on Win32 (#59840)",
+    "pr_number": "59840",
+    "files": [
+      "src/julia_internal.h",
+      "src/signals-mach.c",
+      "src/signals-unix.c",
+      "src/signals-win.c",
+      "src/stackwalk.c"
+    ]
+  },
+  {
+    "sha": "42b07cccbd81abd95df53fb197b111d9eb4067f3",
+    "author": "Kristoffer Carlsson",
+    "date": "2025-10-14T09:40:37+02:00",
+    "subject": "Use `UV_TTY_MODE_RAW_VT` for the console mode (enables bracket paste in Windows)",
+    "pr_number": "",
+    "files": [
+      "NEWS.md",
+      "src/jl_uv.c"
+    ]
+  },
+  {
+    "sha": "829666da9fbd6cbe11bd92f615b1bdc5478e8b5d",
+    "author": "Jameson Nash",
+    "date": "2025-10-09T16:00:40-04:00",
+    "subject": "ccall: make distinction of pointer vs name a syntactic distinction (#59165)",
+    "pr_number": "59165",
+    "files": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/optimize.jl",
+      "Compiler/src/ssair/EscapeAnalysis.jl",
+      "Compiler/src/ssair/inlining.jl",
+      "Compiler/src/ssair/verify.jl",
+      "Compiler/src/verifytrim.jl",
+      "Compiler/test/inference.jl",
+      "Compiler/test/irpasses.jl",
+      "base/c.jl",
+      "base/deprecated.jl",
+      "base/gmp.jl",
+      "doc/src/devdocs/llvm.md",
+      "doc/src/manual/calling-c-and-fortran-code.md",
+      "src/ccall.cpp",
+      "src/codegen.cpp",
+      "src/julia-syntax.scm",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/runtime_ccall.cpp",
+      "src/runtime_intrinsics.c",
+      "test/ccall.jl"
+    ]
+  },
+  {
+    "sha": "8aa57a2a6487f58f92cfcf6ac9030c48e7455c0c",
+    "author": "Keno Fischer",
+    "date": "2025-10-08T17:28:25-04:00",
+    "subject": "Fix missing GC root (#59785)",
+    "pr_number": "59785",
+    "files": [
+      "src/julia.h",
+      "src/rtutils.c"
+    ]
+  },
+  {
+    "sha": "03f031ac7207fb2452f32526f078de24b1b432e2",
+    "author": "Sam Schweigel",
+    "date": "2025-10-08T09:10:59-07:00",
+    "subject": "Handle errors in jl_image_unpack_zstd better, especially on Windows (#59773)",
+    "pr_number": "59773",
+    "files": [
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "17e0df567b259c769f951d176aa44da90fe46120",
+    "author": "Keno Fischer",
+    "date": "2025-10-08T11:38:01-04:00",
+    "subject": "Align interpreter and codegen error behavior of setglobal! and friends (#59766)",
+    "pr_number": "59766",
+    "files": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/test/inference.jl",
+      "base/boot.jl",
+      "base/errorshow.jl",
+      "src/codegen.cpp",
+      "src/datatype.c",
+      "src/genericmemory.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/module.c",
+      "src/rtutils.c",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "5ddcea77fc468110f15b464b82b649042450ce64",
+    "author": "Em Chu",
+    "date": "2025-10-07T17:46:42+02:00",
+    "subject": "Allow globalref on lhs of op= (#59762)",
+    "pr_number": "59762",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "e8667fb089fda5ec09bff8d127826c9750a113d6",
+    "author": "C\u00e9dric Belmant",
+    "date": "2025-10-07T17:38:19+02:00",
+    "subject": "Avoid method instance normalization for opaque closure methods (#59772)",
+    "pr_number": "59772",
+    "files": [
+      "src/gf.c",
+      "test/opaque_closure.jl"
+    ]
+  },
+  {
+    "sha": "1cba9c292c6bad490cca49cd52e333632a3fab91",
+    "author": "Cody Tapscott",
+    "date": "2025-10-07T09:11:05-04:00",
+    "subject": "Revert \"Restrict COFF to a single thread when symbol count is high (#50874)\" (#59736)",
+    "pr_number": "50874",
+    "files": [
+      "src/aotcompile.cpp"
+    ]
+  },
+  {
+    "sha": "e986983706bc6cad31400724be7e6804e285b913",
+    "author": "Kristoffer Carlsson",
+    "date": "2025-10-02T15:03:47+02:00",
+    "subject": "do not bail when finding directories with matching name in dlload (#51295)",
+    "pr_number": "51295",
+    "files": [
+      "src/dlload.c",
+      "test/ccall.jl"
+    ]
+  },
+  {
+    "sha": "7a8cd6e202f1d1216a6c0c0b928fb43a123cada8",
+    "author": "Sam Schweigel",
+    "date": "2025-10-01T09:54:06-07:00",
+    "subject": "Remove :globaldecl and :global lowered forms; add Core.declare_global (#58279)",
+    "pr_number": "58279",
+    "files": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/ssair/ir.jl",
+      "Compiler/src/ssair/verify.jl",
+      "Compiler/src/validation.jl",
+      "base/docs/basedocs.jl",
+      "base/expr.jl",
+      "src/ast.c",
+      "src/builtin_proto.h",
+      "src/builtins.c",
+      "src/codegen.cpp",
+      "src/interpreter.c",
+      "src/jlfrontend.scm",
+      "src/julia-syntax.scm",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/toplevel.c",
+      "test/syntax.jl",
+      "test/worlds.jl"
+    ]
+  },
+  {
+    "sha": "a7b8f0ca839e5455b64d3e19363afee661be52fe",
+    "author": "Gabriel Baraldi",
+    "date": "2025-10-01T12:27:53-03:00",
+    "subject": "Work around debug_compile_units skipping nodebug CUs (#59649)",
+    "pr_number": "59649",
+    "files": [
+      "src/aotcompile.cpp",
+      "src/llvm-multiversioning.cpp",
+      "src/llvm-remove-addrspaces.cpp"
+    ]
+  },
+  {
+    "sha": "0c8768ff321c83245475503ca8a2fe2a7917352b",
+    "author": "Keno Fischer",
+    "date": "2025-10-01T07:45:44+02:00",
+    "subject": "lowering: increment world age after toplevel expressions (#59703)",
+    "pr_number": "59703",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/worlds.jl"
+    ]
+  },
+  {
+    "sha": "040f6cd4181d8c116c93fe87a49b5bbb0459323d",
+    "author": "Sam Schweigel",
+    "date": "2025-09-30T08:26:14-07:00",
+    "subject": "Lower `const x = ...` to new builtin `Core.setconst!` (#58187)",
+    "pr_number": "58187",
+    "files": [
+      "Compiler/src/ssair/ir.jl",
+      "Compiler/src/validation.jl",
+      "base/docs/basedocs.jl",
+      "doc/src/base/base.md",
+      "src/builtin_proto.h",
+      "src/builtins.c",
+      "src/codegen.cpp",
+      "src/interpreter.c",
+      "src/jlfrontend.scm",
+      "src/julia-syntax.scm",
+      "src/julia_internal.h",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "23cfff24924af3725860a1ad526ab82620d733f1",
+    "author": "Max Horn",
+    "date": "2025-09-26T11:50:56+02:00",
+    "subject": "Fix warnings redundant redeclaration of `jl_n_gcthreads` (#59630)",
+    "pr_number": "59630",
+    "files": [
+      "src/julia.h"
+    ]
+  },
+  {
+    "sha": "6ede1b294a0bf8f95b9ac9d0b7d5aba39cd60e09",
+    "author": "Claire Foster",
+    "date": "2025-09-25T02:44:29+10:00",
+    "subject": "C API for module creation (#59604)",
+    "pr_number": "59604",
+    "files": [
+      "src/jl_exported_funcs.inc",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "06352854007e7c3d69df01833877809f78832781",
+    "author": "Gabriel Baraldi",
+    "date": "2025-09-24T13:09:41-03:00",
+    "subject": "Print task backtraces on sigquit (#59389)",
+    "pr_number": "59389",
+    "files": [
+      "src/julia_internal.h",
+      "src/signal-handling.c",
+      "src/stackwalk.c",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "f6e2483496a73fbb94aa4a55ffb071e7af3d5846",
+    "author": "Cody Tapscott",
+    "date": "2025-09-24T09:44:48-04:00",
+    "subject": "Add `fprint` variants of `jl_gc_debug_*` for MMTK (#59644)",
+    "pr_number": "59644",
+    "files": [
+      "src/gc-debug.c",
+      "src/gc-mmtk.c"
+    ]
+  },
+  {
+    "sha": "874c330db76af3e68ec772326b2a242865d5bd08",
+    "author": "Cody Tapscott",
+    "date": "2025-09-24T05:54:21-04:00",
+    "subject": "Fix several Windows build warnings (#59634)",
+    "pr_number": "59634",
+    "files": [
+      "Make.inc",
+      "src/debuginfo.cpp",
+      "src/signals-win.c",
+      "src/sys.c",
+      "src/task.c",
+      "src/threading.c"
+    ]
+  },
+  {
+    "sha": "18c49d64a64d8bb1f06a87e1b84d6619d35e382b",
+    "author": "Gabriel Baraldi",
+    "date": "2025-09-24T06:53:36-03:00",
+    "subject": "Fix clang 21 warnings (#59638)",
+    "pr_number": "59638",
+    "files": [
+      "src/builtins.c",
+      "src/gc-pages.c",
+      "src/gc-stock.c",
+      "src/gf.c",
+      "src/interpreter.c",
+      "src/ircode.c",
+      "src/jloptions.c",
+      "src/jltypes.c",
+      "src/julia_internal.h",
+      "src/signal-handling.c",
+      "src/staticdata.c",
+      "src/subtype.c"
+    ]
+  },
+  {
+    "sha": "30753a384569825405dfa7f5c374061737f33dfa",
+    "author": "Max Horn",
+    "date": "2025-09-24T10:58:34+02:00",
+    "subject": "Fix compiler warning / use of non-standard C (#59636)",
+    "pr_number": "59636",
+    "files": [
+      "src/gc-page-profiler.c"
+    ]
+  },
+  {
+    "sha": "f2cc6b0765f1c78f9071498c028a90506257e4e5",
+    "author": "Cody Tapscott",
+    "date": "2025-09-23T22:12:35-04:00",
+    "subject": "gf.c: Add some comments to `ml_matches` (NFC) (#58304)",
+    "pr_number": "58304",
+    "files": [
+      "src/gf.c",
+      "src/julia.h",
+      "src/typemap.c"
+    ]
+  },
+  {
+    "sha": "b83b35c4bb4019b1587eb542dd8c9144b643a8a9",
+    "author": "Cody Tapscott",
+    "date": "2025-09-22T11:22:18-04:00",
+    "subject": "Add error dialog for critical errors on Windows (#54836)",
+    "pr_number": "54836",
+    "files": [
+      "base/options.jl",
+      "src/jloptions.c",
+      "src/jloptions.h",
+      "src/signals-win.c",
+      "src/staticdata.c",
+      "src/support/ios.c",
+      "src/support/ios.h",
+      "src/task.c"
+    ]
+  },
+  {
+    "sha": "d9752060b65e59a9c785ee4ac0510264fe98a2f9",
+    "author": "Cody Tapscott",
+    "date": "2025-09-19T09:06:54-04:00",
+    "subject": "NFC: Add `fprint` variants of internal print functions (#54835)",
+    "pr_number": "54835",
+    "files": [
+      "doc/src/devdocs/debuggingtips.md",
+      "src/builtins.c",
+      "src/codegen.cpp",
+      "src/gc-debug.c",
+      "src/gc-stock.c",
+      "src/gf.c",
+      "src/init.c",
+      "src/jl_exported_funcs.inc",
+      "src/jl_uv.c",
+      "src/jlapi.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/rtutils.c",
+      "src/safepoint.c",
+      "src/signal-handling.c",
+      "src/signals-mach.c",
+      "src/signals-unix.c",
+      "src/signals-win.c",
+      "src/stackwalk.c",
+      "src/support/ios.c",
+      "src/support/ios.h",
+      "src/task.c",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "18f1c261edddfc73b18971bd482b9b98f333269c",
+    "author": "Jameson Nash",
+    "date": "2025-09-16T17:34:30+00:00",
+    "subject": "codegen: mark svec fields GC as release stores",
+    "pr_number": "",
+    "files": [
+      "src/cgutils.cpp",
+      "src/codegen.cpp"
+    ]
+  },
+  {
+    "sha": "19ad3be0b06e23e70edb00e6d734db49ff5fce5f",
+    "author": "Jameson Nash",
+    "date": "2025-09-12T19:29:36+00:00",
+    "subject": "optimizations: better modeling and codegen for apply calls",
+    "pr_number": "",
+    "files": [
+      "Compiler/src/ssair/passes.jl",
+      "Compiler/src/tfuncs.jl",
+      "Compiler/test/effects.jl",
+      "base/essentials.jl",
+      "src/builtin_proto.h",
+      "src/builtins.c",
+      "src/codegen.cpp"
+    ]
+  },
+  {
+    "sha": "0991d10051e5bfe00a71f7e9f8ea76b98a2d6ffb",
+    "author": "Sam Schweigel",
+    "date": "2025-09-15T17:53:22-07:00",
+    "subject": "Use jl_dlsym with search_deps=1 for ccalls (#59560)",
+    "pr_number": "59560",
+    "files": [
+      "src/jitlayers.cpp",
+      "src/julia.h",
+      "src/runtime_ccall.cpp",
+      "test/ccall.jl"
+    ]
+  },
+  {
+    "sha": "218f691d16edbda33647d2b938b882a7ac08f057",
+    "author": "Jameson Nash",
+    "date": "2025-09-15T20:33:37-04:00",
+    "subject": "codegen: mark write barrier field load as volatile (#59559)",
+    "pr_number": "59559",
+    "files": [
+      "Compiler/test/codegen.jl",
+      "src/llvm-late-gc-lowering.cpp",
+      "test/llvmpasses/gc-writebarrier-volatile.ll"
+    ]
+  },
+  {
+    "sha": "c93359b046d4251f043a3d3c260a0268f536e00a",
+    "author": "Eduardo Souza",
+    "date": "2025-09-15T07:01:58+00:00",
+    "subject": "Adding ptls argument to jl_gc_permobj",
+    "pr_number": "",
+    "files": [
+      "src/datatype.c",
+      "src/gc-interface.h",
+      "src/gc-mmtk.c",
+      "src/gc-stock.c",
+      "src/init.c",
+      "src/jltypes.c",
+      "src/runtime_ccall.cpp",
+      "src/simplevector.c",
+      "src/staticdata.c",
+      "src/symbol.c"
+    ]
+  },
+  {
+    "sha": "2ae2a3aaaf9620987f111cccd46faf62e239dd51",
+    "author": "Eduardo Souza",
+    "date": "2025-09-15T06:06:20+00:00",
+    "subject": "Adding jl_main_module as root for MMTk",
+    "pr_number": "",
+    "files": [
+      "src/gc-mmtk.c"
+    ]
+  },
+  {
+    "sha": "304fb3947f751bf0db4c6a3182c9cb41153178d6",
+    "author": "Eduardo Souza",
+    "date": "2025-09-15T05:40:10+00:00",
+    "subject": "Make sure we init root task before calling perm alloc",
+    "pr_number": "",
+    "files": [
+      "src/init.c"
+    ]
+  },
+  {
+    "sha": "71ab0712e3d316b9ec9437c54369e6b862c5c663",
+    "author": "Jameson Nash",
+    "date": "2025-09-12T15:34:48-04:00",
+    "subject": "begin to encapsulate global state variables (#59400)",
+    "pr_number": "59400",
+    "files": [
+      "base/libdl.jl",
+      "cli/jl_exports.h",
+      "src/.gitignore",
+      "src/Makefile",
+      "src/ast.c",
+      "src/gf.c",
+      "src/init.c",
+      "src/jl_exported_data.inc",
+      "src/jl_internal_data.inc",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/runtime_ccall.cpp",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "13b73ed03429963acbf3d66b62fe66e6c564aaae",
+    "author": "Sam Schweigel",
+    "date": "2025-09-12T10:43:55-07:00",
+    "subject": "Replace SimpleCompiler to avoid a copy and createObjectFile (#59486)",
+    "pr_number": "59486",
+    "files": [
+      "src/jitlayers.cpp"
+    ]
+  },
+  {
+    "sha": "d1282cbc38f5054f94765730fe4a3ee39a96e30b",
+    "author": "Sam Schweigel",
+    "date": "2025-09-12T10:40:53-07:00",
+    "subject": "Add -lzstd to RT_LIBS and when USE_SYSTEM_LLVM=1 (#59475)",
+    "pr_number": "59475",
+    "files": [
+      "src/Makefile"
+    ]
+  },
+  {
+    "sha": "59a5fc8930d00f0e69405ca1e4471b596cf7559c",
+    "author": "Jameson Nash",
+    "date": "2025-09-05T19:16:41+00:00",
+    "subject": "recache all previously cached / new codeinst",
+    "pr_number": "",
+    "files": [
+      "Compiler/src/precompile.jl",
+      "Compiler/src/reinfer.jl",
+      "Compiler/src/typeinfer.jl",
+      "Compiler/test/invalidation.jl",
+      "base/loading.jl",
+      "src/aotcompile.cpp",
+      "src/codegen.cpp",
+      "src/gf.c",
+      "src/jitlayers.cpp",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/method.c",
+      "src/staticdata.c",
+      "src/staticdata_utils.c",
+      "src/support/htable.h",
+      "test/core.jl",
+      "test/precompile.jl",
+      "test/precompile_absint1.jl",
+      "test/precompile_absint2.jl"
+    ]
+  },
+  {
+    "sha": "1811564d09d38373d2fc3dbe6e3a4503617cac00",
+    "author": "Andy Dienes",
+    "date": "2025-09-12T13:06:07-04:00",
+    "subject": "fix some crashy behavior of `invoke` with builtins (#59451)",
+    "pr_number": "59451",
+    "files": [
+      "src/gf.c",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "0aed4e15b38e724fe109c17f99e2b1ffba8ac63e",
+    "author": "Jameson Nash",
+    "date": "2025-08-29T16:31:02+00:00",
+    "subject": "precompile: fix a number of mistakes in handling precompiled code instance caches",
+    "pr_number": "",
+    "files": [
+      "Compiler/src/bindinginvalidations.jl",
+      "Compiler/src/precompile.jl",
+      "Compiler/src/reinfer.jl",
+      "Compiler/src/typeinfer.jl",
+      "base/loading.jl",
+      "src/aotcompile.cpp",
+      "src/codegen-stubs.c",
+      "src/jl_exported_funcs.inc",
+      "src/julia_internal.h",
+      "src/staticdata.c",
+      "src/staticdata_utils.c",
+      "stdlib/REPL/src/precompile.jl",
+      "stdlib/REPL/test/precompilation.jl"
+    ]
+  },
+  {
+    "sha": "9427f339c90d9c726deeaf05517c2ecabbf02bd6",
+    "author": "Sam Schweigel",
+    "date": "2025-09-12T08:54:20-07:00",
+    "subject": "jl_dlfind: do not find symbols in library dependencies (#58815)",
+    "pr_number": "58815",
+    "files": [
+      "base/libdl.jl",
+      "src/ccall.cpp",
+      "src/dlload.c",
+      "src/init.c",
+      "src/jitlayers.cpp",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/processor_arm.cpp",
+      "src/runtime_ccall.cpp",
+      "src/runtime_intrinsics.c",
+      "src/staticdata.c",
+      "src/sys.c",
+      "src/threading.c",
+      "test/ccall.jl"
+    ]
+  },
+  {
+    "sha": "cfd4cfd999b9e7ab5862cc28c4ef4569df3f4641",
+    "author": "Jameson Nash",
+    "date": "2025-09-12T09:28:21-04:00",
+    "subject": "trim: fix corrupt dispatch tables (#59519)",
+    "pr_number": "59519",
+    "files": [
+      "src/gf.c",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "941ff01324208ba48b3e36b09d6668fd38a893a5",
+    "author": "Sam Schweigel",
+    "date": "2025-09-12T06:22:08-07:00",
+    "subject": "Allow linking a system image with jl_image_unpack with libjulia (#59498)",
+    "pr_number": "59498",
+    "files": [
+      "src/null_sysimage.c",
+      "src/processor.h",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "da5d73ce3584b30b4e00b09b084bbb67bc44819b",
+    "author": "Gabriel Baraldi",
+    "date": "2025-09-10T11:00:42-03:00",
+    "subject": "Add lock around coverage operations (#59517)",
+    "pr_number": "59517",
+    "files": [
+      "src/codegen.cpp",
+      "src/coverage.cpp",
+      "src/julia.h",
+      "src/runtime_ccall.cpp"
+    ]
+  },
+  {
+    "sha": "b9e427451a9e974bbdde72198149c98045ea7b5c",
+    "author": "Andy Dienes",
+    "date": "2025-09-10T09:34:04-04:00",
+    "subject": "fix potential null deref in `merge_vararg_unions` (#59525)",
+    "pr_number": "59525",
+    "files": [
+      "src/jltypes.c",
+      "test/subtype.jl"
+    ]
+  },
+  {
+    "sha": "62022a39cd44306d72d0ef740f86a64041bafc8f",
+    "author": "Ian Butterworth",
+    "date": "2025-09-05T22:48:36-04:00",
+    "subject": "Add `--trace-eval` and `Base.TRACE_EVAL` for showing each top level eval (#57137)",
+    "pr_number": "57137",
+    "files": [
+      "NEWS.md",
+      "base/loading.jl",
+      "base/options.jl",
+      "doc/man/julia.1",
+      "doc/src/base/base.md",
+      "doc/src/manual/command-line-interface.md",
+      "doc/src/manual/performance-tips.md",
+      "src/jloptions.c",
+      "src/jloptions.h",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "cfcd7d8a327457e4e121457e103989f0185d9dc8",
+    "author": "Jameson Nash",
+    "date": "2025-09-05T12:49:17-04:00",
+    "subject": "Revert \"Enable getting non-boxed LLVM type from Julia Type\" (#59492)",
+    "pr_number": "59492",
+    "files": [
+      "src/cgutils.cpp",
+      "src/codegen-stubs.c",
+      "src/jl_exported_funcs.inc"
+    ]
+  },
+  {
+    "sha": "85f1b8c9d5defbe7f0368cc5f5a3049bdec1a7ce",
+    "author": "William Moses",
+    "date": "2025-09-05T12:37:22-04:00",
+    "subject": "Enable getting non-boxed LLVM type from Julia Type (#56890)",
+    "pr_number": "56890",
+    "files": [
+      "src/cgutils.cpp",
+      "src/codegen-stubs.c",
+      "src/jl_exported_funcs.inc"
+    ]
+  },
+  {
+    "sha": "2a3b72216d85c6ba954950f32dba5cf4e5d01467",
+    "author": "Keno Fischer",
+    "date": "2025-09-05T18:33:00+02:00",
+    "subject": "spawn: Add support for setuid/setgid (#59420)",
+    "pr_number": "59420",
+    "files": [
+      "base/cmd.jl",
+      "base/exports.jl",
+      "base/libc.jl",
+      "base/process.jl",
+      "src/jl_uv.c",
+      "test/spawn.jl"
+    ]
+  },
+  {
+    "sha": "2d8cb8cd35207348cd750a7b0b533e374ac4a841",
+    "author": "Jameson Nash",
+    "date": "2025-09-05T08:27:21-04:00",
+    "subject": "convert more recursive algorithms from stack to heap space (iterative) (#59482)",
+    "pr_number": "59482",
+    "files": [
+      "Compiler/src/reinfer.jl",
+      "src/gf.c"
+    ]
+  },
+  {
+    "sha": "e8e500ed01822e84534fb3532d0ff6199fc54ff4",
+    "author": "Jameson Nash",
+    "date": "2025-09-04T00:56:51+00:00",
+    "subject": "build: refactor variables to properly split clang and gcc targets",
+    "pr_number": "",
+    "files": [
+      "Make.inc",
+      "src/.gitignore",
+      "src/Makefile",
+      "src/flisp/Makefile",
+      "src/support/Makefile"
+    ]
+  },
+  {
+    "sha": "bf1719f7a28a9ba3bffde5dd605e084bba804860",
+    "author": "Jameson Nash",
+    "date": "2025-09-03T23:54:30+00:00",
+    "subject": "build: add compile_commands.json file support",
+    "pr_number": "",
+    "files": [
+      "Makefile",
+      "contrib/escape_json.sh",
+      "src/.clang-tidy",
+      "src/Makefile",
+      "src/flisp/Makefile",
+      "src/support/Makefile"
+    ]
+  },
+  {
+    "sha": "d807b70b3785771de9dc4c4c191963367c2709b2",
+    "author": "Sam Schweigel",
+    "date": "2025-09-03T07:47:14-07:00",
+    "subject": "Add llvm-config --cflags to CFLAGS (#59419)",
+    "pr_number": "59419",
+    "files": [
+      "src/Makefile"
+    ]
+  },
+  {
+    "sha": "8052b91e6183403ced9b7b0ded84e04b5d297f85",
+    "author": "Ian Butterworth",
+    "date": "2025-08-30T10:36:10-04:00",
+    "subject": "Enable `--trace-compile` during SIGUSR1/SIGINFO1 profiling (#59424)",
+    "pr_number": "59424",
+    "files": [
+      "src/signal-handling.c",
+      "src/signals-unix.c"
+    ]
+  },
+  {
+    "sha": "4d7da74f16a7b84e52d0f0e6ce35ef9e5d859d1a",
+    "author": "Jameson Nash",
+    "date": "2025-08-29T10:53:18-04:00",
+    "subject": "add `macroexpand!` function and add `legacyscope` kwarg (#59276)",
+    "pr_number": "59276",
+    "files": [
+      "NEWS.md",
+      "base/exports.jl",
+      "base/expr.jl",
+      "doc/src/base/base.md",
+      "src/ast.c",
+      "src/jl_exported_funcs.inc",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "3fa51e98a356c237b2bd67d5dd6997c0389f10d1",
+    "author": "Jameson Nash",
+    "date": "2025-08-29T10:05:49-04:00",
+    "subject": "codegen: fix bug in jl_set_ptls_rng (#59427)",
+    "pr_number": "59427",
+    "files": [
+      "src/ccall.cpp"
+    ]
+  },
+  {
+    "sha": "97d507ba8079c6d217324361dd044238d01ea422",
+    "author": "Jameson Nash",
+    "date": "2025-08-28T22:51:01-04:00",
+    "subject": "fix a couple static variable data-races (#59408)",
+    "pr_number": "59408",
+    "files": [
+      "src/gc-common.c",
+      "src/jl_uv.c",
+      "src/module.c",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "cbea8cf28e0f617333130add1c4ab2a51f6c979c",
+    "author": "Sam Schweigel",
+    "date": "2025-08-26T15:51:49-07:00",
+    "subject": "System image compression with zstd (#59227)",
+    "pr_number": "59227",
+    "files": [
+      "Make.inc",
+      "base/options.jl",
+      "base/util.jl",
+      "src/Makefile",
+      "src/aotcompile.cpp",
+      "src/jloptions.c",
+      "src/jloptions.h",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "103188494d3aade57271a5080189605714ae5c77",
+    "author": "Jameson Nash",
+    "date": "2025-08-26T10:54:02-04:00",
+    "subject": "init: pre-allocate shared runtime types (#59362)",
+    "pr_number": "59362",
+    "files": [
+      "src/builtins.c",
+      "src/codegen.cpp",
+      "src/datatype.c",
+      "src/init.c",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/staticdata.c",
+      "src/task.c"
+    ]
+  },
+  {
+    "sha": "bbd491a52fd82c78aa55c11c7cf290e6f9a2d93c",
+    "author": "Jameson Nash",
+    "date": "2025-08-26T10:53:48-04:00",
+    "subject": "atomics: correctly implement padding write of 11 byte atomics with 4 byte pointer (#59395)",
+    "pr_number": "59395",
+    "files": [
+      "src/datatype.c"
+    ]
+  },
+  {
+    "sha": "beaaedea9b34ee5a9e3d729a9d7bf03a0f7abb2b",
+    "author": "Jameson Nash",
+    "date": "2025-08-26T07:52:24-04:00",
+    "subject": "build: add analyze-filename convenience target, to run all static checks on one file at once (#59364)",
+    "pr_number": "59364",
+    "files": [
+      "AGENTS.md",
+      "src/Makefile"
+    ]
+  },
+  {
+    "sha": "1878a15bf6c6314634c381a2914dc757482fc385",
+    "author": "Jameson Nash",
+    "date": "2025-08-25T15:50:33-04:00",
+    "subject": "precompile: move precompile_utils logic from C to julia (#59361)",
+    "pr_number": "59361",
+    "files": [
+      "Compiler/src/Compiler.jl",
+      "Compiler/src/bootstrap.jl",
+      "Compiler/src/precompile.jl",
+      "Compiler/src/typeinfer.jl",
+      "Compiler/src/verifytrim.jl",
+      "base/experimental.jl",
+      "contrib/juliac/juliac-buildscript.jl",
+      "src/aotcompile.cpp",
+      "src/codegen-stubs.c",
+      "src/gf.c",
+      "src/init.c",
+      "src/jl_exported_data.inc",
+      "src/jl_exported_funcs.inc",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/precompile.c",
+      "src/precompile_utils.c",
+      "src/runtime_ccall.cpp",
+      "src/staticdata.c",
+      "src/staticdata_utils.c"
+    ]
+  },
+  {
+    "sha": "be59100b5dae4e08c3eda3bcdd15e5fb878b824e",
+    "author": "Nathan Daly",
+    "date": "2025-08-25T09:34:23-06:00",
+    "subject": "Fixup measurement for --trace-compile-timing w/ nested compilations. (#59363)",
+    "pr_number": "59363",
+    "files": [
+      "src/gf.c"
+    ]
+  },
+  {
+    "sha": "ceeb661e2eaa14d3e2e174095c5747f7a7124725",
+    "author": "Sam Schweigel",
+    "date": "2025-08-22T14:57:45-07:00",
+    "subject": "aotcompile: destroy LLVM context after serializing combined module (#59329)",
+    "pr_number": "59329",
+    "files": [
+      "src/aotcompile.cpp"
+    ]
+  },
+  {
+    "sha": "dac6c4cab286dd63e6751876b24782294aab0148",
+    "author": "Shuhei Kadowaki",
+    "date": "2025-08-22T15:24:34+09:00",
+    "subject": "method: remove unused `eager_resolve` argument from `resolve_definition_effects` (#59349)",
+    "pr_number": "59349",
+    "files": [
+      "src/method.c"
+    ]
+  },
+  {
+    "sha": "9612115e684170841b806c2b8f6690f7c30d22e0",
+    "author": "Nathan Daly",
+    "date": "2025-08-21T16:04:51-06:00",
+    "subject": "Fix nospecializing Functions in `Union{Nothing,Function}` params (#59327)",
+    "pr_number": "59327",
+    "files": [
+      "src/gf.c",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "fc0017f1c06632803103a99e6b5032031562705e",
+    "author": "Tim Holy",
+    "date": "2025-08-21T02:24:43-05:00",
+    "subject": "Log a backtrace on entrance to type inference (#58124)",
+    "pr_number": "58124",
+    "files": [
+      "base/stacktraces.jl",
+      "doc/src/devdocs/diagnostics.md",
+      "src/gf.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/staticdata_utils.c",
+      "test/stacktraces.jl"
+    ]
+  },
+  {
+    "sha": "63022fe0b41be06101b1196ffa1560b3994ef85a",
+    "author": "Gabriel Baraldi",
+    "date": "2025-08-20T21:08:33-03:00",
+    "subject": "Avoid depending on Julia-patched libunwind ABI (#59266)",
+    "pr_number": "59266",
+    "files": [
+      "src/threading.c"
+    ]
+  },
+  {
+    "sha": "888c2c325272d8a3498d18165eb3b9ddd6910a3d",
+    "author": "Cody Tapscott",
+    "date": "2025-08-18T12:58:11-04:00",
+    "subject": "Include inference time in `--trace-compile-timing` (#59220)",
+    "pr_number": "59220",
+    "files": [
+      "src/gf.c"
+    ]
+  },
+  {
+    "sha": "19b72ab10c933fc2f469044a14d0550ae961ef48",
+    "author": "Ian Butterworth",
+    "date": "2025-08-13T17:58:55-04:00",
+    "subject": "Drop sysimage caches for --code-coverage=all (#59234)",
+    "pr_number": "59234",
+    "files": [
+      "Compiler/test/invalidation.jl",
+      "NEWS.md",
+      "base/client.jl",
+      "base/reflection.jl",
+      "src/gf.c",
+      "src/julia.h"
+    ]
+  },
+  {
+    "sha": "920df7abc9b5bf47d0589d9768b41e41421ad683",
+    "author": "Gabriel Baraldi",
+    "date": "2025-08-12T14:30:06-03:00",
+    "subject": "Fix compile time regression for null ptr comparisons (#59259)",
+    "pr_number": "59259",
+    "files": [
+      "src/cgutils.cpp"
+    ]
+  },
+  {
+    "sha": "f70176863b8018dc7cb1845848efa38b04980635",
+    "author": "Gabriel Baraldi",
+    "date": "2025-08-07T17:05:35-03:00",
+    "subject": "[LLVM] Bump LLVM to 20.1.8 (#59225)",
+    "pr_number": "59225",
+    "files": [
+      "deps/checksums/clang",
+      "deps/checksums/lld",
+      "deps/checksums/llvm",
+      "deps/clang.version",
+      "deps/lld.version",
+      "deps/llvm-tools.version",
+      "deps/llvm.version",
+      "src/gc-stock.c",
+      "src/gc-stock.h",
+      "src/julia_gcext.h",
+      "src/julia_internal.h",
+      "src/staticdata.c",
+      "stdlib/LLD_jll/Project.toml",
+      "stdlib/Manifest.toml",
+      "stdlib/libLLVM_jll/Project.toml"
+    ]
+  },
+  {
+    "sha": "46c2a5c7e1f970e83b408b6ddcba49aaa31d8329",
+    "author": "Jameson Nash",
+    "date": "2025-08-06T16:25:43-04:00",
+    "subject": "fix runtime cglobal builtin function implementation (#59210)",
+    "pr_number": "59210",
+    "files": [
+      "src/ccall.cpp",
+      "src/runtime_intrinsics.c",
+      "stdlib/Libdl/test/runtests.jl"
+    ]
+  },
+  {
+    "sha": "80f7db8e51b2ba1dd21e913611c23a6d5b75ecab",
+    "author": "Jameson Nash",
+    "date": "2025-08-06T07:47:26-04:00",
+    "subject": "remove jl_function_t typealias (#59216)",
+    "pr_number": "59216",
+    "files": [
+      "doc/src/devdocs/ast.md",
+      "doc/src/devdocs/debuggingtips.md",
+      "doc/src/devdocs/functions.md",
+      "doc/src/devdocs/object.md",
+      "doc/src/manual/embedding.md",
+      "src/builtins.c",
+      "src/gc-common.c",
+      "src/gc-common.h",
+      "src/gf.c",
+      "src/jitlayers.h",
+      "src/jlapi.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/julia_threads.h",
+      "src/module.c",
+      "src/task.c",
+      "src/threading.c",
+      "src/toplevel.c",
+      "test/embedding/embedding.c"
+    ]
+  },
+  {
+    "sha": "7bfc2ec77ff5159fc7ad29976deae90234b339e9",
+    "author": "Jeff Bezanson",
+    "date": "2025-08-05T19:13:51-04:00",
+    "subject": "fix identification of argument occurrences in optional arg defaults (#59205)",
+    "pr_number": "59205",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "13f6b3b5c0361c865ba6f3e6f09fb7d3ae6a6735",
+    "author": "Thomas van Doornmalen",
+    "date": "2025-08-02T23:26:28+02:00",
+    "subject": "Export jl_declare_constant_val (#59192)",
+    "pr_number": "59192",
+    "files": [
+      "src/jl_exported_funcs.inc"
+    ]
+  },
+  {
+    "sha": "ca4981c9e3ae9f7b0301ea1bbcfa4209bd8cce77",
+    "author": "Sam Schweigel",
+    "date": "2025-08-01T12:38:45-07:00",
+    "subject": "Update lock hierarchy devdocs (#58884)",
+    "pr_number": "58884",
+    "files": [
+      "doc/src/devdocs/img/invalidation-example.svg",
+      "doc/src/devdocs/img/typeinf-promotion.svg",
+      "doc/src/devdocs/locks.md",
+      "src/jitlayers.cpp",
+      "src/julia.h"
+    ]
+  },
+  {
+    "sha": "f9b7d27b753020b828d6a050a341b3c2af49000c",
+    "author": "Jeff Bezanson",
+    "date": "2025-08-01T15:23:19-04:00",
+    "subject": "rename `GlobalMethods` to `methodtable` :bike: :house:  (#59158)",
+    "pr_number": "59158",
+    "files": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/stmtinfo.jl",
+      "Compiler/src/tfuncs.jl",
+      "src/builtins.c",
+      "src/jltypes.c",
+      "src/rtutils.c",
+      "stdlib/Serialization/src/Serialization.jl",
+      "stdlib/Test/src/Test.jl",
+      "test/misc.jl",
+      "test/worlds.jl"
+    ]
+  },
+  {
+    "sha": "7cbea5fc047756fb7e9f5dee032a2a612ac383fb",
+    "author": "Sam Schweigel",
+    "date": "2025-08-01T12:12:10-07:00",
+    "subject": "Use relaxed atomics to load/update jl_lineno and jl_filename (#58939)",
+    "pr_number": "58939",
+    "files": [
+      "src/interpreter.c",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/module.c",
+      "src/signal-handling.c",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "2eb2bf9cdf6ab65c304996f96f5d8e86373e0320",
+    "author": "Jameson Nash",
+    "date": "2025-08-01T12:35:12-04:00",
+    "subject": "convert Tarjan algorithms to iterative structure (#59143)",
+    "pr_number": "59143",
+    "files": [
+      "base/staticdata.jl",
+      "src/gf.c",
+      "src/staticdata_utils.c"
+    ]
+  },
+  {
+    "sha": "f5b97a8d7582b7d6eff68aa3d1055291c7e5522f",
+    "author": "Sam Schweigel",
+    "date": "2025-08-01T09:10:23-07:00",
+    "subject": "Add ThreadSanitzer hooks for jl_mutex_t (#59034)",
+    "pr_number": "59034",
+    "files": [
+      "src/gc-mmtk.c",
+      "src/julia_internal.h",
+      "src/julia_locks.h",
+      "src/task.c",
+      "src/threading.c"
+    ]
+  },
+  {
+    "sha": "3de5b9a66d83a9b4dab665d47c4e3afcf5388a63",
+    "author": "Em Chu",
+    "date": "2025-07-31T18:24:37-07:00",
+    "subject": "Fix desugaring of `const x::T = y` for complex `y` (#59155)",
+    "pr_number": "59155",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "ebf55c0f2a85b2892104f27afb4d825feda2e8c6",
+    "author": "Sam Schweigel",
+    "date": "2025-07-30T10:02:43-07:00",
+    "subject": "Use ios to support ridiculous DL_LOAD_PATH length (#59150)",
+    "pr_number": "59150",
+    "files": [
+      "src/dlload.c"
+    ]
+  },
+  {
+    "sha": "9f6996149a9b56c03cf1ccff051e35c225539c04",
+    "author": "Jeff Bezanson",
+    "date": "2025-07-29T17:39:46-04:00",
+    "subject": "fix serializer compat with CodeInfos from v1.11 (#58650)",
+    "pr_number": "58650",
+    "files": [
+      "src/method.c",
+      "stdlib/Serialization/src/Serialization.jl",
+      "stdlib/Serialization/test/runtests.jl"
+    ]
+  },
+  {
+    "sha": "fde79f5bb5c4835189bfe3215521137176ac3eb8",
+    "author": "Curtis Vogt",
+    "date": "2025-07-28T20:01:22-05:00",
+    "subject": "Fix memory order typo in \"src/julia_atomics.h\" (#59120)",
+    "pr_number": "59120",
+    "files": [
+      "src/julia_atomics.h"
+    ]
+  },
+  {
+    "sha": "57def4d19ef79794439ef839e5e3b551323f49a2",
+    "author": "Ian Butterworth",
+    "date": "2025-07-28T15:47:24-04:00",
+    "subject": "Add builtin function name to add methods error (#59112)",
+    "pr_number": "59112",
+    "files": [
+      "src/method.c",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "c5ba4e28f2c9c49be01ed7409efedef8627fe96d",
+    "author": "Jameson Nash",
+    "date": "2025-07-26T12:38:00-04:00",
+    "subject": "add array element mutex offset in print and gc (#58997)",
+    "pr_number": "58997",
+    "files": [
+      "base/runtime_internals.jl",
+      "src/cgutils.cpp",
+      "src/codegen.cpp",
+      "src/datatype.c",
+      "src/genericmemory.c",
+      "src/julia.h",
+      "src/rtutils.c",
+      "test/atomics.jl"
+    ]
+  },
+  {
+    "sha": "0d9e0ef0feeab2c620b4f482e63ddc56e21229ea",
+    "author": "Zentrik",
+    "date": "2025-07-25T18:23:38+01:00",
+    "subject": "Switch RISC-V to large model on LLVM 20 (#57865)",
+    "pr_number": "57865",
+    "files": [
+      "src/jitlayers.cpp"
+    ]
+  },
+  {
+    "sha": "cc81a0b65466b7529b8c495694a623efa42c34b8",
+    "author": "Tim Besard",
+    "date": "2025-07-24T09:03:00-04:00",
+    "subject": "Do not needlessly disable CPU features. (#59080)",
+    "pr_number": "59080",
+    "files": [
+      "src/processor.cpp"
+    ]
+  },
+  {
+    "sha": "96b5b2c0a238107fda6c571eba72d18f998c01fb",
+    "author": "Tim Besard",
+    "date": "2025-07-23T14:38:18-04:00",
+    "subject": "Use a dedicated parameter attribute to identify the gstack arg. (#59059)",
+    "pr_number": "59059",
+    "files": [
+      "src/codegen.cpp",
+      "src/llvm-pass-helpers.cpp",
+      "src/llvm-ptls.cpp",
+      "test/llvmpasses/alloc-opt-pass.ll",
+      "test/llvmpasses/late-lower-gc-sret.ll",
+      "test/llvmpasses/late-lower-gc.ll"
+    ]
+  },
+  {
+    "sha": "9578e4bbe1cd77a96d92bbaab4bcc8c2aeedb6c4",
+    "author": "Keno Fischer",
+    "date": "2025-07-23T06:35:42-04:00",
+    "subject": "build: More msys2 fixes (#59028)",
+    "pr_number": "59028",
+    "files": [
+      "contrib/mac/app/Makefile",
+      "deps/libgit2.mk",
+      "deps/libssh2.mk",
+      "deps/libuv.mk",
+      "deps/llvm.mk",
+      "deps/openssl.mk",
+      "deps/tools/common.mk",
+      "deps/zstd.mk",
+      "src/Makefile",
+      "src/flisp/Makefile"
+    ]
+  },
+  {
+    "sha": "59a7bb3184feee32227aa15d5c39aa59270ad8e5",
+    "author": "Jameson Nash",
+    "date": "2025-07-22T16:08:27-04:00",
+    "subject": "stored method interference graph (#58948)",
+    "pr_number": "58948",
+    "files": [
+      "base/Base.jl",
+      "base/errorshow.jl",
+      "base/methodshow.jl",
+      "base/runtime_internals.jl",
+      "base/staticdata.jl",
+      "src/gf.c",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/staticdata.c",
+      "src/staticdata_utils.c",
+      "stdlib/Test/src/Test.jl",
+      "test/ambiguous.jl",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "bea90a2f503018115b30559b9d6838c05a86b9b4",
+    "author": "Miles Cranmer",
+    "date": "2025-07-18T22:05:35+02:00",
+    "subject": "add `@__FUNCTION__` and `Expr(:thisfunction)` as generic function self-reference (#58940)",
+    "pr_number": "58940",
+    "files": [
+      "NEWS.md",
+      "base/exports.jl",
+      "base/runtime_internals.jl",
+      "doc/src/base/base.md",
+      "doc/src/manual/performance-tips.md",
+      "src/ast.scm",
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "3b2918785597f9b7b05f7b3e479ea89716ca22bd",
+    "author": "Ian Butterworth",
+    "date": "2025-07-18T14:32:10-04:00",
+    "subject": "Add 'sysimage' keyword for `JULIA_CPU_TARGET` to match (or extend) the sysimage target (#58970)",
+    "pr_number": "58970",
+    "files": [
+      "NEWS.md",
+      "base/sysinfo.jl",
+      "doc/src/base/base.md",
+      "doc/src/manual/environment-variables.md",
+      "pkgimage.mk",
+      "src/aotcompile.cpp",
+      "src/jl_exported_funcs.inc",
+      "src/processor.cpp",
+      "src/processor.h",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "d150fdf0550c2e5c7ea418f6522038b9140ccf5b",
+    "author": "Keno Fischer",
+    "date": "2025-07-17T16:22:29-04:00",
+    "subject": "Roll up msys2/clang/windows build fixes (#59003)",
+    "pr_number": "59003",
+    "files": [
+      "Make.inc",
+      "base/linking.jl",
+      "cli/loader.h",
+      "cli/loader_win_utils.c",
+      "deps/Makefile",
+      "deps/csl.mk",
+      "deps/llvm.mk",
+      "deps/p7zip.mk",
+      "deps/tools/common.mk",
+      "deps/zstd.mk",
+      "doc/src/devdocs/build/windows.md",
+      "src/codegen.cpp",
+      "src/gf.c",
+      "src/jl_uv.c",
+      "src/julia_internal.h",
+      "src/module.c",
+      "src/support/dtypes.h",
+      "sysimage.mk"
+    ]
+  },
+  {
+    "sha": "720e23d1195f1719f74305053e15128d12033ed9",
+    "author": "Nathan Daly",
+    "date": "2025-07-16T15:30:36-06:00",
+    "subject": "Improve --trace-dispatch coverage: emit in \"full-cache\" fast path as well. (#59012)",
+    "pr_number": "59012",
+    "files": [
+      "src/gf.c"
+    ]
+  },
+  {
+    "sha": "00351da179b7de6cd8a28f229580c96603387f0b",
+    "author": "Jameson Nash",
+    "date": "2025-07-16T14:23:38-04:00",
+    "subject": "Fix LLVM TaskDispatcher implementation issues (#58950)",
+    "pr_number": "58950",
+    "files": [
+      "src/Makefile",
+      "src/jitlayers.cpp",
+      "src/llvm-julia-task-dispatcher.h"
+    ]
+  },
+  {
+    "sha": "fb59b6d93475b1eee5dd276b5b57d138ca5071a0",
+    "author": "Keno Fischer",
+    "date": "2025-07-12T03:03:25-04:00",
+    "subject": "bpart: Tweak `isdefinedglobal` on backdated constant (#58976)",
+    "pr_number": "58976",
+    "files": [
+      "base/show.jl",
+      "src/module.c",
+      "test/worlds.jl"
+    ]
+  },
+  {
+    "sha": "49b08a3424dd8a2a7f4315f6011359e912216b18",
+    "author": "Oscar Smith",
+    "date": "2025-07-11T18:03:26-04:00",
+    "subject": "expand memoryrefnew capabilities (#58768)",
+    "pr_number": "58768",
+    "files": [
+      "Compiler/src/optimize.jl",
+      "Compiler/src/tfuncs.jl",
+      "Compiler/test/inference.jl",
+      "base/boot.jl",
+      "base/essentials.jl",
+      "src/builtins.c",
+      "src/cgutils.cpp",
+      "src/codegen.cpp",
+      "stdlib/REPL/test/precompilation.jl"
+    ]
+  },
+  {
+    "sha": "d7bdd2184d6c94e553795c68bc4f926f958e8cf0",
+    "author": "Jeff Bezanson",
+    "date": "2025-07-11T13:59:20-04:00",
+    "subject": "remove comment from julia-syntax that is no longer true (#58964)",
+    "pr_number": "58964",
+    "files": [
+      "src/julia-syntax.scm"
+    ]
+  },
+  {
+    "sha": "ff33305061cf5ea910631c4ab83a455f47eed774",
+    "author": "Em Chu",
+    "date": "2025-07-11T04:23:40-07:00",
+    "subject": "Fix `hygienic-scope`s in inner macro expansions (#58965)",
+    "pr_number": "58965",
+    "files": [
+      "src/macroexpand.scm",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "3705629e80e4af9bf551c7745a773efefd390ce7",
+    "author": "Keno Fischer",
+    "date": "2025-07-10T16:03:29-04:00",
+    "subject": "staticdata: Don't discard inlineable code that inference may need (#58842)",
+    "pr_number": "58842",
+    "files": [
+      "src/staticdata.c",
+      "test/precompile.jl"
+    ]
+  },
+  {
+    "sha": "5c31ec013f75363be10851b4889b854cf2f16db6",
+    "author": "Sam Schweigel",
+    "date": "2025-07-08T10:40:02-07:00",
+    "subject": "Economy mode REPL: run the event loop with jl_uv_flush (#58926)",
+    "pr_number": "58926",
+    "files": [
+      "src/jlapi.c"
+    ]
+  },
+  {
+    "sha": "8602127a4d5f36b889f1a928056e529cafab3d3e",
+    "author": "Sam Schweigel",
+    "date": "2025-07-07T10:30:30-07:00",
+    "subject": "Prevent data races in invalidate_code_for_globalref!",
+    "pr_number": "",
+    "files": [
+      "base/invalidation.jl",
+      "src/module.c",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "903955503f99ea5235ffef6a638e43593fb4a950",
+    "author": "Sam Schweigel",
+    "date": "2025-07-02T16:02:30-07:00",
+    "subject": "Fix data race in jl_new_module__ (#58880)",
+    "pr_number": "58880",
+    "files": [
+      "src/module.c"
+    ]
+  },
+  {
+    "sha": "d49773cc8a9acbbf7efc1cc5f9489f5b65266f97",
+    "author": "Kiran Pamnany",
+    "date": "2025-07-02T12:28:26-04:00",
+    "subject": "Add `Base.isprecompilable` (#58805)",
+    "pr_number": "58805",
+    "files": [
+      "base/loading.jl",
+      "src/gf.c",
+      "src/jl_exported_funcs.inc"
+    ]
+  },
+  {
+    "sha": "2f57a311d51825d47d2d8fe50f2b8f42644345de",
+    "author": "Cody Tapscott",
+    "date": "2025-07-02T09:11:07-04:00",
+    "subject": "aotcompile: Fix early-exit if CI not found for `cfunction` (#58722)",
+    "pr_number": "58722",
+    "files": [
+      "src/aotcompile.cpp"
+    ]
+  },
+  {
+    "sha": "9fd74b8addf09c4ece03452fd571acfdea4d85d8",
+    "author": "Cody Tapscott",
+    "date": "2025-07-02T08:50:30-04:00",
+    "subject": "trimming: Add `_uv_hook_close` support (#58871)",
+    "pr_number": "58871",
+    "files": [
+      "base/libuv.jl",
+      "src/staticdata.c",
+      "test/trimming/basic_jll.jl"
+    ]
+  },
+  {
+    "sha": "92aacab2ed35671fa0762fc1a65df8b254fbd302",
+    "author": "Gabriel Baraldi",
+    "date": "2025-07-01T19:24:58-03:00",
+    "subject": "Re-add old function name for backward compatibility in init (#58860)",
+    "pr_number": "58860",
+    "files": [
+      "src/jl_exported_funcs.inc",
+      "src/jlapi.c"
+    ]
+  },
+  {
+    "sha": "056e68b1a62c4cc839b87e13ca555982fe0e1aba",
+    "author": "Keno Fischer",
+    "date": "2025-07-01T16:35:40-04:00",
+    "subject": "bpart: Skip inserting image backedges while we're generating a pkgimage (#58843)",
+    "pr_number": "58843",
+    "files": [
+      "base/invalidation.jl",
+      "src/module.c"
+    ]
+  },
+  {
+    "sha": "0ea036bc72a0ed7d7ee598dd9d26a02d14f148f1",
+    "author": "Cody Tapscott",
+    "date": "2025-07-01T14:10:00-04:00",
+    "subject": "debuginfo: Memoize object symbol lookup (#58851)",
+    "pr_number": "58851",
+    "files": [
+      "src/debug-registry.h",
+      "src/debuginfo.cpp"
+    ]
+  },
+  {
+    "sha": "3ed13ea7ab3d73f408b12a70ad29565c97bf5562",
+    "author": "Simeon David Schaub",
+    "date": "2025-07-01T16:58:39+02:00",
+    "subject": "fix null comparisons for non-standard address spaces (#58837)",
+    "pr_number": "58837",
+    "files": [
+      "src/cgutils.cpp"
+    ]
+  },
+  {
+    "sha": "1230853d0c68933e22d01993c0263174ad4f0406",
+    "author": "Jameson Nash",
+    "date": "2025-06-30T12:38:14-04:00",
+    "subject": "gf: Add METHOD_SIG_LATEST_HAS_NOTMORESPECIFIC dispatch status bit",
+    "pr_number": "",
+    "files": [
+      "base/staticdata.jl",
+      "src/gf.c",
+      "src/julia_internal.h",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "b459d8885cabeb4c16089933b76c0d4c1605236f",
+    "author": "Jameson Nash",
+    "date": "2025-06-30T15:00:38-04:00",
+    "subject": "add METHOD_SIG_LATEST_ONLY optimization to MethodInstance too (#58825)",
+    "pr_number": "58825",
+    "files": [
+      "base/essentials.jl",
+      "base/staticdata.jl",
+      "doc/src/devdocs/locks.md",
+      "src/gf.c",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/method.c",
+      "src/staticdata.c",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "c985dba510d4c602866542f535ab500ad81c2305",
+    "author": "gitboy16",
+    "date": "2025-06-29T19:09:47+01:00",
+    "subject": "Limit --help and --help-hidden to 100 character line length (#58835)",
+    "pr_number": "58835",
+    "files": [
+      "src/jloptions.c",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "77b90b9e621d025a11780ae94c8e0afcaa7c2aee",
+    "author": "Keno Fischer",
+    "date": "2025-06-28T18:46:31-04:00",
+    "subject": "bpart: Properly track methods with invalidated source after require_world (#58830)",
+    "pr_number": "58830",
+    "files": [
+      "base/invalidation.jl",
+      "base/runtime_internals.jl",
+      "base/staticdata.jl",
+      "src/jltypes.c",
+      "src/julia.h",
+      "test/core.jl",
+      "test/precompile.jl"
+    ]
+  },
+  {
+    "sha": "d48a675b8fce71760c69bed61898556424c6be39",
+    "author": "Sam Schweigel",
+    "date": "2025-06-27T13:38:13-07:00",
+    "subject": "codegen: relaxed jl_tls_states_t.safepoint load (#58828)",
+    "pr_number": "58828",
+    "files": [
+      "src/llvm-codegen-shared.h"
+    ]
+  },
+  {
+    "sha": "309b1b158f59485772d5f5fe0a762f20185cf799",
+    "author": "Jameson Nash",
+    "date": "2025-06-27T11:58:03-04:00",
+    "subject": "codegen: gc wb for atomic FCA stores (#58792)",
+    "pr_number": "58792",
+    "files": [
+      "Compiler/test/codegen.jl",
+      "src/cgutils.cpp"
+    ]
+  },
+  {
+    "sha": "4ae3f5ebed5378909f6355fb03b00057052c6766",
+    "author": "Cody Tapscott",
+    "date": "2025-06-27T10:32:19-04:00",
+    "subject": "Add `trim_mode` parameter to JIT type-inference entrypoint (#58817)",
+    "pr_number": "58817",
+    "files": [
+      "Compiler/src/bootstrap.jl",
+      "Compiler/src/typeinfer.jl",
+      "src/aotcompile.cpp",
+      "src/gf.c",
+      "src/julia_internal.h",
+      "src/runtime_ccall.cpp",
+      "src/toplevel.c",
+      "test/trimming/basic_jll.jl"
+    ]
+  },
+  {
+    "sha": "4d40c6480bff6cefcb2112653b4e64d63e2547ea",
+    "author": "Shuhei Kadowaki",
+    "date": "2025-06-27T14:37:11+09:00",
+    "subject": "use more canonical way to check binding existence (#58809)",
+    "pr_number": "58809",
+    "files": [
+      "Compiler/src/ssair/verify.jl",
+      "base/docs/bindings.jl",
+      "base/errorshow.jl",
+      "base/show.jl",
+      "src/gen_sysimg_symtab.jl",
+      "stdlib/InteractiveUtils/src/InteractiveUtils.jl",
+      "test/core.jl",
+      "test/docs.jl",
+      "test/error.jl",
+      "test/numbers.jl",
+      "test/precompile.jl",
+      "test/reflection.jl"
+    ]
+  },
+  {
+    "sha": "3076a9683609b5c587ae3cbc70b25b7332018c7f",
+    "author": "Cody Tapscott",
+    "date": "2025-06-26T07:35:02-04:00",
+    "subject": "Add `cfunction` support for `--trim` (#58812)",
+    "pr_number": "58812",
+    "files": [
+      "Compiler/src/typeinfer.jl",
+      "Compiler/src/verifytrim.jl",
+      "Compiler/test/verifytrim.jl",
+      "src/codegen.cpp",
+      "test/trimming/basic_jll.jl"
+    ]
+  },
+  {
+    "sha": "c7a092a9c44956554d1609c0771481f85e2b5bb4",
+    "author": "Jameson Nash",
+    "date": "2025-06-25T14:08:41-04:00",
+    "subject": "codegen: ensure safepoint functions can read the pgcstack (#58804)",
+    "pr_number": "58804",
+    "files": [
+      "src/codegen.cpp"
+    ]
+  },
+  {
+    "sha": "2ed85614708c3ca7788e17c73ca3ccc68040a06b",
+    "author": "Jameson Nash",
+    "date": "2025-06-25T14:07:30-04:00",
+    "subject": "codegen: slightly optimize gc-frame allocation (#58794)",
+    "pr_number": "58794",
+    "files": [
+      "src/cgutils.cpp",
+      "src/codegen.cpp",
+      "src/llvm-gc-interface-passes.h",
+      "src/llvm-late-gc-lowering.cpp"
+    ]
+  },
+  {
+    "sha": "b06d26075bf7b3f4e7f1b64b120f5665d8ed76f9",
+    "author": "Em Chu",
+    "date": "2025-06-25T05:32:31-07:00",
+    "subject": "Allow underscore (unused) args in presence of kwargs (#58803)",
+    "pr_number": "58803",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "098a4f8dd2f3c739b1f031dc2e387c023b1ae8b6",
+    "author": "Jameson Nash",
+    "date": "2025-06-19T15:17:09-04:00",
+    "subject": "refine IR model queries (#58661)",
+    "pr_number": "58661",
+    "files": [
+      "Compiler/src/ssair/slot2ssa.jl",
+      "base/boot.jl",
+      "base/essentials.jl",
+      "base/expr.jl",
+      "base/hashing.jl",
+      "base/public.jl",
+      "base/timing.jl",
+      "doc/src/devdocs/builtins.md",
+      "doc/src/manual/metaprogramming.md",
+      "src/ast.c",
+      "test/core.jl",
+      "test/hashing.jl"
+    ]
+  },
+  {
+    "sha": "aa10603c188669d9f3b4be4fa744eeab32b975af",
+    "author": "Gabriel Baraldi",
+    "date": "2025-06-17T12:36:26-03:00",
+    "subject": "Work around LLVM JITLink stack overflow issue. (#58579)",
+    "pr_number": "58579",
+    "files": [
+      "src/jitlayers.cpp",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "ab49eb163ea63b3db35e36e557bbd6ff4c505654",
+    "author": "Cody Tapscott",
+    "date": "2025-06-13T08:19:38-04:00",
+    "subject": "[NFC] codegen: Move target ABI calculation into `jl_jit_abi_converter` (#58718)",
+    "pr_number": "58718",
+    "files": [
+      "src/jitlayers.cpp",
+      "src/julia_internal.h",
+      "src/runtime_ccall.cpp"
+    ]
+  },
+  {
+    "sha": "468c057875cf23712cfb2c1f56468b9814726281",
+    "author": "Diogo Netto",
+    "date": "2025-06-12T18:44:56-03:00",
+    "subject": "GC Always Full Flag (#58713)",
+    "pr_number": "58713",
+    "files": [
+      "base/options.jl",
+      "doc/src/manual/environment-variables.md",
+      "src/gc-debug.c",
+      "src/gc-stock.c",
+      "src/gc-stock.h",
+      "src/jloptions.c",
+      "src/jloptions.h",
+      "test/gc.jl"
+    ]
+  },
+  {
+    "sha": "6121477efd40de0c38f2bc8db10f58662e7c8f4d",
+    "author": "Jameson Nash",
+    "date": "2025-06-12T12:18:36-04:00",
+    "subject": "add support for storing just the inferred inlining_cost in CodeInstance (#58662)",
+    "pr_number": "58662",
+    "files": [
+      "Compiler/src/optimize.jl",
+      "src/codegen.cpp",
+      "src/gc-stock.h",
+      "src/gf.c",
+      "src/ircode.c",
+      "src/julia.h",
+      "src/precompile_utils.c",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "b62132871a5fc77a399db4e9843390651b527beb",
+    "author": "Cody Tapscott",
+    "date": "2025-06-12T09:12:28-04:00",
+    "subject": "[NFC] codegen: introduce `jl_abi_t` type for ABI adapter API (#58697)",
+    "pr_number": "58697",
+    "files": [
+      "src/aotcompile.cpp",
+      "src/codegen.cpp",
+      "src/jitlayers.cpp",
+      "src/jitlayers.h",
+      "src/julia_internal.h",
+      "src/runtime_ccall.cpp"
+    ]
+  },
+  {
+    "sha": "66d3cf554747a3724c7ac9a5beb8a9dd9446f96b",
+    "author": "Cody Tapscott",
+    "date": "2025-06-10T11:24:08-04:00",
+    "subject": "cfunction: store `fptr` / `world` contiguously (#58684)",
+    "pr_number": "58684",
+    "files": [
+      "src/aotcompile.cpp",
+      "src/codegen.cpp",
+      "src/jitlayers.h",
+      "src/julia_internal.h",
+      "src/runtime_ccall.cpp"
+    ]
+  },
+  {
+    "sha": "1c26f43717b613d639c2171a3f883a11bcb12196",
+    "author": "Jameson Nash",
+    "date": "2025-06-09T16:30:46-04:00",
+    "subject": "better handling of missing backedges (#58636)",
+    "pr_number": "58636",
+    "files": [
+      "src/datatype.c",
+      "src/gf.c",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/staticdata.c",
+      "test/misc.jl"
+    ]
+  },
+  {
+    "sha": "51214a752404a639e68a632a64a7b9e75ce1a4fa",
+    "author": "Diogo Netto",
+    "date": "2025-06-07T06:07:19-03:00",
+    "subject": "Make pool allocator stats from gc_page_fragmentation_stats more visible for Julia user code (#58659)",
+    "pr_number": "58659",
+    "files": [
+      "src/gc-stock.c"
+    ]
+  },
+  {
+    "sha": "dece143a94665f4511b9faddc5b160e56a20bc8f",
+    "author": "Diogo Netto",
+    "date": "2025-06-06T17:40:51-03:00",
+    "subject": "Create 'JL_GC_DECODE_NROOTS' macro to avoid writing explicit bitshifts in a few places (#58658)",
+    "pr_number": "58658",
+    "files": [
+      "src/julia.h",
+      "src/subtype.c"
+    ]
+  },
+  {
+    "sha": "d2cc06193ef4161e4ac161bd4b5b57a51686a89a",
+    "author": "Keno Fischer",
+    "date": "2025-06-06T13:27:54-04:00",
+    "subject": "module: Tweak backdate-warning-turned error (#58651)",
+    "pr_number": "58651",
+    "files": [
+      "src/module.c"
+    ]
+  },
+  {
+    "sha": "2e158a4d9a4c9600964168fd6243f9d7f224503f",
+    "author": "Jameson Nash",
+    "date": "2025-06-05T11:21:08-04:00",
+    "subject": "ircode: handle content outside of a module (#58639)",
+    "pr_number": "58639",
+    "files": [
+      "src/precompile.c",
+      "src/staticdata.c",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "7cb88d6951c9725f05426fcb110ee49bec4b147e",
+    "author": "Max Horn",
+    "date": "2025-06-05T05:55:19+02:00",
+    "subject": "Detect Apple M4 and some related changes (#58301)",
+    "pr_number": "58301",
+    "files": [
+      "src/processor_arm.cpp"
+    ]
+  },
+  {
+    "sha": "906d3482d318868e7d3eef6b1db97ef5bedd6f82",
+    "author": "Gabriel Baraldi",
+    "date": "2025-06-04T20:30:23-03:00",
+    "subject": "Make late gc lower handle insertelement of alloca use. (#58637)",
+    "pr_number": "58637",
+    "files": [
+      "src/llvm-late-gc-lowering.cpp",
+      "test/llvmpasses/late-lower-gc.ll"
+    ]
+  },
+  {
+    "sha": "edb2aa8676b2ddf30fe3aba7bca399ed703576eb",
+    "author": "Keno Fischer",
+    "date": "2025-06-04T19:25:51-04:00",
+    "subject": "codegen: More robustness for invalid :invoke IR (#58631)",
+    "pr_number": "58631",
+    "files": [
+      "src/codegen.cpp"
+    ]
+  },
+  {
+    "sha": "b04b1040203d4093163d285e25a71bb9bf5b9f0c",
+    "author": "Gabriel Baraldi",
+    "date": "2025-06-03T23:03:21-03:00",
+    "subject": "If the user explicitly asked for 1 thread don't add an interactive one. (#57454)",
+    "pr_number": "57454",
+    "files": [
+      "HISTORY.md",
+      "doc/src/manual/multi-threading.md",
+      "src/jloptions.c",
+      "src/threading.c",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "8d2708c861ac84de16afe0efc58fd05ac023ee42",
+    "author": "Diogo Netto",
+    "date": "2025-06-03T17:36:19-03:00",
+    "subject": "reland: hard heap limit flag (#58600)",
+    "pr_number": "58600",
+    "files": [
+      "base/options.jl",
+      "src/gc-mmtk.c",
+      "src/gc-stock.c",
+      "src/jloptions.c",
+      "src/jloptions.h",
+      "src/julia.h",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "050284ceed86aa47b34d39ebccdee0beaf026146",
+    "author": "Em Chu",
+    "date": "2025-06-03T02:03:24-07:00",
+    "subject": "Fix `linearize` of global with complex type (#58611)",
+    "pr_number": "58611",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "f12256bb545a4e7bc81bb1235b3ecf1115b7497d",
+    "author": "Jameson Nash",
+    "date": "2025-06-02T14:45:27-04:00",
+    "subject": "fix `@invokelatest` performance regression (#58582)",
+    "pr_number": "58582",
+    "files": [
+      "base/reflection.jl",
+      "src/ast.c",
+      "src/builtins.c",
+      "src/gf.c",
+      "src/init.c",
+      "src/interpreter.c",
+      "src/jl_uv.c",
+      "src/jlapi.c",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/module.c",
+      "src/precompile.c",
+      "src/rtutils.c",
+      "src/scheduler.c",
+      "src/staticdata_utils.c",
+      "src/task.c",
+      "src/threading.c",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "838a8f7972f28da68049c370c5e4c4f89576361a",
+    "author": "Diogo Netto",
+    "date": "2025-06-01T00:49:56-03:00",
+    "subject": "Revert \"Introduce a few GC controls to limit the heap size when running benchmarks\" (#58599)",
+    "pr_number": "58599",
+    "files": [
+      "base/options.jl",
+      "src/gc-mmtk.c",
+      "src/gc-stock.c",
+      "src/jloptions.c",
+      "src/jloptions.h",
+      "src/julia.h",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "d3759ba4680789fe69aefc1640eb8f7f1bfb1e04",
+    "author": "Diogo Netto",
+    "date": "2025-05-31T17:18:23-03:00",
+    "subject": "Introduce a few GC controls to limit the heap size when running benchmarks (#58487)",
+    "pr_number": "58487",
+    "files": [
+      "base/options.jl",
+      "src/gc-mmtk.c",
+      "src/gc-stock.c",
+      "src/jloptions.c",
+      "src/jloptions.h",
+      "src/julia.h",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "345c6ecfc98fee70a3ffbed6eb2c20ba5dea152f",
+    "author": "Jameson Nash",
+    "date": "2025-05-31T08:08:12-04:00",
+    "subject": "ensure Type{T} gets inserted with the right key when T is a TypeVar (#58577)",
+    "pr_number": "58577",
+    "files": [
+      "src/typemap.c",
+      "test/reflection.jl"
+    ]
+  },
+  {
+    "sha": "8275173edbb2aa269376e8dabbced37841cc4776",
+    "author": "Diogo Netto",
+    "date": "2025-05-30T19:37:47-03:00",
+    "subject": "make _jl_gc_collect jl_notsafepoint (#58590)",
+    "pr_number": "58590",
+    "files": [
+      "src/gc-stock.c"
+    ]
+  },
+  {
+    "sha": "36bd3ad86b2962e2ffe497e756d68e0aa432d867",
+    "author": "Cody Tapscott",
+    "date": "2025-05-30T17:32:18-04:00",
+    "subject": "Make `Ptr` values static-show w/ type-information (#58584)",
+    "pr_number": "58584",
+    "files": [
+      "src/rtutils.c",
+      "test/show.jl"
+    ]
+  },
+  {
+    "sha": "75946ce31ccc4c32979e6a0fec5daabe20f8a58a",
+    "author": "Tim Holy",
+    "date": "2025-05-30T05:53:36-05:00",
+    "subject": "Add binding invalidations to log (#58226)",
+    "pr_number": "58226",
+    "files": [
+      "base/invalidation.jl",
+      "src/gf.c",
+      "test/precompile.jl",
+      "test/worlds.jl"
+    ]
+  },
+  {
+    "sha": "965d007479986e1c5f8c7f0e0b0fe17466ee4643",
+    "author": "Jameson Nash",
+    "date": "2025-05-29T14:53:54-04:00",
+    "subject": "fix breakage with `jl_get_global` (#58540)",
+    "pr_number": "58540",
+    "files": [
+      "base/loading.jl",
+      "src/ast.c",
+      "src/gf.c",
+      "src/init.c",
+      "src/interpreter.c",
+      "src/jl_uv.c",
+      "src/jlapi.c",
+      "src/julia.h",
+      "src/module.c",
+      "src/precompile.c",
+      "src/rtutils.c",
+      "src/scheduler.c",
+      "src/staticdata_utils.c",
+      "src/task.c",
+      "src/threading.c",
+      "src/toplevel.c",
+      "sysimage.mk"
+    ]
+  },
+  {
+    "sha": "b03ef6b680703267e48d56b1e7b2dbbe81e52be2",
+    "author": "Sam Schweigel",
+    "date": "2025-05-29T08:08:40-07:00",
+    "subject": "Make more types jl_static_show unambiguously (#58512)",
+    "pr_number": "58512",
+    "files": [
+      "src/rtutils.c",
+      "test/show.jl"
+    ]
+  },
+  {
+    "sha": "1735d8f03c9e4fedba652e4e562c049ac48c93fd",
+    "author": "Jameson Nash",
+    "date": "2025-05-28T11:24:04-04:00",
+    "subject": "make just one MethodTable (#58131)",
+    "pr_number": "58131",
+    "files": [
+      "Compiler/src/Compiler.jl",
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/stmtinfo.jl",
+      "Compiler/src/tfuncs.jl",
+      "Compiler/src/typeinfer.jl",
+      "Compiler/src/utilities.jl",
+      "base/Base_compiler.jl",
+      "base/deprecated.jl",
+      "base/docs/bindings.jl",
+      "base/errorshow.jl",
+      "base/invalidation.jl",
+      "base/methodshow.jl",
+      "base/operators.jl",
+      "base/reflection.jl",
+      "base/runtime_internals.jl",
+      "base/show.jl",
+      "base/strings/io.jl",
+      "base/summarysize.jl",
+      "base/sysimg.jl",
+      "doc/src/devdocs/functions.md",
+      "doc/src/devdocs/types.md",
+      "src/builtins.c",
+      "src/clangsa/GCChecker.cpp",
+      "src/codegen.cpp",
+      "src/datatype.c",
+      "src/gc-stock.c",
+      "src/gf.c",
+      "src/interpreter.c",
+      "src/ircode.c",
+      "src/jl_exported_data.inc",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/module.c",
+      "src/precompile_utils.c",
+      "src/rtutils.c",
+      "src/staticdata.c",
+      "src/staticdata_utils.c",
+      "stdlib/Serialization/src/Serialization.jl",
+      "stdlib/Test/src/Test.jl",
+      "test/clangsa/MissingRoots.c",
+      "test/core.jl",
+      "test/misc.jl",
+      "test/precompile.jl",
+      "test/reflection.jl",
+      "test/show.jl",
+      "test/stacktraces.jl",
+      "test/syntax.jl",
+      "test/worlds.jl"
+    ]
+  },
+  {
+    "sha": "c5df01807e3b3549b2669afdea11526b80049f3a",
+    "author": "Jeff Bezanson",
+    "date": "2025-05-22T17:00:12-04:00",
+    "subject": "don't strip keyword argument names with --strip-metadata (#58412)",
+    "pr_number": "58412",
+    "files": [
+      "src/staticdata.c",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "d9c8c42ad3fc54fa20f56886ad133a0c02729c7a",
+    "author": "Jeff Bezanson",
+    "date": "2025-05-22T16:18:31-04:00",
+    "subject": "use `@main` for juliac executable entry point (#57588)",
+    "pr_number": "57588",
+    "files": [
+      "contrib/juliac-buildscript.jl",
+      "src/gf.c",
+      "src/jlapi.c",
+      "src/julia.h",
+      "test/trimming/basic_jll.jl",
+      "test/trimming/hello.jl",
+      "test/trimming/trimming.jl"
+    ]
+  },
+  {
+    "sha": "e506deebce6c9158fc2c46dc00ee3af28b16afc7",
+    "author": "Arnav Kapoor",
+    "date": "2025-05-22T22:46:24+05:30",
+    "subject": "Update init.c for error on --handle-signals=no with multiple threads (#58464)",
+    "pr_number": "58464",
+    "files": [
+      "src/init.c"
+    ]
+  },
+  {
+    "sha": "e3982cd84030e4baf7b8e97119bbeec0fa982935",
+    "author": "Gabriel Baraldi",
+    "date": "2025-05-21T23:46:59-03:00",
+    "subject": "Fix tbaa usage when storing into heap allocated immutable structs (#58483)",
+    "pr_number": "58483",
+    "files": [
+      "Compiler/test/codegen.jl",
+      "src/cgutils.cpp"
+    ]
+  },
+  {
+    "sha": "4b90899c7dfc98db75ff47e9005d208d69aa29d9",
+    "author": "Tim Besard",
+    "date": "2025-05-21T20:25:01+02:00",
+    "subject": "Expose native_code's jl_sysimg_gvars. (#58423)",
+    "pr_number": "58423",
+    "files": [
+      "src/aotcompile.cpp",
+      "src/codegen-stubs.c",
+      "src/jl_exported_funcs.inc",
+      "src/julia_internal.h",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "f03e9c33c18afa73004c08901a0a8fa0c49926ac",
+    "author": "Jameson Nash",
+    "date": "2025-05-20T16:54:18-04:00",
+    "subject": "[deps] enable zstd support (#58344)",
+    "pr_number": "58344",
+    "files": [
+      "Make.inc",
+      "Makefile",
+      "THIRDPARTY.md",
+      "contrib/refresh_checksums.mk",
+      "deps/Makefile",
+      "deps/checksums/llvm",
+      "deps/checksums/zstd",
+      "deps/csl.mk",
+      "deps/llvm.mk",
+      "deps/llvm.version",
+      "deps/p7zip.mk",
+      "deps/sanitizers.mk",
+      "deps/tools/bb-install.mk",
+      "deps/tools/common.mk",
+      "deps/zstd.mk",
+      "deps/zstd.version",
+      "julia.spdx.json",
+      "src/Makefile",
+      "src/debuginfo.cpp",
+      "src/llvm-Compression.cpp",
+      "src/llvm-Compression.h",
+      "stdlib/Makefile",
+      "stdlib/Manifest.toml",
+      "stdlib/Zstd_jll/Project.toml",
+      "stdlib/Zstd_jll/src/Zstd_jll.jl",
+      "stdlib/Zstd_jll/test/runtests.jl",
+      "stdlib/libLLVM_jll/Project.toml",
+      "stdlib/libLLVM_jll/src/libLLVM_jll.jl",
+      "stdlib/p7zip_jll/src/p7zip_jll.jl",
+      "stdlib/stdlib.mk"
+    ]
+  },
+  {
+    "sha": "2e2fac5beafd5596cbb3933728c12bd141349c5e",
+    "author": "Jameson Nash",
+    "date": "2025-05-19T16:49:16-04:00",
+    "subject": "avoid deadlock if crashing inside profile_wr_lock (#58452)",
+    "pr_number": "58452",
+    "files": [
+      "src/debuginfo.cpp",
+      "src/julia_internal.h",
+      "src/signal-handling.c",
+      "src/threading.c"
+    ]
+  },
+  {
+    "sha": "1b0b02869daef1d2a1b8e8105075132357ee6897",
+    "author": "Gabriel Baraldi",
+    "date": "2025-05-19T12:15:46-03:00",
+    "subject": "Fix layout flags for types that have oddly sized primitive type fields (#58435)",
+    "pr_number": "58435",
+    "files": [
+      "src/datatype.c",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "d04724a6de9a4ad9a17c1b3a3d96ef94b264be4e",
+    "author": "Jakob Nybo Nissen",
+    "date": "2025-04-25T09:02:20+02:00",
+    "subject": "Implement takestring!",
+    "pr_number": "",
+    "files": [
+      "NEWS.md",
+      "base/exports.jl",
+      "base/iobuffer.jl",
+      "base/strings/string.jl",
+      "doc/src/base/strings.md",
+      "src/genericmemory.c",
+      "test/iobuffer.jl",
+      "test/strings/basic.jl"
+    ]
+  },
+  {
+    "sha": "a483d90adc6176e5a3639a329a3a1fd309411b81",
+    "author": "Keno Fischer",
+    "date": "2025-05-16T15:52:54-04:00",
+    "subject": "codegen: Unify printing of and add some more internal IR validity errors (#58429)",
+    "pr_number": "58429",
+    "files": [
+      "src/codegen.cpp"
+    ]
+  },
+  {
+    "sha": "52e14ccc01dc4cfeba43e2c56b2fec51e94752f1",
+    "author": "Sam Schweigel",
+    "date": "2025-05-15T17:09:24-07:00",
+    "subject": "Don't create a type parameter in the closure for captured @nospecialize arguments (#58426)",
+    "pr_number": "58426",
+    "files": [
+      "src/ast.scm",
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "229a6984ee142283d81955d8d53d7985fd5736ca",
+    "author": "Laine Taffin Altman",
+    "date": "2025-05-14T09:53:37-07:00",
+    "subject": "Add JuliaLang/JuliaSyntax.jl#525 to NEWS.md, flisp parser, and REPL (#57143)",
+    "pr_number": "57143",
+    "files": [
+      "NEWS.md",
+      "src/flisp/julia_extensions.c",
+      "src/julia-parser.scm",
+      "stdlib/REPL/src/latex_symbols.jl",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "58daba4765a46ef13a7f1b04d05e2e277aaf60ae",
+    "author": "Jameson Nash",
+    "date": "2025-05-14T10:06:32-04:00",
+    "subject": "fix isconst definition/accessor issues with binding partitions (#58261)",
+    "pr_number": "58261",
+    "files": [
+      "src/codegen.cpp",
+      "src/gf.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/module.c",
+      "src/rtutils.c",
+      "src/toplevel.c",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "dbc38d6d34947219090fee160808a1064f30b4ba",
+    "author": "Zentrik",
+    "date": "2025-05-14T12:40:40+01:00",
+    "subject": "Bump LLVM to v20 (#58142)",
+    "pr_number": "58142",
+    "files": [
+      "contrib/refresh_checksums.mk",
+      "deps/checksums/clang",
+      "deps/checksums/lld",
+      "deps/checksums/llvm",
+      "deps/clang.version",
+      "deps/lld.version",
+      "deps/llvm-tools.version",
+      "deps/llvm.version",
+      "src/Makefile",
+      "src/genericmemory.c",
+      "src/jitlayers.cpp",
+      "src/julia.h",
+      "src/llvm-expand-atomic-modify.cpp",
+      "src/stackwalk.c",
+      "src/subtype.c",
+      "src/typemap.c",
+      "stdlib/LLD_jll/Project.toml",
+      "stdlib/libLLVM_jll/Project.toml",
+      "test/clangsa/GCPushPop.cpp"
+    ]
+  },
+  {
+    "sha": "68ba7b6fb0885f8db44bb5d6828049958d95325d",
+    "author": "Tim Besard",
+    "date": "2025-05-13T17:43:57+02:00",
+    "subject": "Use a nonzero initial size with llvm::SmallSet. (#58399)",
+    "pr_number": "58399",
+    "files": [
+      "src/jitlayers.h"
+    ]
+  },
+  {
+    "sha": "2fee9e02749abb5048c49f1004ebff86015ead72",
+    "author": "Max Horn",
+    "date": "2025-05-13T11:21:07+02:00",
+    "subject": "Remove `jl_line_info_node_t` (no longer used) (#58393)",
+    "pr_number": "58393",
+    "files": [
+      "src/julia.h"
+    ]
+  },
+  {
+    "sha": "bbb058295a6ed57dd33b6e35be18dbdfb7447ac4",
+    "author": "Jeff Bezanson",
+    "date": "2025-05-10T18:27:55-04:00",
+    "subject": "fix called-argument analysis for calls with splat (#58070)",
+    "pr_number": "58070",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "d53422ceff19ad1381992292c520142564651b69",
+    "author": "Gabriel Baraldi",
+    "date": "2025-05-10T16:57:45-03:00",
+    "subject": "Add set to temporary roots to avoid O(N) check (#57961)",
+    "pr_number": "57961",
+    "files": [
+      "src/aotcompile.cpp",
+      "src/codegen.cpp",
+      "src/jitlayers.cpp",
+      "src/jitlayers.h"
+    ]
+  },
+  {
+    "sha": "75382d65926fbdf59ae5046888198fd16edcf287",
+    "author": "C\u00e9dric Belmant",
+    "date": "2025-05-10T00:19:03+02:00",
+    "subject": "Attach source edges to `:uninferred` generator `CodeInstance` (#58324)",
+    "pr_number": "58324",
+    "files": [
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "f07565fc65f3a0339d0fedbb2fbc2801d6cc853c",
+    "author": "Jameson Nash",
+    "date": "2025-05-09T15:05:33-04:00",
+    "subject": "codegen: remove readonly from abstract type calling convention (#58356)",
+    "pr_number": "58356",
+    "files": [
+      "Compiler/test/codegen.jl",
+      "src/cgutils.cpp",
+      "src/codegen.cpp",
+      "src/julia.h"
+    ]
+  },
+  {
+    "sha": "edf76576b7bd75fa2262047c8ccce0ad72066bac",
+    "author": "Gabriel Baraldi",
+    "date": "2025-05-09T14:39:32-03:00",
+    "subject": "Apply debug_compile_units hack also in remove-addrspaces (#58365)",
+    "pr_number": "58365",
+    "files": [
+      "src/llvm-remove-addrspaces.cpp"
+    ]
+  },
+  {
+    "sha": "9986d97b879f77941f32f39be6fe785c2acd9c95",
+    "author": "Gabriel Baraldi",
+    "date": "2025-05-08T15:27:52-03:00",
+    "subject": "Fix late gc lowering pass for vector intrinsics (#55864)",
+    "pr_number": "55864",
+    "files": [
+      "src/llvm-late-gc-lowering.cpp",
+      "test/llvmpasses/image-codegen.jl",
+      "test/llvmpasses/late-lower-gc.ll"
+    ]
+  },
+  {
+    "sha": "bf725f1fb487ebbbda259b04da282ad04b151031",
+    "author": "Cody Tapscott",
+    "date": "2025-04-14T17:39:20-04:00",
+    "subject": "gf.c: make edge de-duplication a caller responsibility",
+    "pr_number": "",
+    "files": [
+      "src/gf.c"
+    ]
+  },
+  {
+    "sha": "5c66152aec65f0a33f105be220675290f0ded383",
+    "author": "Cody Tapscott",
+    "date": "2025-04-14T17:37:23-04:00",
+    "subject": "staticdata: do not serialize backedges for `MethodInstance` / `MethodTable`",
+    "pr_number": "",
+    "files": [
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "555d3baec5a4a6b3e83c97f4300722e931a5cf87",
+    "author": "Jesper \u00d6qvist",
+    "date": "2025-05-08T01:36:02+02:00",
+    "subject": "Remove obsolete comment (#57698)",
+    "pr_number": "57698",
+    "files": [
+      "src/support/ios.h"
+    ]
+  },
+  {
+    "sha": "6165395a13af363d2d82b864de511b8f0ac7b705",
+    "author": "Jameson Nash",
+    "date": "2025-05-07T17:21:25-04:00",
+    "subject": "atomics: avoid iterator invalidation in C++",
+    "pr_number": "",
+    "files": [
+      "src/codegen.cpp"
+    ]
+  },
+  {
+    "sha": "d1ec7d57000604c9335531197798f2267d511021",
+    "author": "Jameson Nash",
+    "date": "2025-05-07T16:52:23-04:00",
+    "subject": "extend Method.dispatch_status optimization to ml_matches_visitor also (#58335)",
+    "pr_number": "58335",
+    "files": [
+      "src/gf.c"
+    ]
+  },
+  {
+    "sha": "66e155d77f5f1a3cd8b6c5f3ba6faba46be678ba",
+    "author": "Jeff Bezanson",
+    "date": "2025-05-07T15:17:22-04:00",
+    "subject": "deprecate --sysimage-native-code=no option (#58285)",
+    "pr_number": "58285",
+    "files": [
+      "NEWS.md",
+      "src/jloptions.c",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "5eb515587f45b80b9650daf1f7fe11f2bbb87e34",
+    "author": "Jameson Nash",
+    "date": "2025-05-06T15:44:11-04:00",
+    "subject": "replace incorrect Method.deleted_world with more useful Method.dispatch_status enum (#58291)",
+    "pr_number": "58291",
+    "files": [
+      "Compiler/src/typeinfer.jl",
+      "base/errorshow.jl",
+      "base/staticdata.jl",
+      "src/gf.c",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/opaque_closure.c",
+      "src/precompile_utils.c",
+      "src/staticdata.c",
+      "src/staticdata_utils.c",
+      "src/typemap.c",
+      "test/core.jl",
+      "test/worlds.jl"
+    ]
+  },
+  {
+    "sha": "3d48f59a138a70d3e5d48021f7a4a9a98e0843bb",
+    "author": "Gabriel Baraldi",
+    "date": "2025-05-06T06:12:36-03:00",
+    "subject": "Don't use sigatomic before current task is available (#58320)",
+    "pr_number": "58320",
+    "files": [
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "088bb9002e95631738c8ec5ba58b7b8a7b33019d",
+    "author": "Gabriel Baraldi",
+    "date": "2025-05-06T06:08:40-03:00",
+    "subject": "Fix removal of globals with addrspaces in removeAddrspaces (#58322)",
+    "pr_number": "58322",
+    "files": [
+      "src/llvm-remove-addrspaces.cpp",
+      "test/llvmpasses/remove-addrspaces.ll"
+    ]
+  },
+  {
+    "sha": "06821587b0fde7f87432e90d50158c562ac61c0d",
+    "author": "Jameson Nash",
+    "date": "2025-05-03T12:33:45-04:00",
+    "subject": "add backdate_admonition to depwarn=error (#58266)",
+    "pr_number": "58266",
+    "files": [
+      "src/module.c"
+    ]
+  },
+  {
+    "sha": "71574073759506b0a3171640ea5e1b468f2757c9",
+    "author": "Gabriel Baraldi",
+    "date": "2025-05-03T12:33:46-03:00",
+    "subject": "Make build_id.lo more random (#58258)",
+    "pr_number": "58258",
+    "files": [
+      "src/module.c",
+      "src/staticdata.c",
+      "src/staticdata_utils.c"
+    ]
+  },
+  {
+    "sha": "7b64cec5385d9099762ad7449c340eaac4fccb41",
+    "author": "Em Chu",
+    "date": "2025-05-03T02:19:09-07:00",
+    "subject": "Fix lowering failure with type parameter in opaque closure (#58307)",
+    "pr_number": "58307",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/opaque_closure.jl"
+    ]
+  },
+  {
+    "sha": "ea6a465488d6a2266cd63f316dffe790d31266ba",
+    "author": "Cody Tapscott",
+    "date": "2025-04-03T16:15:01-04:00",
+    "subject": "trim: Add `Core.finalizer` support",
+    "pr_number": "",
+    "files": [
+      "Compiler/src/typeinfer.jl",
+      "Compiler/src/verifytrim.jl",
+      "base/runtime_internals.jl",
+      "src/gf.c"
+    ]
+  },
+  {
+    "sha": "fc8e6e731c59f6b62f695a6616f37bfb951d7dca",
+    "author": "Keno Fischer",
+    "date": "2025-04-30T12:10:06+02:00",
+    "subject": "bpart: Fix a hang in a particular corner case (#58271)",
+    "pr_number": "58271",
+    "files": [
+      "Compiler/test/inference.jl",
+      "src/module.c"
+    ]
+  },
+  {
+    "sha": "8522727ff54405cb3b9e4b89f885399e5003042d",
+    "author": "Cody Tapscott",
+    "date": "2025-04-29T14:44:58-04:00",
+    "subject": "Replace `jl_load_image_and_init` with inlined logic",
+    "pr_number": "",
+    "files": [
+      "doc/src/manual/embedding.md",
+      "src/init.c",
+      "src/jl_exported_funcs.inc",
+      "src/jlapi.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/threading.c"
+    ]
+  },
+  {
+    "sha": "35ac254715913778b0588acbe3666a60ce2ed3e7",
+    "author": "Cody Tapscott",
+    "date": "2025-04-29T14:08:48-04:00",
+    "subject": "Fix `julia_bindir` calculation when embedding",
+    "pr_number": "",
+    "files": [
+      "src/init.c"
+    ]
+  },
+  {
+    "sha": "201c18c096be5d4930a1f86bcfc1fd083ea38b2d",
+    "author": "Cody Tapscott",
+    "date": "2025-04-29T12:51:20-04:00",
+    "subject": "Initializer timing sub-system earlier",
+    "pr_number": "",
+    "files": [
+      "src/init.c"
+    ]
+  },
+  {
+    "sha": "abcfb3bc4f4c611210dc31e25a7ee8da7d68109c",
+    "author": "gbaraldi",
+    "date": "2025-04-25T14:33:23-03:00",
+    "subject": "Refactor julia initialization by finding and loading the sysimage earlier",
+    "pr_number": "",
+    "files": [
+      "src/init.c",
+      "src/jlapi.c",
+      "src/julia.h",
+      "src/threading.c"
+    ]
+  },
+  {
+    "sha": "2270fcdcc655c8fa7aa9472069434389f895b147",
+    "author": "Zentrik",
+    "date": "2025-04-29T16:50:29+01:00",
+    "subject": "Rename `_aligned_msize` to prevent conflict with mingw64 defintion (#58238)",
+    "pr_number": "58238",
+    "files": [
+      "src/gc-common.c"
+    ]
+  },
+  {
+    "sha": "59e9ada533850a0c15850644c1936d253aa2d8e7",
+    "author": "Sam Schweigel",
+    "date": "2025-04-28T14:19:53-07:00",
+    "subject": "Add builtin functions Core._import, Core._using; implement import/using logic in Julia (#57965)",
+    "pr_number": "57965",
+    "files": [
+      "Compiler/src/Compiler.jl",
+      "base/Base_compiler.jl",
+      "base/boot.jl",
+      "base/c.jl",
+      "base/checked.jl",
+      "base/docs/basedocs.jl",
+      "base/iterators.jl",
+      "base/loading.jl",
+      "base/module.jl",
+      "base/ordering.jl",
+      "src/ast.c",
+      "src/builtin_proto.h",
+      "src/builtins.c",
+      "src/jl_exported_funcs.inc",
+      "src/julia-syntax.scm",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/module.c",
+      "src/toplevel.c",
+      "stdlib/REPL/src/REPL.jl",
+      "stdlib/REPL/test/repl.jl",
+      "sysimage.mk",
+      "test/loading.jl",
+      "test/worlds.jl"
+    ]
+  },
+  {
+    "sha": "8d05eb6084e7f5fef5738324ac1ccd7999a5cd1f",
+    "author": "Kristoffer Carlsson",
+    "date": "2025-04-28T07:54:11+02:00",
+    "subject": "add `TYPE_CACHE_INSERT` to the disabled frequent event list (#58235)",
+    "pr_number": "58235",
+    "files": [
+      "src/timing.c"
+    ]
+  },
+  {
+    "sha": "c9ad04dcc73256bc24eb079f9f6506299b64b8ec",
+    "author": "N5N3",
+    "date": "2025-04-27T12:53:58+08:00",
+    "subject": "Subtype: enable more Tuple related fast path. (#58196)",
+    "pr_number": "58196",
+    "files": [
+      "src/subtype.c",
+      "test/subtype.jl"
+    ]
+  },
+  {
+    "sha": "39885378743d0cb6cbb9224ef112b1acf04bfa49",
+    "author": "Em Chu",
+    "date": "2025-04-23T08:43:05-07:00",
+    "subject": "Remove `jl_lower_expr_mod`",
+    "pr_number": "",
+    "files": [
+      "doc/src/devdocs/eval.md",
+      "src/ast.c",
+      "src/jl_exported_funcs.inc",
+      "src/julia.h"
+    ]
+  },
+  {
+    "sha": "c87456e4850de97bf06bd55ce438b8ff6cdb5b22",
+    "author": "Em Chu",
+    "date": "2025-04-23T08:40:44-07:00",
+    "subject": "Add `Core._lower` for swapping out lowering implementation",
+    "pr_number": "",
+    "files": [
+      "base/Base_compiler.jl",
+      "base/boot.jl",
+      "base/expr.jl",
+      "base/flfrontend.jl",
+      "base/loading.jl",
+      "base/meta.jl",
+      "src/ast.c",
+      "src/toplevel.c",
+      "stdlib/InteractiveUtils/src/macros.jl",
+      "stdlib/REPL/src/REPL.jl",
+      "test/meta.jl"
+    ]
+  },
+  {
+    "sha": "d9925544e0ca3023f9f35196ab2b4694dfa8dd04",
+    "author": "Jameson Nash",
+    "date": "2025-04-25T12:34:15-04:00",
+    "subject": "optimize Type method table queries and insertions (#58216)",
+    "pr_number": "58216",
+    "files": [
+      "base/staticdata.jl",
+      "src/typemap.c"
+    ]
+  },
+  {
+    "sha": "8a8e3d1f988c602641d051552b9ed84e4d3f6764",
+    "author": "Kristoffer Carlsson",
+    "date": "2025-04-24T22:08:45+02:00",
+    "subject": "transition @zone in Core.Compiler to directly use jl_timing (#58213)",
+    "pr_number": "58213",
+    "files": [
+      "Compiler/src/Compiler.jl",
+      "Compiler/src/profiling.jl",
+      "Compiler/src/profiling/ittapi.jl",
+      "Compiler/src/profiling/tracy.jl",
+      "Compiler/src/timing.jl",
+      "src/timing.c",
+      "src/timing.h"
+    ]
+  },
+  {
+    "sha": "485575c0f0a8432882da69dd0cac20159232bbb8",
+    "author": "Em Chu",
+    "date": "2025-04-24T12:24:33-07:00",
+    "subject": "Tracy: annotate timings in `JIT_Total` zone with function names",
+    "pr_number": "",
+    "files": [
+      "src/jitlayers.cpp"
+    ]
+  },
+  {
+    "sha": "907b201cedec1b4d00e27f27535cce7e192beb26",
+    "author": "Jameson Nash",
+    "date": "2025-04-24T10:25:48-04:00",
+    "subject": "reduce places where Builtins are listed (#58205)",
+    "pr_number": "58205",
+    "files": [
+      "src/builtin_proto.h",
+      "src/builtins.c",
+      "src/cgutils.cpp",
+      "src/codegen.cpp",
+      "src/common_symbols2.inc",
+      "src/gf.c",
+      "src/init.c",
+      "src/julia_internal.h",
+      "src/llvm-codegen-shared.h",
+      "src/llvm-pass-helpers.cpp",
+      "src/method.c",
+      "src/signals-mach.c",
+      "src/staticdata.c",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "8d82bec7a7ead1b6dc69b8dc1d1f63b48af50171",
+    "author": "Em Chu",
+    "date": "2025-04-17T08:38:28-07:00",
+    "subject": "Try removing `stmt` lowering option",
+    "pr_number": "",
+    "files": [
+      "src/ast.c",
+      "src/jlfrontend.scm",
+      "src/julia.h",
+      "src/toplevel.c",
+      "stdlib/REPL/src/REPL.jl",
+      "test/meta.jl"
+    ]
+  },
+  {
+    "sha": "a042b68a4eb5cf9cbf1eb382bc38472acaea64a8",
+    "author": "Em Chu",
+    "date": "2025-04-16T13:17:42-07:00",
+    "subject": "Rename top-level lisp `expand` functions to `lower`",
+    "pr_number": "",
+    "files": [
+      "src/jlfrontend.scm",
+      "src/julia-syntax.scm"
+    ]
+  },
+  {
+    "sha": "818311209c73aa7bf8e7669bb467d1219b6d9a9a",
+    "author": "Em Chu",
+    "date": "2025-04-16T12:58:47-07:00",
+    "subject": "Rename `jl_expand` to `jl_lower_expr_mod`",
+    "pr_number": "",
+    "files": [
+      "base/expr.jl",
+      "base/meta.jl",
+      "doc/src/devdocs/eval.md",
+      "src/ast.c",
+      "src/jl_exported_funcs.inc",
+      "src/julia.h"
+    ]
+  },
+  {
+    "sha": "70f80e7828fa879b6b0b918b9aa395aeda8a1c76",
+    "author": "Em Chu",
+    "date": "2025-04-16T12:45:56-07:00",
+    "subject": "Remove some mostly-unused lowering functions",
+    "pr_number": "",
+    "files": [
+      "src/ast.c",
+      "src/jl_exported_funcs.inc",
+      "src/julia.h",
+      "src/toplevel.c",
+      "stdlib/REPL/src/REPL.jl",
+      "test/meta.jl"
+    ]
+  },
+  {
+    "sha": "d7163dafee7bbca5b1d78c54932924a8aad3a330",
+    "author": "Em Chu",
+    "date": "2025-04-16T10:45:04-07:00",
+    "subject": "Create single entry point for lowering `jl_lower`",
+    "pr_number": "",
+    "files": [
+      "src/ast.c",
+      "src/jl_exported_funcs.inc",
+      "src/jlfrontend.scm",
+      "src/julia.h",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "f3264e7e392b70286de7b9d242672564ed9ab03a",
+    "author": "Jameson Nash",
+    "date": "2025-04-22T08:12:56-04:00",
+    "subject": "staticdata: stop compressing and storing large IR (#58172)",
+    "pr_number": "58172",
+    "files": [
+      "src/aotcompile.cpp",
+      "src/gf.c",
+      "src/julia_internal.h",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "fb31b3c8a3ba6ff6ed5bda0caf83694a3456796c",
+    "author": "Jameson Nash",
+    "date": "2025-04-21T15:36:35-04:00",
+    "subject": "gf: make dispatch heuristic representation explicit (#58167)",
+    "pr_number": "58167",
+    "files": [
+      "src/datatype.c",
+      "src/gf.c",
+      "src/jltypes.c",
+      "src/julia.h",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "334c3167e853daeb11e5121d2041de657e175726",
+    "author": "N5N3",
+    "date": "2025-04-20T18:48:32+08:00",
+    "subject": "subtype: save some union stack space for \u2203 free cases. (#58159)",
+    "pr_number": "58159",
+    "files": [
+      "src/subtype.c",
+      "test/subtype.jl"
+    ]
+  },
+  {
+    "sha": "3ea60d2274524369823efc7e39067570ba2cbb38",
+    "author": "Jameson Nash",
+    "date": "2025-04-19T21:37:34-04:00",
+    "subject": "staticdata: prune backedges table during serialization (#58156)",
+    "pr_number": "58156",
+    "files": [
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "828e3a1a7b56ab746b721ba110b4b7bd17cb815b",
+    "author": "Jameson Nash",
+    "date": "2025-04-19T12:17:34-04:00",
+    "subject": "staticdata: fix many mistakes in staticdata stripping (#58166)",
+    "pr_number": "58166",
+    "files": [
+      "contrib/generate_precompile.jl",
+      "src/jltypes.c",
+      "src/staticdata.c",
+      "test/core.jl",
+      "test/trimming/Makefile"
+    ]
+  },
+  {
+    "sha": "73410981c85cf6e8005922439bef554cd06b3b0d",
+    "author": "Cody Tapscott",
+    "date": "2025-04-19T02:18:31-04:00",
+    "subject": "Fix `jl_set_precompile_field_replace` for 0-size fields (#58155)",
+    "pr_number": "58155",
+    "files": [
+      "src/staticdata.c",
+      "test/precompile.jl"
+    ]
+  },
+  {
+    "sha": "d0703e7dae69e198f701d8558a2cb73ee54a787e",
+    "author": "Zentrik",
+    "date": "2025-04-17T10:51:33+01:00",
+    "subject": "Revert \"remove some more serialized junk from the sysimg\" (#58150)",
+    "pr_number": "58150",
+    "files": [
+      "Compiler/src/typeinfer.jl",
+      "src/aotcompile.cpp",
+      "src/gf.c",
+      "src/julia_internal.h",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "75c44d042a069fec4492be76bcb8d5625b02daee",
+    "author": "Kristoffer Carlsson",
+    "date": "2025-04-17T08:31:04+02:00",
+    "subject": "transition `@timeit` in `Core.Compiler` to use tracy instead (#49675)",
+    "pr_number": "49675",
+    "files": [
+      "Compiler/src/Compiler.jl",
+      "Compiler/src/inferencestate.jl",
+      "Compiler/src/optimize.jl",
+      "Compiler/src/profiling.jl",
+      "Compiler/src/profiling/ittapi.jl",
+      "Compiler/src/profiling/tracy.jl",
+      "Compiler/src/ssair/inlining.jl",
+      "Compiler/src/ssair/slot2ssa.jl",
+      "Compiler/src/utilities.jl",
+      "Compiler/test/inline.jl",
+      "Compiler/test/irpasses.jl",
+      "Compiler/test/ssair.jl",
+      "src/timing.c",
+      "src/timing.h",
+      "stdlib/InteractiveUtils/test/runtests.jl"
+    ]
+  },
+  {
+    "sha": "37a754164ba93b5f6c147760a37396415dd815cc",
+    "author": "Gabriel Baraldi",
+    "date": "2025-04-17T02:11:01-03:00",
+    "subject": "Make trimmed binaries initialize on first call (#58141)",
+    "pr_number": "58141",
+    "files": [
+      "contrib/juliac.jl",
+      "src/jlapi.c",
+      "src/julia_internal.h",
+      "src/threading.c"
+    ]
+  },
+  {
+    "sha": "1faa69853e3a9e9456b27a5f6a954b26400569ca",
+    "author": "Jameson Nash",
+    "date": "2025-04-16T13:26:08-04:00",
+    "subject": "fix static show in some edge cases (#58128)",
+    "pr_number": "58128",
+    "files": [
+      "src/rtutils.c"
+    ]
+  },
+  {
+    "sha": "caa97c91ec998ebfc09c2589a85998c0a0c7bb97",
+    "author": "Tim Holy",
+    "date": "2025-04-16T08:11:10-05:00",
+    "subject": "Ensure completion of invalidation log (#58137)",
+    "pr_number": "58137",
+    "files": [
+      "src/gf.c",
+      "test/worlds.jl"
+    ]
+  },
+  {
+    "sha": "fb5fffd63f0545d20120bde2a8c54802f6caff02",
+    "author": "Jameson Nash",
+    "date": "2025-04-11T12:42:40-04:00",
+    "subject": "staticdata: stop compressing and storing large IR",
+    "pr_number": "",
+    "files": [
+      "src/aotcompile.cpp",
+      "src/gf.c",
+      "src/julia_internal.h",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "7193a6a9bb685d21da16bcb88f8440b3a3dd0392",
+    "author": "Jameson Nash",
+    "date": "2025-04-11T12:21:34-04:00",
+    "subject": "staticdata: prune backedges table during serialization",
+    "pr_number": "",
+    "files": [
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "cca5ac75406b7e728a5ff3802b76fab16975ac2a",
+    "author": "Jameson Nash",
+    "date": "2025-04-15T13:10:00-04:00",
+    "subject": "prevent allocation of Memory (layout and object) when not concrete (#58064)",
+    "pr_number": "58064",
+    "files": [
+      "src/datatype.c",
+      "src/julia.h",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "2e8d0532761b90b2cbc6c234d0fd890c1d91b42d",
+    "author": "Miguel Raz Guzm\u00e1n Macedo",
+    "date": "2025-04-15T03:36:17-06:00",
+    "subject": "Fix some typos in comments and tests (#58118)",
+    "pr_number": "58118",
+    "files": [
+      "Compiler/test/irpasses.jl",
+      "base/deprecated.jl",
+      "base/invalidation.jl",
+      "base/strings/string.jl",
+      "src/task.c",
+      "test/core.jl",
+      "test/file.jl",
+      "test/threads_exec.jl"
+    ]
+  },
+  {
+    "sha": "d9764d68aed9d7bfe0715afa5ba0229c905fba98",
+    "author": "Alex Wadell",
+    "date": "2025-04-14T22:12:26-04:00",
+    "subject": "Fix `--project=@script` when outside script directory (#56351)",
+    "pr_number": "56351",
+    "files": [
+      "base/initdefs.jl",
+      "base/options.jl",
+      "src/jloptions.c",
+      "src/jloptions.h",
+      "test/cmdlineargs.jl",
+      "test/project/ScriptProject/Project.toml",
+      "test/project/ScriptProject/SubProject/Project.toml",
+      "test/project/ScriptProject/bin/script.jl"
+    ]
+  },
+  {
+    "sha": "cf875c1ff1f8a3679f84e51789654e50630c361f",
+    "author": "Cody Tapscott",
+    "date": "2025-04-14T21:47:16-04:00",
+    "subject": "gf.c: Fix backedge de-duplication bug (#58106)",
+    "pr_number": "58106",
+    "files": [
+      "Compiler/src/typeinfer.jl",
+      "Compiler/test/invalidation.jl",
+      "src/gf.c"
+    ]
+  },
+  {
+    "sha": "5c6d5de87fe101b39463baecd0af3225b4d6e5e2",
+    "author": "Zentrik",
+    "date": "2025-04-14T19:41:34+01:00",
+    "subject": "Adapt some more code for LLVM 20 (#57793)",
+    "pr_number": "57793",
+    "files": [
+      "src/codegen.cpp",
+      "src/jitlayers.cpp",
+      "src/llvm-julia-licm.cpp",
+      "src/llvm-late-gc-lowering.cpp",
+      "src/llvm-propagate-addrspaces.cpp",
+      "src/llvm-ptls.cpp",
+      "test/llvmpasses/gcroots.ll"
+    ]
+  },
+  {
+    "sha": "1570bed51327161b6d2628e280a6f7728d27db09",
+    "author": "Keno Fischer",
+    "date": "2025-04-12T23:28:53-04:00",
+    "subject": "Align `:method` Expr return value between interpreter and codegen (#58076)",
+    "pr_number": "58076",
+    "files": [
+      "Compiler/src/abstractinterpretation.jl",
+      "src/interpreter.c",
+      "src/julia-syntax.scm",
+      "test/core.jl",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "92fc06fd83ac76c6a495019db112a4e907526591",
+    "author": "Keno Fischer",
+    "date": "2025-04-11T02:21:31-04:00",
+    "subject": "Fix missing CodeInstance owner lookup in _jl_invoke (#58072)",
+    "pr_number": "58072",
+    "files": [
+      "src/gf.c"
+    ]
+  },
+  {
+    "sha": "90eb96fe45804b6cd76885e9798f5ca6acf41552",
+    "author": "Jeff Bezanson",
+    "date": "2025-04-10T18:37:19-04:00",
+    "subject": "fix #58013, error for too few arguments in `invokelatest` (#58056)",
+    "pr_number": "58056",
+    "files": [
+      "src/builtins.c",
+      "test/worlds.jl"
+    ]
+  },
+  {
+    "sha": "a0740d0984d00da8010002079224e707cdcd8ee4",
+    "author": "Jameson Nash",
+    "date": "2025-04-10T10:30:21-04:00",
+    "subject": "debuginfo: improve robustness of code slightly (#57989)",
+    "pr_number": "57989",
+    "files": [
+      "src/debuginfo.cpp"
+    ]
+  },
+  {
+    "sha": "0cf5a4dd63872b21a1817c6d4eb1bb63af5bbe89",
+    "author": "Keno Fischer",
+    "date": "2025-04-08T15:45:54-04:00",
+    "subject": "Make delete_binding operate in the latest world (#58043)",
+    "pr_number": "58043",
+    "files": [
+      "src/module.c",
+      "test/rebinding.jl"
+    ]
+  },
+  {
+    "sha": "2b8a05cf2853141bd438ed8ff0e639e0752d4226",
+    "author": "N5N3",
+    "date": "2025-04-06T14:38:48+08:00",
+    "subject": "typeintersect: add more fast path.",
+    "pr_number": "",
+    "files": [
+      "src/subtype.c",
+      "test/subtype.jl"
+    ]
+  },
+  {
+    "sha": "0a4ca16e1bb4bc65c631e13b2352ecc816770d04",
+    "author": "N5N3",
+    "date": "2025-04-06T12:36:26+08:00",
+    "subject": "typeintersect: fix triangular vars handling outside constructor.",
+    "pr_number": "",
+    "files": [
+      "src/subtype.c",
+      "test/subtype.jl"
+    ]
+  },
+  {
+    "sha": "1c3878c0740e9835ce604a5daca2c983e47e7389",
+    "author": "Keno Fischer",
+    "date": "2025-04-03T21:10:04-04:00",
+    "subject": "Merge adjacent implicit binding partitions (#57995)",
+    "pr_number": "57995",
+    "files": [
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/module.c",
+      "src/rtutils.c",
+      "src/staticdata.c",
+      "src/toplevel.c",
+      "test/rebinding.jl"
+    ]
+  },
+  {
+    "sha": "4b95442c234b5edca1a5503f23a356c9004b4d9d",
+    "author": "Shuhei Kadowaki",
+    "date": "2025-04-02T12:41:46+09:00",
+    "subject": "inference: model `Core._svec_ref` (#57973)",
+    "pr_number": "57973",
+    "files": [
+      "Compiler/src/tfuncs.jl",
+      "Compiler/test/effects.jl",
+      "src/jltypes.c",
+      "test/reflection.jl"
+    ]
+  },
+  {
+    "sha": "d6f5b7fdb310d9d41033b55e862a1a8b61ec1cc7",
+    "author": "Keno Fischer",
+    "date": "2025-04-01T10:50:22-04:00",
+    "subject": "Be more careful about iterator invalidation during recursive invalida\u2026 (#57934)",
+    "pr_number": "57934",
+    "files": [
+      "Compiler/test/invalidation.jl",
+      "src/gf.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/staticdata_utils.c"
+    ]
+  },
+  {
+    "sha": "43766717f6a57b7e6995d01a07fa1f70fcaf0272",
+    "author": "Jameson Nash",
+    "date": "2025-03-13T18:33:14+00:00",
+    "subject": "bindings: batch export/public changes from one statement",
+    "pr_number": "",
+    "files": [
+      "src/jl_exported_funcs.inc",
+      "src/julia.h",
+      "src/module.c",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "e8b52e6edf511a1256cadf7e2985ea17a2866efa",
+    "author": "Jameson Nash",
+    "date": "2025-03-13T18:10:25+00:00",
+    "subject": "bindings: backdate initial module statements",
+    "pr_number": "",
+    "files": [
+      "base/Base_compiler.jl",
+      "base/sysimg.jl",
+      "doc/src/devdocs/init.md",
+      "src/builtins.c",
+      "src/gf.c",
+      "src/jl_exported_funcs.inc",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/module.c",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "3a3926eba563e147d7d6a48c44fb7f47088d24c5",
+    "author": "Jameson Nash",
+    "date": "2025-03-31T04:04:21-04:00",
+    "subject": "fix opaque_closure sparam capture (#57928)",
+    "pr_number": "57928",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/opaque_closure.jl"
+    ]
+  },
+  {
+    "sha": "89271dc5a8a3236a148413409abb019bf973f6de",
+    "author": "Cody Tapscott",
+    "date": "2025-03-31T04:03:19-04:00",
+    "subject": "staticdata: Memoize `type_in_worklist` query (#57917)",
+    "pr_number": "57917",
+    "files": [
+      "src/staticdata.c",
+      "src/staticdata_utils.c"
+    ]
+  },
+  {
+    "sha": "fe613d4129f38efccb7821f0d37523abc649cb91",
+    "author": "Jeff Bezanson",
+    "date": "2025-03-31T04:01:04-04:00",
+    "subject": "fix trimming size regression due to handling binding backedges in the wrong place (#57927)",
+    "pr_number": "57927",
+    "files": [
+      "src/staticdata.c",
+      "test/trimming/trimming.jl"
+    ]
+  },
+  {
+    "sha": "a046da5f259f74011d5dab6716ac9c9fbe4424d7",
+    "author": "Em Chu",
+    "date": "2025-03-28T11:46:39-07:00",
+    "subject": "lowering: Fix captured vars shadowed by an inner global declaration (#57648)",
+    "pr_number": "57648",
+    "files": [
+      "doc/src/manual/variables-and-scoping.md",
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "2c7527b1aa27b8bf523af95289767b66eac5796e",
+    "author": "Gabriel Baraldi",
+    "date": "2025-03-28T11:36:50-03:00",
+    "subject": "Teach alloc-opt to handle atomics a bit better (#57208)",
+    "pr_number": "57208",
+    "files": [
+      "src/llvm-alloc-helpers.cpp",
+      "src/llvm-alloc-opt.cpp",
+      "test/atomics.jl",
+      "test/llvmpasses/alloc-opt-pass.ll"
+    ]
+  },
+  {
+    "sha": "aab74908dc6b027fc4edd134bfeeaa3af9f141d2",
+    "author": "Jameson Nash",
+    "date": "2024-11-25T10:18:33-05:00",
+    "subject": "codegen: add a pass for late conversion of known modify ops to call atomicrmw",
+    "pr_number": "",
+    "files": [
+      "src/Makefile",
+      "src/aotcompile.cpp",
+      "src/cgutils.cpp",
+      "src/codegen.cpp",
+      "src/jitlayers.cpp",
+      "src/jitlayers.h",
+      "src/julia.expmap.in",
+      "src/llvm-expand-atomic-modify.cpp",
+      "src/llvm-julia-passes.inc",
+      "src/passes.h",
+      "src/pipeline.cpp",
+      "test/llvmpasses/atomic-modify.ll"
+    ]
+  },
+  {
+    "sha": "d6fdbf5212aaf270749138db2e285141e4de1dc6",
+    "author": "Diogo Netto",
+    "date": "2025-03-28T01:56:26-03:00",
+    "subject": "only update fragmentation data for pages that are not lazily freed (#57907)",
+    "pr_number": "57907",
+    "files": [
+      "src/gc-stock.c"
+    ]
+  },
+  {
+    "sha": "608a06c40deba119a6c03612a512eac54ca971b8",
+    "author": "Jameson Nash",
+    "date": "2025-03-12T16:35:25+00:00",
+    "subject": "inference: add internal SOURCE_MODE_GET_SOURCE mode",
+    "pr_number": "",
+    "files": [
+      "Compiler/src/typeinfer.jl",
+      "Compiler/src/verifytrim.jl",
+      "Compiler/test/verifytrim.jl",
+      "src/aotcompile.cpp",
+      "src/gf.c",
+      "src/jitlayers.cpp",
+      "src/julia_internal.h",
+      "test/trimming/trimming.jl"
+    ]
+  },
+  {
+    "sha": "8fd3fb118222f3cbdb78c53c685e5ec994fca125",
+    "author": "Jeff Bezanson",
+    "date": "2025-03-26T18:50:45-04:00",
+    "subject": "add trimming of new usings_backedges and scanned_methods fields (#57879)",
+    "pr_number": "57879",
+    "files": [
+      "src/staticdata.c",
+      "test/trimming/trimming.jl"
+    ]
+  },
+  {
+    "sha": "6ce51d3c1792c7756c88bda26d75388cb7371540",
+    "author": "Cody Tapscott",
+    "date": "2025-03-26T15:40:00-04:00",
+    "subject": "precompile_utils: Don't auto-enqueue `macro` methods for pre-compilation (#57833)",
+    "pr_number": "57833",
+    "files": [
+      "src/precompile_utils.c",
+      "test/precompile.jl"
+    ]
+  },
+  {
+    "sha": "400d0b12d28e183ef3e31780b6afe0e3eb88ba89",
+    "author": "Keno Fischer",
+    "date": "2025-03-26T09:15:25-04:00",
+    "subject": "Fix typo in codegen for `isdefinedglobal` (#57889)",
+    "pr_number": "57889",
+    "files": [
+      "Compiler/test/codegen.jl",
+      "src/codegen.cpp"
+    ]
+  },
+  {
+    "sha": "1d2e165f8c1b8a210b0a60a2b71397e4cbf130e5",
+    "author": "Keno Fischer",
+    "date": "2025-03-26T09:15:07-04:00",
+    "subject": "Fix corner case of double module import (#57892)",
+    "pr_number": "57892",
+    "files": [
+      "src/toplevel.c",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "3360a44a4d342cead9d0a9c07815a6f5dd488aeb",
+    "author": "Em Chu",
+    "date": "2025-03-25T13:29:30-07:00",
+    "subject": "Disallow non-lhs all-underscore variable names (#57626)",
+    "pr_number": "57626",
+    "files": [
+      "src/julia-syntax.scm",
+      "src/method.c",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "e1e3a46a3ae17337d7a6671ba05ea4ae72ff9209",
+    "author": "Diogo Netto",
+    "date": "2025-03-24T20:20:44-03:00",
+    "subject": "[Linux] Prevent GC from running during process teardown (#57832)",
+    "pr_number": "57832",
+    "files": [
+      "src/signals-unix.c"
+    ]
+  },
+  {
+    "sha": "e78cf6c240c9f668235b2ea97d65598f736deac0",
+    "author": "Gabriel Baraldi",
+    "date": "2025-03-24T15:55:15-03:00",
+    "subject": "Add option to force emission of const return function (#57824)",
+    "pr_number": "57824",
+    "files": [
+      "base/reflection.jl",
+      "src/aotcompile.cpp",
+      "src/cgutils.cpp",
+      "src/init.c",
+      "src/julia.h"
+    ]
+  },
+  {
+    "sha": "60a9f6992d82789e23a1e71f1e3c7402b1483b4f",
+    "author": "Keno Fischer",
+    "date": "2025-03-22T02:33:36-07:00",
+    "subject": "bpart: Redesign representation of implicit imports (#57755)",
+    "pr_number": "57755",
+    "files": [
+      "Compiler/src/Compiler.jl",
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/ssair/EscapeAnalysis.jl",
+      "Compiler/test/codegen.jl",
+      "base/Base_compiler.jl",
+      "base/errorshow.jl",
+      "base/invalidation.jl",
+      "base/iterators.jl",
+      "base/runtime_internals.jl",
+      "base/show.jl",
+      "base/sysimg.jl",
+      "src/jl_exported_funcs.inc",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/module.c",
+      "src/staticdata.c",
+      "src/toplevel.c",
+      "test/core.jl",
+      "test/reflection.jl"
+    ]
+  },
+  {
+    "sha": "36b046dc1137a12b28f3a1e285d385b4b7d1ec89",
+    "author": "Jameson Nash",
+    "date": "2025-03-21T16:55:56-04:00",
+    "subject": "codegen: fix alignment of source in typed_load from a unsafe_load (#57845)",
+    "pr_number": "57845",
+    "files": [
+      "src/ccall.cpp",
+      "src/cgutils.cpp",
+      "src/codegen.cpp",
+      "src/intrinsics.cpp"
+    ]
+  },
+  {
+    "sha": "0bcc9cd928e8f749b52dbdb04db29bc8fc0f329b",
+    "author": "Sam Schweigel",
+    "date": "2025-03-21T13:52:54-07:00",
+    "subject": "Make remaining float intrinsics require float arguments (#57398)",
+    "pr_number": "57398",
+    "files": [
+      "Compiler/src/tfuncs.jl",
+      "Compiler/test/effects.jl",
+      "src/APInt-C.cpp",
+      "src/intrinsics.cpp",
+      "src/runtime_intrinsics.c",
+      "test/intrinsics.jl"
+    ]
+  },
+  {
+    "sha": "c89b1ff7a1206e60e44a2e949041c33c4e853b16",
+    "author": "Tim Holy",
+    "date": "2025-03-20T16:01:29-05:00",
+    "subject": "Fix package precompilation (PrecompileTools) (#57828)",
+    "pr_number": "57828",
+    "files": [
+      "src/julia_internal.h",
+      "src/staticdata_utils.c",
+      "test/precompile.jl"
+    ]
+  },
+  {
+    "sha": "f2a83bf236391791645833391452aff8c2baba88",
+    "author": "Jeff Bezanson",
+    "date": "2025-03-19T17:55:04-04:00",
+    "subject": "remove unused argument from jl_generate_ccallable",
+    "pr_number": "",
+    "files": [
+      "src/aotcompile.cpp",
+      "src/codegen.cpp",
+      "src/jitlayers.h"
+    ]
+  },
+  {
+    "sha": "b167ae123f29341c5f90b70f57d69f205f9a3579",
+    "author": "Jeff Bezanson",
+    "date": "2025-03-13T14:40:44-04:00",
+    "subject": "add the ability to specify the external name of a ccallable",
+    "pr_number": "",
+    "files": [
+      "Compiler/src/typeinfer.jl",
+      "Compiler/src/verifytrim.jl",
+      "Compiler/test/verifytrim.jl",
+      "base/c.jl",
+      "src/aotcompile.cpp",
+      "src/codegen-stubs.c",
+      "src/codegen.cpp",
+      "src/gf.c",
+      "src/jitlayers.h",
+      "src/julia.h",
+      "src/precompile_utils.c",
+      "src/simplevector.c",
+      "test/precompile.jl"
+    ]
+  },
+  {
+    "sha": "0df5ad78d0f010edd92b15663a9d2c7fc67bc2b3",
+    "author": "Gabriel Baraldi",
+    "date": "2025-03-20T11:16:55-03:00",
+    "subject": "Mark UInt8 field as UInt8 in CodInstance (#57822)",
+    "pr_number": "57822",
+    "files": [
+      "src/jltypes.c"
+    ]
+  },
+  {
+    "sha": "abb1313f51b50c136d48084c6a9a4ca341953df4",
+    "author": "Jameson Nash",
+    "date": "2025-03-19T09:41:42-04:00",
+    "subject": "add missing wb in jl_maybe_reresolve_implicit (#57804)",
+    "pr_number": "57804",
+    "files": [
+      "src/julia_internal.h",
+      "src/module.c"
+    ]
+  },
+  {
+    "sha": "64672f5e8aa6fd7e05e786c0660d9e2e6166cd27",
+    "author": "Sam Schweigel",
+    "date": "2025-03-18T14:46:59-07:00",
+    "subject": "const lowering: resolve scopes under assign-const-if-global",
+    "pr_number": "",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "9a437a52d3a2831b10eac5f825dee8ac0f3e4c67",
+    "author": "Sam Schweigel",
+    "date": "2025-02-20T18:11:34-08:00",
+    "subject": "const lowering: respect scope, prohibit non-const `const` assignment",
+    "pr_number": "",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "6043569ffdca83b08b91238a83b546c3ea0e69ae",
+    "author": "Sam Schweigel",
+    "date": "2025-02-20T14:11:11-08:00",
+    "subject": "Factor out expand-table '= lambda into expand-assignment",
+    "pr_number": "",
+    "files": [
+      "src/julia-syntax.scm"
+    ]
+  },
+  {
+    "sha": "a676b12a829216519fe651beadf679421ceb500f",
+    "author": "Sam Schweigel",
+    "date": "2025-03-17T20:42:16-07:00",
+    "subject": "Fix fptrunc Float64 -> Float16 rounding through Float32 (#57809)",
+    "pr_number": "57809",
+    "files": [
+      "src/runtime_intrinsics.c",
+      "test/intrinsics.jl"
+    ]
+  },
+  {
+    "sha": "7ee404ccc5293a10062c876d2e2c87f9591fdeee",
+    "author": "Jameson Nash",
+    "date": "2025-03-17T16:54:36-04:00",
+    "subject": "fix _apply_pure deprecation (#57800)",
+    "pr_number": "57800",
+    "files": [
+      "base/boot.jl",
+      "src/gf.c"
+    ]
+  },
+  {
+    "sha": "f82917a8ada5a3f4e4ca85408e078a6389c9e94a",
+    "author": "Jameson Nash",
+    "date": "2025-03-17T16:53:43-04:00",
+    "subject": "stackwalk: fix heuristic termination (#57801)",
+    "pr_number": "57801",
+    "files": [
+      "src/stackwalk.c"
+    ]
+  },
+  {
+    "sha": "18b5d8fb8d72a43cc5521ec0ebcd8de503cf885c",
+    "author": "Jameson Nash",
+    "date": "2025-03-16T23:02:53-04:00",
+    "subject": "[internals] add time metrics for every CodeInstance (#57074)",
+    "pr_number": "57074",
+    "files": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/inferencestate.jl",
+      "Compiler/src/typeinfer.jl",
+      "Compiler/src/utilities.jl",
+      "base/Base.jl",
+      "base/Base_compiler.jl",
+      "base/essentials.jl",
+      "base/float.jl",
+      "base/hashing.jl",
+      "base/rounding.jl",
+      "doc/src/devdocs/ast.md",
+      "src/gf.c",
+      "src/jitlayers.cpp",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/staticdata.c",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "ff3d28dc13fea3630d6cc98a349f2eaab5b50a5f",
+    "author": "Mateusz Jakub Fila",
+    "date": "2025-03-16T19:04:41+01:00",
+    "subject": "Fix documentation of `jl_gc_collect` (#57757)",
+    "pr_number": "57757",
+    "files": [
+      "doc/src/manual/embedding.md",
+      "src/gc-interface.h"
+    ]
+  },
+  {
+    "sha": "744e03dcecacbb3c00efa10e46ca4bbdb5fbfef4",
+    "author": "Jameson Nash",
+    "date": "2025-03-15T07:53:13-04:00",
+    "subject": "print admonition for auto-import only once per module (#57775)",
+    "pr_number": "57775",
+    "files": [
+      "src/module.c"
+    ]
+  },
+  {
+    "sha": "e14fb0ced3702e4ce54031b78dc90ce0557efe10",
+    "author": "Jeff Bezanson",
+    "date": "2025-03-15T04:12:39-04:00",
+    "subject": "fix missing `!` in a strip-metadata case (#57778)",
+    "pr_number": "57778",
+    "files": [
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "ca17927311bfab2a18c9ce2a21913eb51537c2d7",
+    "author": "Em Chu",
+    "date": "2025-03-15T00:57:22-07:00",
+    "subject": "lowering: Don't closure-convert in `import` or `using` (#57774)",
+    "pr_number": "57774",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "44fecb1a3658373ad5ea84fa4045f13a10c6cc2e",
+    "author": "Shuhei Kadowaki",
+    "date": "2025-03-15T07:36:40+09:00",
+    "subject": "staticdata: remove `reinit_ccallable` (#56987)",
+    "pr_number": "56987",
+    "files": [
+      "src/aotcompile.cpp",
+      "src/codegen-stubs.c",
+      "src/gf.c",
+      "src/jitlayers.cpp",
+      "src/jitlayers.h",
+      "src/jl_exported_funcs.inc",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/staticdata.c",
+      "test/llvmcall.jl",
+      "test/precompile.jl"
+    ]
+  },
+  {
+    "sha": "2a168ee5a7cfa555bc7e52d180aef7bafc74b912",
+    "author": "Jameson Nash",
+    "date": "2025-03-14T10:25:06-04:00",
+    "subject": "remove old cruft from jl_set_typeinf_func (#57760)",
+    "pr_number": "57760",
+    "files": [
+      "src/gf.c"
+    ]
+  },
+  {
+    "sha": "4db8c1b7c86ac5cc98731c928566dc464f832ad7",
+    "author": "Kiran Pamnany",
+    "date": "2025-03-13T17:27:19-04:00",
+    "subject": "Use faster PRNG in the allocations profiler (#57761)",
+    "pr_number": "57761",
+    "files": [
+      "src/gc-alloc-profiler.cpp"
+    ]
+  },
+  {
+    "sha": "96eb8762cabdb2a932d9ca3531784472d7fc29e7",
+    "author": "Gabriel Baraldi",
+    "date": "2025-03-12T15:04:16-03:00",
+    "subject": "[LateLowerGC] Fix typo sret handling so we properly handle selects in the worklist (#57741)",
+    "pr_number": "57741",
+    "files": [
+      "src/llvm-gc-interface-passes.h",
+      "src/llvm-late-gc-lowering.cpp",
+      "test/llvmpasses/late-lower-gc-sret.ll"
+    ]
+  },
+  {
+    "sha": "c9008ffab74ce2ffc13e3e1d18b0b83277487133",
+    "author": "Jameson Nash",
+    "date": "2025-03-11T15:42:43-04:00",
+    "subject": "fix alignment computation for nested objects (#57722)",
+    "pr_number": "57722",
+    "files": [
+      "doc/src/manual/calling-c-and-fortran-code.md",
+      "src/cgutils.cpp",
+      "src/datatype.c",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "840923ac7cd4471603a833b1a1a706f23866b75f",
+    "author": "Roman Pi\u0161l",
+    "date": "2025-03-11T16:48:32+01:00",
+    "subject": "platform.h: Always compile in MSVC mode if _MSC_VER is set (#57680)",
+    "pr_number": "57680",
+    "files": [
+      "src/support/platform.h"
+    ]
+  },
+  {
+    "sha": "806cb2b9c3b6a6e44c848a18964dcfecf32ae3a0",
+    "author": "Bart Janssens",
+    "date": "2025-03-08T16:39:32+01:00",
+    "subject": "Fix unused variable warnings (#57681)",
+    "pr_number": "57681",
+    "files": [
+      "src/gc-interface.h"
+    ]
+  },
+  {
+    "sha": "6acc0d7369bb05f5e92452cb2d8fe6be78f49db4",
+    "author": "Cody Tapscott",
+    "date": "2025-03-07T14:12:41-05:00",
+    "subject": "trimming: improve output on failure (#57657)",
+    "pr_number": "57657",
+    "files": [
+      "Compiler/src/verifytrim.jl",
+      "base/boot.jl",
+      "src/jl_exported_data.inc",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/precompile_utils.c",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "5b06efc362de1e1d8e741526428f1a467db00190",
+    "author": "Bart Janssens",
+    "date": "2025-03-07T03:37:50+01:00",
+    "subject": "Fix julia.h for use in MSVC (#57654)",
+    "pr_number": "57654",
+    "files": [
+      "src/julia.h"
+    ]
+  },
+  {
+    "sha": "beb928bfec532c8f038e113df2960c7b9609edb6",
+    "author": "N5N3",
+    "date": "2025-03-06T21:25:41+08:00",
+    "subject": "Intersect: try normal+reverse+existential subtyping during intersection (#57476)",
+    "pr_number": "57476",
+    "files": [
+      "src/subtype.c",
+      "test/subtype.jl"
+    ]
+  },
+  {
+    "sha": "e950915a437ec5f06328392d4c4eb1cbdffef660",
+    "author": "Max Horn",
+    "date": "2025-03-05T05:04:19+01:00",
+    "subject": "Fix C compiler warning when using pre-C11 compiler (#57564)",
+    "pr_number": "57564",
+    "files": [
+      "src/julia.h"
+    ]
+  },
+  {
+    "sha": "a8a1c3bcc378d545148f7cb4be2c5869c897e8ea",
+    "author": "Keno Fischer",
+    "date": "2025-03-03T19:30:53+00:00",
+    "subject": "Align module base between invalidation and edge tracking",
+    "pr_number": "",
+    "files": [
+      "Compiler/src/utilities.jl",
+      "base/invalidation.jl",
+      "src/gc-stock.c",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/module.c",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "e7efe42ece419c04d170887d856609286e63836b",
+    "author": "Keno Fischer",
+    "date": "2025-03-03T06:41:36+00:00",
+    "subject": "bpart: Don't invalidate for changes that inference can't see",
+    "pr_number": "",
+    "files": [
+      "Compiler/src/abstractinterpretation.jl",
+      "base/invalidation.jl",
+      "src/module.c"
+    ]
+  },
+  {
+    "sha": "cdf8820cd0142a1cff6690981409dfdc28eef1a9",
+    "author": "Keno Fischer",
+    "date": "2025-03-03T04:46:19+00:00",
+    "subject": "bpart: Turn on invalidation for guard->defined transitions",
+    "pr_number": "",
+    "files": [
+      "Compiler/src/utilities.jl",
+      "base/expr.jl",
+      "base/invalidation.jl",
+      "base/runtime_internals.jl",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/method.c",
+      "src/module.c",
+      "test/rebinding.jl"
+    ]
+  },
+  {
+    "sha": "abf4dcfce4b0c7a1f965e6ef1263f00a72bc20bd",
+    "author": "Keno Fischer",
+    "date": "2025-03-03T08:22:44+00:00",
+    "subject": "Be more selective when invalidating code instances",
+    "pr_number": "",
+    "files": [
+      "src/gf.c"
+    ]
+  },
+  {
+    "sha": "a802faf40f4fc8b3a98fb14422ac39d6293850c7",
+    "author": "Keno Fischer",
+    "date": "2025-03-03T02:36:47-05:00",
+    "subject": "bpart: Rename partition flags, turn binding flags atomic (#57614)",
+    "pr_number": "57614",
+    "files": [
+      "Compiler/src/Compiler.jl",
+      "Compiler/src/abstractinterpretation.jl",
+      "base/invalidation.jl",
+      "base/runtime_internals.jl",
+      "base/show.jl",
+      "src/ast.c",
+      "src/codegen.cpp",
+      "src/gf.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/module.c",
+      "src/staticdata.c",
+      "src/toplevel.c",
+      "stdlib/REPL/src/REPL.jl",
+      "stdlib/REPL/src/REPLCompletions.jl",
+      "stdlib/REPL/src/docview.jl",
+      "test/rebinding.jl"
+    ]
+  },
+  {
+    "sha": "a5157c0fc5631195aef5872fb2f7a4b09d1818ea",
+    "author": "Keno Fischer",
+    "date": "2025-03-02T15:50:03-05:00",
+    "subject": "bpart: Allow inference/codegen to merge multiple partitions (#57602)",
+    "pr_number": "57602",
+    "files": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/cicache.jl",
+      "Compiler/src/ssair/verify.jl",
+      "Compiler/src/stmtinfo.jl",
+      "Compiler/test/effects.jl",
+      "base/Base.jl",
+      "base/Base_compiler.jl",
+      "base/runtime_internals.jl",
+      "src/codegen.cpp",
+      "src/dlload.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/module.c",
+      "stdlib/REPL/src/REPLCompletions.jl",
+      "test/rebinding.jl"
+    ]
+  },
+  {
+    "sha": "5a2faa4ccc8cf34932734301b06be6c74516f558",
+    "author": "Shuhei Kadowaki",
+    "date": "2025-03-02T20:28:19+09:00",
+    "subject": "inference: allow `PartialStruct` to represent strict undef field (#57541)",
+    "pr_number": "57541",
+    "files": [
+      "Compiler/src/Compiler.jl",
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/tfuncs.jl",
+      "Compiler/src/typeinfer.jl",
+      "Compiler/src/typelattice.jl",
+      "Compiler/src/typelimits.jl",
+      "Compiler/test/inference.jl",
+      "base/coreir.jl",
+      "base/runtime_internals.jl",
+      "src/jltypes.c"
+    ]
+  },
+  {
+    "sha": "671c6a1636e484f02a10ba2c946e02d6e02bb2d8",
+    "author": "Jameson Nash",
+    "date": "2025-03-01T23:40:05-05:00",
+    "subject": "cleanup old builtins (#57532)",
+    "pr_number": "57532",
+    "files": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/ssair/show.jl",
+      "Compiler/src/verifytrim.jl",
+      "base/Base_compiler.jl",
+      "base/boot.jl",
+      "base/essentials.jl",
+      "base/reflection.jl",
+      "contrib/generate_precompile.jl",
+      "contrib/juliac-buildscript.jl",
+      "src/builtin_proto.h",
+      "src/builtins.c",
+      "src/codegen.cpp",
+      "src/staticdata.c",
+      "stdlib/REPL/test/precompilation.jl",
+      "stdlib/REPL/test/repl.jl"
+    ]
+  },
+  {
+    "sha": "9cafd35eac49206ebe35e5093e58735b7e883b33",
+    "author": "Diogo Netto",
+    "date": "2025-03-01T11:30:13-03:00",
+    "subject": "avoid overflow on functionality to print backtrace of safepoint straggler (#57579)",
+    "pr_number": "57579",
+    "files": [
+      "src/safepoint.c",
+      "test/threads_exec.jl"
+    ]
+  },
+  {
+    "sha": "7fa0c13b934a86e205c95742fd974f6158651830",
+    "author": "Keno Fischer",
+    "date": "2025-03-01T00:09:38-05:00",
+    "subject": "Make no-body `function` declaration implicitly `global` (#57562)",
+    "pr_number": "57562",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "2dd4cdf2256c685cedcf33df58c210dde43a5b36",
+    "author": "Cody Tapscott",
+    "date": "2025-02-28T08:34:24-05:00",
+    "subject": "Remove `jl_init__threading` and `jl_init_with_image__threading` (#57561)",
+    "pr_number": "57561",
+    "files": [
+      "src/jl_exported_funcs.inc",
+      "src/jlapi.c"
+    ]
+  },
+  {
+    "sha": "8f00a51f074e5442546d48ba5d8f2346ed7f2a8c",
+    "author": "Keno Fischer",
+    "date": "2025-02-28T02:00:41-05:00",
+    "subject": "Always disallow assignments to constants (#57567)",
+    "pr_number": "57567",
+    "files": [
+      "src/module.c",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "1a3cbb1de6b0b01ef005d74ecc8da7d87b7e8097",
+    "author": "Keno Fischer",
+    "date": "2025-02-27T22:33:51-05:00",
+    "subject": "bpart: Also partition ->deprecated (#57449)",
+    "pr_number": "57449",
+    "files": [
+      "Compiler/src/Compiler.jl",
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/test/irpasses.jl",
+      "base/runtime_internals.jl",
+      "base/show.jl",
+      "src/codegen.cpp",
+      "src/jl_exported_funcs.inc",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/module.c",
+      "src/staticdata.c",
+      "src/toplevel.c",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "ad61241f220675df2182d5b29fe7884d1164e13d",
+    "author": "Cody Tapscott",
+    "date": "2025-02-27T22:20:02-05:00",
+    "subject": "staticdata: Refactor sysimage loading (#57542)",
+    "pr_number": "57542",
+    "files": [
+      "src/aotcompile.cpp",
+      "src/init.c",
+      "src/jitlayers.cpp",
+      "src/jl_exported_funcs.inc",
+      "src/julia.h",
+      "src/llvm-multiversioning.cpp",
+      "src/processor.cpp",
+      "src/processor.h",
+      "src/processor_arm.cpp",
+      "src/processor_fallback.cpp",
+      "src/processor_x86.cpp",
+      "src/staticdata.c",
+      "test/cmdlineargs.jl"
+    ]
+  },
+  {
+    "sha": "1ff98a534badb1ad40d96aad4b5aa37748de5f0c",
+    "author": "Keno Fischer",
+    "date": "2025-02-27T21:51:26-05:00",
+    "subject": "Walk to imports in `isconst(::GlobalRef)` (#57563)",
+    "pr_number": "57563",
+    "files": [
+      "src/module.c",
+      "test/reflection.jl"
+    ]
+  },
+  {
+    "sha": "2e57730aa253b4d8dc90be56a4282bbece045ccc",
+    "author": "Em Chu",
+    "date": "2025-02-27T15:52:38-08:00",
+    "subject": "lowering: Allow chaining of `>:` in `where` (#57554)",
+    "pr_number": "57554",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "c8cd8fdb832b008221fc2cab31b002e7555e607a",
+    "author": "Zentrik",
+    "date": "2025-02-27T16:26:58+00:00",
+    "subject": "Initial support for LLVM 20 (#57352)",
+    "pr_number": "57352",
+    "files": [
+      "src/aotcompile.cpp",
+      "src/ccall.cpp",
+      "src/cgutils.cpp",
+      "src/codegen.cpp",
+      "src/disasm.cpp",
+      "src/intrinsics.cpp",
+      "src/jitlayers.cpp",
+      "src/julia_internal.h",
+      "src/llvm-alloc-opt.cpp",
+      "src/llvm-codegen-shared.h",
+      "src/llvm-final-gc-lowering.cpp",
+      "src/llvm-julia-licm.cpp",
+      "src/llvm-late-gc-lowering.cpp",
+      "src/llvm-multiversioning.cpp",
+      "src/llvm-pass-helpers.cpp",
+      "src/llvm-propagate-addrspaces.cpp",
+      "src/llvm-ptls.cpp",
+      "src/pipeline.cpp"
+    ]
+  },
+  {
+    "sha": "d77c24f009b93577bcf254908e639c9f149f2e4e",
+    "author": "Jeff Bezanson",
+    "date": "2025-02-27T11:20:11-05:00",
+    "subject": "some updates for trimming (#57531)",
+    "pr_number": "57531",
+    "files": [
+      "contrib/juliac-buildscript.jl",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "0b43e97e475b126ea114cdb793f49ca7168a7ad8",
+    "author": "Cody Tapscott",
+    "date": "2025-02-27T09:20:57-05:00",
+    "subject": "Fix uninitialized variable warning (#57551)",
+    "pr_number": "57551",
+    "files": [
+      "src/llvm-late-gc-lowering.cpp"
+    ]
+  },
+  {
+    "sha": "4a6ada6eb36eaeb9bde9b94c01bcf6f0e3ce7ae6",
+    "author": "Cody Tapscott",
+    "date": "2025-02-26T19:15:21-05:00",
+    "subject": "Remove usages of weak symbols (#57523)",
+    "pr_number": "57523",
+    "files": [
+      "src/Makefile",
+      "src/julia_internal.h",
+      "src/null_sysimage.c",
+      "src/processor.cpp",
+      "src/processor.h",
+      "src/staticdata.c",
+      "src/threading.c"
+    ]
+  },
+  {
+    "sha": "1045bd83337d8665c88444f976614e152d3c1e79",
+    "author": "Jameson Nash",
+    "date": "2025-02-26T14:03:03-05:00",
+    "subject": "[Compiler] begin new approach to verify --trim output (#57530)",
+    "pr_number": "57530",
+    "files": [
+      "Compiler/src/Compiler.jl",
+      "Compiler/src/bootstrap.jl",
+      "Compiler/src/typeinfer.jl",
+      "Compiler/src/verifytrim.jl",
+      "Compiler/test/testgroups",
+      "Compiler/test/verifytrim.jl",
+      "base/Base.jl",
+      "base/show.jl",
+      "base/stacktraces.jl",
+      "src/aotcompile.cpp",
+      "src/cgutils.cpp",
+      "src/codegen.cpp",
+      "src/init.c",
+      "src/jitlayers.h",
+      "src/julia.h",
+      "sysimage.mk"
+    ]
+  },
+  {
+    "sha": "94486f194b2536baa22e884ee27b4981743f9f2d",
+    "author": "Gabriel Baraldi",
+    "date": "2025-02-26T12:55:39-03:00",
+    "subject": "Add hook to initialize Julia on-the-fly during thread adoption (#56334)",
+    "pr_number": "56334",
+    "files": [
+      "src/aotcompile.cpp",
+      "src/dlload.c",
+      "src/init.c",
+      "src/jl_exported_funcs.inc",
+      "src/julia_internal.h",
+      "src/llvm-ptls.cpp",
+      "src/threading.c"
+    ]
+  },
+  {
+    "sha": "4c9bedeedbdaa3c11846771ea74d2754fdf9c207",
+    "author": "Zentrik",
+    "date": "2025-02-26T12:52:28+00:00",
+    "subject": "Bump LLVM to v19.1.7+1 (#56130)",
+    "pr_number": "56130",
+    "files": [
+      "deps/checksums/clang",
+      "deps/checksums/lld",
+      "deps/checksums/llvm",
+      "deps/clang.version",
+      "deps/lld.version",
+      "deps/llvm-tools.version",
+      "deps/llvm.version",
+      "deps/sanitizers.mk",
+      "src/Makefile",
+      "src/cgmemmgr.cpp",
+      "src/debuginfo.cpp",
+      "src/disasm.cpp",
+      "src/init.c",
+      "src/jitlayers.cpp",
+      "src/llvm-late-gc-lowering.cpp",
+      "src/signals-mach.c",
+      "src/threading.c",
+      "stdlib/LLD_jll/Project.toml",
+      "stdlib/libLLVM_jll/Project.toml",
+      "test/llvmpasses/late-lower-gc-sret.ll"
+    ]
+  },
+  {
+    "sha": "8a31ad6c4d1282d4c974ab1c357d43373ba4d578",
+    "author": "gitboy16",
+    "date": "2025-02-25T14:56:37+00:00",
+    "subject": "Update jloptions.c - error message (#57518)",
+    "pr_number": "57518",
+    "files": [
+      "src/jloptions.c"
+    ]
+  },
+  {
+    "sha": "5a24982945f38618ec85ce2ea4304dabce9f3ed6",
+    "author": "Eduardo Souza",
+    "date": "2025-02-25T22:37:14+11:00",
+    "subject": "[mmtk-julia] Allow building Julia with variations of the binding (#57176)",
+    "pr_number": "57176",
+    "files": [
+      "Make.inc",
+      "Makefile",
+      "deps/Makefile",
+      "deps/mmtk_julia.mk",
+      "doc/make.jl",
+      "doc/src/devdocs/gc-mmtk.md",
+      "src/Makefile",
+      "src/julia.h",
+      "src/julia_threads.h"
+    ]
+  },
+  {
+    "sha": "58399e22ad0fe66f8090f7c476513951bc06bafc",
+    "author": "C\u00e9dric Belmant",
+    "date": "2025-02-25T01:18:13+01:00",
+    "subject": "Extend  `PartialStruct` to represent non-contiguously defined fields (#57304)",
+    "pr_number": "57304",
+    "files": [
+      "Compiler/src/Compiler.jl",
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/tfuncs.jl",
+      "Compiler/src/typeinfer.jl",
+      "Compiler/src/typelattice.jl",
+      "Compiler/src/typelimits.jl",
+      "Compiler/src/typeutils.jl",
+      "Compiler/test/inference.jl",
+      "Compiler/test/irpasses.jl",
+      "base/boot.jl",
+      "base/coreir.jl",
+      "base/essentials.jl",
+      "src/jltypes.c"
+    ]
+  },
+  {
+    "sha": "f7b986d138b062795048e5992aea31aad5c8a306",
+    "author": "Alex Arslan",
+    "date": "2025-02-24T11:43:22-08:00",
+    "subject": "Fix typo in printed message and clarify a printed hint (#57511)",
+    "pr_number": "57511",
+    "files": [
+      "src/module.c"
+    ]
+  },
+  {
+    "sha": "925a8fe44f5210c23831df06a19358614595546a",
+    "author": "Eduardo Souza",
+    "date": "2025-02-25T06:41:44+11:00",
+    "subject": "Refactoring code that is specific to stock GC write barriers (#57237)",
+    "pr_number": "57237",
+    "files": [
+      "src/Makefile",
+      "src/gc-wb-mmtk.h",
+      "src/gc-wb-stock.h",
+      "src/julia.h"
+    ]
+  },
+  {
+    "sha": "095fc99b69459d43c2ab3267ade9f491f52b92cc",
+    "author": "Jameson Nash",
+    "date": "2025-02-24T08:57:57-05:00",
+    "subject": "make compile go faster with native caches (#57500)",
+    "pr_number": "57500",
+    "files": [
+      "src/staticdata.c",
+      "sysimage.mk"
+    ]
+  },
+  {
+    "sha": "88aa27f482d19ae7ac0eb080c115640a0754d819",
+    "author": "Jameson Nash",
+    "date": "2025-02-22T05:59:25-05:00",
+    "subject": "strip Module filename from metadata (#57499)",
+    "pr_number": "57499",
+    "files": [
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "e026affc3ad49ac199cf22ce05aeb412d50fcb21",
+    "author": "Jameson Nash",
+    "date": "2025-02-21T10:00:47-05:00",
+    "subject": "build: fix makefile rules and windows path separator used in build (#57472)",
+    "pr_number": "57472",
+    "files": [
+      "Make.inc",
+      "Makefile",
+      "base/Makefile",
+      "cli/Makefile",
+      "src/Makefile",
+      "src/flisp/Makefile",
+      "src/support/Makefile"
+    ]
+  },
+  {
+    "sha": "58ce713c5a7b4c2825beb4f649da7547ca09b2bd",
+    "author": "Gabriel Baraldi",
+    "date": "2025-02-21T09:40:15-03:00",
+    "subject": "Experiment with a slighly adjusted pipeline (#52850)",
+    "pr_number": "52850",
+    "files": [
+      "src/pipeline.cpp",
+      "test/boundscheck_exec.jl",
+      "test/llvmpasses/image-codegen.jl",
+      "test/llvmpasses/late-lower-gc.ll",
+      "test/llvmpasses/pipeline-o2.jl",
+      "test/llvmpasses/pipeline-prints.ll"
+    ]
+  },
+  {
+    "sha": "3c02af98dcad3dcbbab772af9fe1494082aea8ca",
+    "author": "Em Chu",
+    "date": "2025-02-20T16:36:47-08:00",
+    "subject": "lowering: Handle malformed `...` expressions (#57480)",
+    "pr_number": "57480",
+    "files": [
+      "src/ast.scm",
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "414aca21e936c3605038eb35a8f58f11067317b4",
+    "author": "Em Chu",
+    "date": "2025-02-20T14:25:38-08:00",
+    "subject": "lowering: Don't mutate lambda in `linearize` (#57416)",
+    "pr_number": "57416",
+    "files": [
+      "src/julia-syntax.scm",
+      "src/utils.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "940928eb761ca0a92b14aa45ade22558f4c915c2",
+    "author": "Jameson Nash",
+    "date": "2025-02-20T16:37:21-05:00",
+    "subject": "codegen: cleanup gcstack call frames somewhat earlier (#57410)",
+    "pr_number": "57410",
+    "files": [
+      "src/ccall.cpp",
+      "src/codegen.cpp",
+      "src/llvm-final-gc-lowering.cpp",
+      "src/llvm-gc-interface-passes.h",
+      "src/llvm-late-gc-lowering.cpp",
+      "src/llvm-pass-helpers.cpp",
+      "src/llvm-pass-helpers.h",
+      "src/llvm-ptls.cpp"
+    ]
+  },
+  {
+    "sha": "378a42508d4ba40770adcf3833aef26056efde98",
+    "author": "Eduardo Souza",
+    "date": "2025-02-21T01:53:47+11:00",
+    "subject": "Refactoring write barrier for copying generic memory, but moving it from `genericmemory.c` (#57252)",
+    "pr_number": "57252",
+    "files": [
+      "src/gc-interface.h",
+      "src/genericmemory.c",
+      "src/julia.h"
+    ]
+  },
+  {
+    "sha": "0fb5fa0276675c54b7dcd3b69e6ec95264f0b2a1",
+    "author": "Cody Tapscott",
+    "date": "2025-02-19T19:27:27-05:00",
+    "subject": "staticdata: Don't use `newm` pointer after it has been invalidated (#57471)",
+    "pr_number": "57471",
+    "files": [
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "a70818c3a4b6e660140c0685e70a8094e095397f",
+    "author": "Jameson Nash",
+    "date": "2025-02-19T16:39:38-05:00",
+    "subject": "using/import: ensure world update after each observable operation (#57467)",
+    "pr_number": "57467",
+    "files": [
+      "src/julia.h",
+      "src/module.c",
+      "src/toplevel.c",
+      "test/worlds.jl"
+    ]
+  },
+  {
+    "sha": "b9a8d46a234fa0fe625371e107f3ab441a867182",
+    "author": "Gabriel Baraldi",
+    "date": "2025-02-19T12:58:11-03:00",
+    "subject": "Change memory indexing to use the type as index instead of i8 (#57389)",
+    "pr_number": "57389",
+    "files": [
+      "src/cgutils.cpp"
+    ]
+  },
+  {
+    "sha": "a65c2cfb2b9b9e4ea6df9988ad9a54366e6236c7",
+    "author": "Jameson Nash",
+    "date": "2025-02-19T10:30:32-05:00",
+    "subject": "Revert \"Make emitted egal code more loopy (#54121)\" (#57453)",
+    "pr_number": "54121",
+    "files": [
+      "Compiler/test/codegen.jl",
+      "src/codegen.cpp"
+    ]
+  },
+  {
+    "sha": "29da86bb983066dd076439c2c7bc5e28dbd611bb",
+    "author": "Valentin Churavy",
+    "date": "2025-02-18T13:28:45+01:00",
+    "subject": "Only strip invariant.load from special pointers (#57386)",
+    "pr_number": "57386",
+    "files": [
+      "src/llvm-late-gc-lowering.cpp",
+      "test/llvmpasses/late-lower-gc.ll"
+    ]
+  },
+  {
+    "sha": "0163991000ab83bfd9f6b5ece695c1e1e6138ea7",
+    "author": "Keno Fischer",
+    "date": "2025-02-17T20:03:38-05:00",
+    "subject": "Don't return null pointer when asking for the type of a declared global (#57447)",
+    "pr_number": "57447",
+    "files": [
+      "src/module.c",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "7c89aba267313b54c5420da13b088bed239aa196",
+    "author": "Gabriel Baraldi",
+    "date": "2025-02-17T18:28:06-03:00",
+    "subject": "Make late_gc_lowering more robust (#57380)",
+    "pr_number": "57380",
+    "files": [
+      "src/llvm-final-gc-lowering.cpp",
+      "src/llvm-gc-interface-passes.h",
+      "src/llvm-late-gc-lowering.cpp",
+      "test/llvmpasses/late-lower-gc-sret.ll"
+    ]
+  },
+  {
+    "sha": "f6e2b989de8ba14d9356ef065497fab8e20d66a6",
+    "author": "Keno Fischer",
+    "date": "2025-02-17T01:24:45-05:00",
+    "subject": "bpart: Track whether any binding replacement has happened in image modules (#57433)",
+    "pr_number": "57433",
+    "files": [
+      "base/client.jl",
+      "base/invalidation.jl",
+      "base/runtime_internals.jl",
+      "base/staticdata.jl",
+      "src/ircode.c",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/module.c",
+      "src/staticdata.c",
+      "stdlib/Serialization/src/Serialization.jl",
+      "test/rebinding.jl"
+    ]
+  },
+  {
+    "sha": "726c816b9590d748345fb615b76b685c79eafd0d",
+    "author": "Keno Fischer",
+    "date": "2025-02-16T18:57:58-05:00",
+    "subject": "Prohibit `import`ing or `using` Main during incremental compilation (#57426)",
+    "pr_number": "57426",
+    "files": [
+      "src/module.c",
+      "test/precompile.jl"
+    ]
+  },
+  {
+    "sha": "56aed6278d0037862d24743d7df3c3055b1360da",
+    "author": "Keno Fischer",
+    "date": "2025-02-16T14:34:20-05:00",
+    "subject": "Prohibit binding replacement in closed modules during precompile (#57425)",
+    "pr_number": "57425",
+    "files": [
+      "src/julia_internal.h",
+      "src/module.c",
+      "src/toplevel.c",
+      "test/precompile.jl"
+    ]
+  },
+  {
+    "sha": "39255d47db7657950ff1c82137ecec5a70bae622",
+    "author": "Keno Fischer",
+    "date": "2025-02-15T17:59:26-05:00",
+    "subject": "bpart: Skip implicit import reval if using'd export set is unchanged (#57421)",
+    "pr_number": "57421",
+    "files": [
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/module.c",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "a371899c38a60e21c2727d1f50de9716be181d7d",
+    "author": "Keno Fischer",
+    "date": "2025-02-15T13:34:58-05:00",
+    "subject": "bpart: Ignore guard bindings for ambiguity purposes (#57406)",
+    "pr_number": "57406",
+    "files": [
+      "src/module.c",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "85458a04f0eab6c70d9e9a5b575d67c46a65f991",
+    "author": "Valentin Churavy",
+    "date": "2025-02-15T18:51:44+01:00",
+    "subject": "Allow for :foreigncall to transition to GC safe automatically (#49933)",
+    "pr_number": "49933",
+    "files": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/validation.jl",
+      "NEWS.md",
+      "base/c.jl",
+      "base/meta.jl",
+      "base/strings/string.jl",
+      "doc/src/devdocs/ast.md",
+      "src/ccall.cpp",
+      "src/codegen.cpp",
+      "src/llvm-codegen-shared.h",
+      "src/llvm-late-gc-lowering.cpp",
+      "src/llvm-pass-helpers.cpp",
+      "src/llvm-pass-helpers.h",
+      "src/llvm-ptls.cpp",
+      "src/method.c",
+      "test/ccall.jl"
+    ]
+  },
+  {
+    "sha": "b27a24acbe831c3fab07828dba15fe149f05e486",
+    "author": "Keno Fischer",
+    "date": "2025-02-15T02:54:02-05:00",
+    "subject": "bpart: Also partition the export flag (#57405)",
+    "pr_number": "57405",
+    "files": [
+      "base/invalidation.jl",
+      "base/runtime_internals.jl",
+      "base/show.jl",
+      "src/ast.c",
+      "src/codegen.cpp",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/module.c",
+      "src/staticdata.c",
+      "src/toplevel.c",
+      "test/rebinding.jl"
+    ]
+  },
+  {
+    "sha": "f5f6d4115b5e4fc5e62169bfab006732358c6e84",
+    "author": "Jameson Nash",
+    "date": "2025-02-14T16:22:47-05:00",
+    "subject": "staticdata: corrected implementation of jl_collect_new_roots (#57407)",
+    "pr_number": "57407",
+    "files": [
+      "src/staticdata.c",
+      "src/staticdata_utils.c"
+    ]
+  },
+  {
+    "sha": "57b7d2e0a88d2e4006ad74ec4bd1db5586e2d0bf",
+    "author": "Jameson Nash",
+    "date": "2025-02-14T10:43:22-05:00",
+    "subject": "lowering: fix has_fcall computation (#57395)",
+    "pr_number": "57395",
+    "files": [
+      "src/method.c",
+      "test/core.jl"
+    ]
+  },
+  {
+    "sha": "75dba048f49ddb4281c625ed4d12ffbab3e3c426",
+    "author": "Jameson Nash",
+    "date": "2025-02-13T23:02:09-05:00",
+    "subject": "[LateLowerGCFrame] fix PlaceGCFrameReset for returns_twice (#57392)",
+    "pr_number": "57392",
+    "files": [
+      "src/codegen.cpp",
+      "src/llvm-late-gc-lowering.cpp"
+    ]
+  },
+  {
+    "sha": "d0e80250f2f99d8a9f4c62f511cf958e7bb8dde0",
+    "author": "Jameson Nash",
+    "date": "2025-02-11T18:39:13+00:00",
+    "subject": "fix ismutationfree bits for types",
+    "pr_number": "",
+    "files": [
+      "src/jltypes.c"
+    ]
+  },
+  {
+    "sha": "91e733384eedeab174c63362c3b8dd31d1655434",
+    "author": "Jameson Nash",
+    "date": "2025-02-08T19:51:21+00:00",
+    "subject": "internals: add _defaultctor function for defining ctors",
+    "pr_number": "",
+    "files": [
+      "src/ast.c",
+      "src/builtin_proto.h",
+      "src/builtins.c",
+      "src/jlfrontend.scm",
+      "src/julia-syntax.scm",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/staticdata.c",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "6b39a818bdcd302612c348785486e0a796610a83",
+    "author": "Jameson Nash",
+    "date": "2025-02-13T12:11:07-05:00",
+    "subject": "print admonition for auto-import only once per module (#57378)",
+    "pr_number": "57378",
+    "files": [
+      "src/julia.h",
+      "src/module.c"
+    ]
+  },
+  {
+    "sha": "40fbc8893a1daf935b1a77d597a3f638db61b03d",
+    "author": "Keno Fischer",
+    "date": "2025-02-13T08:56:47-05:00",
+    "subject": "bpart: Move kind enum into its intended place (#57385)",
+    "pr_number": "57385",
+    "files": [
+      "src/ast.c",
+      "src/clangsa/GCChecker.cpp",
+      "src/codegen.cpp",
+      "src/gc-stock.c",
+      "src/jltypes.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/module.c",
+      "src/staticdata.c",
+      "src/toplevel.c",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "cff8bd673513623a9876a76a0526c0899a0018bb",
+    "author": "Keno Fischer",
+    "date": "2025-02-13T08:50:14-05:00",
+    "subject": "staticdata: Fix typo in recursive edge revalidation (#57383)",
+    "pr_number": "57383",
+    "files": [
+      "src/staticdata.c",
+      "test/precompile.jl"
+    ]
+  },
+  {
+    "sha": "20162ea3949c5e9cf8c803b5b2b7b249c57108e4",
+    "author": "Keno Fischer",
+    "date": "2025-02-13T00:53:09-05:00",
+    "subject": "Only implicitly `using` Base, not Core (#57357)",
+    "pr_number": "57357",
+    "files": [
+      "Compiler/src/typeinfer.jl",
+      "base/Base_compiler.jl",
+      "base/boot.jl",
+      "base/exports.jl",
+      "base/show.jl",
+      "src/julia_internal.h",
+      "src/module.c",
+      "src/toplevel.c",
+      "test/misc.jl"
+    ]
+  },
+  {
+    "sha": "90046a055f39a0f1077d5073b6be47a33494ef49",
+    "author": "Keno Fischer",
+    "date": "2025-02-12T18:01:06-05:00",
+    "subject": "bpart: When backdating replace the entire bpart chain (#57341)",
+    "pr_number": "57341",
+    "files": [
+      "src/module.c",
+      "src/toplevel.c"
+    ]
+  },
+  {
+    "sha": "512eb5e2c9202562321096c26c9b4fe5c6ac48f6",
+    "author": "Keno Fischer",
+    "date": "2025-02-12T15:30:47-05:00",
+    "subject": "lowering: Only try to define the method once (#57346)",
+    "pr_number": "57346",
+    "files": [
+      "doc/src/manual/modules.md",
+      "src/julia-syntax.scm"
+    ]
+  },
+  {
+    "sha": "c46b5334547293fdc93fb9b5116d061bb84e9d0c",
+    "author": "Kristoffer Carlsson",
+    "date": "2025-02-11T23:47:09+01:00",
+    "subject": "use an empty symbol instead of module name as placeholder for module `file` metadata (#57359)",
+    "pr_number": "57359",
+    "files": [
+      "src/module.c"
+    ]
+  },
+  {
+    "sha": "1de5880636f16c2196bea6a90243f69f65661d41",
+    "author": "Gabriel Baraldi",
+    "date": "2025-02-11T14:42:51-03:00",
+    "subject": "Emit enter handler during codegen instead of after optimization (#57308)",
+    "pr_number": "57308",
+    "files": [
+      "doc/src/devdocs/llvm-passes.md",
+      "doc/src/devdocs/llvm.md",
+      "src/Makefile",
+      "src/codegen.cpp",
+      "src/llvm-julia-passes.inc",
+      "src/llvm-lower-handlers.cpp",
+      "src/passes.h",
+      "src/pipeline.cpp",
+      "test/llvmpasses/lower-handlers-addrspaces.ll",
+      "test/llvmpasses/lower-handlers.ll",
+      "test/llvmpasses/parsing.ll"
+    ]
+  },
+  {
+    "sha": "0b74d1752e4a02f9078e95bc9893619b2e52a0b6",
+    "author": "Cody Tapscott",
+    "date": "2025-02-11T08:10:01-05:00",
+    "subject": "trimming: make sure to fail / warn on `Expr(:call, ...)` (#57342)",
+    "pr_number": "57342",
+    "files": [
+      "src/codegen.cpp"
+    ]
+  },
+  {
+    "sha": "8c62f42947ee01fb17d1baf8c5e953fb3516b31f",
+    "author": "Keno Fischer",
+    "date": "2025-02-10T08:31:20-05:00",
+    "subject": "Add a warning for auto-import of types (#57311)",
+    "pr_number": "57311",
+    "files": [
+      "src/codegen.cpp",
+      "src/interpreter.c",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/module.c",
+      "stdlib/SharedArrays/src/SharedArrays.jl",
+      "test/arrayops.jl",
+      "test/errorshow.jl",
+      "test/intrinsics.jl"
+    ]
+  },
+  {
+    "sha": "79e98e3b89da5e57f829ccde21b576be9fc8ea1b",
+    "author": "Gabriel Baraldi",
+    "date": "2025-02-08T21:36:34-03:00",
+    "subject": "Make ptls allocations at least 128 byte aligned (#57310)",
+    "pr_number": "57310",
+    "files": [
+      "src/threading.c"
+    ]
+  },
+  {
+    "sha": "4ebb50b6a0445b6ecdd74374c3999da5b3f33b9d",
+    "author": "Shuhei Kadowaki",
+    "date": "2025-02-08T13:14:56+09:00",
+    "subject": "improve concurrency safety for `Compiler.finish!` (#57248)",
+    "pr_number": "57248",
+    "files": [
+      "Compiler/src/typeinfer.jl",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "baf8124d9d004c6c255134ce6206875d1df92618",
+    "author": "Sam Schweigel",
+    "date": "2025-02-07T18:02:46-08:00",
+    "subject": "Always add the frame-pointer=all attribute (#57209)",
+    "pr_number": "57209",
+    "files": [
+      "src/codegen.cpp"
+    ]
+  },
+  {
+    "sha": "e553fc8c6f794118a5dfcb0506fe3a0a0cd34ee4",
+    "author": "Keno Fischer",
+    "date": "2025-02-07T02:38:24-05:00",
+    "subject": "Add missing latestworld after parameterized type alias (#57299)",
+    "pr_number": "57299",
+    "files": [
+      "src/julia-syntax.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "b65f0040dd367f2da76f6ed4b01924a368fe50b8",
+    "author": "Keno Fischer",
+    "date": "2025-02-07T00:08:34-05:00",
+    "subject": "Allow macrocall as function sig (#55040)",
+    "pr_number": "55040",
+    "files": [
+      "HISTORY.md",
+      "base/client.jl",
+      "src/julia-parser.scm",
+      "test/syntax.jl"
+    ]
+  },
+  {
+    "sha": "34aceb528d26c2a3529d1afe5aed3bc039fdb181",
+    "author": "Keno Fischer",
+    "date": "2025-02-06T14:31:05-05:00",
+    "subject": "staticdata: Close data race after backedge insertion (#57229)",
+    "pr_number": "57229",
+    "files": [
+      "base/staticdata.jl",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "6f992ab0fc513998f53ab5d585752d4e50e5ed11",
+    "author": "Eduardo Souza",
+    "date": "2025-02-07T01:14:19+11:00",
+    "subject": "Refactoring code in `mk_symbol` to remove stock specific code (#57214)",
+    "pr_number": "57214",
+    "files": [
+      "src/datatype.c",
+      "src/gc-interface.h",
+      "src/gc-mmtk.c",
+      "src/gc-stock.c",
+      "src/jltypes.c",
+      "src/runtime_ccall.cpp",
+      "src/simplevector.c",
+      "src/staticdata.c",
+      "src/symbol.c",
+      "src/task.c"
+    ]
+  },
+  {
+    "sha": "888cf0350668a677ef27c87ab80a8562f3bc211e",
+    "author": "Keno Fischer",
+    "date": "2025-02-06T01:14:47-05:00",
+    "subject": "bpart: Fully switch to partitioned semantics (#57253)",
+    "pr_number": "57253",
+    "files": [
+      "Compiler/src/Compiler.jl",
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/ssair/ir.jl",
+      "Compiler/src/ssair/verify.jl",
+      "Compiler/src/validation.jl",
+      "Compiler/test/effects.jl",
+      "Compiler/test/inference.jl",
+      "base/boot.jl",
+      "base/client.jl",
+      "base/deprecated.jl",
+      "base/invalidation.jl",
+      "base/reflection.jl",
+      "base/runtime_internals.jl",
+      "base/show.jl",
+      "contrib/generate_precompile.jl",
+      "doc/src/manual/variables-and-scoping.md",
+      "doc/src/manual/variables.md",
+      "src/builtins.c",
+      "src/codegen.cpp",
+      "src/gc-stock.c",
+      "src/interpreter.c",
+      "src/jl_exported_funcs.inc",
+      "src/jlapi.c",
+      "src/julia-syntax.scm",
+      "src/julia.h",
+      "src/julia_internal.h",
+      "src/method.c",
+      "src/module.c",
+      "src/staticdata.c",
+      "src/toplevel.c",
+      "stdlib/InteractiveUtils/src/InteractiveUtils.jl",
+      "stdlib/REPL/src/REPL.jl",
+      "stdlib/REPL/src/REPLCompletions.jl",
+      "stdlib/REPL/src/docview.jl",
+      "stdlib/REPL/test/replcompletions.jl",
+      "stdlib/Test/src/Test.jl",
+      "test/ambiguous.jl",
+      "test/atomics.jl",
+      "test/core.jl",
+      "test/docs.jl",
+      "test/errorshow.jl",
+      "test/misc.jl",
+      "test/precompile.jl",
+      "test/rebinding.jl",
+      "test/reflection.jl",
+      "test/show.jl",
+      "test/staged.jl",
+      "test/syntax.jl",
+      "test/worlds.jl"
+    ]
+  },
+  {
+    "sha": "ca7cf30d6310469c335e7d2ed95c786cf8b93881",
+    "author": "Jameson Nash",
+    "date": "2025-02-05T23:45:19-05:00",
+    "subject": "cfunction: reimplement, as originally planned, for reliable performance (#57226)",
+    "pr_number": "57226",
+    "files": [
+      "Compiler/src/typeinfer.jl",
+      "src/aotcompile.cpp",
+      "src/ccall.cpp",
+      "src/cgutils.cpp",
+      "src/codegen.cpp",
+      "src/gf.c",
+      "src/intrinsics.cpp",
+      "src/jitlayers.cpp",
+      "src/jitlayers.h",
+      "src/jl_exported_funcs.inc",
+      "src/julia_internal.h",
+      "src/runtime_ccall.cpp",
+      "src/staticdata.c"
+    ]
+  },
+  {
+    "sha": "2f0a5239f00697914128e7bb7b58f7dadec0d519",
+    "author": "Jameson Nash",
+    "date": "2025-02-04T13:39:13-05:00",
+    "subject": "restore non-freebsd-unix fix for profiling (#57249)",
+    "pr_number": "57249",
+    "files": [
+      "src/signals-unix.c"
+    ]
+  },
+  {
+    "sha": "613bbbf17e5f3772196a502e508ce367654950d0",
+    "author": "William S. Moses",
+    "date": "2024-12-14T00:23:29-06:00",
+    "subject": "Make version of opaque closure constructor in world",
+    "pr_number": "",
+    "files": [
+      "src/jl_exported_funcs.inc",
+      "src/opaque_closure.c"
+    ]
+  }
+]
