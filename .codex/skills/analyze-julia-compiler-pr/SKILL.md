@@ -270,6 +270,85 @@ Don't speculate - read the code and quote it:
 - If you say "changes IR shape", show actual IR output from tests
 - If you say "affects downstream packages", explain which API they use
 
+### 6. NO ellipses (...) in snippets
+
+**BAD:**
+```yaml
+snippet: |
+  function foo()
+      ...
+      bar()
+  end
+```
+
+**GOOD:** Show complete, contiguous code blocks:
+```yaml
+snippet: |
+  function foo()
+      x = compute()
+      bar()
+  end
+```
+
+### 7. Include diff provenance
+
+Every analysis must include:
+```yaml
+pr:
+  merge_commit_sha: "abc123..."  # Actual commit SHA
+  diff_url: "https://github.com/JuliaLang/julia/pull/60567.diff"
+```
+
+### 8. Trace call chains with evidence locations
+
+**BAD - assertion without trace:**
+```yaml
+mechanism: "The new pass sets is_always_defined which affects boxing"
+```
+
+**GOOD - explicit call chain with file:line:**
+```yaml
+mechanism: |
+  analyze_def_and_use!(ctx, ex)  [binding_analysis.jl:45]
+    sets binfo.is_always_defined = true
+  -> is_boxed(binfo)  [closure_conversion.jl:304]
+    checks binfo.is_always_defined && binfo.is_assigned_once
+  -> closure_type_fields(ctx, ex, binds)  [closure_conversion.jl:525]
+    field_is_box = [is_boxed(b) for b in bindings]
+  -> K"new_opaque_closure" emission  [closure_conversion.jl:540]
+    emits unboxed capture: (new_opaque_closure ... slot₁/y)
+```
+
+### 9. Specific API/field names for compatibility
+
+**BAD:**
+```yaml
+internal_api: "Downstream tooling may need to account for changes"
+```
+
+**GOOD:**
+```yaml
+internal_api:
+  - field: "BindingInfo.is_always_defined"
+    change: "Now reset to false for arguments, then recomputed by analyze_def_and_use!"
+    affected_tools: ["JET (reads binding flags)", "IRTools (inspects closure fields)"]
+```
+
+### 10. Quantify or bound performance claims
+
+**BAD:**
+```yaml
+compile_time: "Slight extra work"
+```
+
+**GOOD:**
+```yaml
+compile_time: |
+  O(n) tree walk per lambda body where n = AST nodes
+  One additional pass after analyze_variables!, before closure_conversion
+  Expected: <5% increase in lowering time for typical functions
+```
+
 ## Key Questions Per PR
 
 1. **Intent:** What does the PR claim to fix/improve?
@@ -290,12 +369,16 @@ Before writing the analysis file, verify:
 - [ ] Julia repo cloned and PR checked out
 - [ ] Read full source files, not just diff
 - [ ] All evidence snippets contain ACTUAL code (multi-line with `|`)
+- [ ] NO ellipses (...) in any snippet - complete code only
 - [ ] At least one concrete before/after example from tests
-- [ ] Secondary effects traced with explicit call chains
+- [ ] Secondary effects traced with explicit call chains INCLUDING file:line
 - [ ] rg search performed for modified functions to find callers
 - [ ] Claims about downstream impact backed by specific code paths
 - [ ] Line numbers in `loc` fields are accurate and verifiable
-- [ ] Output is valid YAML/JSON (validate before writing)
+- [ ] merge_commit_sha included in PR metadata
+- [ ] Compatibility section names specific fields/APIs, not vague warnings
+- [ ] Performance claims quantified or bounded (O(n), % estimate)
+- [ ] Output is valid YAML (validate before writing)
 
 ## Output Format
 
