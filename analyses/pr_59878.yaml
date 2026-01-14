@@ -1,0 +1,140 @@
+schema_version: "1.0"
+pr:
+  number: 59878
+  title: "fix accidental save (and restore) of sigmask when interpreting try"
+  url: "https://github.com/JuliaLang/julia/pull/59878"
+  author: "vtjnash"
+  labels:
+    - "system:mac"
+    - "backport 1.10"
+    - "backport 1.11"
+  merged_at: "2025-10-19T00:55:48Z"
+  merge_commit_sha: "cc49ff5e586bbf6af9f8bcad769083f74a4e7796"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59878.diff"
+scope:
+  files_touched:
+    - "src/interpreter.c"
+  components:
+    - "Interpreter"
+  pipeline_stages:
+    - "Interpreter"
+    - "ExceptionHandling"
+analysis:
+  intent:
+    summary: "Stop the interpreter's try handling from saving/restoring the signal mask when entering :enter blocks, avoiding unintended sigmask restoration and potential overhead."
+    issue_links:
+      - "https://github.com/ericphanson/LicenseCheck.jl/issues/11#issuecomment-3417207015"
+  direct_changes:
+    - summary: "Interpreter :enter handling now calls jl_setjmp with save_sigmask=0 for both scoped and unscoped try blocks."
+      component: "Interpreter"
+      evidence:
+        - source: "code"
+          path: "src/interpreter.c"
+          loc: "540-560"
+          url: "https://github.com/JuliaLang/julia/blob/cc49ff5e586bbf6af9f8bcad769083f74a4e7796/src/interpreter.c#L540-L560"
+          snippet: |
+            s->locals[jl_source_nslots(s->src) + ip] = jl_box_ulong(jl_excstack_state(ct));
+            if (jl_enternode_scope(stmt)) {
+                jl_value_t *scope = eval_value(jl_enternode_scope(stmt), s);
+                JL_GC_PUSH1(&scope);
+                ct->scope = scope;
+                if (!jl_setjmp(__eh.eh_ctx, 0)) {
+                    ct->eh = &__eh;
+                    eval_body(stmts, s, next_ip, toplevel);
+                    jl_unreachable();
+                }
+                JL_GC_POP();
+            }
+            else {
+                if (!jl_setjmp(__eh.eh_ctx, 0)) {
+                    ct->eh = &__eh;
+                    eval_body(stmts, s, next_ip, toplevel);
+                    jl_unreachable();
+                }
+            }
+    - summary: "Unix jl_setjmp resolves to sigsetjmp(a, b), so the second argument controls signal-mask saving." 
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/julia.h"
+          loc: "2379-2388"
+          url: "https://github.com/JuliaLang/julia/blob/cc49ff5e586bbf6af9f8bcad769083f74a4e7796/src/julia.h#L2379-L2388"
+          snippet: |
+            // determine actual entry point name
+            #if defined(sigsetjmp)
+            #define jl_setjmp_f    __sigsetjmp
+            #define jl_setjmp_name "__sigsetjmp"
+            #else
+            #define jl_setjmp_f    sigsetjmp
+            #define jl_setjmp_name "sigsetjmp"
+            #endif
+            #define jl_setjmp(a,b) sigsetjmp(a,b)
+    - summary: "Interpreter try/finally coverage in tests (used as a concrete before/after example of interpreter try behavior)."
+      component: "Tests"
+      evidence:
+        - source: "code"
+          path: "test/interpreter.jl"
+          loc: "5-19"
+          url: "https://github.com/JuliaLang/julia/blob/cc49ff5e586bbf6af9f8bcad769083f74a4e7796/test/interpreter.jl#L5-L19"
+          snippet: |
+            # interpreted but inferred/optimized top-level expressions with vars
+            let code = """
+                       while true
+                           try
+                               this_is_undefined_29213
+                               ed = 0
+                               break
+                           finally
+                               break
+                           end
+                       end
+                       print(42)
+                       """
+                @test read(`$(Base.julia_cmd()) --startup-file=no --compile=min -e $code`, String) == "42"
+            end
+  secondary_effects:
+    - effect: "Interpreter-executed try blocks no longer save/restore the POSIX signal mask when entering the handler." 
+      mechanism: |
+        eval_body(...) enter handling  [src/interpreter.c:540-560]
+          -> jl_setjmp(__eh.eh_ctx, 0)  [src/interpreter.c:548,556]
+          -> jl_setjmp macro maps to sigsetjmp(a, b) on Unix  [src/julia.h:2379-2388]
+          -> b=0 prevents saving/restoring the signal mask (inferred from sigsetjmp semantics)
+      downstream_surfaces:
+        - "Signal handling behavior during interpreter-executed try/catch"
+        - "Interpreter performance for code with frequent try blocks"
+        - "macOS-specific signal mask behavior (label system:mac)"
+      likelihood: "medium"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "Interpreter exceptions no longer restore a saved signal mask when unwinding through :enter blocks."
+        severity: "low"
+        notes: "Behavioral change limited to interpreter execution paths; compiled code paths are unchanged."
+  performance:
+    compile_time: []
+    runtime:
+      - change: "Avoids sigsetjmp signal-mask save/restore in interpreter try handling." 
+        estimate: "ESTIMATED: small reduction in overhead per interpreted try/enter on Unix/macOS."
+  risk:
+    level: "low"
+    rationale:
+      - "Change is a small argument tweak in interpreter-only control-flow setup."
+      - "Scoped/unscoped try paths both updated consistently to avoid divergence."
+  open_questions: []
+  recommendations:
+    - "Consider adding a regression test that validates signal mask state around interpreter-executed try/catch on macOS." 
+    - "If regressions appear, audit other jl_setjmp call sites that still pass save_sigmask=1 in interpreter paths."
+  evidence_search:
+    - summary: "rg results for jl_setjmp(__eh.eh_ctx) call sites"
+      evidence:
+        - source: "rg"
+          path: "rg: jl_setjmp(__eh.eh_ctx)"
+          loc: "output"
+          snippet: |
+            src/julia.h
+            2424:    if (!jl_setjmp(__eh.eh_ctx, 0))                                 
+
+            src/interpreter.c
+            548:                if (!jl_setjmp(__eh.eh_ctx, 0)) {
+            556:                if (!jl_setjmp(__eh.eh_ctx, 0)) {

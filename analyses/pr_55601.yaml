@@ -1,0 +1,499 @@
+schema_version: "1.0"
+pr:
+  number: 55601
+  title: "inference: track reaching defs for slots"
+  url: "https://github.com/JuliaLang/julia/pull/55601"
+  author: "topolarity"
+  labels:
+    - "bugfix"
+    - "compiler:inference"
+    - "don't squash"
+    - "backport 1.12"
+  merged_at: "2025-12-30T15:55:38Z"
+  merge_commit_sha: "94ae0acea13fb58ef135d23dd94c637c095bfef1"
+  diff_url: "https://github.com/JuliaLang/julia/pull/55601.diff"
+scope:
+  files_touched:
+    - "Compiler/src/abstractinterpretation.jl"
+    - "Compiler/src/typelimits.jl"
+    - "Compiler/src/types.jl"
+    - "Compiler/src/typelattice.jl"
+    - "Compiler/test/AbstractInterpreter.jl"
+    - "Compiler/test/inference.jl"
+    - "Compiler/test/irpasses.jl"
+  components:
+    - "Compiler.AbstractInterpretation"
+    - "Compiler.TypeLattice"
+    - "Compiler.TypeLimits"
+    - "Compiler.Types"
+    - "Compiler.Tests"
+  pipeline_stages:
+    - "TypeInference"
+    - "AbstractInterpretation"
+analysis:
+  intent:
+    summary: "Track reaching definitions for slots in inference to apply the SSA path-convergence criterion, and use that identity tracking to avoid stale Conditional/MustAlias refinements (fixing JuliaLang/julia#55548)."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/55548"
+  direct_changes:
+    - summary: "VarState now stores a reaching-definition id (ssadef), and Conditional/MustAlias records carry ssadef to tie refinements to a specific slot identity." 
+      component: "Compiler.TypeLattice / Compiler.Types"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/types.jl"
+          loc: "67-90"
+          url: "https://github.com/JuliaLang/julia/blob/94ae0acea13fb58ef135d23dd94c637c095bfef1/Compiler/src/types.jl#L67-L90"
+          snippet: |
+            """
+                v::VarState
+            
+            A special wrapper that represents a local variable of a method being analyzed.
+            This does not participate in the native type system nor the inference lattice, and it thus
+            should be always unwrapped to `v.typ` when performing any type or lattice operations on it.
+            
+            `v.undef` represents undefined-ness of this static parameter. If `true`, it means that the
+            variable _may_ be undefined at runtime, otherwise it is guaranteed to be defined.
+            If `v.typ === Bottom` it means that the variable is strictly undefined.
+            
+            `v.ssadef` represents the "reaching definition" for the variable.
+            If zero, then the value comes from an argument.
+            If negative, this refers to a "virtual ϕ-block" preceding the given index,
+            that would have been inserted as the value of this slot in a truly SSA-form IR.
+            If a slot has the same `ssadef` at two different points of execution,
+            the slot contents are guaranteed to share identity (`x₀ === x₁`).
+            """
+            struct VarState
+                typ
+                ssadef::Int
+                undef::Bool
+                VarState(@nospecialize(typ), ssadef::Int, undef::Bool) = new(typ, ssadef, undef)
+            end
+        - source: "code"
+          path: "Compiler/src/typelattice.jl"
+          loc: "24-111"
+          url: "https://github.com/JuliaLang/julia/blob/94ae0acea13fb58ef135d23dd94c637c095bfef1/Compiler/src/typelattice.jl#L24-L111"
+          snippet: |
+            struct Conditional
+                slot::Int
+                ssadef::Int
+                thentype
+                elsetype
+                # `isdefined` indicates this `Conditional` is from `@isdefined slot`, implying that
+                # the `undef` information of `slot` can be improved in the then branch.
+                # Since this is only beneficial for local inference, it is not translated into `InterConditional`.
+                isdefined::Bool
+                function Conditional(slot::Int, ssadef::Int, @nospecialize(thentype), @nospecialize(elsetype);
+                                     isdefined::Bool=false)
+                    assert_nested_slotwrapper(thentype)
+                    assert_nested_slotwrapper(elsetype)
+                    limited = may_form_limited_typ(thentype, elsetype, Bool)
+                    limited !== nothing && return limited
+                    return new(slot, ssadef, thentype, elsetype, isdefined)
+                end
+            end
+            Conditional(var::SlotNumber, ssadef::Int, @nospecialize(thentype), @nospecialize(elsetype); isdefined::Bool=false) =
+                Conditional(slot_id(var), ssadef, thentype, elsetype; isdefined)
+            
+            struct MustAlias
+                slot::Int
+                ssadef::Int
+                vartyp::Any
+                fldidx::Int
+                fldtyp::Any
+                function MustAlias(slot::Int, ssadef::Int, @nospecialize(vartyp), fldidx::Int, @nospecialize(fldtyp))
+                    assert_nested_slotwrapper(vartyp)
+                    assert_nested_slotwrapper(fldtyp)
+                    limited = may_form_limited_typ(vartyp, fldtyp, fldtyp)
+                    limited !== nothing && return limited
+                    return new(slot, ssadef, vartyp, fldidx, fldtyp)
+                end
+            end
+    - summary: "Conditional tmerge preserves ssadef when merging conditionals with const bools or each other, keeping refinement identity consistent across lattice operations."
+      component: "Compiler.TypeLimits"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/typelimits.jl"
+          loc: "499-521"
+          url: "https://github.com/JuliaLang/julia/blob/94ae0acea13fb58ef135d23dd94c637c095bfef1/Compiler/src/typelimits.jl#L499-L521"
+          snippet: |
+            @nospecializeinfer function tmerge(lattice::ConditionalsLattice, @nospecialize(typea), @nospecialize(typeb))
+                # type-lattice for Conditional wrapper (NOTE never be merged with InterConditional)
+                if isa(typea, Conditional) && isa(typeb, Const)
+                    if typeb.val === true
+                        typeb = Conditional(typea.slot, typea.ssadef, Any, Union{})
+                    elseif typeb.val === false
+                        typeb = Conditional(typea.slot, typea.ssadef, Union{}, Any)
+                    end
+                end
+                if isa(typeb, Conditional) && isa(typea, Const)
+                    if typea.val === true
+                        typea = Conditional(typeb.slot, typeb.ssadef, Any, Union{})
+                    elseif typea.val === false
+                        typea = Conditional(typeb.slot, typeb.ssadef, Union{}, Any)
+                    end
+                end
+                if isa(typea, Conditional) && isa(typeb, Conditional)
+                    if is_same_conditionals(typea, typeb)
+                        thentype = tmerge(widenlattice(lattice), typea.thentype, typeb.thentype)
+                        elsetype = tmerge(widenlattice(lattice), typea.elsetype, typeb.elsetype)
+                        if thentype !== elsetype
+                            return Conditional(typea.slot, typea.ssadef, thentype, elsetype)
+                        end
+                    end
+                    val = maybe_extract_const_bool(typea)
+    - summary: "VarTable merge now computes a reaching-definition id at control-flow joins (path-convergence), and stoverwrite1! no longer invalidates slot wrappers directly because Conditional validity is now checked by ssadef." 
+      component: "Compiler.TypeLattice"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/typelattice.jl"
+          loc: "728-775"
+          url: "https://github.com/JuliaLang/julia/blob/94ae0acea13fb58ef135d23dd94c637c095bfef1/Compiler/src/typelattice.jl#L728-L775"
+          snippet: |
+            function smerge(lattice::AbstractLattice, sa::Union{NotFound,VarState}, sb::Union{NotFound,VarState}, join_pc::Int)
+                sa === sb && return sa
+                sa === NOT_FOUND && return sb
+                sb === NOT_FOUND && return sa
+                return VarState(tmerge(lattice, sa.typ, sb.typ), sa.ssadef == sb.ssadef ? sa.ssadef : join_pc, sa.undef | sb.undef)
+            end
+            
+            @nospecializeinfer @inline schanged(lattice::AbstractLattice, @nospecialize(n), @nospecialize(o), join_pc::Int) =
+                (n !== o) && (o === NOT_FOUND || (n !== NOT_FOUND && !(n.undef <= o.undef && (n.ssadef === o.ssadef || o.ssadef === join_pc) && ⊑(lattice, n.typ, o.typ))))
+            
+            function stupdate!(lattice::AbstractLattice, state::VarTable, changes::VarTable, join_pc::Int)
+                changed = false
+                for i = 1:length(state)
+                    newtype = changes[i]
+                    oldtype = state[i]
+                    # In addition to computing the type, the merge here computes the "reaching definition"
+                    # for a slot. The provided `join_pc` is a "virtual" PC, which corresponds to the ϕ-block
+                    # that would exist at the beginning of the BasicBlock.
+                    #
+                    # This effectively applies the "path-convergence criterion" for SSA construction.
+                    if schanged(lattice, newtype, oldtype, join_pc)
+                        state[i] = smerge(lattice, oldtype, newtype, join_pc)
+                        changed = true
+                    end
+                end
+                return changed
+            end
+            
+            function stoverwrite1!(state::VarTable, change::StateUpdate)
+                # Note: We no longer need to invalidate Conditional/MustAlias in other slots
+                # that reference this slot. The ssadef tracking handles this: when a slot is
+                # reassigned, its ssadef changes, and any Conditional/MustAlias referencing
+                # the old ssadef will be detected as stale by conditional_valid().
+                state[slot_id(change.var)] = change.vtype
+                return state
+            end
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "4462-4486"
+          url: "https://github.com/JuliaLang/julia/blob/94ae0acea13fb58ef135d23dd94c637c095bfef1/Compiler/src/abstractinterpretation.jl#L4462-L4486"
+          snippet: |
+            """
+                conditional_valid(condt::Conditional, currstate::VarTable) -> Bool
+            
+            Check whether a `Conditional` is still valid for refining the type of its slot.
+            
+            A `Conditional` becomes invalid when the slot it references has been reassigned
+            since the conditional was created. This is detected by comparing the `ssadef`
+            (reaching definition) stored in the `Conditional` with the current `ssadef` of
+            the slot in `currstate`. If they differ, the slot now holds a different object
+            and the conditional's type constraints no longer apply.
+            
+            For example:
+            ```julia
+            x = foo()        # ssadef=1
+            cond = x isa Int # creates Conditional(slot=x, ssadef=1, ...)
+            x = bar()        # ssadef=2, x is now a different object
+            if cond          # conditional_valid returns false here
+                # Cannot assume x::Int because x was reassigned
+            end
+            ```
+            """
+            function conditional_valid(condt::Conditional, currstate::VarTable)
+                @assert condt.ssadef != typemin(Int)
+                return currstate[condt.slot].ssadef == condt.ssadef
+            end
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "4077-4089"
+          url: "https://github.com/JuliaLang/julia/blob/94ae0acea13fb58ef135d23dd94c637c095bfef1/Compiler/src/abstractinterpretation.jl#L4077-L4089"
+          snippet: |
+            function update_bbstate!(𝕃ᵢ::AbstractLattice, frame::InferenceState, bb::Int, vartable::VarTable, saw_latestworld::Bool)
+                frame.bb_saw_latestworld[bb] |= saw_latestworld
+                bbtable = frame.bb_vartables[bb]
+                if bbtable === nothing
+                    # if a basic block hasn't been analyzed yet,
+                    # we can update its state a bit more aggressively
+                    frame.bb_vartables[bb] = copy(vartable)
+                    return true
+                else
+                    pc = first(frame.cfg.blocks[bb].stmts)
+                    # Minus sign marks this as a "virtual" PC so that it is
+                    # not confused with a real assignment at this PC.
+                    return stupdate!(𝕃ᵢ, bbtable, vartable, -pc)
+                end
+            end
+        - source: "rg"
+          path: "Compiler/src"
+          loc: "rg -n \"stupdate!\" Compiler/src"
+          snippet: |
+            Compiler/src/typelattice.jl
+            738:function stupdate!(lattice::AbstractLattice, state::VarTable, changes::VarTable, join_pc::Int)
+            
+            Compiler/src/abstractinterpretation.jl
+            4089:        return stupdate!(𝕃ᵢ, bbtable, vartable, -pc)
+    - summary: "Interprocedural and builtin conditionals/must-alias refinements now record ssadef from VarTable, tying constraints to a specific reaching definition." 
+      component: "Compiler.AbstractInterpretation"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "410-538"
+          url: "https://github.com/JuliaLang/julia/blob/94ae0acea13fb58ef135d23dd94c637c095bfef1/Compiler/src/abstractinterpretation.jl#L410-L538"
+          snippet: |
+            function from_interprocedural!(interp::AbstractInterpreter, @nospecialize(rt), sv::AbsIntState,
+                                           arginfo::ArgInfo, @nospecialize(maybecondinfo), vtypes::Union{VarTable,Nothing})
+                rt = collect_limitations!(rt, sv)
+                if isa(rt, InterMustAlias)
+                    rt = from_intermustalias(typeinf_lattice(interp), rt, arginfo, vtypes, sv)
+                elseif is_lattice_bool(ipo_lattice(interp), rt)
+                    if maybecondinfo === nothing
+                        rt = widenconditional(rt)
+                    else
+                        rt = from_interconditional(typeinf_lattice(interp), rt, sv, arginfo, maybecondinfo, vtypes)
+                    end
+                end
+                @assert !(rt isa InterConditional || rt isa InterMustAlias) "invalid lattice element returned from inter-procedural context"
+                return rt
+            end
+            
+            function from_intermustalias(𝕃ᵢ::AbstractLattice, rt::InterMustAlias, arginfo::ArgInfo, vtypes::Union{VarTable,Nothing}, sv::AbsIntState)
+                fargs = arginfo.fargs
+                if fargs !== nothing && 1 ≤ rt.slot ≤ length(fargs)
+                    arg = ssa_def_slot(fargs[rt.slot], sv)
+                    if isa(arg, SlotNumber)
+                        @assert vtypes !== nothing
+                        argtyp = widenslotwrapper(arginfo.argtypes[rt.slot])
+                        ⊑ = partialorder(𝕃ᵢ)
+                        if rt.vartyp ⊑ argtyp
+                            vtyp = vtypes[slot_id(arg)]
+                            return MustAlias(arg, vtyp.ssadef, rt.vartyp, rt.fldidx, rt.fldtyp)
+                        else
+                            # TODO optimize this case?
+                        end
+                    end
+                end
+                return widenmustalias(rt)
+            end
+            
+            function from_interconditional(𝕃ᵢ::AbstractLattice, @nospecialize(rt), sv::AbsIntState,
+                                           arginfo::ArgInfo, @nospecialize(maybecondinfo), vtypes::Union{VarTable,Nothing})
+                has_conditional(𝕃ᵢ, sv) || return widenconditional(rt)
+                (; fargs, argtypes) = arginfo
+                fargs === nothing && return widenconditional(rt)
+                if can_propagate_conditional(rt, argtypes)
+                    return propagate_conditional(rt, argtypes[rt.slot]::Conditional)
+                end
+                slot = 0
+                alias = nothing
+                thentype = elsetype = Any
+                condval = maybe_extract_const_bool(rt)
+                ⊑, ⋤, ⊓ = partialorder(𝕃ᵢ), strictneqpartialorder(𝕃ᵢ), meet(𝕃ᵢ)
+                for i in 1:length(fargs)
+                    # find the first argument which supports refinement,
+                    # and intersect all equivalent arguments with it
+                    argtyp = argtypes[i]
+                    if alias === nothing
+                        arg = ssa_def_slot(fargs[i], sv)
+                        if isa(arg, SlotNumber) && widenslotwrapper(argtyp) isa Type
+                            old = argtyp
+                            id = slot_id(arg)
+                        elseif argtyp isa MustAlias
+                            old = argtyp.fldtyp
+                            id = argtyp.slot
+                        else
+                            continue # unlikely to refine
+                        end
+                    elseif argtyp isa MustAlias && issubalias(argtyp, alias)
+                        arg = nothing
+                        old = alias.fldtyp
+                        id = alias.slot
+                    else
+                        continue
+                    end
+                    if slot == 0 || id == slot
+                        if isa(maybecondinfo, Tuple{Vector{Any},Vector{Any}})
+                            # if we have already computed argument refinement information, apply that now to get the result
+                            new_thentype = maybecondinfo[1][i]
+                            new_elsetype = maybecondinfo[2][i]
+                        else
+                            # otherwise compute it on the fly
+                            cnd = conditional_argtype(𝕃ᵢ, rt, maybecondinfo, argtypes, i)
+                            new_thentype = cnd.thentype
+                            new_elsetype = cnd.elsetype
+                        end
+                        if condval === false
+                            thentype = Bottom
+                        elseif new_thentype ⊑ thentype
+                            thentype = new_thentype
+                        else
+                            thentype = thentype ⊓ widenconst(new_thentype)
+                        end
+                        if condval === true
+                            elsetype = Bottom
+                        elseif new_elsetype ⊑ elsetype
+                            elsetype = new_elsetype
+                        else
+                            elsetype = elsetype ⊓ widenconst(new_elsetype)
+                        end
+                        if (slot > 0 || condval !== false) && thentype ⋤ old
+                            slot = id
+                            if !(arg isa SlotNumber) && argtyp isa MustAlias
+                                alias = argtyp
+                            end
+                        elseif (slot > 0 || condval !== true) && elsetype ⋤ old
+                            slot = id
+                            if !(arg isa SlotNumber) && argtyp isa MustAlias
+                                alias = argtyp
+                            end
+                        else # reset: no new useful information for this slot
+                            slot = 0
+                            alias = nothing
+                            thentype = elsetype = Any
+                        end
+                    end
+                end
+                if thentype === Bottom && elsetype === Bottom
+                    return Bottom # accidentally proved this call to be dead / throw !
+                elseif slot > 0
+                    if alias !== nothing
+                        return form_mustalias_conditional(alias, thentype, elsetype)
+                    end
+                    @assert vtypes !== nothing
+                    return Conditional(slot, vtypes[slot].ssadef, thentype, elsetype) # record a Conditional improvement to this slot
+                end
+                return widenconditional(rt)
+            end
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "1951-2056"
+          url: "https://github.com/JuliaLang/julia/blob/94ae0acea13fb58ef135d23dd94c637c095bfef1/Compiler/src/abstractinterpretation.jl#L1951-L2056"
+          snippet: |
+            function abstract_call_builtin(interp::AbstractInterpreter, f::Builtin, (; fargs, argtypes)::ArgInfo,
+                                           vtypes::Union{VarTable,Nothing}, sv::AbsIntState)
+                @nospecialize f
+                la = length(argtypes)
+                𝕃ᵢ = typeinf_lattice(interp)
+                ⊑, ⊏, ⊔, ⊓ = partialorder(𝕃ᵢ), strictpartialorder(𝕃ᵢ), join(𝕃ᵢ), meet(𝕃ᵢ)
+                if has_conditional(𝕃ᵢ, sv) && f === Core.ifelse && fargs isa Vector{Any} && la == 4
+                    cnd = argtypes[2]
+                    if isa(cnd, Conditional)
+                        newcnd = widenconditional(cnd)
+                        tx = argtypes[3]
+                        ty = argtypes[4]
+                        if isa(newcnd, Const)
+                            # if `cnd` is constant, we should just respect its constantness to keep inference accuracy
+                            return newcnd.val::Bool ? tx : ty
+                        else
+                            # try to simulate this as a real conditional (`cnd ? x : y`), so that the penalty for using `ifelse` instead isn't too high
+                            a = ssa_def_slot(fargs[3], sv)
+                            b = ssa_def_slot(fargs[4], sv)
+                            if isa(a, SlotNumber) && cnd.slot == slot_id(a)
+                                tx = (cnd.thentype ⊑ tx ? cnd.thentype : tx ⊓ widenconst(cnd.thentype))
+                            end
+                            if isa(b, SlotNumber) && cnd.slot == slot_id(b)
+                                ty = (cnd.elsetype ⊑ ty ? cnd.elsetype : ty ⊓ widenconst(cnd.elsetype))
+                            end
+                            return tx ⊔ ty
+                        end
+                    end
+                end
+                ft = popfirst!(argtypes)
+                rt = builtin_tfunction(interp, f, argtypes, sv)
+                pushfirst!(argtypes, ft)
+                if has_mustalias(𝕃ᵢ) && f === getfield && isa(fargs, Vector{Any}) && la ≥ 3
+                    a3 = argtypes[3]
+                    if isa(a3, Const)
+                        if rt !== Bottom && !isalreadyconst(rt)
+                            var = ssa_def_slot(fargs[2], sv)
+                            if isa(var, SlotNumber)
+                                vartyp = widenslotwrapper(argtypes[2])
+                                fldidx = maybe_const_fldidx(vartyp, a3.val)
+                                if fldidx !== nothing
+                                    # wrap this aliasable field into `MustAlias` for possible constraint propagations
+                                    @assert vtypes !== nothing
+                                    vtyp = vtypes[slot_id(var)]
+                                    return MustAlias(var, vtyp.ssadef, vartyp, fldidx, rt)
+                                end
+                            end
+                        end
+                    end
+                elseif has_conditional(𝕃ᵢ, sv) && (rt === Bool || (isa(rt, Const) && isa(rt.val, Bool))) && isa(fargs, Vector{Any})
+                    # perform very limited back-propagation of type information for `is` and `isa`
+                    if f === isa
+                        # try splitting value argument, based on types
+                        a = ssa_def_slot(fargs[2], sv)
+                        a2 = argtypes[2]
+                        a3 = argtypes[3]
+                        if isa(a, SlotNumber)
+                            cndt = isa_condition(a2, a3, InferenceParams(interp).max_union_splitting, rt)
+                            if cndt !== nothing
+                                @assert vtypes !== nothing
+                                vtyp = vtypes[slot_id(a)]
+                                return Conditional(a, vtyp.ssadef, cndt.thentype, cndt.elsetype)
+                            end
+                        end
+  secondary_effects:
+    - effect: "Conditional/MustAlias refinements are invalidated when a slot is reassigned, preventing stale constraints from affecting later inference results (fix for JuliaLang/julia#55548)."
+      mechanism: |
+        abstract_call_builtin(..., f === isa/===) returns Conditional(slot, ssadef, ...)  [abstractinterpretation.jl:2000-2056]
+          -> Conditional stored in VarTable for branch refinement
+        conditional_valid(condt, currstate) compares condt.ssadef with currstate[slot].ssadef  [abstractinterpretation.jl:4462-4486]
+          -> stale Conditional is ignored after reassignment
+        stoverwrite1! updates slot VarState without invalidating other slot wrappers  [typelattice.jl:763-769]
+      downstream_surfaces:
+        - "Core.Compiler.Conditional refinement in inference"
+        - "Core.Compiler.MustAlias field constraint propagation"
+        - "Base.infer_return_type for code with reassigned slots"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "Join-point VarTable merges now record a virtual reaching-def id, which propagates into interprocedural Conditional/MustAlias reconstruction and affects identity-sensitive refinements across control-flow joins."
+      mechanism: |
+        update_bbstate! computes join_pc = -pc for join block  [abstractinterpretation.jl:4077-4089]
+          -> stupdate!(..., join_pc) merges VarState with ssadef = join_pc when defs disagree  [typelattice.jl:728-750]
+        from_interconditional/from_intermustalias uses vtypes[slot].ssadef to construct Conditional/MustAlias  [abstractinterpretation.jl:410-538]
+      downstream_surfaces:
+        - "Core.Compiler.VarState.ssadef tracking in bb_vartables"
+        - "Interprocedural conditional propagation"
+      likelihood: "medium"
+      impact: "medium"
+  compatibility:
+    internal_api:
+      - field: "Core.Compiler.VarState.ssadef"
+        change: "VarState now includes ssadef::Int and constructor signature requires it."
+        affected_tools:
+          - tool: "Core.Compiler consumers"
+            usage: "Any tooling that constructs VarState directly must pass ssadef; see VarState definition in Compiler/src/types.jl."
+      - field: "Core.Compiler.Conditional/ MustAlias constructors"
+        change: "Constructors now take ssadef::Int, and Conditional is validated via ssadef." 
+        affected_tools:
+          - tool: "Core.Compiler consumers"
+            usage: "Construction sites in abstractinterpretation now pass vtypes[slot].ssadef when building Conditional/MustAlias."
+    behavioral:
+      - change: "Conditionals tied to a slot are discarded after reassignment, so inference no longer applies stale constraints to redefined slots." 
+        impact: "Fixes inference results for reassigned slots (JuliaLang/julia#55548), potentially changing inferred return types." 
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: VarTable merge does one additional integer compare per slot to carry ssadef (O(nslots) per join)."
+    runtime:
+      - impact: "ESTIMATED: No runtime impact; changes are confined to inference-time lattice state." 
+  risk:
+    level: "medium"
+    rationale:
+      - "Touches core inference lattice operations (VarState merge and Conditional/MustAlias reconstruction)."
+      - "New ssadef tracking changes when refinements are accepted or discarded, which can alter inferred types." 
+  open_questions: []
+  recommendations:
+    - "Downstream tools that construct Conditional/MustAlias should pass ssadef (use 0 for arguments and the slot's VarState.ssadef otherwise)."
+    - "If tooling inspects bb_vartables or VarState directly, account for the new ssadef field and its virtual join_pc semantics."

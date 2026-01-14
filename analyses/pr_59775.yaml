@@ -1,0 +1,160 @@
+schema_version: "1.0"
+pr:
+  number: 59775
+  title: "deprecate `merge(::Callable ..)` in favor of `mergewith`"
+  url: "https://github.com/JuliaLang/julia/pull/59775"
+  author: "adienes"
+  labels:
+    - "deprecation"
+    - "collections"
+  merged_at: "2025-10-27T17:05:02Z"
+  merge_commit_sha: "595757964be1e190e8fe474b74df7a60b315e566"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59775.diff"
+scope:
+  files_touched:
+    - "Compiler/test/inference.jl"
+    - "NEWS.md"
+    - "base/deprecated.jl"
+    - "test/dict.jl"
+  components:
+    - "Compiler.Tests"
+    - "Compiler.Base"
+  pipeline_stages:
+    - "Tests"
+    - "RuntimeLibrary"
+analysis:
+  intent:
+    summary: "Deprecate the Callable-combiner overload of merge(::AbstractDict...) in favor of mergewith, and update tests and NEWS to reflect the preferred API."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/34296"
+      - "https://github.com/JuliaLang/julia/issues/43491#issuecomment-1004364287"
+  direct_changes:
+    - summary: "Introduce a 1.13 deprecation redirecting merge(combine::Callable, d::AbstractDict, ...) to mergewith." 
+      component: "Base deprecations"
+      evidence:
+        - source: "code"
+          path: "base/deprecated.jl"
+          loc: "570-573"
+          url: "https://github.com/JuliaLang/julia/blob/595757964be1e190e8fe474b74df7a60b315e566/base/deprecated.jl#L570-L573"
+          snippet: |
+            # BEGIN 1.13 deprecations
+            
+            @deprecate merge(combine::Callable, d::AbstractDict, others::AbstractDict...) mergewith(combine, d, others...)
+            
+            # end 1.13 deprecations
+    - summary: "Update the inference regression test for MixedKeyDict to use mergewith instead of merge with a combiner function." 
+      component: "Compiler test suite"
+      evidence:
+        - source: "test"
+          path: "Compiler/test/inference.jl"
+          loc: "3509-3542"
+          url: "https://github.com/JuliaLang/julia/blob/595757964be1e190e8fe474b74df7a60b315e566/Compiler/test/inference.jl#L3509-L3542"
+          snippet: |
+            struct MixedKeyDict{T<:Tuple} #<: AbstractDict{Any,Any}
+                dicts::T
+            end
+            Base.mergewith(f::Function, d::MixedKeyDict, others::MixedKeyDict...) = _merge(f, (), d.dicts, (d->d.dicts).(others)...)
+            Base.mergewith(f, d::MixedKeyDict, others::MixedKeyDict...) = _merge(f, (), d.dicts, (d->d.dicts).(others)...)
+            function _merge(f, res, d, others...)
+                ofsametype, remaining = _alloftype(Base.heads(d), ((),), others...)
+                return _merge(f, (res..., mergewith(f, ofsametype...)), Base.tail(d), remaining...)
+            end
+            _merge(f, res, ::Tuple{}, others...) = _merge(f, res, others...)
+            _merge(f, res, d) = MixedKeyDict((res..., d...))
+            _merge(f, res, ::Tuple{}) = MixedKeyDict(res)
+            function _alloftype(ofdesiredtype::Tuple{Vararg{D}}, accumulated, d::Tuple{D,Vararg}, others...) where D
+                return _alloftype((ofdesiredtype..., first(d)),
+                                  (Base.front(accumulated)..., (last(accumulated)..., Base.tail(d)...), ()),
+                                  others...)
+            end
+            function _alloftype(ofdesiredtype, accumulated, d, others...)
+                return _alloftype(ofdesiredtype,
+                                  (Base.front(accumulated)..., (last(accumulated)..., first(d))),
+                                  Base.tail(d), others...)
+            end
+            function _alloftype(ofdesiredtype, accumulated, ::Tuple{}, others...)
+                return _alloftype(ofdesiredtype,
+                                  (accumulated..., ()),
+                                  others...)
+            end
+            _alloftype(ofdesiredtype, accumulated) = ofdesiredtype, Base.front(accumulated)
+            let
+                d = MixedKeyDict((Dict(1 => 3), Dict(4. => 2)))
+                e = MixedKeyDict((Dict(1 => 7), Dict(5. => 9)))
+                @test mergewith(+, d, e).dicts == (Dict(1 => 10), Dict(4.0 => 2, 5.0 => 9))
+                f = MixedKeyDict((Dict(2 => 7), Dict(5. => 11)))
+                @test mergewith(+, d, e, f).dicts == (Dict(1 => 10, 2 => 7), Dict(4.0 => 2, 5.0 => 20))
+            end
+    - summary: "Remove the backward-compatibility test that exercised merge with a combiner and keep mergewith coverage." 
+      component: "Base tests"
+      evidence:
+        - source: "test"
+          path: "test/dict.jl"
+          loc: "1281-1291"
+          url: "https://github.com/JuliaLang/julia/blob/595757964be1e190e8fe474b74df7a60b315e566/test/dict.jl#L1281-L1291"
+          snippet: |
+            @testset "Dict merge" begin
+                d1 = Dict("A" => 1, "B" => 2)
+                d2 = Dict("B" => 3.0, "C" => 4.0)
+                @test @inferred merge(d1, d2) == Dict("A" => 1, "B" => 3, "C" => 4)
+                # merge with combiner function
+                @test @inferred mergewith(+, d1, d2) == Dict("A" => 1, "B" => 5, "C" => 4)
+                @test @inferred mergewith(*, d1, d2) == Dict("A" => 1, "B" => 6, "C" => 4)
+                @test @inferred mergewith(-, d1, d2) == Dict("A" => 1, "B" => -1, "C" => 4)
+                @test @inferred mergewith(NonFunctionCallable(), d1, d2) == Dict("A" => 1, "B" => 5, "C" => 4)
+                @test foldl(mergewith(+), [d1, d2]; init=Dict{Union{},Union{}}()) ==
+                    Dict("A" => 1, "B" => 5, "C" => 4)
+            end
+    - summary: "Add a NEWS entry documenting the deprecation of merge(combine::Callable, d::AbstractDict...)."
+      component: "Release notes"
+      evidence:
+        - source: "docs"
+          path: "NEWS.md"
+          loc: "126-129"
+          url: "https://github.com/JuliaLang/julia/blob/595757964be1e190e8fe474b74df7a60b315e566/NEWS.md#L126-L129"
+          snippet: |
+            Deprecated or removed
+            ---------------------
+            
+            * The method `merge(combine::Callable, d::AbstractDict...)` is now deprecated to favor `mergewith` instead ([#59775]).
+  secondary_effects:
+    - effect: "Calling merge(combine::Callable, d::AbstractDict...) now emits a deprecation warning and forwards to mergewith."
+      mechanism: |
+        merge(combine::Callable, d::AbstractDict, others::AbstractDict...)  [base/abstractdict.jl:408-409]
+          defines the Callable-combiner overload
+        -> @deprecate wrapper  [base/deprecated.jl:570-573]
+          emits depwarn and redirects to mergewith(combine, d, others...)
+        -> mergewith(combine, d::AbstractDict, others::AbstractDict...)  [base/abstractdict.jl:405-406]
+          performs the combining merge
+      downstream_surfaces:
+        - "User code calling merge(+, dicts...)"
+        - "Packages that overload merge(combine::Callable, ::AbstractDict...)"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - item: "merge(combine::Callable, d::AbstractDict, others::AbstractDict...)"
+        change: "Deprecated via @deprecate and redirected to mergewith; call sites should migrate to mergewith to avoid depwarns."
+        affected_tools:
+          - "Packages defining or calling Callable-based merge overloads"
+    behavioral:
+      - item: "Deprecation warnings"
+        change: "Calls to merge(+, dicts...) now trigger a deprecation warning in 1.13."
+        affected_tools:
+          - "User-facing code paths that previously used merge with a combiner"
+  performance:
+    compile_time:
+      - item: "Deprecation wrapper dispatch"
+        impact: "ESTIMATED: negligible; only adds deprecation check on use of merge(combine::Callable, ...)."
+    runtime:
+      - item: "mergewith redirect"
+        impact: "ESTIMATED: negligible; existing mergewith path is reused after deprecation wrapper."
+  risk:
+    level: "low"
+    rationale:
+      - "No compiler pipeline behavior changes; this is a Base API deprecation with tests updated to the preferred API."
+      - "Runtime behavior remains the same aside from a deprecation warning for Callable-based merge."
+  open_questions: []
+  recommendations:
+    - "Update downstream code that calls merge(+, dicts...) to mergewith(+, dicts...) to avoid deprecation warnings."
+    - "If you define custom merge(combine::Callable, ::AbstractDict...) methods, consider adding corresponding mergewith overloads."

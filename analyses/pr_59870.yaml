@@ -1,0 +1,503 @@
+schema_version: "1.0"
+pr:
+  number: 59870
+  title: "Move JuliaSyntax + JuliaLowering into the main tree"
+  url: "https://github.com/JuliaLang/julia/pull/59870"
+  author: "c42f"
+  labels:
+    - "don't squash"
+  merged_at: "2025-11-14T19:15:55Z"
+  merge_commit_sha: "b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59870.diff"
+scope:
+  files_touched:
+    - "JuliaSyntax/src/JuliaSyntax.jl"
+    - "JuliaSyntax/src/integration/hooks.jl"
+    - "JuliaLowering/src/JuliaLowering.jl"
+    - "JuliaLowering/src/closure_conversion.jl"
+    - "JuliaLowering/src/runtime.jl"
+    - "JuliaLowering/test/closures_ir.jl"
+    - "base/Base.jl"
+    - "Makefile"
+    - "sysimage.mk"
+    - "test/Makefile"
+    - "test/choosetests.jl"
+  components:
+    - "JuliaSyntax"
+    - "JuliaLowering"
+    - "Base"
+    - "BuildSystem"
+    - "Testing"
+  pipeline_stages:
+    - "Parsing"
+    - "Lowering"
+    - "SysimageBuild"
+    - "Testing"
+analysis:
+  intent:
+    summary: "Vendor JuliaSyntax and JuliaLowering into the Julia repository, expose them as top-level packages, and wire build/test/sysimage plumbing to make the compiler frontend available in-tree."
+    issue_links: []
+  direct_changes:
+    - summary: "Bootstrap the JuliaSyntax frontend in Base by loading it from the installed dataroot path rather than the build tree."
+      component: "Base"
+      evidence:
+        - source: "code"
+          path: "base/Base.jl"
+          loc: "314-320"
+          url: "https://github.com/JuliaLang/julia/blob/b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c/base/Base.jl#L314-L320"
+          snippet: |
+            # Compatibility with when Compiler was in Core
+            @eval Core const Compiler = $Base.Compiler
+            @eval Compiler const fl_parse = $Base.fl_parse
+
+            # Compiler frontend
+            Core.println("JuliaSyntax/src/JuliaSyntax.jl")
+            include(@__MODULE__, string(DATAROOT, "julia/JuliaSyntax/src/JuliaSyntax.jl"))
+    - summary: "Add JuliaSyntax source files to the sysimage build so the parser frontend is compiled into Base."
+      component: "BuildSystem"
+      evidence:
+        - source: "code"
+          path: "sysimage.mk"
+          loc: "78-86"
+          url: "https://github.com/JuliaLang/julia/blob/b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c/sysimage.mk#L78-L86"
+          snippet: |
+            COMPILER_SRCS += $(shell find $(JULIAHOME)/Compiler/src -name \*.jl -and -not -name verifytrim.jl -and -not -name show.jl)
+            # Julia-based compiler frontend is bootstrapped into Base for now
+            COMPILER_FRONTEND_SRCS = $(shell find $(JULIAHOME)/JuliaSyntax/src -name \*.jl)
+            # sort these to remove duplicates
+            BASE_SRCS := $(sort $(shell find $(JULIAHOME)/base -name \*.jl -and -not -name sysimg.jl) \
+                                $(shell find $(BUILDROOT)/base -name \*.jl  -and -not -name sysimg.jl)) \
+                        $(COMPILER_FRONTEND_SRCS) \
+                        $(JULIAHOME)/Compiler/src/ssair/show.jl \
+                        $(JULIAHOME)/Compiler/src/verifytrim.jl
+    - summary: "Treat JuliaSyntax and JuliaLowering as top-level packages for install layout and test selection."
+      component: "BuildSystem/Testing"
+      evidence:
+        - source: "code"
+          path: "Makefile"
+          loc: "82-87"
+          url: "https://github.com/JuliaLang/julia/blob/b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c/Makefile#L82-L87"
+          snippet: |
+            TOP_LEVEL_PKGS := Compiler JuliaSyntax JuliaLowering
+
+            TOP_LEVEL_PKG_LINK_TARGETS := $(addprefix $(build_datarootdir)/julia/,$(TOP_LEVEL_PKGS))
+
+            # Generate symlinks for top level pkgs in usr/share/julia/
+            $(foreach module, $(TOP_LEVEL_PKGS), $(eval $(call symlink_target,$$(JULIAHOME)/$(module),$$(build_datarootdir)/julia,$(module))))
+        - source: "code"
+          path: "test/Makefile"
+          loc: "14-20"
+          url: "https://github.com/JuliaLang/julia/blob/b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c/test/Makefile#L14-L20"
+          snippet: |
+            TESTGROUPS = unicode strings compiler Compiler JuliaSyntax JuliaLowering
+            TESTS = all default stdlib $(TESTGROUPS) \
+                    $(patsubst $(STDLIBDIR)/%/,%,$(dir $(wildcard $(STDLIBDIR)/*/.))) \
+                    $(filter-out runtests testdefs relocatedepot, \
+                        $(patsubst $(SRCDIR)/%.jl,%,$(wildcard $(SRCDIR)/*.jl))) \
+                    $(foreach group,$(TESTGROUPS), \
+                        $(patsubst $(SRCDIR)/%.jl,%,$(wildcard $(SRCDIR)/$(group)/*.jl)))
+        - source: "code"
+          path: "test/choosetests.jl"
+          loc: "30-76"
+          url: "https://github.com/JuliaLang/julia/blob/b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c/test/choosetests.jl#L30-L76"
+          snippet: |
+            "smallarrayshrink", "opaque_closure", "filesystem", "download",
+            "scopedvalues", "compileall", "rebinding",
+            "faulty_constructor_method_should_not_cause_stack_overflows",
+            "JuliaSyntax", "JuliaLowering",
+            ]
+
+            const TOP_LEVEL_PKGS = [
+                "Compiler",
+                "JuliaSyntax",
+                "JuliaLowering",
+            ]
+
+            function test_path(test)
+                t = split(test, '/')
+                if t[1] in STDLIBS
+                    pkgdir = abspath(Base.find_package(String(t[1])), "..", "..")
+                    if length(t) == 2
+                        return joinpath(pkgdir, "test", t[2])
+                    else
+                        return joinpath(pkgdir, "test", "runtests")
+                    end
+                elseif t[1] == "Compiler" && length(t) ≥ 3 && t[2] == "extras"
+                    testpath = length(t) >= 4 ? t[4:end] : ("runtests",)
+                    return joinpath(@__DIR__, "..", t[1], t[2], t[3], "test", testpath...)
+                elseif t[1] == "Compiler"
+                    testpath = length(t) >= 2 ? t[2:end] : ("runtests",)
+                    return joinpath(@__DIR__, "..", t[1], "test", testpath...)
+                elseif t[1] == "JuliaSyntax"
+                    testpath = length(t) >= 2 ? t[2:end] : ("runtests_vendored",)
+                    return joinpath(@__DIR__, "..", t[1], "test", testpath...)
+                elseif t[1] == "JuliaLowering"
+                    testpath = length(t) >= 2 ? t[2:end] : ("runtests_vendored",)
+                    return joinpath(@__DIR__, "..", t[1], "test", testpath...)
+    - summary: "Import the JuliaSyntax parsing/tokenization API into the main tree with explicit public exports and parser includes."
+      component: "JuliaSyntax"
+      evidence:
+        - source: "code"
+          path: "JuliaSyntax/src/JuliaSyntax.jl"
+          loc: "1-106"
+          url: "https://github.com/JuliaLang/julia/blob/b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c/JuliaSyntax/src/JuliaSyntax.jl#L1-L106"
+          snippet: |
+            module JuliaSyntax
+
+            macro _public(syms)
+                if VERSION >= v"1.11"
+                    names = syms isa Symbol ? [syms] : syms.args
+                    esc(Expr(:public, names...))
+                else
+                    nothing
+                end
+            end
+
+            # Public API, in the order of docs/src/api.md
+
+            # Parsing.
+            export parsestmt,
+                parseall,
+                parseatom
+
+            @_public parse!,
+                ParseStream,
+                build_tree
+
+            # Tokenization
+            export tokenize,
+                Token,
+                untokenize
+
+            # Source file handling
+            @_public sourcefile,
+                byte_range,
+                char_range,
+                first_byte,
+                last_byte,
+                filename,
+                source_line,
+                source_location,
+                sourcetext,
+                highlight
+
+            export SourceFile
+            @_public source_line_range
+
+            # Expression predicates, kinds and flags
+            export @K_str, kind
+            @_public Kind
+
+            @_public flags,
+                SyntaxHead,
+                head,
+                is_trivia,
+                is_prefix_call,
+                is_infix_op_call,
+                is_prefix_op_call,
+                is_postfix_op_call,
+                is_dotted,
+                is_suffixed,
+                is_decorated,
+                numeric_flags,
+                has_flags,
+                TRIPLE_STRING_FLAG,
+                RAW_STRING_FLAG,
+                PARENS_FLAG,
+                COLON_QUOTE,
+                TOPLEVEL_SEMICOLONS_FLAG,
+                MUTABLE_FLAG,
+                BARE_MODULE_FLAG,
+                SHORT_FORM_FUNCTION_FLAG
+
+            # Syntax trees
+            @_public is_leaf,
+                numchildren,
+                children
+
+            export SyntaxNode
+
+            @_public GreenNode, RedTreeCursor, GreenTreeCursor,
+                span
+
+            # Helper utilities
+            include("utils.jl")
+
+            include("julia/kinds.jl")
+
+            # Lexing uses a significantly modified version of Tokenize.jl
+            include("julia/tokenize.jl")
+
+            # Source and diagnostics
+            include("core/source_files.jl")
+            include("core/diagnostics.jl")
+
+            # Parsing
+            include("core/parse_stream.jl")
+            include("core/tree_cursors.jl")
+            include("julia/julia_parse_stream.jl")
+            include("julia/parser.jl")
+            include("julia/parser_api.jl")
+            include("julia/literal_parsing.jl")
+
+            # Tree data structures
+            include("porcelain/green_node.jl")
+            include("porcelain/syntax_tree.jl")
+            include("integration/expr.jl")
+
+            # Hooks to integrate the parser with Base
+            include("integration/hooks.jl")
+            include("precompile.jl")
+
+            end
+    - summary: "Bring the JuliaLowering compiler frontend into-tree, including closure conversion and runtime helpers for closure type construction."
+      component: "JuliaLowering"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/JuliaLowering.jl"
+          loc: "1-45"
+          url: "https://github.com/JuliaLang/julia/blob/b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c/JuliaLowering/src/JuliaLowering.jl#L1-L45"
+          snippet: |
+            # Use a baremodule because we're implementing `include` and `eval`
+            baremodule JuliaLowering
+
+            using Base
+            # We define a separate _include() for use in this module to avoid mixing method
+            # tables with the public `JuliaLowering.include()` API
+            const _include = Base.IncludeInto(JuliaLowering)
+
+            if parentmodule(JuliaLowering) === Base
+                using Base.JuliaSyntax
+            else
+                using JuliaSyntax
+            end
+
+            using .JuliaSyntax: highlight, Kind, @KSet_str, is_leaf, children, numchildren,
+                head, kind, flags, has_flags, numeric_flags, filename, first_byte,
+                last_byte, byte_range, sourcefile, source_location, span, sourcetext,
+                is_literal, is_number, is_operator, is_prec_assignment, is_prefix_call,
+                is_infix_op_call, is_postfix_op_call, is_error
+
+            _include("kinds.jl")
+            _register_kinds()
+
+            _include("syntax_graph.jl")
+            _include("ast.jl")
+            _include("bindings.jl")
+            _include("utils.jl")
+
+            _include("macro_expansion.jl")
+            _include("desugaring.jl")
+            _include("scope_analysis.jl")
+            _include("closure_conversion.jl")
+            _include("linear_ir.jl")
+            _include("runtime.jl")
+            _include("syntax_macros.jl")
+
+            _include("eval.jl")
+            _include("compat.jl")
+            _include("hooks.jl")
+
+            function __init__()
+                _register_kinds()
+            end
+    - summary: "JuliaLowering IR tests now assert closure capture boxing vs unboxing behavior, including the unboxed capture case."
+      component: "JuliaLowering/Tests"
+      evidence:
+        - source: "test"
+          path: "JuliaLowering/test/closures_ir.jl"
+          loc: "152-193"
+          url: "https://github.com/JuliaLang/julia/blob/b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c/JuliaLowering/test/closures_ir.jl#L152-L193"
+          snippet: |
+            ########################################
+            # Closure where a local `x` is captured but not boxed
+            function f(x)
+                function g()
+                    y = x
+                end
+                z = x
+            end
+            #---------------------
+            1   (method TestMod.f)
+            2   latestworld
+            3   (call core.svec :x)
+            4   (call core.svec false)
+            5   (call JuliaLowering.eval_closure_type TestMod :#f#g##1 %₃ %₄)
+            6   latestworld
+            7   TestMod.#f#g##1
+            8   (call core.svec %₇)
+            9   (call core.svec)
+            10  SourceLocation::2:14
+            11  (call core.svec %₈ %₉ %₁₀)
+            12  --- method core.nothing %₁₁
+                slots: [slot₁/#self#(!read) slot₂/y(!read)]
+                1   (call core.getfield slot₁/#self# :x)
+                2   (= slot₂/y %₁)
+                3   (return %₁)
+            13  latestworld
+            14  TestMod.f
+            15  (call core.Typeof %₁₄)
+            16  (call core.svec %₁₅ core.Any)
+            17  (call core.svec)
+            18  SourceLocation::1:10
+            19  (call core.svec %₁₆ %₁₇ %₁₈)
+            20  --- method core.nothing %₁₉
+                slots: [slot₁/#self#(!read) slot₂/x slot₃/g slot₄/z(!read)]
+                1   TestMod.#f#g##1
+                2   (call core.typeof slot₂/x)
+                3   (call core.apply_type %₁ %₂)
+                4   (new %₃ slot₂/x)
+                5   (= slot₃/g %₄)
+                6   slot₂/x
+                7   (= slot₄/z %₆)
+                8   (return %₆)
+    - summary: "Closure conversion uses is_boxed to decide capture boxing and to drive closure field metadata."
+      component: "JuliaLowering"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/closure_conversion.jl"
+          loc: "232-316"
+          url: "https://github.com/JuliaLang/julia/blob/b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c/JuliaLowering/src/closure_conversion.jl#L232-L316"
+          snippet: |
+            # Compute fields for a closure type, one field for each captured variable.
+            function closure_type_fields(ctx, srcref, closure_binds, is_opaque)
+                capture_ids = Vector{IdTag}()
+                for lambda_bindings in closure_binds.lambdas
+                    for (id, lbinfo) in lambda_bindings.bindings
+                        if lbinfo.is_captured
+                            push!(capture_ids, id)
+                        end
+                    end
+                end
+                # sort here to avoid depending on undefined Dict iteration order.
+                capture_ids = sort!(unique(capture_ids))
+
+                field_syms = SyntaxList(ctx)
+                if is_opaque
+                    field_orig_bindings = capture_ids
+                    # For opaque closures we don't try to generate sensible names for the
+                    # fields as there's no closure type to generate.
+                    for (i,id) in enumerate(field_orig_bindings)
+                        push!(field_syms, @ast ctx srcref i::K"Integer")
+                    end
+                else
+                    field_names = Dict{String,IdTag}()
+                    for id in capture_ids
+                        binfo = lookup_binding(ctx, id)
+                        # We name each field of the closure after the variable which was closed
+                        # over, for clarity. Adding a suffix can be necessary when collisions
+                        # occur due to macro expansion and generated bindings
+                        name0 = binfo.name
+                        name = name0
+                        i = 1
+                        while haskey(field_names, name)
+                            name = \"$name0#$i\"
+                            i += 1
+                        end
+                        field_names[name] = id
+                    end
+                    field_orig_bindings = Vector{IdTag}()
+                    for (name,id) in sort!(collect(field_names))
+                        push!(field_syms, @ast ctx srcref name::K"Symbol")
+                        push!(field_orig_bindings, id)
+                    end
+                end
+                field_inds = Dict{IdTag,Int}()
+                field_is_box = Vector{Bool}()
+                for (i,id) in enumerate(field_orig_bindings)
+                    push!(field_is_box, is_boxed(ctx, id))
+                    field_inds[id] = i
+                end
+
+                return field_syms, field_orig_bindings, field_inds, field_is_box
+            end
+
+            function is_boxed(binfo::BindingInfo)
+                # True for
+                # * :argument when it's not reassigned
+                # * :static_parameter (these can't be reassigned)
+                defined_but_not_assigned = binfo.is_always_defined && binfo.n_assigned == 0
+                # For now, we box almost everything but later we'll want to do dominance
+                # analysis on the untyped IR.
+                return binfo.is_captured && !defined_but_not_assigned
+            end
+
+            function is_boxed(ctx, x)
+                is_boxed(lookup_binding(ctx, x))
+            end
+        - source: "rg"
+          path: "JuliaLowering/src/closure_conversion.jl"
+          loc: "205,278,304-315,350,363,576"
+          url: "https://github.com/JuliaLang/julia/blob/b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c/JuliaLowering/src/closure_conversion.jl#L205-L576"
+          snippet: |
+            205:        boxed = is_boxed(binfo)
+            278:        push!(field_is_box, is_boxed(ctx, id))
+            304:function is_boxed(binfo::BindingInfo)
+            314:function is_boxed(ctx, x)
+            315:    is_boxed(lookup_binding(ctx, x))
+            350:        if is_boxed(ctx, ex)
+            363:        if is_boxed(binfo)
+            576:        if is_boxed(ctx, arg)
+  secondary_effects:
+    - effect: "JuliaSyntax can replace the runtime parser when explicitly enabled, affecting parsing across include/REPL/Meta.parse for users who opt in."
+      mechanism: |
+        enable_in_core!(...)  [JuliaSyntax/src/integration/hooks.jl:336-354]
+          -> _set_core_parse_hook(fix_world_age(core_parser_hook, world_age))  [JuliaSyntax/src/integration/hooks.jl:336-349]
+          -> core_parser_hook(...) replaces Core._parse entry points used by include/REPL  [JuliaSyntax/src/integration/hooks.jl:165-214]
+      downstream_surfaces:
+        - "REPL parsing"
+        - "include()"
+        - "Meta.parse()"
+      likelihood: "medium"
+      impact: "medium"
+    - effect: "JuliaLowering’s closure conversion decides boxed vs unboxed captures and builds closure types via eval_closure_type; downstream tooling consuming JuliaLowering IR will observe these field decisions."
+      mechanism: |
+        closure_type_fields(ctx, ...)  [JuliaLowering/src/closure_conversion.jl:232-283]
+          -> is_boxed(ctx, id)  [JuliaLowering/src/closure_conversion.jl:304-315]
+          -> type_for_closure(...) emits eval_closure_type call  [JuliaLowering/src/closure_conversion.jl:285-301]
+          -> eval_closure_type(...) constructs Core._structtype with Core.Box for boxed fields  [JuliaLowering/src/runtime.jl:156-177]
+      downstream_surfaces:
+        - "JuliaLowering IR consumers (JET/IRTools-style tooling)"
+        - "OpaqueClosure/closure layout inspection"
+      likelihood: "low"
+      impact: "low"
+    - effect: "Sysimage build and CI coverage expand because JuliaSyntax sources are included in Base and new test groups are added."
+      mechanism: |
+        sysimage.mk adds JuliaSyntax sources to BASE_SRCS  [sysimage.mk:78-86]
+        Makefile and test/choosetests.jl add JuliaSyntax/JuliaLowering as top-level packages  [Makefile:82-87, test/choosetests.jl:30-76]
+      downstream_surfaces:
+        - "Sysimage build time/size"
+        - "CI test matrix"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "DATAROOT/julia/JuliaSyntax/src/JuliaSyntax.jl include path"
+        change: "Base now includes JuliaSyntax from dataroot (installed layout) rather than buildroot vendoring."
+        affected_tools:
+          - "Custom Julia build/packaging scripts that previously relied on buildroot-only paths."
+      - field: "Top-level package test routing"
+        change: "JuliaSyntax and JuliaLowering are treated like top-level package tests (runtests_vendored)."
+        affected_tools:
+          - "CI scripts that enumerate test groups or parse test/choosetests.jl output."
+    behavioral:
+      - impact: "Default parser remains the reference parser unless enable_in_core! is called; behavior changes are opt-in."
+        evidence:
+          - "JuliaSyntax exposes enable_in_core! which toggles Core._parse; no default activation in Base."
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: sysimage build may increase because JuliaSyntax sources are compiled into Base."
+    runtime:
+      - impact: "ESTIMATED: no runtime impact unless JuliaSyntax is enabled as the parser; then parse throughput/latency may differ from flisp."
+  risk:
+    level: "low"
+    rationale:
+      - "Primary changes are repo layout/build/test wiring; default parsing/lowering remains unchanged unless explicitly enabled."
+      - "New modules are additive and isolated behind opt-in hooks."
+  open_questions:
+    - "How will JuliaSyntax continue CI coverage for older Julia releases now that it lives in-tree?"
+    - "Should the registered JuliaSyntax/JuliaLowering packages track this in-tree code or remain separate for older Julia versions?"
+  recommendations:
+    - "Downstream tooling that consumes JuliaSyntax or JuliaLowering should add CI against Julia nightly to detect API drift early."
+    - "If enabling JuliaSyntax via enable_in_core!, run parser compatibility tests for macros/REPL to validate behavior changes."
+    - "CI owners should account for the new JuliaSyntax/JuliaLowering test groups when estimating runtimes."

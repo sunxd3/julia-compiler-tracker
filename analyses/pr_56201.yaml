@@ -1,0 +1,305 @@
+schema_version: "1.0"
+pr:
+  number: 56201
+  title: "use stmt instead of `Instruction` in `populate_def_use_map!`"
+  url: "https://github.com/JuliaLang/julia/pull/56201"
+  author: "jumerckx"
+  labels:
+    - "bugfix"
+    - "compiler:optimizer"
+  merged_at: "2025-10-14T14:05:48Z"
+  merge_commit_sha: "860af1620f05c99760bc76dc5db9a7dbb43f500d"
+  diff_url: "https://github.com/JuliaLang/julia/pull/56201.diff"
+scope:
+  files_touched:
+    - "Compiler/src/optimize.jl"
+    - "Compiler/src/ssair/irinterp.jl"
+  components:
+    - "Compiler.src.optimize"
+    - "Compiler.src.ssair.irinterp"
+  pipeline_stages:
+    - "Optimization"
+    - "EffectAnalysis"
+    - "SSA IR"
+analysis:
+  intent:
+    summary: "Fix post-optimization effect consistency tracking by scanning statement operands (not Instruction wrappers) and avoiding early exits that left def-use maps incomplete."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/56193"
+  direct_changes:
+    - summary: "Scan boundscheck calls using statement arguments, counting SSA uses while excluding the final boundscheck argument from inconsistency propagation."
+      component: "Compiler/src/optimize.jl"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/optimize.jl"
+          loc: "857-885"
+          url: "https://github.com/JuliaLang/julia/blob/860af1620f05c99760bc76dc5db9a7dbb43f500d/Compiler/src/optimize.jl#L857-L885"
+          snippet: |
+            function scan_inconsistency!(inst::Instruction, sv::PostOptAnalysisState)
+                flag = inst[:flag]
+                stmt_inconsistent = !has_flag(flag, IR_FLAG_CONSISTENT)
+                stmt = inst[:stmt]
+                # Special case: For `getfield` and memory operations, we allow inconsistency of the :boundscheck argument
+                (; inconsistent, tpdum) = sv
+                if iscall_with_boundscheck(stmt, sv)
+                    for i = 1:length(stmt.args)
+                        val = stmt.args[i]
+                        # SSAValue should be the only permitted argument type which can be inconsistent found here.
+                        # Others (e.g. GlobalRef) should have been moved to statement position. See stmt_effect_flags.
+                        if isa(val, SSAValue)
+                            if i < length(stmt.args)  # not the boundscheck argument (which is last)
+                                stmt_inconsistent |= val.id in inconsistent
+                            end
+                            count!(tpdum, val)
+                        end
+                    end
+                else
+                    for ur in userefs(stmt)
+                        val = ur[]
+                        if isa(val, SSAValue)
+                            stmt_inconsistent |= val.id in inconsistent
+                            count!(tpdum, val)
+                        end
+                    end
+                end
+                stmt_inconsistent && push!(inconsistent, inst.idx)
+                return stmt_inconsistent
+            end
+    - summary: "Ensure the scan phase never bails early so def-use counts stay accurate, and tighten inconsistent propagation to avoid reprocessing already-marked statements."
+      component: "Compiler/src/optimize.jl"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/optimize.jl"
+          loc: "892-999"
+          url: "https://github.com/JuliaLang/julia/blob/860af1620f05c99760bc76dc5db9a7dbb43f500d/Compiler/src/optimize.jl#L892-L999"
+          snippet: |
+            function ((; sv)::ScanStmt)(inst::Instruction, lstmt::Int, bb::Int)
+                stmt = inst[:stmt]
+
+                if isa(stmt, EnterNode)
+                    # try/catch not yet modeled
+                    give_up_refinements!(sv)
+                    return true # don't bail out early -- can cause tpdum counts to be off
+                end
+
+                scan_non_dataflow_flags!(inst, sv)
+
+                stmt_inconsistent = scan_inconsistency!(inst, sv)
+
+                if stmt_inconsistent
+                    if !has_flag(inst[:flag], IR_FLAG_NOTHROW)
+                        # Taint :consistent if this statement may raise since :consistent requires
+                        # consistent termination. TODO: Separate :consistent_return and :consistent_termination from :consistent.
+                        sv.all_retpaths_consistent = false
+                    end
+                    if inst.idx == lstmt
+                        if isa(stmt, ReturnNode) && isdefined(stmt, :val)
+                            sv.all_retpaths_consistent = false
+                        elseif isa(stmt, GotoIfNot)
+                            # Conditional Branch with inconsistent condition.
+                            # If we do not know this function terminates, taint consistency, now,
+                            # :consistent requires consistent termination. TODO: Just look at the
+                            # inconsistent region.
+                            if !sv.result.ipo_effects.terminates
+                                sv.all_retpaths_consistent = false
+                            elseif visit_conditional_successors(sv.lazypostdomtree, sv.ir, bb) do succ::Int
+                                    return any_stmt_may_throw(sv.ir, succ)
+                                end
+                                # check if this `GotoIfNot` leads to conditional throws, which taints consistency
+                                sv.all_retpaths_consistent = false
+                            else
+                                (; cfg, domtree) = get!(sv.lazyagdomtree)
+                                for succ in iterated_dominance_frontier(cfg, BlockLiveness(sv.ir.cfg.blocks[bb].succs, nothing), domtree)
+                                    if succ == length(cfg.blocks)
+                                        # Phi node in the virtual exit -> We have a conditional
+                                        # return. TODO: Check if all the retvals are egal.
+                                        sv.all_retpaths_consistent = false
+                                    else
+                                        visit_bb_phis!(sv.ir, succ) do phiidx::Int
+                                            push!(sv.inconsistent, phiidx)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                # Do not bail out early, as this can cause tpdum counts to be off.
+                # # bail out early if there are no possibilities to refine the effects
+                # if !any_refinable(sv)
+                #     return nothing
+                # end
+
+                return true
+            end
+
+            function check_inconsistentcy!(sv::PostOptAnalysisState, scanner::BBScanner)
+                (; ir, inconsistent, tpdum) = sv
+
+                sv.all_retpaths_consistent || return
+                scan!(ScanStmt(sv), scanner, false)
+                sv.all_retpaths_consistent || return
+                complete!(tpdum); push!(scanner.bb_ip, 1)
+                populate_def_use_map!(tpdum, scanner)
+
+                stmt_ip = BitSetBoundedMinPrioritySet(length(ir.stmts))
+                for def in inconsistent
+                    append!(stmt_ip, tpdum[def])
+               end
+                lazydomtree = LazyDomtree(ir)
+                while !isempty(stmt_ip)
+                    idx = popfirst!(stmt_ip)
+                    idx in inconsistent && continue # already processed
+                    inst = ir[SSAValue(idx)]
+                    stmt = inst[:stmt]
+                    if iscall_with_boundscheck(stmt, sv)
+                        # recompute inconsistent flags for call while skipping boundscheck (last) argument
+                        any_non_boundscheck_inconsistent = false
+                        for i = 1:(length(stmt.args)-1)
+                            val = stmt.args[i]
+                            if isa(val, SSAValue)
+                                any_non_boundscheck_inconsistent |= val.id in inconsistent
+                                any_non_boundscheck_inconsistent && break
+                            end
+                        end
+                        any_non_boundscheck_inconsistent || continue
+                    elseif isa(stmt, ReturnNode)
+                        sv.all_retpaths_consistent = false
+                        return
+                    elseif isa(stmt, GotoIfNot)
+                        bb = block_for_inst(ir, idx)
+                        cfg = ir.cfg
+                        blockliveness = BlockLiveness(cfg.blocks[bb].succs, nothing)
+                        for succ in iterated_dominance_frontier(cfg, blockliveness, get!(lazydomtree))
+                            visit_bb_phis!(ir, succ) do phiidx::Int
+                                phiidx in inconsistent || push!(stmt_ip, phiidx)
+                            end
+                        end
+                    end
+                    push!(inconsistent, idx)
+                    append!(stmt_ip, tpdum[idx])
+                end
+            end
+    - summary: "Build def-use maps from statement operands rather than Instruction metadata during SSA IR interpretation."
+      component: "Compiler/src/ssair/irinterp.jl"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/ssair/irinterp.jl"
+          loc: "295-304"
+          url: "https://github.com/JuliaLang/julia/blob/860af1620f05c99760bc76dc5db9a7dbb43f500d/Compiler/src/ssair/irinterp.jl#L295-L304"
+          snippet: |
+            function populate_def_use_map!(tpdum::TwoPhaseDefUseMap, scanner::BBScanner)
+                scan!(scanner, false) do inst::Instruction, lstmt::Int, bb::Int
+                    for ur in userefs(inst[:stmt])
+                        val = ur[]
+                        if isa(val, SSAValue)
+                            push!(tpdum[val.id], inst.idx)
+                        end
+                    end
+                    return true
+                end
+            end
+    - summary: "Existing effect consistency tests that exercise inconsistent propagation via throws and catch blocks."
+      component: "Compiler/test/effects.jl"
+      evidence:
+        - source: "test"
+          path: "Compiler/test/effects.jl"
+          loc: "196-238"
+          url: "https://github.com/JuliaLang/julia/blob/860af1620f05c99760bc76dc5db9a7dbb43f500d/Compiler/test/effects.jl#L196-L238"
+          snippet: |
+            # :the_exception expression should taint :consistent-cy
+            global inconsistent_var::Int = 42
+            function throw_inconsistent() # this is still :consistent
+                throw(inconsistent_var)
+            end
+            function catch_inconsistent()
+                try
+                    throw_inconsistent()
+                catch err
+                    err
+                end
+            end
+            @test !Compiler.is_consistent(Base.infer_effects(catch_inconsistent))
+            cache_inconsistent() = catch_inconsistent()
+            function compare_inconsistent()
+                a = cache_inconsistent()
+                global inconsistent_var = 0
+                b = cache_inconsistent()
+                global inconsistent_var = 42
+                return a === b
+            end
+            @test !compare_inconsistent()
+            # return type information shouldn't be able to refine it also
+            function catch_inconsistent(x::T) where T
+                v = x
+                try
+                    throw_inconsistent()
+                catch err
+                    v = err::T
+                end
+                return v
+            end
+            @test !Compiler.is_consistent(Base.infer_effects(catch_inconsistent, (Int,)))
+            cache_inconsistent(x) = catch_inconsistent(x)
+            function compare_inconsistent(x::T) where T
+                x = one(T)
+                a = cache_inconsistent(x)
+                global inconsistent_var = 0
+                b = cache_inconsistent(x)
+                global inconsistent_var = 42
+                return a === b
+            end
+            @test !compare_inconsistent(3)
+  secondary_effects:
+    - effect: "More reliable propagation of :consistent effects for calls with boundscheck arguments and conditional control flow, reducing false positives in inconsistent sets."
+      mechanism: |
+        ipo_dataflow_analysis!(interp, opt, ir, result)  [Compiler/src/optimize.jl:1001-1030]
+          -> scan!(ScanStmt(sv), scanner, true)  [Compiler/src/optimize.jl:1012]
+          -> check_inconsistentcy!(sv, scanner)  [Compiler/src/optimize.jl:953-999]
+            -> populate_def_use_map!(tpdum, scanner)  [Compiler/src/optimize.jl:959-960]
+              -> userefs(inst[:stmt])  [Compiler/src/ssair/irinterp.jl:295-304]
+        With statement-only operands, the def-use map no longer includes Instruction metadata, and the boundscheck argument is ignored during recomputation, so only true SSA operands propagate inconsistency.
+      downstream_surfaces:
+        - "Base.infer_effects / Compiler.is_consistent"
+        - "Effect-driven optimizations (nothrow/terminates refinement)"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "Avoiding early scan exits ensures complete tpdum counts, stabilizing dataflow analyses that depend on accurate def-use edges." 
+      mechanism: |
+        ScanStmt(inst, lstmt, bb)  [Compiler/src/optimize.jl:892-951]
+          -> scan_inconsistency!(inst, sv)  [Compiler/src/optimize.jl:857-885]
+          -> return true even for EnterNode  [Compiler/src/optimize.jl:895-899]
+        The scan now continues across all blocks, ensuring tpdum is complete before
+        check_inconsistentcy! uses it for propagation.
+      downstream_surfaces:
+        - "IPO effect refinement (refine_effects!)"
+        - "IR interpreter constant propagation (def-use map reuse)"
+      likelihood: "medium"
+      impact: "medium"
+  compatibility:
+    internal_api:
+      - field: "populate_def_use_map!(::TwoPhaseDefUseMap, ::BBScanner)"
+        change: "Uses userefs(inst[:stmt]) instead of userefs(inst), so only statement operands contribute to def-use edges."
+        affected_tools:
+          - tool: "Internal compiler passes"
+            usage: "check_inconsistentcy! relies on tpdum to propagate inconsistency in post-opt analysis."
+    behavioral:
+      - change: "Effect consistency propagation for calls with boundscheck arguments now ignores the boundscheck operand and avoids spurious inconsistency from non-SSA operands."
+        affected_surfaces:
+          - "Base.infer_effects"
+          - "Compiler.is_consistent"
+  performance:
+    compile_time:
+      - "ESTIMATED: Slight increase in post-opt scan time because scan no longer bails out early; still linear in statements." 
+    runtime:
+      - "ESTIMATED: More accurate effect refinement can enable existing optimizations (e.g., nothrow/refinements) but no direct runtime change expected." 
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are localized to post-optimization effect analysis and def-use map construction."
+      - "No new IR forms introduced; behavior shifts are limited to consistency propagation." 
+  open_questions:
+    - "No dedicated regression test was added in this PR; should issue #56193 gain a targeted IR/effects test?"
+  recommendations:
+    - "Consider adding a targeted Compiler/test/effects.jl case that exercises boundscheck-argument inconsistency to lock in the fix."
