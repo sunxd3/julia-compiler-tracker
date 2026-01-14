@@ -205,6 +205,71 @@ mkdir -p analyses
 # Write YAML analysis to analyses/pr_60567.yaml
 ```
 
+## Quality Requirements (CRITICAL)
+
+### 1. Include ACTUAL code snippets, not descriptions
+
+**BAD - vague description:**
+```yaml
+snippet: "analyze_def_and_use! ... mark them as is_always_defined=true"
+```
+
+**GOOD - actual code:**
+```yaml
+snippet: |
+  function is_boxed(binfo::BindingInfo)
+      defined_but_not_assigned = binfo.is_always_defined && !binfo.is_assigned
+      single_assigned_never_undef = binfo.kind in (:local, :argument) &&
+                                    binfo.is_always_defined && binfo.is_assigned_once
+      return binfo.is_captured && !defined_but_not_assigned && !single_assigned_never_undef
+  end
+```
+
+### 2. Show concrete before/after examples from tests
+
+Include actual test code that demonstrates behavior changes:
+```yaml
+snippet: |
+  # Assignment after if statement doesn't need Box
+  function f_after_if(cond)
+      if cond
+          println("hello")
+      end
+      y = 1
+      () -> y
+  end
+  # IR output shows: slots: [... slot₃/y(single_assign)]
+  # Instead of Core.Box, uses direct: (new %₇ slot₃/y)
+```
+
+### 3. Trace code paths explicitly with call chains
+
+For secondary effects, show the actual function call chain:
+```yaml
+mechanism: |
+  analyze_def_and_use!() sets is_always_defined flag
+    -> is_boxed() checks: binfo.is_always_defined && binfo.is_assigned_once
+    -> closure_type_fields() uses is_boxed() to decide field types
+    -> _opaque_closure handling emits unboxed capture
+```
+
+### 4. Include rg search results for callers
+
+When a function is modified, search for all callers:
+```bash
+$ rg "is_boxed" julia/JuliaLowering/
+src/closure_conversion.jl:304:function is_boxed(binfo::BindingInfo)
+src/closure_conversion.jl:380:    if is_boxed(binfo)
+src/closure_conversion.jl:525:    field_is_box = [is_boxed(b) for b in field_orig_bindings]
+```
+
+### 5. Verify claims against actual code
+
+Don't speculate - read the code and quote it:
+- If you say "X affects OpaqueClosure", show the specific code path
+- If you say "changes IR shape", show actual IR output from tests
+- If you say "affects downstream packages", explain which API they use
+
 ## Key Questions Per PR
 
 1. **Intent:** What does the PR claim to fix/improve?
@@ -217,3 +282,40 @@ mkdir -p analyses
 8. **Compiler API surface:** Any struct/field changes that break Core.Compiler users?
 9. **Non-obvious downstream:** Performance characteristics or allocation behavior changes?
 10. **Tests:** What behavior do added tests lock in?
+
+## Pre-Submission Checklist
+
+Before writing the analysis file, verify:
+
+- [ ] Julia repo cloned and PR checked out
+- [ ] Read full source files, not just diff
+- [ ] All evidence snippets contain ACTUAL code (multi-line with `|`)
+- [ ] At least one concrete before/after example from tests
+- [ ] Secondary effects traced with explicit call chains
+- [ ] rg search performed for modified functions to find callers
+- [ ] Claims about downstream impact backed by specific code paths
+- [ ] Line numbers in `loc` fields are accurate and verifiable
+- [ ] Output is valid YAML/JSON (validate before writing)
+
+## Output Format
+
+Write output as **valid YAML** to `analyses/pr_{number}.yaml`:
+
+```bash
+# Validate YAML before writing
+python -c "import yaml; yaml.safe_load(open('analyses/pr_60567.yaml'))" && echo "Valid YAML"
+```
+
+YAML format requirements:
+- Use `|` for multi-line code snippets (preserves newlines and indentation)
+- Ensure proper indentation (2 spaces)
+- Quote strings containing special characters (`:`, `#`, etc.)
+
+Example multi-line snippet:
+```yaml
+snippet: |
+  function is_boxed(binfo::BindingInfo)
+      defined_but_not_assigned = binfo.is_always_defined && !binfo.is_assigned
+      return binfo.is_captured && !defined_but_not_assigned
+  end
+```
