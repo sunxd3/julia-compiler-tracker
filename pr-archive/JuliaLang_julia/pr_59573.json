@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59573/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "b14557ba6ef20b6518edfe456dfb48087f5f0178",
+      "filename": "doc/src/manual/command-line-interface.md",
+      "status": "modified",
+      "additions": 18,
+      "deletions": 10,
+      "changes": 28,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1f72e75a228010109781b0519ec5ca24d683c7a4/doc%2Fsrc%2Fmanual%2Fcommand-line-interface.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1f72e75a228010109781b0519ec5ca24d683c7a4/doc%2Fsrc%2Fmanual%2Fcommand-line-interface.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fsrc%2Fmanual%2Fcommand-line-interface.md?ref=1f72e75a228010109781b0519ec5ca24d683c7a4",
+      "patch": "@@ -46,8 +46,24 @@ but at the conclusion of executing a script or expression, `julia` will attempt\n `Main.main(Base.ARGS)` if such a function `Main.main` has been defined and this behavior was opted into\n by using the `@main` macro.\n \n-This feature is intended to aid in the unification\n-of compiled and interactive workflows. In compiled workflows, loading the code that defines the `main`\n+To see this feature in action, consider the following definition:\n+```julia\n+(@main)(args) = println(\"Hello $(args[1])!\")\n+```\n+Executing the above script with `julia script.jl \"Buddy\"` will automatically run `(@main)` and print \"Hello Buddy!\",\n+despite there being no explicit call to `(@main)`.\n+\n+The return value of the `(@main)` function must either be `nothing`, resulting in exit code\n+`0`, or convertible to a `Cint` which will be the exit code:\n+```\n+$ julia -e \"(@main)(args) = nothing\"; echo $?0\n+0\n+$ julia -e \"(@main)(args) = 1\"; echo $?\n+1\n+```\n+Typically exit codes are in the range `0:255`, although the interpretation of the return value might be OS dependent.\n+\n+This feature is intended to aid in the unification of compiled and interactive workflows. In compiled workflows, loading the code that defines the `main`\n function may be spatially and temporally separated from the invocation. However, for interactive workflows,\n the behavior is equivalent to explicitly calling `exit(main(ARGS))` at the end of the evaluated script or\n expression.\n@@ -56,14 +72,6 @@ expression.\n     The special entry point `Main.main` was added in Julia 1.11. For compatibility with prior julia versions,\n     add an explicit `@isdefined(var\"@main\") ? (@main) : exit(main(ARGS))` at the end of your scripts.\n \n-To see this feature in action, consider the following definition, which will execute the print function despite there being no explicit call to `main`:\n-\n-```\n-$ julia -e '(@main)(args) = println(\"Hello World!\")'\n-Hello World!\n-$\n-```\n-\n Only the `main` binding in the `Main` module has this behavior and only if\n the macro `@main` was used within the defining module.\n "
+    }
+  ]
 }

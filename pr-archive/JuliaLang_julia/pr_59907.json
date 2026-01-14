@@ -77,5 +77,67 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59907/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "54152fc3afad53e03f6246f657857b33894f59e6",
+      "filename": "deps/checksums/Downloads-4e20d029c723199c0b8ea0e2418ff240d25ddaef.tar.gz/md5",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/02b7b6d47505fc3e8dfcd7e43bce0d2c7fb1056a/deps%2Fchecksums%2FDownloads-4e20d029c723199c0b8ea0e2418ff240d25ddaef.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/02b7b6d47505fc3e8dfcd7e43bce0d2c7fb1056a/deps%2Fchecksums%2FDownloads-4e20d029c723199c0b8ea0e2418ff240d25ddaef.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FDownloads-4e20d029c723199c0b8ea0e2418ff240d25ddaef.tar.gz%2Fmd5?ref=02b7b6d47505fc3e8dfcd7e43bce0d2c7fb1056a",
+      "patch": "@@ -0,0 +1 @@\n+ffdec003d29b6a45229b1fc3358accd3"
+    },
+    {
+      "sha": "a507712c72bdd77c5333836936bb9788f66645fc",
+      "filename": "deps/checksums/Downloads-4e20d029c723199c0b8ea0e2418ff240d25ddaef.tar.gz/sha512",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/02b7b6d47505fc3e8dfcd7e43bce0d2c7fb1056a/deps%2Fchecksums%2FDownloads-4e20d029c723199c0b8ea0e2418ff240d25ddaef.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/02b7b6d47505fc3e8dfcd7e43bce0d2c7fb1056a/deps%2Fchecksums%2FDownloads-4e20d029c723199c0b8ea0e2418ff240d25ddaef.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FDownloads-4e20d029c723199c0b8ea0e2418ff240d25ddaef.tar.gz%2Fsha512?ref=02b7b6d47505fc3e8dfcd7e43bce0d2c7fb1056a",
+      "patch": "@@ -0,0 +1 @@\n+f4d399f20b852a69503a939bbffee365efc9aa2202c8dbc3b3de63728e7183c8bcf922c8607bc29922737eb66f516c3f52f1a1898c4283c33bd856b38473dc5a"
+    },
+    {
+      "sha": "2c9287c682b3c21c6264fd8b533d25bf1cf32062",
+      "filename": "deps/checksums/Downloads-7adeb8b9e7086644630f905342718e8c793407d8.tar.gz/md5",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2c653ac2a6a9cf9123802aa8e11fc01285f1ded3/deps%2Fchecksums%2FDownloads-7adeb8b9e7086644630f905342718e8c793407d8.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2c653ac2a6a9cf9123802aa8e11fc01285f1ded3/deps%2Fchecksums%2FDownloads-7adeb8b9e7086644630f905342718e8c793407d8.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FDownloads-7adeb8b9e7086644630f905342718e8c793407d8.tar.gz%2Fmd5?ref=2c653ac2a6a9cf9123802aa8e11fc01285f1ded3",
+      "patch": "@@ -1 +0,0 @@\n-c68e4e532cb0c56f98f7bfa8a2657c69"
+    },
+    {
+      "sha": "08b412b4b4050a9c88e2c75a9604ec9c12857bd9",
+      "filename": "deps/checksums/Downloads-7adeb8b9e7086644630f905342718e8c793407d8.tar.gz/sha512",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2c653ac2a6a9cf9123802aa8e11fc01285f1ded3/deps%2Fchecksums%2FDownloads-7adeb8b9e7086644630f905342718e8c793407d8.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2c653ac2a6a9cf9123802aa8e11fc01285f1ded3/deps%2Fchecksums%2FDownloads-7adeb8b9e7086644630f905342718e8c793407d8.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FDownloads-7adeb8b9e7086644630f905342718e8c793407d8.tar.gz%2Fsha512?ref=2c653ac2a6a9cf9123802aa8e11fc01285f1ded3",
+      "patch": "@@ -1 +0,0 @@\n-54f5c696c8baae0114660f366032cebcb26b4ee4eb1a5a7d1a8c51fdce5345ebfca2af5ec2b6f786044cdea3181d189c5df5baf2d88fd9c9db8780adf39ae82b"
+    },
+    {
+      "sha": "bf92107ba18168abdbcb486fe3aed426d6298a54",
+      "filename": "stdlib/Downloads.version",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/02b7b6d47505fc3e8dfcd7e43bce0d2c7fb1056a/stdlib%2FDownloads.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/02b7b6d47505fc3e8dfcd7e43bce0d2c7fb1056a/stdlib%2FDownloads.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FDownloads.version?ref=02b7b6d47505fc3e8dfcd7e43bce0d2c7fb1056a",
+      "patch": "@@ -1,4 +1,4 @@\n DOWNLOADS_BRANCH = master\n-DOWNLOADS_SHA1 = 7adeb8b9e7086644630f905342718e8c793407d8\n+DOWNLOADS_SHA1 = 4e20d029c723199c0b8ea0e2418ff240d25ddaef\n DOWNLOADS_GIT_URL := https://github.com/JuliaLang/Downloads.jl.git\n DOWNLOADS_TAR_URL = https://api.github.com/repos/JuliaLang/Downloads.jl/tarball/$1"
+    }
+  ]
 }

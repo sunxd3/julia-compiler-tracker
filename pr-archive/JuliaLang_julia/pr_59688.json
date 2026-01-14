@@ -95,5 +95,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59688/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "3c17aef60adc11327aaeacbb7693161018e3c93f",
+      "filename": "base/complex.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 3,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/371fc373c896e12f99cc667bd755beb94c0bf93e/base%2Fcomplex.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/371fc373c896e12f99cc667bd755beb94c0bf93e/base%2Fcomplex.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fcomplex.jl?ref=371fc373c896e12f99cc667bd755beb94c0bf93e",
+      "patch": "@@ -290,9 +290,11 @@ inv(z::Complex{<:Integer}) = inv(float(z))\n *(z::Complex, w::Complex) = Complex(real(z) * real(w) - imag(z) * imag(w),\n                                     real(z) * imag(w) + imag(z) * real(w))\n \n+_mulsub(a, b, c) = _mulsub(promote(a, b, c)...)\n+_mulsub(a::T, b::T, c::T) where {T<:Real} = muladd(a, b, -c)\n muladd(z::Complex, w::Complex, x::Complex) =\n-    Complex(muladd(real(z), real(w), -muladd(imag(z), imag(w), -real(x))),\n-            muladd(real(z), imag(w),  muladd(imag(z), real(w),  imag(x))))\n+    Complex(muladd(real(z), real(w), -_mulsub(imag(z), imag(w), real(x))),\n+            muladd(real(z), imag(w), muladd(imag(z), real(w), imag(x))))\n \n # handle Bool and Complex{Bool}\n # avoid type signature ambiguity warnings\n@@ -339,7 +341,7 @@ muladd(z::Complex, x::Real, w::Complex) =\n     Complex(muladd(real(z),x,real(w)), muladd(imag(z),x,imag(w)))\n muladd(x::Real, y::Real, z::Complex) = Complex(muladd(x,y,real(z)), imag(z))\n muladd(z::Complex, w::Complex, x::Real) =\n-    Complex(muladd(real(z), real(w), -muladd(imag(z), imag(w), -x)),\n+    Complex(muladd(real(z), real(w), -_mulsub(imag(z), imag(w), x)),\n             muladd(real(z), imag(w), imag(z) * real(w)))\n \n /(a::R, z::S) where {R<:Real,S<:Complex} = (T = promote_type(R,S); a*inv(T(z)))"
+    },
+    {
+      "sha": "fd9e5186343d2407353983972d9da5166da9dc9f",
+      "filename": "test/complex.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/371fc373c896e12f99cc667bd755beb94c0bf93e/test%2Fcomplex.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/371fc373c896e12f99cc667bd755beb94c0bf93e/test%2Fcomplex.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fcomplex.jl?ref=371fc373c896e12f99cc667bd755beb94c0bf93e",
+      "patch": "@@ -1013,9 +1013,9 @@ end\n # issue #10926\n @test typeof(\u03c0 - 1im) == ComplexF64\n \n-@testset \"issue #15969\" begin\n+@testset \"issues #15969 #59684\" begin\n     # specialized muladd for complex types\n-    for x in (3, 3+13im), y in (2, 2+7im), z in (5, 5+11im)\n+    for x in (3, 3+13im, 1im), y in (2, 2+7im, 1im), z in (5, 5+11im, 0x01, 0x01 + 0x00*im)\n         @test muladd(x,y,z) === x*y + z\n     end\n end"
+    }
+  ]
 }

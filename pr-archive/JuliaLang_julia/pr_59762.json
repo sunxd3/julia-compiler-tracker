@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59762/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "bd2bc211bd628d2bd3df683fe745e8450f8787de",
+      "filename": "src/julia-syntax.scm",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/fcac942f179a2e36e52fbcc2fa4e4db48fe0321f/src%2Fjulia-syntax.scm",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/fcac942f179a2e36e52fbcc2fa4e4db48fe0321f/src%2Fjulia-syntax.scm",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fjulia-syntax.scm?ref=fcac942f179a2e36e52fbcc2fa4e4db48fe0321f",
+      "patch": "@@ -1906,7 +1906,7 @@\n                    ,(expand-update-operator op op= (car e) rhs T))))\n         (else\n          (if (and (pair? lhs) (eq? op= '=)\n-                  (not (memq (car lhs) '(|.| tuple vcat ncat typed_hcat typed_vcat typed_ncat))))\n+                  (not (memq (car lhs) '(|.| globalref tuple vcat ncat typed_hcat typed_vcat typed_ncat))))\n              (error (string \"invalid assignment location \\\"\" (deparse lhs) \"\\\"\")))\n          (expand-update-operator- op op= lhs rhs declT))))\n "
+    },
+    {
+      "sha": "af5d7ce5e50e8d7b294506e5a5efcfda5fd9cbe7",
+      "filename": "test/syntax.jl",
+      "status": "modified",
+      "additions": 9,
+      "deletions": 0,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/fcac942f179a2e36e52fbcc2fa4e4db48fe0321f/test%2Fsyntax.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/fcac942f179a2e36e52fbcc2fa4e4db48fe0321f/test%2Fsyntax.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fsyntax.jl?ref=fcac942f179a2e36e52fbcc2fa4e4db48fe0321f",
+      "patch": "@@ -2602,6 +2602,15 @@ end\n     @test ncalls_in_lowered(:((.+)(a, b .- (.^)(c, 2))), GlobalRef(Base, :BroadcastFunction)) == 0\n end\n \n+module M59008 # dotop with global LHS in macro\n+using Test\n+global a = 1\n+macro counter()\n+    :(a += 1)\n+end\n+@test @counter() === 2 === a\n+end\n+\n # issue #37656\n @test :(if true 'a' else 1 end) == Expr(:if, true, quote 'a' end, quote 1 end)\n "
+    }
+  ]
 }

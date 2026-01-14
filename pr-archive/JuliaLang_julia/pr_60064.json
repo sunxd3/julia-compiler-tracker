@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60064/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "eaa04aa0a0226871439c79ca5035ff949802069f",
+      "filename": "base/expr.jl",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 4,
+      "changes": 12,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2f1c196a8b2372ded20897c1b16ef4639504b4e1/base%2Fexpr.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2f1c196a8b2372ded20897c1b16ef4639504b4e1/base%2Fexpr.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fexpr.jl?ref=2f1c196a8b2372ded20897c1b16ef4639504b4e1",
+      "patch": "@@ -9,7 +9,11 @@ const is_expr = isexpr\n \"\"\"\n     gensym([tag])\n \n-Generates a symbol which will not conflict with other variable names (in the same module).\n+Generate a symbol unique among all calls to this function within the same process.\n+If a string or symbol tag argument is specified, it is included in the generated name.\n+\n+Note that packages may be precompiled in separate processes, so names will not be unique\n+between definition time and run time.\n \"\"\"\n gensym() = ccall(:jl_gensym, Ref{Symbol}, ())\n \n@@ -19,10 +23,10 @@ gensym(ss::String...) = map(gensym, ss)\n gensym(s::Symbol) = ccall(:jl_tagged_gensym, Ref{Symbol}, (Ptr{UInt8}, Csize_t), s, -1 % Csize_t)\n \n \"\"\"\n-    @gensym\n+    @gensym var1 var2 ...\n \n-Generates a gensym symbol for a variable. For example, `@gensym x y` is transformed into\n-`x = gensym(\"x\"); y = gensym(\"y\")`.\n+Generate symbols with [`gensym`](@ref) and assign them to the given variables.\n+For example, `@gensym x y` is transformed into `x = gensym(\"x\"); y = gensym(\"y\")`.\n \"\"\"\n macro gensym(names...)\n     blk = Expr(:block)"
+    }
+  ]
 }

@@ -86,5 +86,55 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60101/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "39f892c38446c88c015a4861536afee9713cf63f",
+      "filename": "base/loading.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 3,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/d46aeb61176d33b38abd277f749f7a6c81678cfa/base%2Floading.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/d46aeb61176d33b38abd277f749f7a6c81678cfa/base%2Floading.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Floading.jl?ref=d46aeb61176d33b38abd277f749f7a6c81678cfa",
+      "patch": "@@ -463,8 +463,6 @@ function locate_package_env(pkg::PkgId, stopenv::Union{String, Nothing}=nothing)\n             path = manifest_uuid_path(env, pkg)\n             # missing is used as a sentinel to stop looking further down in envs\n             if path === missing\n-                # Before stopping, try stdlib fallback\n-                is_stdlib(pkg) && @goto stdlib_fallback\n                 path = nothing\n                 @goto done\n             end\n@@ -476,7 +474,6 @@ function locate_package_env(pkg::PkgId, stopenv::Union{String, Nothing}=nothing)\n                 stopenv == env && break\n             end\n         end\n-        @label stdlib_fallback\n         # Allow loading of stdlibs if the name/uuid are given\n         # e.g. if they have been explicitly added to the project/manifest\n         mbypath = manifest_uuid_path(Sys.STDLIB, pkg)"
+    },
+    {
+      "sha": "5bcd18ff268439bc47e5be0dc574ffe69b6310fb",
+      "filename": "test/loading.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 10,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/d46aeb61176d33b38abd277f749f7a6c81678cfa/test%2Floading.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/d46aeb61176d33b38abd277f749f7a6c81678cfa/test%2Floading.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Floading.jl?ref=d46aeb61176d33b38abd277f749f7a6c81678cfa",
+      "patch": "@@ -1537,21 +1537,12 @@ end\n     mktempdir() do depot\n         # This manifest has a LibGit2 entry that is missing LibGit2_jll, which should be\n         # handled by falling back to the stdlib Project.toml for dependency truth.\n-        badmanifest_test_dir = joinpath(@__DIR__, \"project\", \"deps\", \"BadStdlibDeps\")\n+        badmanifest_test_dir = joinpath(@__DIR__, \"project\", \"deps\", \"BadStdlibDeps.jl\")\n         @test success(addenv(\n             `$(Base.julia_cmd()) --project=$badmanifest_test_dir --startup-file=no -e 'using LibGit2'`,\n             \"JULIA_DEPOT_PATH\" => depot * Base.Filesystem.pathsep(),\n         ))\n     end\n-    mktempdir() do depot\n-        # This manifest has a LibGit2 entry that has a LibGit2_jll with a git-tree-hash1\n-        # which simulates an old manifest where LibGit2_jll was not a stdlib\n-        badmanifest_test_dir2 = joinpath(@__DIR__, \"project\", \"deps\", \"BadStdlibDeps2\")\n-        @test success(addenv(\n-            `$(Base.julia_cmd()) --project=$badmanifest_test_dir2 --startup-file=no -e 'using LibGit2'`,\n-            \"JULIA_DEPOT_PATH\" => depot * Base.Filesystem.pathsep(),\n-        ))\n-    end\n end\n \n @testset \"code coverage disabled during precompilation\" begin"
+    },
+    {
+      "sha": "988efc8da56f3b388d1b08189b00f68ada995869",
+      "filename": "test/project/deps/BadStdlibDeps2/Manifest.toml",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 54,
+      "changes": 54,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8795edd7d6399ea928f275f12c213a55deca078e/test%2Fproject%2Fdeps%2FBadStdlibDeps2%2FManifest.toml",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8795edd7d6399ea928f275f12c213a55deca078e/test%2Fproject%2Fdeps%2FBadStdlibDeps2%2FManifest.toml",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fproject%2Fdeps%2FBadStdlibDeps2%2FManifest.toml?ref=8795edd7d6399ea928f275f12c213a55deca078e",
+      "patch": "@@ -1,54 +0,0 @@\n-# This file is machine-generated - editing it directly is not advised\n-\n-julia_version = \"1.12.0-DEV\"\n-manifest_format = \"2.0\"\n-project_hash = \"dc9d33b0ee13d9466bdb75b8d375808a534a79ec\"\n-\n-[[deps.Artifacts]]\n-uuid = \"56f22d72-fd6d-98f1-02f0-08ddc0907c33\"\n-version = \"1.11.0\"\n-\n-[[deps.LibGit2]]\n-deps = [\"NetworkOptions\", \"Printf\", \"SHA\", \"LibGit2_jll\"]\n-uuid = \"76f85450-5226-5b5a-8eaa-529ad045b433\"\n-version = \"1.11.0\"\n-\n-# This is an stdlib but intentionally has a git-tree-sha1 because\n-# we are emulating that the manifest comes from a version where\n-# LibGit2_jll was not an stdlib\n-[[deps.LibGit2_jll]]\n-deps = [\"Artifacts\", \"LibSSH2_jll\", \"Libdl\", \"MbedTLS_jll\"]\n-git-tree-sha1 = \"1111111111111111111111111111111111111111\"\n-uuid = \"e37daf67-58a4-590a-8e99-b0245dd2ffc5\"\n-version = \"1.8.0+0\"\n-\n-[[deps.LibSSH2_jll]]\n-deps = [\"Artifacts\", \"Libdl\", \"MbedTLS_jll\"]\n-uuid = \"29816b5a-b9ab-546f-933c-edad1886dfa8\"\n-version = \"1.11.0+1\"\n-\n-[[deps.Libdl]]\n-uuid = \"8f399da3-3557-5675-b5ff-fb832c97cbdb\"\n-version = \"1.11.0\"\n-\n-[[deps.MbedTLS_jll]]\n-deps = [\"Artifacts\", \"Libdl\"]\n-uuid = \"c8ffd9c3-330d-5841-b78e-0817d7145fa1\"\n-version = \"2.28.6+1\"\n-\n-[[deps.NetworkOptions]]\n-uuid = \"ca575930-c2e3-43a9-ace4-1e988b2c1908\"\n-version = \"1.2.0\"\n-\n-[[deps.Printf]]\n-deps = [\"Unicode\"]\n-uuid = \"de0858da-6303-5e67-8744-51eddeeeb8d7\"\n-version = \"1.11.0\"\n-\n-[[deps.SHA]]\n-uuid = \"ea8e919c-243c-51af-8825-aaa63cd721ce\"\n-version = \"0.7.0\"\n-\n-[[deps.Unicode]]\n-uuid = \"4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5\"\n-version = \"1.11.0\""
+    },
+    {
+      "sha": "223889185ea15b2d6c39ada53a92ff849bb0f3a8",
+      "filename": "test/project/deps/BadStdlibDeps2/Project.toml",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 2,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8795edd7d6399ea928f275f12c213a55deca078e/test%2Fproject%2Fdeps%2FBadStdlibDeps2%2FProject.toml",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8795edd7d6399ea928f275f12c213a55deca078e/test%2Fproject%2Fdeps%2FBadStdlibDeps2%2FProject.toml",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fproject%2Fdeps%2FBadStdlibDeps2%2FProject.toml?ref=8795edd7d6399ea928f275f12c213a55deca078e",
+      "patch": "@@ -1,2 +0,0 @@\n-[deps]\n-LibGit2 = \"76f85450-5226-5b5a-8eaa-529ad045b433\""
+    }
+  ]
 }

@@ -77,5 +77,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60114/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "ed427f999e8e36c3799761adb966b93761dda6d6",
+      "filename": "src/codegen.cpp",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 6,
+      "changes": 7,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a35c0d4c938c72b3289fb8af60a35cf844402558/src%2Fcodegen.cpp",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a35c0d4c938c72b3289fb8af60a35cf844402558/src%2Fcodegen.cpp",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fcodegen.cpp?ref=a35c0d4c938c72b3289fb8af60a35cf844402558",
+      "patch": "@@ -8898,12 +8898,7 @@ static jl_llvm_functions_t\n                 !jl_is_submodule(mod, jl_core_module));\n     };\n     auto in_tracked_path = [] (StringRef file) { // falls within an explicitly set file or directory\n-        if (jl_options.tracked_path == NULL)\n-            return false;\n-        char *absfile = jl_absrealpath(file.data(), 0);\n-        bool match = StringRef(absfile).starts_with(jl_options.tracked_path);\n-        free(absfile);\n-        return match;\n+        return jl_options.tracked_path != NULL && file.starts_with(jl_options.tracked_path);\n     };\n     bool mod_is_user_mod = in_user_mod(ctx.module);\n     bool mod_is_tracked = in_tracked_path(ctx.file);"
+    },
+    {
+      "sha": "c296cbeba1fad68056c297393e305ed7c3a8e914",
+      "filename": "src/jlapi.c",
+      "status": "modified",
+      "additions": 10,
+      "deletions": 10,
+      "changes": 20,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a35c0d4c938c72b3289fb8af60a35cf844402558/src%2Fjlapi.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a35c0d4c938c72b3289fb8af60a35cf844402558/src%2Fjlapi.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fjlapi.c?ref=a35c0d4c938c72b3289fb8af60a35cf844402558",
+      "patch": "@@ -1170,7 +1170,7 @@ static const char *absformat(const char *in)\n     return out;\n }\n \n-JL_DLLEXPORT char *jl_absrealpath(const char *in, int nprefix)\n+static char *absrealpath(const char *in, int nprefix)\n { // compute an absolute realpath location, so that chdir doesn't change the file reference\n   // ignores (copies directly over) nprefix characters at the start of abspath\n     char *out;\n@@ -1245,7 +1245,7 @@ static void jl_resolve_sysimg_location(JL_IMAGE_SEARCH rel, const char* julia_bi\n         jl_options.julia_bindir = julia_bindir;\n     }\n     if (jl_options.julia_bindir)\n-        jl_options.julia_bindir = jl_absrealpath(jl_options.julia_bindir, 0);\n+        jl_options.julia_bindir = absrealpath(jl_options.julia_bindir, 0);\n     free(free_path);\n     free_path = NULL;\n     if (jl_options.image_file) {\n@@ -1260,33 +1260,33 @@ static void jl_resolve_sysimg_location(JL_IMAGE_SEARCH rel, const char* julia_bi\n             jl_options.image_file = free_path;\n         }\n         if (jl_options.image_file)\n-            jl_options.image_file = jl_absrealpath(jl_options.image_file, 0);\n+            jl_options.image_file = absrealpath(jl_options.image_file, 0);\n         if (free_path) {\n             free(free_path);\n             free_path = NULL;\n         }\n     }\n     if (jl_options.outputo)\n-        jl_options.outputo = jl_absrealpath(jl_options.outputo, 0);\n+        jl_options.outputo = absrealpath(jl_options.outputo, 0);\n     if (jl_options.outputji)\n-        jl_options.outputji = jl_absrealpath(jl_options.outputji, 0);\n+        jl_options.outputji = absrealpath(jl_options.outputji, 0);\n     if (jl_options.outputbc)\n-        jl_options.outputbc = jl_absrealpath(jl_options.outputbc, 0);\n+        jl_options.outputbc = absrealpath(jl_options.outputbc, 0);\n     if (jl_options.outputasm)\n-        jl_options.outputasm = jl_absrealpath(jl_options.outputasm, 0);\n+        jl_options.outputasm = absrealpath(jl_options.outputasm, 0);\n     if (jl_options.machine_file)\n-        jl_options.machine_file = jl_absrealpath(jl_options.machine_file, 0);\n+        jl_options.machine_file = absrealpath(jl_options.machine_file, 0);\n     if (jl_options.output_code_coverage)\n         jl_options.output_code_coverage = absformat(jl_options.output_code_coverage);\n     if (jl_options.tracked_path)\n-        jl_options.tracked_path = jl_absrealpath(jl_options.tracked_path, 0);\n+        jl_options.tracked_path = absrealpath(jl_options.tracked_path, 0);\n \n     const char **cmdp = jl_options.cmds;\n     if (cmdp) {\n         for (; *cmdp; cmdp++) {\n             const char *cmd = *cmdp;\n             if (cmd[0] == 'L') {\n-                *cmdp = jl_absrealpath(cmd, 1);\n+                *cmdp = absrealpath(cmd, 1);\n             }\n         }\n     }"
+    },
+    {
+      "sha": "d67a5dce810a2f707693207b7ef90743575182b7",
+      "filename": "src/julia_internal.h",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a35c0d4c938c72b3289fb8af60a35cf844402558/src%2Fjulia_internal.h",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a35c0d4c938c72b3289fb8af60a35cf844402558/src%2Fjulia_internal.h",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fjulia_internal.h?ref=a35c0d4c938c72b3289fb8af60a35cf844402558",
+      "patch": "@@ -1909,7 +1909,6 @@ void jl_log(int level, jl_value_t *module, jl_value_t *group, jl_value_t *id,\n             jl_value_t *msg);\n \n JL_DLLEXPORT int jl_isabspath(const char *in) JL_NOTSAFEPOINT;\n-JL_DLLEXPORT char *jl_absrealpath(const char *in, int nprefix) JL_NOTSAFEPOINT;\n \n // Commonly used symbols (jl_sym_t* values)\n #define JL_COMMON_SYMBOLS(XX) \\"
+    }
+  ]
 }

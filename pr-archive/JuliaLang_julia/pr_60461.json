@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60461/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "1611c90181679c089d8d0aec21aa3c4611a1418d",
+      "filename": "base/array.jl",
+      "status": "modified",
+      "additions": 7,
+      "deletions": 7,
+      "changes": 14,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/62da737f734818fed2b24dabf311f52da8db00b4/base%2Farray.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/62da737f734818fed2b24dabf311f52da8db00b4/base%2Farray.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Farray.jl?ref=62da737f734818fed2b24dabf311f52da8db00b4",
+      "patch": "@@ -672,7 +672,7 @@ julia> collect(Float64, 1:2:5)\n collect(::Type{T}, itr) where {T} = _collect(T, itr, IteratorSize(itr))\n \n _collect(::Type{T}, itr, isz::Union{HasLength,HasShape}) where {T} =\n-    copyto!(_array_for(T, isz, _similar_shape(itr, isz)), itr)\n+    copyto!(_array_for_inner(T, isz, _similar_shape(itr, isz)), itr)\n function _collect(::Type{T}, itr, isz::SizeUnknown) where T\n     a = Vector{T}()\n     for x in itr\n@@ -696,12 +696,12 @@ _similar_for(c::AbstractArray, ::Type{T}, itr, ::HasShape, axs) where {T} =\n     similar(c, T, axs)\n \n # make a collection appropriate for collecting `itr::Generator`\n-_array_for(::Type{T}, ::SizeUnknown, ::Nothing) where {T} = Vector{T}(undef, 0)\n-_array_for(::Type{T}, ::HasLength, len::Integer) where {T} = Vector{T}(undef, Int(len))\n-_array_for(::Type{T}, ::HasShape{N}, axs) where {T,N} = similar(Array{T,N}, axs)\n+_array_for_inner(::Type{T}, ::SizeUnknown, ::Nothing) where {T} = Vector{T}(undef, 0)\n+_array_for_inner(::Type{T}, ::HasLength, len::Integer) where {T} = Vector{T}(undef, Int(len))\n+_array_for_inner(::Type{T}, ::HasShape{N}, axs) where {T,N} = similar(Array{T,N}, axs)\n \n # used by syntax lowering for simple typed comprehensions\n-_array_for(::Type{T}, itr, isz) where {T} = _array_for(T, isz, _similar_shape(itr, isz))\n+_array_for(::Type{T}, itr, isz) where {T} = _array_for_inner(T, isz, _similar_shape(itr, isz))\n \n \n \"\"\"\n@@ -827,10 +827,10 @@ function collect(itr::Generator)\n         shp = _similar_shape(itr, isz)\n         y = iterate(itr)\n         if y === nothing\n-            return _array_for(et, isz, shp)\n+            return _array_for_inner(et, isz, shp)\n         end\n         v1, st = y\n-        dest = _array_for(typeof(v1), isz, shp)\n+        dest = _array_for_inner(typeof(v1), isz, shp)\n         # The typeassert gives inference a helping hand on the element type and dimensionality\n         # (work-around for #28382)\n         et\u2032 = et <: Type ? Type : et"
+    }
+  ]
 }

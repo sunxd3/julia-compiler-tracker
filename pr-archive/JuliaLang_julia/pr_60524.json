@@ -137,5 +137,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60524/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "2b537c3f90e45c76591bdde3e5fa4a9c812e0d44",
+      "filename": ".github/workflows/Typos.yml",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a704ee603b24354af55d6a53656d7e2b68f02c88/.github%2Fworkflows%2FTypos.yml",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a704ee603b24354af55d6a53656d7e2b68f02c88/.github%2Fworkflows%2FTypos.yml",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/.github%2Fworkflows%2FTypos.yml?ref=a704ee603b24354af55d6a53656d7e2b68f02c88",
+      "patch": "@@ -11,7 +11,7 @@ jobs:\n     timeout-minutes: 5\n     steps:\n       - name: Checkout the JuliaLang/julia repository\n-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0\n+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1\n         with:\n           persist-credentials: false\n       - name: Check spelling with typos"
+    },
+    {
+      "sha": "3d889c7c4b874729390ac386895afa990df84d38",
+      "filename": ".github/workflows/Whitespace.yml",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a704ee603b24354af55d6a53656d7e2b68f02c88/.github%2Fworkflows%2FWhitespace.yml",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a704ee603b24354af55d6a53656d7e2b68f02c88/.github%2Fworkflows%2FWhitespace.yml",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/.github%2Fworkflows%2FWhitespace.yml?ref=a704ee603b24354af55d6a53656d7e2b68f02c88",
+      "patch": "@@ -15,7 +15,7 @@ jobs:\n     timeout-minutes: 2\n     steps:\n       - name: Checkout the JuliaLang/julia repository\n-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0\n+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1\n         with:\n           persist-credentials: false\n       - uses: julia-actions/setup-julia@5c9647d97b78a5debe5164e9eec09d653d29bd71 # v2.6.1"
+    },
+    {
+      "sha": "07a3dd55f2189a2f277616f40bdb5bf31e6cf834",
+      "filename": ".github/workflows/cffconvert.yml",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a704ee603b24354af55d6a53656d7e2b68f02c88/.github%2Fworkflows%2Fcffconvert.yml",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a704ee603b24354af55d6a53656d7e2b68f02c88/.github%2Fworkflows%2Fcffconvert.yml",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/.github%2Fworkflows%2Fcffconvert.yml?ref=a704ee603b24354af55d6a53656d7e2b68f02c88",
+      "patch": "@@ -23,7 +23,7 @@ jobs:\n     runs-on: ubuntu-latest\n     steps:\n       - name: Check out a copy of the repository\n-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0\n+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1\n         with:\n           persist-credentials: false\n "
+    }
+  ]
 }

@@ -77,5 +77,151 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59565/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "94f480c65dcf77a6df0b0c01d9dec73479528b0d",
+      "filename": "deps/JuliaSyntax.version",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/deps%2FJuliaSyntax.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8e0e45fa4577834330bc3324c7761caab7489494/deps%2FJuliaSyntax.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2FJuliaSyntax.version?ref=8e0e45fa4577834330bc3324c7761caab7489494",
+      "patch": "@@ -1,4 +1,4 @@\n JULIASYNTAX_BRANCH = main\n-JULIASYNTAX_SHA1 = 46723f071d5b2efcb21ca6757788028afb91cc13\n+JULIASYNTAX_SHA1 = 99e975a726a82994de3f8e961e6fa8d39aed0d37\n JULIASYNTAX_GIT_URL := https://github.com/JuliaLang/JuliaSyntax.jl.git\n JULIASYNTAX_TAR_URL = https://api.github.com/repos/JuliaLang/JuliaSyntax.jl/tarball/$1"
+    },
+    {
+      "sha": "ff40f520dfe85962d9c9506b4cf73d8a2962e14a",
+      "filename": "deps/checksums/JuliaSyntax-46723f071d5b2efcb21ca6757788028afb91cc13.tar.gz/md5",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c171ddb91de8acffb270f364b650a7708a840c38/deps%2Fchecksums%2FJuliaSyntax-46723f071d5b2efcb21ca6757788028afb91cc13.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c171ddb91de8acffb270f364b650a7708a840c38/deps%2Fchecksums%2FJuliaSyntax-46723f071d5b2efcb21ca6757788028afb91cc13.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FJuliaSyntax-46723f071d5b2efcb21ca6757788028afb91cc13.tar.gz%2Fmd5?ref=c171ddb91de8acffb270f364b650a7708a840c38",
+      "patch": "@@ -1 +0,0 @@\n-2a0921e59edfab54554aa173f091c5b7"
+    },
+    {
+      "sha": "64e90d0edaba0e4dbd21e0a75991d63111ab537b",
+      "filename": "deps/checksums/JuliaSyntax-46723f071d5b2efcb21ca6757788028afb91cc13.tar.gz/sha512",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c171ddb91de8acffb270f364b650a7708a840c38/deps%2Fchecksums%2FJuliaSyntax-46723f071d5b2efcb21ca6757788028afb91cc13.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c171ddb91de8acffb270f364b650a7708a840c38/deps%2Fchecksums%2FJuliaSyntax-46723f071d5b2efcb21ca6757788028afb91cc13.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FJuliaSyntax-46723f071d5b2efcb21ca6757788028afb91cc13.tar.gz%2Fsha512?ref=c171ddb91de8acffb270f364b650a7708a840c38",
+      "patch": "@@ -1 +0,0 @@\n-17050e23216335f6599f009f71e9614a11b6686e455554b1efd287cd8526a7ebece06dc473e34cd50f61bf52085ff72bb4279144a9fdb3a234d3d589a10fddaf"
+    },
+    {
+      "sha": "12fce1e97c1dbf839a7acdbcf473350352b17bb3",
+      "filename": "deps/checksums/JuliaSyntax-99e975a726a82994de3f8e961e6fa8d39aed0d37.tar.gz/md5",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/deps%2Fchecksums%2FJuliaSyntax-99e975a726a82994de3f8e961e6fa8d39aed0d37.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8e0e45fa4577834330bc3324c7761caab7489494/deps%2Fchecksums%2FJuliaSyntax-99e975a726a82994de3f8e961e6fa8d39aed0d37.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FJuliaSyntax-99e975a726a82994de3f8e961e6fa8d39aed0d37.tar.gz%2Fmd5?ref=8e0e45fa4577834330bc3324c7761caab7489494",
+      "patch": "@@ -0,0 +1 @@\n+ecef4caa8b237a51f92d5622b811a0c3"
+    },
+    {
+      "sha": "f042854e27a471815826537ad7218531a8c1e6bc",
+      "filename": "deps/checksums/JuliaSyntax-99e975a726a82994de3f8e961e6fa8d39aed0d37.tar.gz/sha512",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/deps%2Fchecksums%2FJuliaSyntax-99e975a726a82994de3f8e961e6fa8d39aed0d37.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8e0e45fa4577834330bc3324c7761caab7489494/deps%2Fchecksums%2FJuliaSyntax-99e975a726a82994de3f8e961e6fa8d39aed0d37.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FJuliaSyntax-99e975a726a82994de3f8e961e6fa8d39aed0d37.tar.gz%2Fsha512?ref=8e0e45fa4577834330bc3324c7761caab7489494",
+      "patch": "@@ -0,0 +1 @@\n+56dc5158ebfaf0d5e3e5002dfeb322a137f0866add071cfa9f7a0d9ef2d40859e4c6131358c5aeaf0e9e39fe77a94ba88022028092230b059099cd87e2b795ac"
+    },
+    {
+      "sha": "ab25499278eb57bfe7843298bda230bca34f1d20",
+      "filename": "deps/checksums/JuliaSyntaxHighlighting-c64204160b0f82f2ab002db9c39a25896999b8f1.tar.gz/md5",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c171ddb91de8acffb270f364b650a7708a840c38/deps%2Fchecksums%2FJuliaSyntaxHighlighting-c64204160b0f82f2ab002db9c39a25896999b8f1.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c171ddb91de8acffb270f364b650a7708a840c38/deps%2Fchecksums%2FJuliaSyntaxHighlighting-c64204160b0f82f2ab002db9c39a25896999b8f1.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FJuliaSyntaxHighlighting-c64204160b0f82f2ab002db9c39a25896999b8f1.tar.gz%2Fmd5?ref=c171ddb91de8acffb270f364b650a7708a840c38",
+      "patch": "@@ -1 +0,0 @@\n-a0a07c2a5d4b6456b97ecd5193cd7381"
+    },
+    {
+      "sha": "4ea3829b8ed03b9fe8dec428d88d7e4e95efcc42",
+      "filename": "deps/checksums/JuliaSyntaxHighlighting-c64204160b0f82f2ab002db9c39a25896999b8f1.tar.gz/sha512",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c171ddb91de8acffb270f364b650a7708a840c38/deps%2Fchecksums%2FJuliaSyntaxHighlighting-c64204160b0f82f2ab002db9c39a25896999b8f1.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c171ddb91de8acffb270f364b650a7708a840c38/deps%2Fchecksums%2FJuliaSyntaxHighlighting-c64204160b0f82f2ab002db9c39a25896999b8f1.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FJuliaSyntaxHighlighting-c64204160b0f82f2ab002db9c39a25896999b8f1.tar.gz%2Fsha512?ref=c171ddb91de8acffb270f364b650a7708a840c38",
+      "patch": "@@ -1 +0,0 @@\n-219d6f79928b5b89ae177f21877437fcb385c734828b52264db4e955fe0b6f7f309d3b7081c379240a8e8c2ea9e3d2d8218e08d1f6ff9c786d96a0218c8e4de2"
+    },
+    {
+      "sha": "100b232bb6840a23ce08d444ebdc70b7bc92e6dd",
+      "filename": "deps/checksums/JuliaSyntaxHighlighting-e34cc37a7ab62db1e06152d8f2602bd2187fa473.tar.gz/md5",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/deps%2Fchecksums%2FJuliaSyntaxHighlighting-e34cc37a7ab62db1e06152d8f2602bd2187fa473.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8e0e45fa4577834330bc3324c7761caab7489494/deps%2Fchecksums%2FJuliaSyntaxHighlighting-e34cc37a7ab62db1e06152d8f2602bd2187fa473.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FJuliaSyntaxHighlighting-e34cc37a7ab62db1e06152d8f2602bd2187fa473.tar.gz%2Fmd5?ref=8e0e45fa4577834330bc3324c7761caab7489494",
+      "patch": "@@ -0,0 +1 @@\n+7f8298d198ed88b283a1eb15b5614315"
+    },
+    {
+      "sha": "f9da526150e2c8ef304b1b653469cf3a29aacddd",
+      "filename": "deps/checksums/JuliaSyntaxHighlighting-e34cc37a7ab62db1e06152d8f2602bd2187fa473.tar.gz/sha512",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/deps%2Fchecksums%2FJuliaSyntaxHighlighting-e34cc37a7ab62db1e06152d8f2602bd2187fa473.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8e0e45fa4577834330bc3324c7761caab7489494/deps%2Fchecksums%2FJuliaSyntaxHighlighting-e34cc37a7ab62db1e06152d8f2602bd2187fa473.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FJuliaSyntaxHighlighting-e34cc37a7ab62db1e06152d8f2602bd2187fa473.tar.gz%2Fsha512?ref=8e0e45fa4577834330bc3324c7761caab7489494",
+      "patch": "@@ -0,0 +1 @@\n+7fe9ced894688f843a8520078302225c125a9d017d4ee96a94db41553b47b044341ac158e9816bab0a5faf8b15f934c72bdb6707ccad3b8a2539131a42a84fb6"
+    },
+    {
+      "sha": "ef804afd4685a526dd091d1e851581a17f58cffc",
+      "filename": "stdlib/JuliaSyntaxHighlighting.version",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib%2FJuliaSyntaxHighlighting.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8e0e45fa4577834330bc3324c7761caab7489494/stdlib%2FJuliaSyntaxHighlighting.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FJuliaSyntaxHighlighting.version?ref=8e0e45fa4577834330bc3324c7761caab7489494",
+      "patch": "@@ -1,4 +1,4 @@\n JULIASYNTAXHIGHLIGHTING_BRANCH = main\n-JULIASYNTAXHIGHLIGHTING_SHA1 = c64204160b0f82f2ab002db9c39a25896999b8f1\n+JULIASYNTAXHIGHLIGHTING_SHA1 = e34cc37a7ab62db1e06152d8f2602bd2187fa473\n JULIASYNTAXHIGHLIGHTING_GIT_URL := https://github.com/julialang/JuliaSyntaxHighlighting.jl.git\n JULIASYNTAXHIGHLIGHTING_TAR_URL = https://api.github.com/repos/julialang/JuliaSyntaxHighlighting.jl/tarball/$1"
+    },
+    {
+      "sha": "4d0c250c61417769added478878cbf0be86b9aa5",
+      "filename": "stdlib/REPL/src/REPLCompletions.jl",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 8,
+      "changes": 19,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib%2FREPL%2Fsrc%2FREPLCompletions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8e0e45fa4577834330bc3324c7761caab7489494/stdlib%2FREPL%2Fsrc%2FREPLCompletions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2FREPLCompletions.jl?ref=8e0e45fa4577834330bc3324c7761caab7489494",
+      "patch": "@@ -15,7 +15,7 @@ using Base.Filesystem: _readdirx\n using Base.JuliaSyntax: @K_str, @KSet_str, parseall, byte_range, children, is_prefix_call, is_trivia, kind\n \n using ..REPL.LineEdit: NamedCompletion\n-using ..REPL.SyntaxUtil: CursorNode, find_parent, seek_pos, char_range, char_last, children_nt, find_delim\n+using ..REPL.SyntaxUtil: CursorNode, find_parent, seek_pos, char_range, char_first, char_last, children_nt, find_delim\n \n abstract type Completion end\n \n@@ -1043,7 +1043,7 @@ function completions(string::String, pos::Int, context_module::Module=Main, shif\n     #   `file ~/exa TAB          => `file ~/example.txt\n     #   `file ~/example.txt TAB  => `file /home/user/example.txt\n     if (n = find_parent(cur, K\"CmdString\")) !== nothing\n-        off = n.position - 1\n+        off = char_first(n) - 1\n         ret, r, success = shell_completions(string[char_range(n)], pos - off, hint, cmd_escape=true)\n         success && return ret, r .+ off, success\n     end\n@@ -1107,14 +1107,14 @@ function completions(string::String, pos::Int, context_module::Module=Main, shif\n     # Symbol completion\n     # TODO: Should completions replace the identifier at the cursor?\n     looks_like_ident = Base.isidentifier(@view string[intersect(char_range(cur), 1:pos)])\n-    if cur.parent !== nothing && kind(cur.parent) == K\"var\"\n+    if cur.parent !== nothing && kind(cur.parent) === K\"var\"\n         # Replace the entire var\"foo\", but search using only \"foo\".\n         r = intersect(char_range(cur.parent), 1:pos)\n         r2 = char_range(children_nt(cur.parent)[1])\n         s = string[intersect(r2, 1:pos)]\n-    elseif kind(cur) == K\"MacroName\"\n+    elseif cur.parent !== nothing && kind(cur.parent) === K\"macro_name\"\n         # Include the `@`\n-        r = intersect(prevind(string, cur.position):char_last(cur), 1:pos)\n+        r = intersect(prevind(string, char_first(cur)):char_last(cur), 1:pos)\n         s = string[r]\n     elseif looks_like_ident || kind(cur) in KSet\"Bool Identifier @\"\n         r = intersect(char_range(cur), 1:pos)\n@@ -1141,7 +1141,7 @@ function completions(string::String, pos::Int, context_module::Module=Main, shif\n         end\n \n         # Allow completion for `import Mod.name` (where `name` is not a module)\n-        complete_modules_only = prefix == nothing || kind(n.parent) == K\"using\"\n+        complete_modules_only = prefix === nothing || kind(n.parent) === K\"using\"\n         comp_keywords = false\n     end\n \n@@ -1175,8 +1175,10 @@ function find_ref_key(cur::CursorNode, pos::Int)\n     n = find_parent(cur, K\"ref\")\n     n !== nothing || return nothing, nothing, nothing\n     key, closed = find_delim(n, K\"[\", K\"]\")\n-    first(key) - 1 <= pos <= last(key) || return nothing, nothing, nothing\n-    n, key, closed\n+    if key === nothing || !(first(key) - 1 <= pos <= last(key))\n+        return nothing, nothing, nothing\n+    end\n+    return n, key, closed\n end\n \n # If the cursor is in a literal string, return the contents and char range\n@@ -1212,6 +1214,7 @@ function node_prefix(node::CursorNode, context_module::Module)\n     p = node.parent\n     # In x.var\"y\", the parent is the \"var\" when the cursor is on \"y\".\n     kind(p) == K\"var\" && (p = p.parent)\n+    kind(p) == K\"macro_name\" && (p = p.parent)\n \n     # expr.node => expr\n     if kind(p) == K\".\""
+    },
+    {
+      "sha": "86178b45bf163eb86f6692d5fe02f4f37a1bc418",
+      "filename": "stdlib/REPL/src/SyntaxUtil.jl",
+      "status": "modified",
+      "additions": 13,
+      "deletions": 15,
+      "changes": 28,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib%2FREPL%2Fsrc%2FSyntaxUtil.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8e0e45fa4577834330bc3324c7761caab7489494/stdlib%2FREPL%2Fsrc%2FSyntaxUtil.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2FSyntaxUtil.jl?ref=8e0e45fa4577834330bc3324c7761caab7489494",
+      "patch": "@@ -14,7 +14,7 @@ export CursorNode, char_range, char_last, children_nt, find_delim, seek_pos\n struct CursorData <: AbstractSyntaxData\n     source::SourceFile\n     raw::GreenNode{SyntaxHead}\n-    position::Int\n+    byte_end::Int\n     index::Int\n     index_nt::Int # nth non-trivia in parent\n     val::Any\n@@ -34,10 +34,10 @@ end\n function _to_CursorNode(source::SourceFile, txtbuf::Vector{UInt8}, offset::Int,\n                         raw::GreenNode{SyntaxHead},\n                         position::Int, index::Int=-1, index_nt::Int=-1)\n+    byte_end = position + span(raw) - 1\n     if is_leaf(raw)\n-        valrange = position:position + span(raw) - 1\n-        val = parse_julia_literal(txtbuf, head(raw), valrange .+ offset)\n-        return CursorNode(nothing, nothing, CursorData(source, raw, position, index, index_nt, val))\n+        val = parse_julia_literal(txtbuf, head(raw), position:byte_end .+ offset)\n+        return CursorNode(nothing, nothing, CursorData(source, raw, byte_end, index, index_nt, val))\n     else\n         cs = CursorNode[]\n         pos = position\n@@ -47,7 +47,7 @@ function _to_CursorNode(source::SourceFile, txtbuf::Vector{UInt8}, offset::Int,\n             pos += Int(rawchild.span)\n             i_nt += !is_trivia(rawchild)\n         end\n-        node = CursorNode(nothing, cs, CursorData(source, raw, position, index, index_nt, nothing))\n+        node = CursorNode(nothing, cs, CursorData(source, raw, byte_end, index, index_nt, nothing))\n         for c in cs\n             c.parent = node\n         end\n@@ -65,16 +65,14 @@ end\n Base.show(io::IO, node::CursorNode) = show(io, MIME(\"text/plain\"), node.raw)\n Base.show(io::IO, mime::MIME{Symbol(\"text/plain\")}, node::CursorNode) = show(io, mime, node.raw)\n \n-function Base.Expr(node::CursorNode)\n-    (; filename, first_line) = node.source\n-    src = SourceFile(node.source[byte_range(node)]; filename, first_line)\n-    Expr(SyntaxNode(src, node.raw))\n-end\n+Base.JuliaSyntax._expr_leaf_val(node::CursorNode, _...) = node.val\n+Base.Expr(node::CursorNode) = Base.JuliaSyntax.to_expr(node)\n \n-char_range(node) = node.position:char_last(node)\n-char_last(node) = thisind(node.source, node.position + span(node) - 1)\n+char_range(node::CursorNode) = char_first(node):char_last(node)\n+char_first(node::CursorNode) = Int(node.byte_end) - Int(node.raw.span) + 1\n+char_last(node::CursorNode) = thisind(node.source, node.byte_end)\n \n-children_nt(node) = [n for n in children(node) if !is_trivia(n)]\n+children_nt(node::CursorNode) = [n for n in children(node) if !is_trivia(n)]\n \n function seek_pos(node, pos)\n     pos in byte_range(node) || return nothing\n@@ -97,13 +95,13 @@ end\n # Return the character range between left_kind and right_kind in node.  The left\n # delimiter must be present, while the range will extend to the rest of the node\n # if the right delimiter is missing.\n-function find_delim(node, left_kind, right_kind)\n+function find_delim(node::CursorNode, left_kind::Kind, right_kind::Kind)\n     cs = children(node)\n     left = findfirst(c -> kind(c) == left_kind, cs)\n     left !== nothing || return nothing, nothing\n     right = findlast(c -> kind(c) == right_kind, cs)\n     closed = right !== nothing && right != left\n-    right = closed ? thisind(node.source, cs[right].position - 1) : char_last(node)\n+    right = closed ? thisind(node.source, char_first(cs[right]) - 1) : char_last(node)\n     left = nextind(node.source, char_last(cs[left]))\n     return left:right, closed\n end"
+    }
+  ]
 }

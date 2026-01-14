@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60217/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "647379062502f369eade13a936af612ea41e51d7",
+      "filename": "doc/Manifest.toml",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/4a01a78ba56d68520ea28f3cc323a1458c98010c/doc%2FManifest.toml",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/4a01a78ba56d68520ea28f3cc323a1458c98010c/doc%2FManifest.toml",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2FManifest.toml?ref=4a01a78ba56d68520ea28f3cc323a1458c98010c",
+      "patch": "@@ -49,9 +49,9 @@ version = \"0.9.5\"\n \n [[deps.Documenter]]\n deps = [\"ANSIColoredPrinters\", \"AbstractTrees\", \"Base64\", \"CodecZlib\", \"Dates\", \"DocStringExtensions\", \"Downloads\", \"Git\", \"IOCapture\", \"InteractiveUtils\", \"JSON\", \"Logging\", \"Markdown\", \"MarkdownAST\", \"Pkg\", \"PrecompileTools\", \"REPL\", \"RegistryInstances\", \"SHA\", \"TOML\", \"Test\", \"Unicode\"]\n-git-tree-sha1 = \"70c521ca3a23c576e12655d15963977c9766c26b\"\n+git-tree-sha1 = \"b37458ae37d8bdb643d763451585cd8d0e5b4a9e\"\n uuid = \"e30172f5-a6a5-5a46-863b-614d45cd2de4\"\n-version = \"1.16.0\"\n+version = \"1.16.1\"\n \n [[deps.Downloads]]\n deps = [\"ArgTools\", \"FileWatching\", \"LibCURL\", \"NetworkOptions\"]"
+    }
+  ]
 }

@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/55671/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "70e7a60b7ab9c19dcce0e9c9ae0b9c69920bc84d",
+      "filename": "base/reducedim.jl",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 6,
+      "changes": 10,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8/base%2Freducedim.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8/base%2Freducedim.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Freducedim.jl?ref=fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8",
+      "patch": "@@ -989,12 +989,10 @@ for (fname, _fname, op) in [(:sum,     :_sum,     :add_sum), (:prod,    :_prod,\n     end\n end\n \n-any(a::AbstractArray; dims::D=:) where {D} = _any(a, dims)\n-any(f::Function, a::AbstractArray; dims::D=:) where {D} = _any(f, a, dims)\n-_any(a, ::Colon)                           = _any(identity, a, :)\n-all(a::AbstractArray; dims::D=:) where {D} = _all(a, dims)\n-all(f::Function, a::AbstractArray; dims::D=:) where {D} = _all(f, a, dims)\n-_all(a, ::Colon)                           = _all(identity, a, :)\n+any(a::AbstractArray; kw...) = any(identity, a; kw...)\n+any(f, a::AbstractArray; dims::D=:) where D = _any(f, a, dims)\n+all(a::AbstractArray; kw...) = all(identity, a; kw...)\n+all(f, a::AbstractArray; dims::D=:) where D = _all(f, a, dims)\n \n for (fname, op) in [(:sum, :add_sum), (:prod, :mul_prod),\n                     (:maximum, :max), (:minimum, :min),"
+    }
+  ]
 }

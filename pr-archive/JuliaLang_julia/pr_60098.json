@@ -67,5 +67,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60098/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "70dbae7e4bccc6fb24ec870fb70ebe1c26a45acc",
+      "filename": "Makefile",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/ac60af0921773cb6c0a044db2a00d61e864c292e/Makefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/ac60af0921773cb6c0a044db2a00d61e864c292e/Makefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Makefile?ref=ac60af0921773cb6c0a044db2a00d61e864c292e",
+      "patch": "@@ -548,7 +548,6 @@ ifneq ($(DARWIN_FRAMEWORK),1)\n endif\n else ifneq (,$(findstring $(OS),Linux FreeBSD))\n \tfor j in $(JL_PRIVATE_EXES) ; do \\\n-\t\t[ $$j = 7z ] && continue; \\\n \t\t[ -L $(DESTDIR)$(private_libexecdir)/$$j ] && continue; \\\n \t\t$(PATCHELF) $(PATCHELF_SET_RPATH_ARG) '$$ORIGIN/$(reverse_private_libexecdir_rel)' $(DESTDIR)$(private_libexecdir)/$$j || exit 1; \\\n \tdone"
+    },
+    {
+      "sha": "5015edbfc2ba3d448f4c93e0007b5effb81bac82",
+      "filename": "deps/p7zip.mk",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 1,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/ac60af0921773cb6c0a044db2a00d61e864c292e/deps%2Fp7zip.mk",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/ac60af0921773cb6c0a044db2a00d61e864c292e/deps%2Fp7zip.mk",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fp7zip.mk?ref=ac60af0921773cb6c0a044db2a00d61e864c292e",
+      "patch": "@@ -51,10 +51,14 @@ $(eval $(call bb-install,p7zip,P7ZIP,false))\n # move from bindir to shlibdir, where we expect to install it\n install-p7zip: post-install-p7zip\n uninstall-p7zip: pre-uninstall-p7zip\n-post-install-p7zip: $(build_prefix)/manifest/p7zip\n+post-install-p7zip: $(build_prefix)/manifest/p7zip $(PATCHELF_MANIFEST)\n \tmkdir -p $(build_private_libexecdir)/\n \t[ ! -e $(build_bindir)/7z$(EXE) ] || mv $(build_bindir)/7z$(EXE) $(build_private_libexecdir)/7z$(EXE)\n \t[ -e $(build_private_libexecdir)/7z$(EXE) ]\n+ifneq (,$(findstring $(OS),Linux FreeBSD))\n+\t[ -L $(build_private_libexecdir)/7z ] || \\\n+\t$(PATCHELF) $(PATCHELF_SET_RPATH_ARG) '$$ORIGIN/$(reverse_build_private_libexecdir_rel)' $(build_private_libexecdir)/7z$(EXE)\n+endif\n pre-uninstall-p7zip:\n \t-rm -f $(build_private_libexecdir)/7z$(EXE)\n "
+    }
+  ]
 }

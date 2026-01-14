@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60169/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "f88fa91915d96e1a1ce6fcb73bdef983a6a9f7b1",
+      "filename": "JuliaLowering/src/macro_expansion.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 1,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2315530f71b358b06c646d4f4124393da33719e8/JuliaLowering%2Fsrc%2Fmacro_expansion.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2315530f71b358b06c646d4f4124393da33719e8/JuliaLowering%2Fsrc%2Fmacro_expansion.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fmacro_expansion.jl?ref=2315530f71b358b06c646d4f4124393da33719e8",
+      "patch": "@@ -335,7 +335,6 @@ function expand_macro(ctx, ex)\n         # method was defined (may be different from `parentmodule(macfunc)`)\n         mod_for_ast = lookup_method_instance(macfunc, macro_args,\n                                              ctx.macro_world).def.module\n-        expanded = fix_toplevel_expansion(ctx, expanded, mod_for_ast, macro_loc)\n         new_layer = ScopeLayer(length(ctx.scope_layers)+1, mod_for_ast,\n                                current_layer_id(ctx), true)\n         push_layer!(ctx, mod_for_ast, true)\n@@ -454,6 +453,9 @@ function expand_forms_1(ctx::MacroExpansionContext, ex::SyntaxTree)\n         end\n     elseif k == K\"macrocall\"\n         expand_macro(ctx, ex)\n+    elseif k == K\"toplevel\" && length(ctx.scope_layer_stack) > 1\n+        fix_toplevel_expansion(ctx, ex, current_layer(ctx).mod,\n+                               source_location(LineNumberNode, ex))\n     elseif k == K\"module\" || k == K\"toplevel\" || k == K\"inert\"\n         # Remove scope layer information from any inert syntax which survives\n         # macro expansion so that it doesn't contaminate lowering passes which"
+    },
+    {
+      "sha": "2c5c8008167b8354e09ebe6b49933e05e280a826",
+      "filename": "JuliaLowering/test/macros.jl",
+      "status": "modified",
+      "additions": 19,
+      "deletions": 0,
+      "changes": 19,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2315530f71b358b06c646d4f4124393da33719e8/JuliaLowering%2Ftest%2Fmacros.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2315530f71b358b06c646d4f4124393da33719e8/JuliaLowering%2Ftest%2Fmacros.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fmacros.jl?ref=2315530f71b358b06c646d4f4124393da33719e8",
+      "patch": "@@ -483,4 +483,23 @@ end\n     @test_broken JuliaLowering.eval(test_mod, code) == (\"outer x\", \"inner x\")\n end\n \n+@testset \"toplevel macro hygiene\" begin\n+    @eval test_mod global mod = $test_mod\n+    @eval test_mod module MacroMod\n+    global mod = MacroMod\n+    macro escaped_toplevel()\n+        esc(Expr(:toplevel, :(mod)))\n+    end\n+    macro inner_escaped_toplevel()\n+        Expr(:toplevel, esc(:(mod)))\n+    end\n+    macro unescaped_toplevel()\n+        Expr(:toplevel, :(mod))\n+    end\n+    end\n+    @test JuliaLowering.include_string(test_mod, \"MacroMod.@escaped_toplevel\") === test_mod\n+    @test JuliaLowering.include_string(test_mod, \"MacroMod.@inner_escaped_toplevel\") === test_mod\n+    @test JuliaLowering.include_string(test_mod, \"MacroMod.@unescaped_toplevel\") === test_mod.MacroMod\n+end\n+\n end"
+    }
+  ]
 }

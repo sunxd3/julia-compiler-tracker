@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59539/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "45667158be1f066105472e1540b7e5ac67e87327",
+      "filename": "HISTORY.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/31f43f65114c6aaf578043edec3038d446a37397/HISTORY.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/31f43f65114c6aaf578043edec3038d446a37397/HISTORY.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/HISTORY.md?ref=31f43f65114c6aaf578043edec3038d446a37397",
+      "patch": "@@ -29,6 +29,7 @@ New language features\n * `Threads.@spawn` now takes a `:samepool` argument to specify the same threadpool as the caller.\n   `Threads.@spawn :samepool foo()` which is shorthand for `Threads.@spawn Threads.threadpool() foo()` ([#57109]).\n * The `@ccall` macro can now take a `gc_safe` argument, that if set to true allows the runtime to run garbage collection concurrently to the `ccall` ([#49933]).\n+* A single method covering multiple functions is now allowed in more cases. See issue #54620. ([#58131]).\n \n Language changes\n ----------------"
+    }
+  ]
 }

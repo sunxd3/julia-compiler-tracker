@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60027/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "cdea331d49c513c0e367b1531de482547d7f3e9f",
+      "filename": "base/abstractdict.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 6,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/690b577498b0d6c60d7a71cd72d2f72a796cf039/base%2Fabstractdict.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/690b577498b0d6c60d7a71cd72d2f72a796cf039/base%2Fabstractdict.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fabstractdict.jl?ref=690b577498b0d6c60d7a71cd72d2f72a796cf039",
+      "patch": "@@ -362,17 +362,13 @@ merge(d::AbstractDict, others::AbstractDict...) =\n \"\"\"\n     mergewith(combine, d::AbstractDict, others::AbstractDict...)\n     mergewith(combine)\n-    merge(combine, d::AbstractDict, others::AbstractDict...)\n \n Construct a merged collection from the given collections. If necessary, the\n types of the resulting collection will be promoted to accommodate the types of\n the merged collections. Values with the same key will be combined using the\n combiner function.  The curried form `mergewith(combine)` returns the function\n `(args...) -> mergewith(combine, args...)`.\n \n-Method `merge(combine::Union{Function,Type}, args...)` as an alias of\n-`mergewith(combine, args...)` is still available for backward compatibility.\n-\n !!! compat \"Julia 1.5\"\n     `mergewith` requires Julia 1.5 or later.\n \n@@ -405,8 +401,6 @@ Dict{Any, Any} with 1 entry:\n mergewith(combine, d::AbstractDict, others::AbstractDict...) =\n     mergewith!(combine, _typeddict(d, others...), others...)\n mergewith(combine) = (args...) -> mergewith(combine, args...)\n-merge(combine::Callable, d::AbstractDict, others::AbstractDict...) =\n-    merge!(combine, _typeddict(d, others...), others...)\n \n promoteK(K) = K\n promoteV(V) = V"
+    }
+  ]
 }

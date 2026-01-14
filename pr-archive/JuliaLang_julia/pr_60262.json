@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60262/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "aac61cd11db0d41ef2c54b89a3cfbf724b70e61c",
+      "filename": "stdlib/LinearAlgebra.version",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/6885de1e28da8c91274d88d649de10392ef52baa/stdlib%2FLinearAlgebra.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/6885de1e28da8c91274d88d649de10392ef52baa/stdlib%2FLinearAlgebra.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FLinearAlgebra.version?ref=6885de1e28da8c91274d88d649de10392ef52baa",
+      "patch": "@@ -1,4 +1,4 @@\n-LINEARALGEBRA_BRANCH = master\n+LINEARALGEBRA_BRANCH = release-1.13\n LINEARALGEBRA_SHA1 = 7e11b5e1b474ff742fb55f420631964b60158fe6\n LINEARALGEBRA_GIT_URL := https://github.com/JuliaLang/LinearAlgebra.jl.git\n LINEARALGEBRA_TAR_URL = https://api.github.com/repos/JuliaLang/LinearAlgebra.jl/tarball/$1"
+    }
+  ]
 }

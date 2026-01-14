@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59746/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "d81defa16f1364bae16e6364ce586139cd751c6f",
+      "filename": "AGENTS.md",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 0,
+      "changes": 5,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7bafdc43171a59cfab0177d9fb483212c64f019f/AGENTS.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7bafdc43171a59cfab0177d9fb483212c64f019f/AGENTS.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/AGENTS.md?ref=7bafdc43171a59cfab0177d9fb483212c64f019f",
+      "patch": "@@ -40,6 +40,11 @@ and need to run code with these changes included, you can use `Revise`.\n To do so, run `using Revise; Revise.track(Base)` (or Revise.track with the stdlib you modified).\n The test system supports doing this automatically (see below).\n \n+For instance testing Base changes without rebuilding, using failfast, you can run:\n+```\n+JULIA_TEST_FAILFAST=1 ./julia -e 'using Revise; Revise.track(Base); include(\"test.jl\")'\n+```\n+\n ## Specific instructions for particular changes\n \n ### Doctests"
+    }
+  ]
 }

@@ -77,5 +77,67 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60517/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "bd5c4642b3b561e5004a713cf23077bef7194de1",
+      "filename": "src/gc-mmtk.c",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 5,
+      "changes": 5,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src%2Fgc-mmtk.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src%2Fgc-mmtk.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fgc-mmtk.c?ref=00aee56ff2e6b55be4a68a4bacc47409a8bdefd7",
+      "patch": "@@ -1191,11 +1191,6 @@ void jl_gc_debug_fprint_status(ios_t *s) JL_NOTSAFEPOINT\n                     pool_count + big_count, pool_count, big_count, gc_num.pause);\n }\n \n-JL_DLLEXPORT size_t jl_gc_external_obj_hdr_size(void)\n-{\n-    return sizeof(bigval_t);\n-}\n-\n void jl_print_gc_stats(JL_STREAM *s)\n {\n }"
+    },
+    {
+      "sha": "845ff43909f0d46a08dc8e03e7774dd8e0425748",
+      "filename": "src/gc-stock.c",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 5,
+      "changes": 5,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src%2Fgc-stock.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src%2Fgc-stock.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fgc-stock.c?ref=00aee56ff2e6b55be4a68a4bacc47409a8bdefd7",
+      "patch": "@@ -4132,11 +4132,6 @@ JL_DLLEXPORT size_t jl_gc_max_internal_obj_size(void)\n     return GC_MAX_SZCLASS;\n }\n \n-JL_DLLEXPORT size_t jl_gc_external_obj_hdr_size(void)\n-{\n-    return sizeof(bigval_t);\n-}\n-\n JL_DLLEXPORT void jl_gc_schedule_foreign_sweepfunc(jl_ptls_t ptls, jl_value_t *obj)\n {\n     arraylist_push(&ptls->gc_tls.sweep_objs, obj);"
+    },
+    {
+      "sha": "d274975de400f282d562bf64433a9ff7915d267d",
+      "filename": "src/jl_exported_funcs.inc",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src%2Fjl_exported_funcs.inc",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src%2Fjl_exported_funcs.inc",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fjl_exported_funcs.inc?ref=00aee56ff2e6b55be4a68a4bacc47409a8bdefd7",
+      "patch": "@@ -144,7 +144,6 @@\n     XX(jl_gc_enable) \\\n     XX(jl_gc_enable_conservative_gc_support) \\\n     XX(jl_gc_enable_finalizers) \\\n-    XX(jl_gc_external_obj_hdr_size) \\\n     XX(jl_gc_find_taggedvalue_pool) \\\n     XX(jl_gc_get_total_bytes) \\\n     XX(jl_gc_get_max_memory) \\"
+    },
+    {
+      "sha": "290713e1bc699d5cba05b1542ad3278d0eaefbca",
+      "filename": "src/julia_gcext.h",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src%2Fjulia_gcext.h",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src%2Fjulia_gcext.h",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fjulia_gcext.h?ref=00aee56ff2e6b55be4a68a4bacc47409a8bdefd7",
+      "patch": "@@ -63,7 +63,6 @@ JL_DLLEXPORT int jl_reinit_foreign_type(\n JL_DLLEXPORT int jl_is_foreign_type(jl_datatype_t *dt) JL_NOTSAFEPOINT;\n \n JL_DLLEXPORT size_t jl_gc_max_internal_obj_size(void) JL_NOTSAFEPOINT;\n-JL_DLLEXPORT size_t jl_gc_external_obj_hdr_size(void) JL_NOTSAFEPOINT;\n \n // Field layout descriptor for custom types that do\n // not fit Julia layout conventions. This is associated with"
+    },
+    {
+      "sha": "9e74cf4e6a70b02575766121e18a4c7356efcf35",
+      "filename": "test/gcext/gcext.c",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 3,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/test%2Fgcext%2Fgcext.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/test%2Fgcext%2Fgcext.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fgcext%2Fgcext.c?ref=00aee56ff2e6b55be4a68a4bacc47409a8bdefd7",
+      "patch": "@@ -219,7 +219,6 @@ static uint64_t xorshift_rng(void)\n }\n \n static treap_t *bigvals;\n-static size_t bigval_startoffset;\n \n // Hooks to allocate and free external objects (bigval_t's).\n \n@@ -649,8 +648,6 @@ int main()\n             module,\n             jl_symbol(\"StackDataLarge\"),\n             (jl_value_t *)datatype_stack_external);\n-    // Remember the offset of external objects\n-    bigval_startoffset = jl_gc_external_obj_hdr_size();\n     // Run the actual tests\n     checked_eval_string(\n             \"let dir = dirname(unsafe_string(Base.JLOptions().julia_bin))\\n\""
+    }
+  ]
 }

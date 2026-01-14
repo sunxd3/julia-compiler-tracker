@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59740/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "56d6b2f06cee773b8c8b9096fd88cc21ba4239d5",
+      "filename": "base/intfuncs.jl",
+      "status": "modified",
+      "additions": 10,
+      "deletions": 1,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/5aa7199cbd26af58f633e9fa08586c1185c678e6/base%2Fintfuncs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/5aa7199cbd26af58f633e9fa08586c1185c678e6/base%2Fintfuncs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fintfuncs.jl?ref=5aa7199cbd26af58f633e9fa08586c1185c678e6",
+      "patch": "@@ -977,7 +977,8 @@ split_sign(n::Unsigned) = n, false\n Convert an integer `n` to a string in the given `base`,\n optionally specifying a number of digits to pad to.\n \n-See also [`digits`](@ref), [`bitstring`](@ref), [`count_zeros`](@ref).\n+See also [`digits`](@ref), [`bitstring`](@ref), [`count_zeros`](@ref),\n+and the Printf standard library.\n \n # Examples\n ```jldoctest\n@@ -986,6 +987,14 @@ julia> string(5, base = 13, pad = 4)\n \n julia> string(-13, base = 5, pad = 4)\n \"-0023\"\n+\n+julia> using Printf\n+\n+julia> @sprintf(\"%04i\", 5)\n+\"0005\"\n+\n+julia> @sprintf(\"%4i\", 5)\n+\"   5\"\n ```\n \"\"\"\n function string(n::Integer; base::Integer = 10, pad::Integer = 1)"
+    }
+  ]
 }

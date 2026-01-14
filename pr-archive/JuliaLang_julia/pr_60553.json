@@ -86,5 +86,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60553/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "5fd8efdaefb549c13800245733afaa3fff409e24",
+      "filename": "stdlib/Markdown/src/parse/parse.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 0,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3b789ed04bc2abdaa197114cfb86b66115c5183b/stdlib%2FMarkdown%2Fsrc%2Fparse%2Fparse.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3b789ed04bc2abdaa197114cfb86b66115c5183b/stdlib%2FMarkdown%2Fsrc%2Fparse%2Fparse.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2Fparse%2Fparse.jl?ref=3b789ed04bc2abdaa197114cfb86b66115c5183b",
+      "patch": "@@ -35,6 +35,8 @@ Base.firstindex(md::MD) = firstindex(md.content)\n Base.length(md::MD) = length(md.content)\n Base.isempty(md::MD) = isempty(md.content)\n Base.copy(md::MD) = MD(copy(md.content), copy(md.meta))\n+Base.iterate(md::MD) = iterate(md.content)\n+Base.iterate(md::MD, state) = iterate(md.content, state)\n \n ==(a::MD, b::MD) = (html(a) == html(b))\n "
+    },
+    {
+      "sha": "5f31a3299c2f196818941078f48828a50b093eec",
+      "filename": "stdlib/Markdown/test/runtests.jl",
+      "status": "modified",
+      "additions": 37,
+      "deletions": 0,
+      "changes": 37,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3b789ed04bc2abdaa197114cfb86b66115c5183b/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3b789ed04bc2abdaa197114cfb86b66115c5183b/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Fruntests.jl?ref=3b789ed04bc2abdaa197114cfb86b66115c5183b",
+      "patch": "@@ -1588,4 +1588,41 @@ end\n     @test expected == actual\n end\n \n+@testset \"indexing and iterator interface\" begin\n+    md = md\"\"\"\n+    # Headline\n+\n+    Some text\n+\n+    - item 1\n+    - item 2\n+\n+    ***\n+\n+    The end.\n+    \"\"\"\n+\n+    hr = Markdown.HorizontalRule()\n+\n+    @test !isempty(md)\n+    @test length(md) == 5\n+    @test firstindex(md) == 1\n+    @test lastindex(md) == 5\n+    @test md[4] isa Markdown.HorizontalRule  # getindex!\n+    md[4] = hr  # setindex!\n+    @test md[4] === hr\n+    # broadcast via iteration\n+    @test typeof.(md) == [Markdown.Header{1}, Markdown.Paragraph, Markdown.List, Markdown.HorizontalRule, Markdown.Paragraph]\n+    @test Base.IteratorSize(md) == Base.HasLength()\n+    @test eltype(md) == Any\n+\n+    push!(md, hr)\n+    @test !isempty(md)\n+    @test length(md) == 6\n+    @test firstindex(md) == 1\n+    @test lastindex(md) == 6\n+    @test md[6] === hr\n+    @test typeof.(md) == [Markdown.Header{1}, Markdown.Paragraph, Markdown.List, Markdown.HorizontalRule, Markdown.Paragraph, Markdown.HorizontalRule]\n+end\n+\n include(\"test_spec.jl\")"
+    }
+  ]
 }

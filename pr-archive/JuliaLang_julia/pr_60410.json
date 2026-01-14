@@ -77,5 +77,55 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60410/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "dd5d777f2de17b751965599808ee7e05c430924a",
+      "filename": "JuliaLowering/src/eval.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/JuliaLowering%2Fsrc%2Feval.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/JuliaLowering%2Fsrc%2Feval.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Feval.jl?ref=e7ef2c15e0ee62a67475d21a47df3ad74608fd11",
+      "patch": "@@ -435,6 +435,7 @@ function _to_lowered_expr(ex::SyntaxTree, stmt_offset::Int)\n                k == K\"=\"         ? :(=)        :\n                k == K\"leave\"     ? :leave      :\n                k == K\"isdefined\" ? :isdefined  :\n+               k == K\"loopinfo\"  ? :loopinfo   :\n                k == K\"latestworld\"       ? :latestworld       :\n                k == K\"pop_exception\"     ? :pop_exception     :\n                k == K\"captured_local\"    ? :captured_local    :"
+    },
+    {
+      "sha": "91faacf872ff7ff7a9855c8872d874ee35a83fd9",
+      "filename": "JuliaLowering/src/linear_ir.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/JuliaLowering%2Fsrc%2Flinear_ir.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/JuliaLowering%2Fsrc%2Flinear_ir.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Flinear_ir.jl?ref=e7ef2c15e0ee62a67475d21a47df3ad74608fd11",
+      "patch": "@@ -792,7 +792,7 @@ function compile(ctx::LinearIRContext, ex, needs_value, in_tail_pos)\n         end\n     elseif k == K\"gc_preserve_begin\"\n         makenode(ctx, ex, k, compile_args(ctx, children(ex)))\n-    elseif k == K\"gc_preserve_end\"\n+    elseif k == K\"gc_preserve_end\" || k == K\"loopinfo\"\n         if needs_value\n             throw(LoweringError(ex, \"misplaced kind $k in value position\"))\n         end"
+    },
+    {
+      "sha": "568a10b3e87a5fece178a662e664bde38426b3f7",
+      "filename": "JuliaLowering/test/macros.jl",
+      "status": "modified",
+      "additions": 53,
+      "deletions": 0,
+      "changes": 53,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/JuliaLowering%2Ftest%2Fmacros.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/JuliaLowering%2Ftest%2Fmacros.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fmacros.jl?ref=e7ef2c15e0ee62a67475d21a47df3ad74608fd11",
+      "patch": "@@ -560,4 +560,57 @@ code = JuliaLowering.include_string(test_mod, \"\"\"Mod1.@indirect_MODULE()\"\"\")\n         test_mod, \"@make_and_use_macro_toplevel()\"; expr_compat_mode=false) === 123\n end\n \n+@testset \"SIMD loopinfo\" begin\n+    @test JuliaLowering.include_string(test_mod, raw\"\"\"\n+    @eval let\n+        n = 10\n+        x = zeros(n)\n+        i = 1\n+        while i \u2264 n\n+            x[i] += 1\n+            i += 1\n+            $(Expr(:loopinfo, Symbol(\"julia.simdloop\"), nothing))  # Mark loop as SIMD loop\n+        end\n+        sum(x)\n+    end\n+    \"\"\"; expr_compat_mode=true) == 10.0\n+\n+    @test JuliaLowering.include_string(test_mod, raw\"\"\"\n+    @eval let\n+        n = 10\n+        x = zeros(n)\n+        i = 1\n+        while i \u2264 n\n+            x[i] += 1\n+            i += 1\n+            $(Expr(:loopinfo, Symbol(\"julia.simdloop\"), Symbol(\"julia.ivdep\")))  # Mark loop as SIMD loop\n+        end\n+        sum(x)\n+    end\n+    \"\"\"; expr_compat_mode=true) == 10.0\n+\n+    JuliaLowering.include_string(test_mod, \"\"\"\n+    @noinline function inner(x, y)\n+        s = zero(eltype(x))\n+        for i in eachindex(x, y)\n+            @inbounds s += x[i]*y[i]\n+        end\n+        return s\n+    end\n+    \"\"\")\n+\n+    JuliaLowering.include_string(test_mod, \"\"\"\n+    @noinline function innersimd(x, y)\n+        s = zero(eltype(x))\n+        @simd for i in eachindex(x, y)\n+            @inbounds s += x[i] * y[i]\n+        end\n+        return s\n+    end\n+    \"\"\")\n+\n+    @test test_mod.inner([1,2,3], [1,2,3]) == 14\n+    @test test_mod.innersimd([1,2,3], [1,2,3]) == 14\n+end\n+\n end"
+    },
+    {
+      "sha": "946614dbfa13163d776629e3c385d3908b0ba53a",
+      "filename": "test/JuliaLowering_stdlibs.jl",
+      "status": "modified",
+      "additions": 9,
+      "deletions": 12,
+      "changes": 21,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/test%2FJuliaLowering_stdlibs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/test%2FJuliaLowering_stdlibs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2FJuliaLowering_stdlibs.jl?ref=e7ef2c15e0ee62a67475d21a47df3ad74608fd11",
+      "patch": "@@ -2,18 +2,15 @@ import Libdl\n \n # known precompilation failures under JL\n const INCOMPATIBLE_STDLIBS = String[\n-    \"InteractiveUtils\"\n-    \"LazyArtifacts\"\n-    \"LibGit2\"\n-    \"Pkg\"\n-    \"REPL\"\n-    \"REPLExt\"\n-    \"SparseArrays\"\n-    \"SparseArraysExt\"\n-    \"Statistics\"\n-    \"SuiteSparse\"\n-    \"TOML\"\n-    \"Test\"\n+    \"InteractiveUtils\", # Invalid function name\n+    \"LibGit2\", # op isa Symbol (JuliaLang/JuliaLowering.jl#126)\n+    \"SparseArrays\", # type-alias bug (JuliaLang/JuliaLowering.jl#123)\n+    \"TOML\", # @invokelatest / QuoteNode bug\n+    \"Test\", # depends on InteractiveUtils\n+    \"REPL\", # depends on InteractiveUtils\n+    \"Pkg\", # depends on TOML\n+    \"SuiteSparse\", # depends on SparseArrays\n+    \"LazyArtifacts\", # depends on Pkg\n ]\n \n const JULIA_EXECUTABLE = Base.unsafe_string(Base.JLOptions().julia_bin)"
+    }
+  ]
 }

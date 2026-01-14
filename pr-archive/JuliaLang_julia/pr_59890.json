@@ -77,5 +77,67 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59890/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "092778b7bb67547a39534e5f21e94fabf3afbcc8",
+      "filename": "deps/checksums/DelimitedFiles-a982d5cf46061593c98b4d80fcc64dd42e6cba74.tar.gz/md5",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8073f1c1bf95bed04b73d8ddf74c829fae212832/deps%2Fchecksums%2FDelimitedFiles-a982d5cf46061593c98b4d80fcc64dd42e6cba74.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8073f1c1bf95bed04b73d8ddf74c829fae212832/deps%2Fchecksums%2FDelimitedFiles-a982d5cf46061593c98b4d80fcc64dd42e6cba74.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FDelimitedFiles-a982d5cf46061593c98b4d80fcc64dd42e6cba74.tar.gz%2Fmd5?ref=8073f1c1bf95bed04b73d8ddf74c829fae212832",
+      "patch": "@@ -1 +0,0 @@\n-eef0f8463d4a7ba1c697f666e815b0da"
+    },
+    {
+      "sha": "abbec567981d65dbcd662d172257397d9f67d0cc",
+      "filename": "deps/checksums/DelimitedFiles-a982d5cf46061593c98b4d80fcc64dd42e6cba74.tar.gz/sha512",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8073f1c1bf95bed04b73d8ddf74c829fae212832/deps%2Fchecksums%2FDelimitedFiles-a982d5cf46061593c98b4d80fcc64dd42e6cba74.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8073f1c1bf95bed04b73d8ddf74c829fae212832/deps%2Fchecksums%2FDelimitedFiles-a982d5cf46061593c98b4d80fcc64dd42e6cba74.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FDelimitedFiles-a982d5cf46061593c98b4d80fcc64dd42e6cba74.tar.gz%2Fsha512?ref=8073f1c1bf95bed04b73d8ddf74c829fae212832",
+      "patch": "@@ -1 +0,0 @@\n-e119db9546e698872e5e4cdf027a1c31e694f36c1e775a7d9361ad0db5d6a8e1804732090e68b40765a519ec3f7aa45d40c8c5e22275262303c100367bd681b3"
+    },
+    {
+      "sha": "136aad8d85c4fbf2a2a0cb32fb1a076f17a58ade",
+      "filename": "deps/checksums/DelimitedFiles-aac8c59e58cbf961fa15baf4d866901d9d1e6980.tar.gz/md5",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/aa0884c2d9bd070aa3e566b62b0559404df81785/deps%2Fchecksums%2FDelimitedFiles-aac8c59e58cbf961fa15baf4d866901d9d1e6980.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/aa0884c2d9bd070aa3e566b62b0559404df81785/deps%2Fchecksums%2FDelimitedFiles-aac8c59e58cbf961fa15baf4d866901d9d1e6980.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FDelimitedFiles-aac8c59e58cbf961fa15baf4d866901d9d1e6980.tar.gz%2Fmd5?ref=aa0884c2d9bd070aa3e566b62b0559404df81785",
+      "patch": "@@ -0,0 +1 @@\n+3c46839478f91030fc7ca76563ceb65e"
+    },
+    {
+      "sha": "7bf292d90d4568249e7f179462988d3f75abadd6",
+      "filename": "deps/checksums/DelimitedFiles-aac8c59e58cbf961fa15baf4d866901d9d1e6980.tar.gz/sha512",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/aa0884c2d9bd070aa3e566b62b0559404df81785/deps%2Fchecksums%2FDelimitedFiles-aac8c59e58cbf961fa15baf4d866901d9d1e6980.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/aa0884c2d9bd070aa3e566b62b0559404df81785/deps%2Fchecksums%2FDelimitedFiles-aac8c59e58cbf961fa15baf4d866901d9d1e6980.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FDelimitedFiles-aac8c59e58cbf961fa15baf4d866901d9d1e6980.tar.gz%2Fsha512?ref=aa0884c2d9bd070aa3e566b62b0559404df81785",
+      "patch": "@@ -0,0 +1 @@\n+840af831edd4207f7a88ab9faaea1dfd951da5edc8f8d7bc439f66d76b36afd6af20a6f1a53ae6e6fbb4f88949a8908b692719d7783946fd77a21388d307b63c"
+    },
+    {
+      "sha": "0e52d2a73628e435b1d23acc96de1ba4a8594180",
+      "filename": "stdlib/DelimitedFiles.version",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/aa0884c2d9bd070aa3e566b62b0559404df81785/stdlib%2FDelimitedFiles.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/aa0884c2d9bd070aa3e566b62b0559404df81785/stdlib%2FDelimitedFiles.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FDelimitedFiles.version?ref=aa0884c2d9bd070aa3e566b62b0559404df81785",
+      "patch": "@@ -1,4 +1,4 @@\n DELIMITEDFILES_BRANCH = main\n-DELIMITEDFILES_SHA1 = a982d5cf46061593c98b4d80fcc64dd42e6cba74\n+DELIMITEDFILES_SHA1 = aac8c59e58cbf961fa15baf4d866901d9d1e6980\n DELIMITEDFILES_GIT_URL := https://github.com/JuliaData/DelimitedFiles.jl.git\n DELIMITEDFILES_TAR_URL = https://api.github.com/repos/JuliaData/DelimitedFiles.jl/tarball/$1"
+    }
+  ]
 }

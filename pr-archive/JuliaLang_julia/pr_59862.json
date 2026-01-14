@@ -77,5 +77,67 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59862/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "10ef6889cd6a54a102acd1072a1dc4a81bdca7a5",
+      "filename": "stdlib/Markdown/src/Julia/interp.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/be358250d0cf6da19ad8d00118299ce1a278ecd2/stdlib%2FMarkdown%2Fsrc%2FJulia%2Finterp.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/be358250d0cf6da19ad8d00118299ce1a278ecd2/stdlib%2FMarkdown%2Fsrc%2FJulia%2Finterp.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FJulia%2Finterp.jl?ref=be358250d0cf6da19ad8d00118299ce1a278ecd2",
+      "patch": "@@ -46,7 +46,7 @@ toexpr(x) = x\n toexpr(xs::Union{Vector{Any},Vector{Vector{Any}}}) =\n     Expr(:call, GlobalRef(Base,:getindex), Any, mapany(toexpr, xs)...)\n \n-for T in Any[MD, Paragraph, Header, Link, Bold, Italic]\n+for T in Any[MD, Paragraph, Header, Link, Bold, Italic, Footnote, Admonition]\n     @eval function toexpr(md::$T)\n         Expr(:call, typeof(md), $(map(x->:(toexpr(md.$x)), fieldnames(Base.unwrap_unionall(T)))...))\n     end"
+    },
+    {
+      "sha": "99240e73bd776461ab7b3eaea4c7306c1f1a9c86",
+      "filename": "stdlib/Markdown/test/runtests.jl",
+      "status": "modified",
+      "additions": 24,
+      "deletions": 0,
+      "changes": 24,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/be358250d0cf6da19ad8d00118299ce1a278ecd2/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/be358250d0cf6da19ad8d00118299ce1a278ecd2/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Fruntests.jl?ref=be358250d0cf6da19ad8d00118299ce1a278ecd2",
+      "patch": "@@ -502,6 +502,30 @@ sum_ref = md\"Behaves like $(ref(sum))\"\n @test plain(sum_ref) == \"Behaves like sum (see Julia docs)\\n\"\n @test html(sum_ref) == \"<p>Behaves like sum &#40;see Julia docs&#41;</p>\\n\"\n \n+# JuliaLang/julia#59783\n+let x = 1,\n+    result = md\"\"\"\n+    $x\n+\n+    [^1]: $x\n+\n+    !!! note\n+    $x\n+    \"\"\",\n+    expected = \"\"\"\n+    1\n+\n+    [^1]: 1\n+\n+    !!! note\n+\n+\n+\n+    1\n+    \"\"\"\n+    @test plain(result) == expected\n+end\n+\n show(io::IO, m::MIME\"text/html\", r::Reference) =\n     Markdown.withtag(io, :a, :href=>\"test\") do\n         Markdown.htmlesc(io, Markdown.plaininline(r))"
+    },
+    {
+      "sha": "aafa8c04415d5144adf16e83747f9a15c05cdda9",
+      "filename": "stdlib/REPL/src/REPLCompletions.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 6,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/be358250d0cf6da19ad8d00118299ce1a278ecd2/stdlib%2FREPL%2Fsrc%2FREPLCompletions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/be358250d0cf6da19ad8d00118299ce1a278ecd2/stdlib%2FREPL%2Fsrc%2FREPLCompletions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2FREPLCompletions.jl?ref=be358250d0cf6da19ad8d00118299ce1a278ecd2",
+      "patch": "@@ -905,12 +905,6 @@ function complete_keyword_argument!(suggestions::Vector{Completion},\n     kwargs_flag == 2 && return false # one of the previous kwargs is invalid\n \n     methods = Completion[]\n-    # Limit kwarg completions to cases when function is concretely known; looking up\n-    # matching methods for abstract functions \u2014 particularly `Any` or `Function` \u2014 can\n-    # take many seconds to run over the thousands of possible methods. Note that\n-    # isabstracttype would return naively return true for common constructor calls\n-    # like Array, but the REPL's introspection here may know their Type{T}.\n-    isconcretetype(funct) || return false\n     complete_methods!(methods, funct, Any[Vararg{Any}], kwargs_ex, -1, arg_pos == :kwargs)\n     # TODO: use args_ex instead of Any[Vararg{Any}] and only provide kwarg completion for\n     # method calls compatible with the current arguments."
+    },
+    {
+      "sha": "c4295934da3a5dab9d69f0cfc58964ce54e9adea",
+      "filename": "stdlib/REPL/src/precompile.jl",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 7,
+      "changes": 18,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/be358250d0cf6da19ad8d00118299ce1a278ecd2/stdlib%2FREPL%2Fsrc%2Fprecompile.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/be358250d0cf6da19ad8d00118299ce1a278ecd2/stdlib%2FREPL%2Fsrc%2Fprecompile.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2Fprecompile.jl?ref=be358250d0cf6da19ad8d00118299ce1a278ecd2",
+      "patch": "@@ -191,13 +191,17 @@ end\n \n let\n     if Base.generating_output() && Base.JLOptions().use_pkgimages != 0\n-        repl_workload()\n-        precompile(Tuple{typeof(Base.setindex!), Base.Dict{Any, Any}, Any, Int})\n-        precompile(Tuple{typeof(Base.delete!), Base.Set{Any}, String})\n-        precompile(Tuple{typeof(Base.:(==)), Char, String})\n-        #for child in copy(Base.newly_inferred)\n-        #    precompile((child::Base.CodeInstance).def)\n-        #end\n+        # Bare-bones PrecompileTools.jl\n+        # Do we need latestworld-if-toplevel here\n+        ccall(:jl_tag_newly_inferred_enable, Cvoid, ())\n+        try\n+            repl_workload()\n+            precompile(Tuple{typeof(Base.setindex!), Base.Dict{Any, Any}, Any, Int})\n+            precompile(Tuple{typeof(Base.delete!), Base.Set{Any}, String})\n+            precompile(Tuple{typeof(Base.:(==)), Char, String})\n+        finally\n+            ccall(:jl_tag_newly_inferred_disable, Cvoid, ())\n+        end\n     end\n end\n "
+    },
+    {
+      "sha": "da1edb4d6542ecc46e75e43955d3ccd10d6eddd0",
+      "filename": "stdlib/REPL/test/replcompletions.jl",
+      "status": "modified",
+      "additions": 48,
+      "deletions": 2,
+      "changes": 50,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/be358250d0cf6da19ad8d00118299ce1a278ecd2/stdlib%2FREPL%2Ftest%2Freplcompletions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/be358250d0cf6da19ad8d00118299ce1a278ecd2/stdlib%2FREPL%2Ftest%2Freplcompletions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Ftest%2Freplcompletions.jl?ref=be358250d0cf6da19ad8d00118299ce1a278ecd2",
+      "patch": "@@ -2687,8 +2687,54 @@ f54131 = F54131()\n \n     s = \"f54131.x(kwa\"\n     a, b, c = completions(s, lastindex(s), @__MODULE__, false)\n-    @test_broken REPLCompletions.KeywordArgumentCompletion(\"kwarg\") in a\n-    @test (@elapsed completions(s, lastindex(s), @__MODULE__, false)) < 1\n+    @test REPLCompletions.KeywordArgumentCompletion(\"kwarg\") in a\n+    @test (@elapsed completions(s, lastindex(s), @__MODULE__, false)) < 100\n+end\n+\n+@kwdef struct T59244\n+    asdf = 1\n+    qwer = 2\n+end\n+@kwdef struct S59244{T}\n+    asdf::T = 1\n+    qwer::T = 2\n+end\n+@testset \"kwarg completion of types\" begin\n+    s = \"T59244(as\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"asdf\") in a\n+\n+    s = \"T59244(; qw\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") in a\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") == only(a)\n+\n+    s = \"S59244(as\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"asdf\") in a\n+\n+    s = \"S59244(; qw\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") in a\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") == only(a)\n+\n+    s = \"S59244{Int}(as\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"asdf\") in a\n+\n+    s = \"S59244{Int}(; qw\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") in a\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") == only(a)\n+\n+    s = \"S59244{Any}(as\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"asdf\") in a\n+\n+    s = \"S59244{Any}(; qw\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") in a\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") == only(a)\n end\n \n # Completion inside string interpolation"
+    }
+  ]
 }

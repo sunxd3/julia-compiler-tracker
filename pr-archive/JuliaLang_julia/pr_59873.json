@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59873/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "5bf62a08cf09d228797db9b610dc87f1242940d0",
+      "filename": "base/docs/basedocs.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 2,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/81097c8b739cd83adbd5e0fbfcec25d6e1f677f0/base%2Fdocs%2Fbasedocs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/81097c8b739cd83adbd5e0fbfcec25d6e1f677f0/base%2Fdocs%2Fbasedocs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fdocs%2Fbasedocs.jl?ref=81097c8b739cd83adbd5e0fbfcec25d6e1f677f0",
+      "patch": "@@ -1431,8 +1431,6 @@ a tuple of types. All types, as well as the LLVM code, should be specified as li\n not as variables or expressions (it may be necessary to use `@eval` to generate these\n literals).\n \n-[Opaque pointers](https://llvm.org/docs/OpaquePointers.html) (written as `ptr`) are not allowed in the LLVM code.\n-\n See\n [`test/llvmcall.jl`](https://github.com/JuliaLang/julia/blob/v$VERSION/test/llvmcall.jl)\n for usage examples."
+    }
+  ]
 }

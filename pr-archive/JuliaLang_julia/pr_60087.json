@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60087/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "cb71376fedc68ee2f15ac97ff223bad59942ea0c",
+      "filename": "base/show.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 2,
+      "changes": 7,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/42abd0944a2507e6e96238921205cde71ac1f787/base%2Fshow.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/42abd0944a2507e6e96238921205cde71ac1f787/base%2Fshow.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fshow.jl?ref=42abd0944a2507e6e96238921205cde71ac1f787",
+      "patch": "@@ -1551,9 +1551,12 @@ const expr_parens = Dict(:tuple=>('(',')'), :vcat=>('[',']'),\n \"\"\"\n     operator_precedence(s::Symbol)\n \n-Return an integer representing the precedence of operator `s`, relative to\n+Return an integer representing the precedence of a binary operator `s`, relative to\n other operators. Higher-numbered operators take precedence over lower-numbered\n-operators. Return `0` if `s` is not a valid operator.\n+operators. Return `0` if `s` is not a valid binary operator.\n+\n+(The precedence of *unary* operators is handled differently, including cases like `+`\n+where an operator can be either unary or binary.)\n \n # Examples\n ```jldoctest"
+    }
+  ]
 }

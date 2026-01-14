@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59782/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "4a63ea12ac5d0486c5beabda7e68d6914358e214",
+      "filename": "stdlib/REPL/test/repl.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/66e501bfbfe34e26b0227ab2405346266c061605/stdlib%2FREPL%2Ftest%2Frepl.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/66e501bfbfe34e26b0227ab2405346266c061605/stdlib%2FREPL%2Ftest%2Frepl.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Ftest%2Frepl.jl?ref=66e501bfbfe34e26b0227ab2405346266c061605",
+      "patch": "@@ -32,7 +32,7 @@ function kill_timer(delay)\n         # **DON'T COPY ME.**\n         # The correct way to handle timeouts is to close the handle:\n         # e.g. `close(stdout_read); close(stdin_write)`\n-        test_task.queue === nothing || Base.list_deletefirst!(test_task.queue::IntrusiveLinkedList{Task}, test_task)\n+        test_task.queue === nothing || Base.list_deletefirst!(test_task.queue::Base.IntrusiveLinkedList{Task}, test_task)\n         schedule(test_task, \"hard kill repl test\"; error=true)\n         print(stderr, \"WARNING: attempting hard kill of repl test after exceeding timeout\\n\")\n     end"
+    }
+  ]
 }

@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60295/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "fd7c4c28bd9715fadecc2f4cc1bed8f198ac014f",
+      "filename": "contrib/escape_json.sh",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 3,
+      "changes": 5,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/76fc4e4958ccb2f7c4607672aa07ae14fdfe793e/contrib%2Fescape_json.sh",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/76fc4e4958ccb2f7c4607672aa07ae14fdfe793e/contrib%2Fescape_json.sh",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/contrib%2Fescape_json.sh?ref=76fc4e4958ccb2f7c4607672aa07ae14fdfe793e",
+      "patch": "@@ -1,10 +1,9 @@\n-#!/bin/bash\n+#!/bin/sh\n # print arguments escaped as json list elements\n \n first=true\n for n in \"$@\"; do\n   $first && first=false || printf ', '\n-  n=\"${n//\\\\/\\\\\\\\}\"\n-  n=\"${n//\\\"/\\\\\\\"}\"\n+  n=$(printf '%s' \"$n\" | sed 's/\\\\/\\\\\\\\/g' | sed 's/\"/\\\\\"/g')\n   printf '\"%s\"' \"$n\"\n done"
+    }
+  ]
 }

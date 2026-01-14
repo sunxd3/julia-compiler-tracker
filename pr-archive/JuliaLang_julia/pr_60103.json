@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60103/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "c381f7982cd3f8f1a249fa3f67a066b3c981340f",
+      "filename": "base/loading.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8af0a91c771187947ddf35b7eed182653770ec89/base%2Floading.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8af0a91c771187947ddf35b7eed182653770ec89/base%2Floading.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Floading.jl?ref=8af0a91c771187947ddf35b7eed182653770ec89",
+      "patch": "@@ -179,7 +179,7 @@ function dummy_uuid(project_file::String)\n     end\n end\n \n-## package path slugs: turning UUID + SHA1 into a pair of 4-byte \"slugs\" ##\n+## package path slugs: turning UUID + SHA1 into a pair of 5-byte \"slugs\" ##\n \n const slug_chars = String(['A':'Z'; 'a':'z'; '0':'9'])\n "
+    }
+  ]
 }

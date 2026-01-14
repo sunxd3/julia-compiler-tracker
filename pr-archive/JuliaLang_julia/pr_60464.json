@@ -137,5 +137,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60464/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "b19ac763465d4708f00e06fa5f9de5e9a2aa221c",
+      "filename": "doc/src/manual/installation.md",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 1,
+      "changes": 7,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7450aba3420729c112541894056d474b934c1a1c/doc%2Fsrc%2Fmanual%2Finstallation.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7450aba3420729c112541894056d474b934c1a1c/doc%2Fsrc%2Fmanual%2Finstallation.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fsrc%2Fmanual%2Finstallation.md?ref=7450aba3420729c112541894056d474b934c1a1c",
+      "patch": "@@ -75,7 +75,12 @@ If the Windows Store is blocked on a system, we have an alternative\n [MSIX App Installer](https://learn.microsoft.com/en-us/windows/msix/app-installer/app-installer-file-overview)\n based setup. To use the App Installer version, download\n [this](https://install.julialang.org/Julia.appinstaller) file and open it by\n-double clicking on it.\n+double clicking on it. One can also install exactly the same version by executing\n+the PowerShell command\n+\n+```\n+Add-AppxPackage -AppInstallerFile https://install.julialang.org/Julia.appinstaller\n+```\n \n ### MSI Installer (Windows)\n "
+    }
+  ]
 }

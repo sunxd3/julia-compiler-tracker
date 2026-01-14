@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60580/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "1e3cbedee689e0f958d2c3665b428d675bcbd213",
+      "filename": "doc/src/devdocs/build/windows.md",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 0,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/b47552c940f215cf63b0fd42d6fb7cdd7a2c712b/doc%2Fsrc%2Fdevdocs%2Fbuild%2Fwindows.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/b47552c940f215cf63b0fd42d6fb7cdd7a2c712b/doc%2Fsrc%2Fdevdocs%2Fbuild%2Fwindows.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fsrc%2Fdevdocs%2Fbuild%2Fwindows.md?ref=b47552c940f215cf63b0fd42d6fb7cdd7a2c712b",
+      "patch": "@@ -235,6 +235,12 @@ If you are building for 64-bit Windows, the steps are essentially the same.\n Just replace `i686` in `XC_HOST` with `x86_64`. (Note: on Mac, wine only runs\n in 32-bit mode).\n \n+## Distribution to other machines\n+\n+If you intend to run this copy of Julia on a different x86-64 machine than it was compiled\n+on, add `JULIA_CPU_TARGET=` to `Make.user`. Currently, x86-64 Julia distributions are built\n+with `JULIA_CPU_TARGET=generic;sandybridge,-xsaveopt,clone_all;haswell,-rdrnd,base(1);x86_64_v4,-rdrnd,base(1)`.\n+[See here for more on this environment variable.](https://docs.julialang.org/en/v1/manual/environment-variables/#JULIA_CPU_TARGET)\n \n ## Debugging a cross-compiled build under wine\n "
+    }
+  ]
 }

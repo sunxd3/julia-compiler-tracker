@@ -77,5 +77,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60091/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "5726268041a5bfc5303aac9d997883551459864b",
+      "filename": "src/Makefile",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/844bdd4030b70909bd6aec2ce149491cbe5d2da1/src%2FMakefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/844bdd4030b70909bd6aec2ce149491cbe5d2da1/src%2FMakefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2FMakefile?ref=844bdd4030b70909bd6aec2ce149491cbe5d2da1",
+      "patch": "@@ -568,7 +568,7 @@ clean:\n \t-rm -f $(BUILDDIR)/*.dbg.obj $(BUILDDIR)/*.o $(BUILDDIR)/*.dwo $(BUILDDIR)/*.$(SHLIB_EXT) $(BUILDDIR)/*.a $(BUILDDIR)/*.h.gen\n \t-rm -f $(BUILDDIR)/julia.expmap\n \t-rm -f $(BUILDDIR)/julia_version.h\n-\t-rm -f $(BUILDDIR)/compile_commands.json\n+\t-rm -f $(BUILDDIR)/compile_commands.json*\n \n .PHONY: clean-flisp\n clean-flisp:\n@@ -677,7 +677,7 @@ clean-analyzegc:\n # Compilation database generation using existing clang infrastructure\n .PHONY: regenerate-compile_commands\n regenerate-compile_commands:\n-\tTMPFILE=$$(mktemp -p $(BUILDDIR) compile_commands.json.XXXXXX); \\\n+\t@TMPFILE=$$(mktemp $(abspath $(BUILDDIR)/compile_commands.json.XXXXXX)); \\\n \t{ \\\n \t\tCLANG_TOOLING_C_FLAGS=\"$$($(JULIAHOME)/contrib/escape_json.sh clang $(CLANG_TOOLING_C_FLAGS))\"; \\\n \t\tCLANG_TOOLING_CXX_FLAGS=\"$$($(JULIAHOME)/contrib/escape_json.sh clang $(CLANG_TOOLING_CXX_FLAGS))\"; \\"
+    },
+    {
+      "sha": "a5449fd084a3e8b1713540d20fdc3c9aec69ab88",
+      "filename": "src/flisp/Makefile",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/844bdd4030b70909bd6aec2ce149491cbe5d2da1/src%2Fflisp%2FMakefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/844bdd4030b70909bd6aec2ce149491cbe5d2da1/src%2Fflisp%2FMakefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fflisp%2FMakefile?ref=844bdd4030b70909bd6aec2ce149491cbe5d2da1",
+      "patch": "@@ -142,7 +142,7 @@ INCLUDED_FLISP_FILES := flisp.c:cvalues.c flisp.c:types.c flisp.c:print.c flisp.\n # Compilation database generation\n .PHONY: regenerate-compile_commands\n regenerate-compile_commands:\n-\tTMPFILE=$$(mktemp -p $(BUILDDIR) compile_commands.json.XXXXXX); \\\n+\tTMPFILE=$$(mktemp $(abspath $(BUILDDIR)/compile_commands.json.XXXXXX)); \\\n \t{ \\\n \t\tCLANG_TOOLING_C_FLAGS=\"$$($(JULIAHOME)/contrib/escape_json.sh clang $(CLANG_TOOLING_C_FLAGS))\"; \\\n \t\techo \"[\"; \\\n@@ -176,7 +176,7 @@ clean:\n \trm -f $(BUILDDIR)/*.a\n \trm -f $(BUILDDIR)/$(EXENAME)$(EXE)\n \trm -f $(BUILDDIR)/$(EXENAME)-debug$(EXE)\n-\trm -f $(BUILDDIR)/compile_commands.json\n+\trm -f $(BUILDDIR)/compile_commands.json*\n \trm -f $(BUILDDIR)/host/*\n \n .PHONY: flisp-deps compile-database"
+    },
+    {
+      "sha": "7366fb3480142da2d11187927da2df4f62c54542",
+      "filename": "src/support/Makefile",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/844bdd4030b70909bd6aec2ce149491cbe5d2da1/src%2Fsupport%2FMakefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/844bdd4030b70909bd6aec2ce149491cbe5d2da1/src%2Fsupport%2FMakefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fsupport%2FMakefile?ref=844bdd4030b70909bd6aec2ce149491cbe5d2da1",
+      "patch": "@@ -80,7 +80,7 @@ INCLUDED_SUPPORT_FILES := hashing.c:MurmurHash3.c\n # Compilation database generation\n .PHONY: regenerate-compile_commands\n regenerate-compile_commands:\n-\tTMPFILE=$$(mktemp -p $(BUILDDIR) compile_commands.json.XXXXXX); \\\n+\tTMPFILE=$$(mktemp $(abspath $(BUILDDIR)/compile_commands.json.XXXXXX)); \\\n \t{ \\\n \t\tCLANG_TOOLING_S_FLAGS=\"$$($(JULIAHOME)/contrib/escape_json.sh clang $(JCPPFLAGS) $(DEBUGFLAGS))\"; \\\n \t\tCLANG_TOOLING_C_FLAGS=\"$$($(JULIAHOME)/contrib/escape_json.sh clang $(JCPPFLAGS) $(JCFLAGS) $(DEBUGFLAGS))\"; \\\n@@ -123,7 +123,7 @@ clean:\n \trm -f $(BUILDDIR)/core*\n \trm -f $(BUILDDIR)/libsupport.a\n \trm -f $(BUILDDIR)/libsupport-debug.a\n-\trm -f $(BUILDDIR)/compile_commands.json\n+\trm -f $(BUILDDIR)/compile_commands.json*\n \trm -f $(BUILDDIR)/host/*\n \n .PHONY: compile-database"
+    }
+  ]
 }

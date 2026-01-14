@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60134/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "18b26794116ce83953802a34df704ab1cfe24054",
+      "filename": "base/loading.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 3,
+      "changes": 5,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/bc8ebd8e5481fdaeac4026666ba0c0deb2a721eb/base%2Floading.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/bc8ebd8e5481fdaeac4026666ba0c0deb2a721eb/base%2Floading.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Floading.jl?ref=bc8ebd8e5481fdaeac4026666ba0c0deb2a721eb",
+      "patch": "@@ -185,10 +185,9 @@ const slug_chars = String(['A':'Z'; 'a':'z'; '0':'9'])\n \n function slug(x::UInt32, p::Int)\n     sprint(sizehint=p) do io\n-        y = x\n-        n = length(slug_chars)\n+        n = UInt32(length(slug_chars))\n         for i = 1:p\n-            y, d = divrem(y, n)\n+            x, d = divrem(x, n)\n             write(io, slug_chars[1+d])\n         end\n     end"
+    }
+  ]
 }

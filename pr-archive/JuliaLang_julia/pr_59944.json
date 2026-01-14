@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59944/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "7df2d5b725b67dcf697533043e0eeeef7032ecef",
+      "filename": "test/misc.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 4,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/f57a0edc40de15847bee384e3616a730a8c61789/test%2Fmisc.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/f57a0edc40de15847bee384e3616a730a8c61789/test%2Fmisc.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fmisc.jl?ref=f57a0edc40de15847bee384e3616a730a8c61789",
+      "patch": "@@ -1587,18 +1587,14 @@ end\n         _lock_conflicts,Threads.nthreads()\n     '`, String)))\n     @test _lock_conflicts > 0 skip=(_nthreads < 2) # can only test if the worker can multithread\n-end\n \n-#TODO: merge with `@testset \"Base/timing.jl\"` once https://github.com/JuliaLang/julia/issues/52948 is resolved\n-@testset \"Base/timing.jl2\" begin\n     # Test the output of `format_bytes()`\n     inputs = [(factor * (Int64(1000)^e),binary) for binary in (false,true), factor in (1,2), e in 0:6][:]\n     expected_output = [\"1 byte\", \"1 byte\", \"2 bytes\", \"2 bytes\", \"1000 bytes\", \"1000 bytes\", \"2.000 kB\", \"1.953 KiB\",\n                         \"1000.000 kB\", \"976.562 KiB\", \"2.000 MB\", \"1.907 MiB\", \"1000.000 MB\", \"953.674 MiB\",\n                         \"2.000 GB\", \"1.863 GiB\", \"1000.000 GB\", \"931.323 GiB\", \"2.000 TB\", \"1.819 TiB\",\n                         \"1000.000 TB\", \"909.495 TiB\", \"2.000 PB\", \"1.776 PiB\", \"1000.000 PB\", \"888.178 PiB\",\n                         \"2000.000 PB\", \"1776.357 PiB\"]\n-\n     for ((n, binary), expected) in zip(inputs, expected_output)\n         @test Base.format_bytes(n; binary) == expected\n     end"
+    }
+  ]
 }

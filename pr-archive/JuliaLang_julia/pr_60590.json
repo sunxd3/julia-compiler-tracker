@@ -95,5 +95,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60590/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "b2d54d0a7a0e5efe9de2eb57bf654e5dd3ba612c",
+      "filename": "Makefile",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 2,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/9ef866af2950d0415495859b1e267c530e3d2251/Makefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/9ef866af2950d0415495859b1e267c530e3d2251/Makefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Makefile?ref=9ef866af2950d0415495859b1e267c530e3d2251",
+      "patch": "@@ -325,8 +325,7 @@ else ifeq ($(JULIA_BUILD_MODE),debug)\n \t-$(INSTALL_M) $(build_libdir)/libjulia-debug.dll.a $(DESTDIR)$(libdir)/\n \t-$(INSTALL_M) $(build_libdir)/libjulia-internal-debug.dll.a $(DESTDIR)$(libdir)/\n endif\n-\t-$(INSTALL_M) $(wildcard $(build_private_libdir)/*.a) $(DESTDIR)$(private_libdir)/\n-\t-rm -f $(DESTDIR)$(private_libdir)/sys-o.a\n+\t-$(INSTALL_M) $(filter-out %-bc.a %-o.a,$(wildcard $(build_private_libdir)/lib*.a)) $(DESTDIR)$(private_libdir)/\n \n \t-$(INSTALL_M) $(build_bindir)/libopenlibm.dll.a $(DESTDIR)$(libdir)/\n \t-$(INSTALL_M) $(build_libdir)/libssp.dll.a $(DESTDIR)$(libdir)/"
+    }
+  ]
 }

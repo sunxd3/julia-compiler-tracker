@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60507/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "79cb05e86e35445e7bbee64c1bfec6f7ad1fb88b",
+      "filename": "stdlib/Artifacts/src/Artifacts.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/ca024c657968e57770e9e232c1990fcf494364fd/stdlib%2FArtifacts%2Fsrc%2FArtifacts.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/ca024c657968e57770e9e232c1990fcf494364fd/stdlib%2FArtifacts%2Fsrc%2FArtifacts.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FArtifacts%2Fsrc%2FArtifacts.jl?ref=ca024c657968e57770e9e232c1990fcf494364fd",
+      "patch": "@@ -410,7 +410,7 @@ function artifact_meta(name::String, artifact_dict::Dict, artifacts_toml::String\n         dl_dict = Dict{Platform,Dict{String,Any}}()\n         for x in meta\n             x = x::Dict{String, Any}\n-            dl_dict[unpack_platform(x, name, artifacts_toml)] = x\n+            dl_dict[unpack_platform(x, name, artifacts_toml)::Platform] = x\n         end\n         meta = select_platform(dl_dict, platform)\n     # If it's NOT a dict, complain"
+    }
+  ]
 }

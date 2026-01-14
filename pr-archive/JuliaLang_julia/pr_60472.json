@@ -104,5 +104,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60472/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "fec5dc81a71c6fbbf9a49188ca80ad8ff4da2d4b",
+      "filename": "stdlib/REPL/src/REPLCompletions.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 5,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/ffbf16fd1a47060fc9d2dc6ff3fc2442133d889e/stdlib%2FREPL%2Fsrc%2FREPLCompletions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/ffbf16fd1a47060fc9d2dc6ff3fc2442133d889e/stdlib%2FREPL%2Fsrc%2FREPLCompletions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2FREPLCompletions.jl?ref=ffbf16fd1a47060fc9d2dc6ff3fc2442133d889e",
+      "patch": "@@ -1026,8 +1026,8 @@ function completions(string::String, pos::Int, context_module::Module=Main, shif\n         if obj !== nothing\n             # Skip leading whitespace inside brackets.\n             i = @something findnext(!isspace, string, first(key)) nextind(string, last(key))\n-            key = i:last(key)\n-            s = string[intersect(key, 1:pos)]\n+            key = intersect(i:last(key), 1:pos)\n+            s = string[key]\n             matches = find_dict_matches(obj, s)\n             length(matches) == 1 && !closed && (matches[1] *= ']')\n             if length(matches) > 0\n@@ -1052,7 +1052,8 @@ function completions(string::String, pos::Int, context_module::Module=Main, shif\n     #  \"~/example.txt TAB => \"/home/user/example.txt\"\n     r, closed = find_str(cur)\n     if r !== nothing\n-        s = do_string_unescape(string[intersect(r, 1:pos)])\n+        r = intersect(r, 1:pos)\n+        s = do_string_unescape(string[r])\n         ret, success = complete_path_string(s, hint; string_escape=true,\n                                             dirsep=Sys.iswindows() ? '\\\\' : '/')\n         if length(ret) == 1 && !closed && close_path_completion(ret[1].path)\n@@ -1095,8 +1096,8 @@ function completions(string::String, pos::Int, context_module::Module=Main, shif\n         # Keyword argument completion:\n         #   foo(ar TAB   => keyword arguments like `arg1=`\n         elseif kind(cur) == K\"Identifier\"\n-            r = char_range(cur)\n-            s = string[intersect(r, 1:pos)]\n+            r = intersect(char_range(cur), 1:pos)\n+            s = string[r]\n             # Return without adding more suggestions if kwargs only\n             complete_keyword_argument!(suggestions, e, s, context_module, arg_pos; shift) &&\n                 return sort_suggestions(), r, true"
+    },
+    {
+      "sha": "fbf04e77efd8befb57db74693e057f6e63785b46",
+      "filename": "stdlib/REPL/test/replcompletions.jl",
+      "status": "modified",
+      "additions": 32,
+      "deletions": 0,
+      "changes": 32,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/ffbf16fd1a47060fc9d2dc6ff3fc2442133d889e/stdlib%2FREPL%2Ftest%2Freplcompletions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/ffbf16fd1a47060fc9d2dc6ff3fc2442133d889e/stdlib%2FREPL%2Ftest%2Freplcompletions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Ftest%2Freplcompletions.jl?ref=ffbf16fd1a47060fc9d2dc6ff3fc2442133d889e",
+      "patch": "@@ -1495,6 +1495,23 @@ mktempdir() do path\n         @test \"$(path_expected)$(sep)foo_dir$(sep)\" in c\n         @test \"$(path_expected)$(sep)foo_file.txt\" in c\n     end\n+\n+    # Issue #60444: path completion should not delete text after the string (e.g. indexing)\n+    let (c, r, res) = test_complete_pos(\"f(\\\"$(path)$(sep)foo|\\\")\")\n+        @test res\n+        @test length(c) == 2\n+        @test \"$(path_expected)$(sep)foo_dir$(sep)\" in c\n+        @test \"$(path_expected)$(sep)foo_file.txt\" in c\n+    end\n+    let (c, r, res) = test_complete_pos(\"f(\\\"$(path)$(sep)foo|\\\")[1]\")\n+        @test res\n+        @test length(c) == 2\n+        @test \"$(path_expected)$(sep)foo_dir$(sep)\" in c\n+        @test \"$(path_expected)$(sep)foo_file.txt\" in c\n+        # Range should end at cursor position, not overwrite \")[1]\"\n+        pos = findfirst('|', \"f(\\\"$(path)$(sep)foo|\\\")[1]\") - 1\n+        @test last(r) == pos\n+    end\n end\n \n if Sys.iswindows()\n@@ -1648,6 +1665,14 @@ test_dict_completion(\"test_repl_comp_customdict\")\n     let s = \"test_dict_no_length[\"\n         @test REPLCompletions.completions(s, sizeof(s), Main.CompletionFoo) isa Tuple\n     end\n+\n+    # Issue #60444: completing dict keys should not overwrite input after cursor\n+    let s = \"test_dict[\\\"ab|c\\\"]\"\n+        c, r = test_complete_context_pos(s, Main.CompletionFoo)\n+        @test \"\\\"abc\\\"\" in c\n+        @test \"\\\"abcd\\\"\" in c\n+        @test r == 11:13  # range ends at cursor, not at end of key\n+    end\n end\n \n @testset \"completion of string/cmd macros (#22577)\" begin\n@@ -1794,6 +1819,13 @@ end\n     @test hasnokwsuggestions(\"CompletionFoo.kwtest5('a', 3, 5, unknownsplat...; xy\")\n     @test hasnokwsuggestions(\"CompletionFoo.kwtest5(3; somek\")\n     =#\n+\n+    # Issue #60444: completing keyword arguments should not overwrite input after cursor\n+    let s = \"CompletionFoo.kwtest3(a; foob|true)\"\n+        c, r = test_complete_pos(s)\n+        @test c == [\"foobar=\"]\n+        @test r == 26:29\n+    end\n end\n \n # Test completion in context"
+    }
+  ]
 }

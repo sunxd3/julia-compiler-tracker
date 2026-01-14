@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60578/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "1e4311599d51e9562be0323321500a338f6fcf3b",
+      "filename": "stdlib/Markdown/src/render/html.jl",
+      "status": "modified",
+      "additions": 25,
+      "deletions": 5,
+      "changes": 30,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/b4070417c1ca400b8f20253480f79323bb4c24f6/stdlib%2FMarkdown%2Fsrc%2Frender%2Fhtml.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/b4070417c1ca400b8f20253480f79323bb4c24f6/stdlib%2FMarkdown%2Fsrc%2Frender%2Fhtml.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2Frender%2Fhtml.jl?ref=b4070417c1ca400b8f20253480f79323bb4c24f6",
+      "patch": "@@ -4,12 +4,32 @@ include(\"rich.jl\")\n \n # Utils\n \n+\n+# Handle URI encoding, poorly. The code here was initially copied from\n+# Base.Filesystem, then modified. The original code implements RFC3986 Section\n+# 2.1 and 2.2.\n+#\n+# We changed encode_uri_component to not encode characters declared as\n+# \"reserved\" by RFC3986 Section 2.2 (i.e., those from the gen-delims and\n+# sub-delims sets). Instead the user is expected to percent encode these (or\n+# not) as needed -- the alternative would be implement full URI parsing, which\n+# is non-trivial. That said, it would be better to do that, by e.g. using the\n+# URIs.jl package, but that is not an option for us, as it is not a stdlib...\n+#\n+# As a special affordance, we deviate from the \"reserved\" list in one way: we\n+# do *not* exclude '[' and ']' from percent encoding, even though they are in\n+# the gen-delims set. They are only used to encode IPv6 literal addresses in\n+# the URI, which is (still) rare. But they do occur in query strings and\n+# indeed in the CommonMark spec tests.\n+\n+percent_escape(s) = '%' * join(map(b -> uppercase(string(b, base=16)), codeunits(s)), '%')\n+encode_uri_component(s::AbstractString) = replace(s, r\"[^A-Za-z0-9\\-_.~/:?#@!$&'()*+,;=]+\" => percent_escape)\n+encode_uri_component(s::Symbol) = encode_uri_component(string(s))\n+\n function withtag(f, io::IO, tag, attrs...)\n     print(io, \"<$tag\")\n     for (attr, value) in attrs\n-        print(io, \" \")\n-        htmlesc(io, attr)\n-        print(io, \"=\\\"\")\n+        print(io, \" \", attr, \"=\\\"\")\n         htmlesc(io, value)\n         print(io, \"\\\"\")\n     end\n@@ -159,7 +179,7 @@ function htmlinline(io::IO, md::Strikethrough)\n end\n \n function htmlinline(io::IO, md::Image)\n-    tag(io, :img, :src=>md.url, :alt=>md.alt)\n+    tag(io, :img, :src=>encode_uri_component(md.url), :alt=>md.alt)\n end\n \n \n@@ -170,7 +190,7 @@ function htmlinline(io::IO, f::Footnote)\n end\n \n function htmlinline(io::IO, link::Link)\n-    withtag(io, :a, :href=>link.url) do\n+    withtag(io, :a, :href=>encode_uri_component(link.url)) do\n         htmlinline(io, link.text)\n     end\n end"
+    },
+    {
+      "sha": "6afa456aac04c3c6e019ce2fe020f112c19636b9",
+      "filename": "stdlib/Markdown/test/test_spec.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 6,
+      "changes": 12,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/b4070417c1ca400b8f20253480f79323bb4c24f6/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/b4070417c1ca400b8f20253480f79323bb4c24f6/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl?ref=b4070417c1ca400b8f20253480f79323bb4c24f6",
+      "patch": "@@ -136,7 +136,7 @@ end\n     input = \"<https://example.com?find=\\\\*>\\n\"\n     expected = \"<p><a href=\\\"https://example.com?find=%5C*\\\">https://example.com?find=\\\\*</a></p>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 21\n     input = \"<a href=\\\"/bar\\\\/)\\\">\\n\"\n@@ -2204,7 +2204,7 @@ end\n     input = \"<https://foo.bar.`baz>`\\n\"\n     expected = \"<p><a href=\\\"https://foo.bar.%60baz\\\">https://foo.bar.`baz</a>`</p>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 347\n     input = \"```foo``\\n\"\n@@ -3154,7 +3154,7 @@ end\n     input = \"[link](foo\\\\bar)\\n\"\n     expected = \"<p><a href=\\\"foo%5Cbar\\\">link</a></p>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 503\n     input = \"[link](foo%20b&auml;)\\n\"\n@@ -3166,7 +3166,7 @@ end\n     input = \"[link](\\\"title\\\")\\n\"\n     expected = \"<p><a href=\\\"%22title%22\\\">link</a></p>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 505\n     input = \"[link](/url \\\"title\\\")\\n[link](/url 'title')\\n[link](/url (title))\\n\"\n@@ -3184,7 +3184,7 @@ end\n     input = \"[link](/url\\uA0\\\"title\\\")\\n\"\n     expected = \"<p><a href=\\\"/url%C2%A0%22title%22\\\">link</a></p>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 508\n     input = \"[link](/url \\\"title \\\"and\\\" title\\\")\\n\"\n@@ -3774,7 +3774,7 @@ end\n     input = \"<https://example.com/\\\\[\\\\>\\n\"\n     expected = \"<p><a href=\\\"https://example.com/%5C%5B%5C\\\">https://example.com/\\\\[\\\\</a></p>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 604\n     input = \"<foo@bar.example.com>\\n\""
+    }
+  ]
 }

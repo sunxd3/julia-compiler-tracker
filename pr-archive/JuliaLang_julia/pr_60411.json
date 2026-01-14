@@ -86,5 +86,79 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60411/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "fb4000bb132cadb748d6edcdc292d1a7429a0457",
+      "filename": "JuliaLowering/src/compat.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/979922d76057e7f60d7464321adb53906450ca8b/JuliaLowering%2Fsrc%2Fcompat.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/979922d76057e7f60d7464321adb53906450ca8b/JuliaLowering%2Fsrc%2Fcompat.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fcompat.jl?ref=979922d76057e7f60d7464321adb53906450ca8b",
+      "patch": "@@ -244,10 +244,10 @@ function _insert_convert_expr(@nospecialize(e), graph::SyntaxGraph, src::SourceA\n         @assert s[end] === '=' && nargs === 2\n         if s[1] === '.'\n             st_k = K\".op=\"\n-            op = s[2:end-1]\n+            op = s[nextind(s,1):prevind(s,end)]\n         else\n             st_k = K\"op=\"\n-            op = s[1:end-1]\n+            op = s[1:prevind(s,end)]\n         end\n         child_exprs = Any[e.args[1], Symbol(op), e.args[2]]\n     elseif e.head === :comparison"
+    },
+    {
+      "sha": "e7eb388fea4cdd18062b4756903a6e73b37e0e5f",
+      "filename": "JuliaLowering/src/desugaring.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 1,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/979922d76057e7f60d7464321adb53906450ca8b/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/979922d76057e7f60d7464321adb53906450ca8b/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fdesugaring.jl?ref=979922d76057e7f60d7464321adb53906450ca8b",
+      "patch": "@@ -1251,7 +1251,7 @@ function expand_unionall_def(ctx, srcref, lhs, rhs, is_const=true)\n     expand_forms_2(\n         ctx,\n         @ast ctx srcref [K\"block\"\n-            rr := [K\"where\" rhs lhs[2:end]...]\n+            rr := [K\"where\" rhs [K\"braces\" lhs[2:end]...]]\n             [is_const ? K\"constdecl\" : K\"assign_or_constdecl_if_global\" name rr]\n             [K\"removable\" rr]\n         ]\n@@ -4185,6 +4185,7 @@ function expand_where(ctx, srcref, lhs, rhs)\n end\n \n function expand_wheres(ctx, ex)\n+    @chk numchildren(ex) == 2\n     body = ex[1]\n     rhs = ex[2]\n     if kind(rhs) == K\"braces\""
+    },
+    {
+      "sha": "496238ebcd15f39f1c9c9189869fb0a112d629c4",
+      "filename": "JuliaLowering/src/eval.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/979922d76057e7f60d7464321adb53906450ca8b/JuliaLowering%2Fsrc%2Feval.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/979922d76057e7f60d7464321adb53906450ca8b/JuliaLowering%2Fsrc%2Feval.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Feval.jl?ref=979922d76057e7f60d7464321adb53906450ca8b",
+      "patch": "@@ -436,6 +436,7 @@ function _to_lowered_expr(ex::SyntaxTree, stmt_offset::Int)\n                k == K\"leave\"     ? :leave      :\n                k == K\"isdefined\" ? :isdefined  :\n                k == K\"loopinfo\"  ? :loopinfo   :\n+               k == K\"boundscheck\"       ? :boundscheck       :\n                k == K\"latestworld\"       ? :latestworld       :\n                k == K\"pop_exception\"     ? :pop_exception     :\n                k == K\"captured_local\"    ? :captured_local    :"
+    },
+    {
+      "sha": "799f2ef0110684cdf89aa3983c287eac11ac951f",
+      "filename": "JuliaLowering/test/compat.jl",
+      "status": "modified",
+      "additions": 9,
+      "deletions": 0,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/979922d76057e7f60d7464321adb53906450ca8b/JuliaLowering%2Ftest%2Fcompat.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/979922d76057e7f60d7464321adb53906450ca8b/JuliaLowering%2Ftest%2Fcompat.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fcompat.jl?ref=979922d76057e7f60d7464321adb53906450ca8b",
+      "patch": "@@ -2,6 +2,8 @@ using Test\n const JS = JuliaSyntax\n const JL = JuliaLowering\n \n+test_mod = Module()\n+\n @testset \"expr->syntaxtree\" begin\n     @testset \"semantics only\" begin\n         # Test that `s` evaluates to the same thing both under normal parsing\n@@ -633,6 +635,13 @@ const JL = JuliaLowering\n         @ast_ [K\"block\" [K\"softscope\" true::K\"Bool\"]]\n end\n \n+@testset \"non-ASCII operator handling\" begin\n+    # regression test for invalid string index\n+    @test JuliaLowering.include_string(test_mod, raw\"\"\"\n+    @noinline (x = 0xF; x \u22bb= 1; x)\n+    \"\"\"; expr_compat_mode=true) == 0xE\n+end\n+\n @testset \"Expr<->EST\" begin\n \n     local roundtrip = e->JuliaLowering.est_to_expr(JuliaLowering.expr_to_est(e))"
+    },
+    {
+      "sha": "995e71b70ffd40f9c001a17d0a2815165677be00",
+      "filename": "JuliaLowering/test/macros.jl",
+      "status": "modified",
+      "additions": 21,
+      "deletions": 0,
+      "changes": 21,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/979922d76057e7f60d7464321adb53906450ca8b/JuliaLowering%2Ftest%2Fmacros.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/979922d76057e7f60d7464321adb53906450ca8b/JuliaLowering%2Ftest%2Fmacros.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fmacros.jl?ref=979922d76057e7f60d7464321adb53906450ca8b",
+      "patch": "@@ -613,4 +613,25 @@ end\n     @test test_mod.innersimd([1,2,3], [1,2,3]) == 14\n end\n \n+@testset \"@boundscheck / @inbounds\" begin\n+    JuliaLowering.include_string(test_mod, \"\"\"\n+    function sum_inbounds(A::AbstractArray)\n+        r = zero(eltype(A))\n+        for i in eachindex(A)\n+            @inbounds r += A[i]\n+        end\n+        return r\n+    end\n+    \"\"\"; expr_compat_mode=true)\n+    @test test_mod.sum_inbounds([1,2,3]) == 6\n+\n+    JuliaLowering.include_string(test_mod, \"\"\"\n+    @inline function g_boundscheck(A, i)\n+        @boundscheck checkbounds(A, i)\n+        return A[i]\n+    end\n+    \"\"\"; expr_compat_mode=true)\n+    @test test_mod.g_boundscheck(1:2, 2) == 2\n+end\n+\n end"
+    },
+    {
+      "sha": "c56be6301b43e735de172701201d015abfded294",
+      "filename": "JuliaLowering/test/typedefs.jl",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 0,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/979922d76057e7f60d7464321adb53906450ca8b/JuliaLowering%2Ftest%2Ftypedefs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/979922d76057e7f60d7464321adb53906450ca8b/JuliaLowering%2Ftest%2Ftypedefs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Ftypedefs.jl?ref=979922d76057e7f60d7464321adb53906450ca8b",
+      "patch": "@@ -313,4 +313,12 @@ end\n \"\"\") === nothing\n @test test_mod.X27269([[1,2]]) isa test_mod.X27269{Int, Vector{Int}}\n \n+# Definition of type-alias with 2+ type-variables\n+# See https://github.com/JuliaLang/JuliaLowering.jl/issues/123\n+JuliaLowering.include_string(test_mod, \"\"\"\n+struct Foo{T,V,N}; end\n+const Bar{T,V} = Foo{T,V,1}\n+\"\"\")\n+@test test_mod.Bar == (test_mod.Foo{T,V,1} where {T,V})\n+\n end"
+    }
+  ]
 }

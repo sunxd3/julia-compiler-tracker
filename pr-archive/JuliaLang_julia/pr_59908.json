@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59908/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "208757be3ba3733f3815f45abfa4ce1951a9de87",
+      "filename": "Compiler/src/abstractinterpretation.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 5,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c8ea3615ca1cccddd52425bea66cc03f84d7a593/Compiler%2Fsrc%2Fabstractinterpretation.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c8ea3615ca1cccddd52425bea66cc03f84d7a593/Compiler%2Fsrc%2Fabstractinterpretation.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Compiler%2Fsrc%2Fabstractinterpretation.jl?ref=c8ea3615ca1cccddd52425bea66cc03f84d7a593",
+      "patch": "@@ -872,11 +872,12 @@ function abstract_call_method_with_const_args(interp::AbstractInterpreter,\n     concrete_eval_result = nothing\n     if eligibility === :concrete_eval\n         concrete_eval_result = concrete_eval_call(interp, f, result, arginfo, sv, invokecall)\n-        # if we don't inline the result of this concrete evaluation,\n-        # give const-prop' a chance to inline a better method body\n-        if !may_optimize(interp) || (\n-            may_inline_concrete_result(concrete_eval_result.const_result::ConcreteResult) ||\n-            concrete_eval_result.rt === Bottom) # unless this call deterministically throws and thus is non-inlineable\n+        if (concrete_eval_result !== nothing &&  # allow external abstract interpreters to disable concrete evaluation ad-hoc\n+            # if we don't inline the result of this concrete evaluation,\n+            # give const-prop' a chance to inline a better method body\n+            (!may_optimize(interp) ||\n+             may_inline_concrete_result(concrete_eval_result.const_result::ConcreteResult) ||\n+             concrete_eval_result.rt === Bottom)) # unless this call deterministically throws and thus is non-inlineable\n             return concrete_eval_result\n         end\n         # TODO allow semi-concrete interp for this call?"
+    }
+  ]
 }

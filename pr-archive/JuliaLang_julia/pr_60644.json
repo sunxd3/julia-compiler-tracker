@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60644/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "fd84ad0e7b033a8374ef34c8d1e6d2f81a296c33",
+      "filename": "Makefile",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/b2c5d8021d401820732bdcbbdca338b4b206b20e/Makefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/b2c5d8021d401820732bdcbbdca338b4b206b20e/Makefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Makefile?ref=b2c5d8021d401820732bdcbbdca338b4b206b20e",
+      "patch": "@@ -26,7 +26,7 @@ default: $(JULIA_BUILD_MODE) # contains either \"debug\" or \"release\"\n all: debug release\n \n # sort is used to remove potential duplicates\n-DIRS := $(sort $(build_bindir) $(build_depsbindir) $(build_libdir) $(build_private_libdir) $(build_libexecdir) $(build_includedir) $(build_includedir)/julia $(build_sysconfdir)/julia $(build_datarootdir)/julia $(build_datarootdir)/julia/stdlib $(build_man1dir))\n+DIRS := $(sort $(build_bindir) $(build_depsbindir) $(build_libdir) $(build_private_libdir) $(build_private_libexecdir) $(build_libexecdir) $(build_includedir) $(build_includedir)/julia $(build_sysconfdir)/julia $(build_datarootdir)/julia $(build_datarootdir)/julia/stdlib $(build_man1dir))\n ifneq ($(BUILDROOT),$(JULIAHOME))\n BUILDDIRS := $(BUILDROOT) $(addprefix $(BUILDROOT)/,base src src/flisp src/support src/clangsa cli doc deps stdlib test test/clangsa test/embedding test/gcext test/llvmpasses)\n BUILDDIRMAKE := $(addsuffix /Makefile,$(BUILDDIRS)) $(BUILDROOT)/sysimage.mk $(BUILDROOT)/pkgimage.mk"
+    }
+  ]
 }

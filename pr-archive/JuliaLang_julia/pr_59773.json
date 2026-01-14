@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59773/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "f8d1c1388a3037d91b40ccc6d0b63b81fd8801da",
+      "filename": "src/staticdata.c",
+      "status": "modified",
+      "additions": 20,
+      "deletions": 6,
+      "changes": 26,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/4fbc8d4d85454e8964b7f7a7f259d502045e49d0/src%2Fstaticdata.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/4fbc8d4d85454e8964b7f7a7f259d502045e49d0/src%2Fstaticdata.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fstaticdata.c?ref=4fbc8d4d85454e8964b7f7a7f259d502045e49d0",
+      "patch": "@@ -3534,23 +3534,37 @@ JL_DLLEXPORT void jl_image_unpack_zstd(void *handle, jl_image_buf_t *image)\n     image->size = ZSTD_getFrameContentSize(data, *plen);\n     size_t page_size = jl_getpagesize(); /* jl_page_size is not set yet when loading sysimg */\n     size_t aligned_size = LLT_ALIGN(image->size, page_size);\n+    int fail = 0;\n #if defined(_OS_WINDOWS_)\n     size_t large_page_size = GetLargePageMinimum();\n-    if (image->size > 4 * large_page_size) {\n+    image->data = NULL;\n+    if (large_page_size > 0 && image->size > 4 * large_page_size) {\n         size_t aligned_size = LLT_ALIGN(image->size, large_page_size);\n         image->data = (char *)VirtualAlloc(\n             NULL, aligned_size, MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES, PAGE_READWRITE);\n     }\n-    else {\n+    if (!image->data) {\n+        /* Try small pages if large pages failed. */\n         image->data = (char *)VirtualAlloc(NULL, aligned_size, MEM_COMMIT | MEM_RESERVE,\n                                            PAGE_READWRITE);\n     }\n+    fail = !image->data;\n+#else\n+    image->data = (char *)mmap(NULL, aligned_size, PROT_READ | PROT_WRITE,\n+                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);\n+    fail = image->data == (void *)-1;\n+#endif\n+    if (fail) {\n+        const char *err;\n+#if defined(_OS_WINDOWS_)\n+        char err_buf[256];\n+        win32_formatmessage(GetLastError(), err_buf, sizeof(err_buf));\n+        err = err_buf;\n #else\n-    image->data =\n-        (char *)mmap(NULL, aligned_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);\n+        err = strerror(errno);\n #endif\n-    if (!image->data || image->data == (void *)-1) {\n-        jl_printf(JL_STDERR, \"ERROR: failed to allocate space for system image\\n\");\n+        jl_printf(JL_STDERR, \"ERROR: failed to allocate memory for system image: %s\\n\",\n+                  err);\n         jl_exit(1);\n     }\n "
+    }
+  ]
 }

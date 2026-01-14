@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60175/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "17af484bda2422fdef51851dfc8a22b57a93bf44",
+      "filename": "stdlib/Profile/test/runtests.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1d118e1a32157c03bfcfa4bb3e95203510df439b/stdlib%2FProfile%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1d118e1a32157c03bfcfa4bb3e95203510df439b/stdlib%2FProfile%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FProfile%2Ftest%2Fruntests.jl?ref=1d118e1a32157c03bfcfa4bb3e95203510df439b",
+      "patch": "@@ -283,7 +283,7 @@ let cmd = Base.julia_cmd()\n end\n \n # Thread suspend deadlock - run many times (#60042)\n-let cmd = Base.julia_cmd()\n+@test_skip let cmd = Base.julia_cmd()\n     script = \"\"\"\n         using Profile\n         @profile println(\"done\")\n@@ -293,7 +293,7 @@ let cmd = Base.julia_cmd()\n         s = run_with_watchdog(`$cmd -t2 -e $script`, 5)\n         good &= occursin(\"done\", s)\n     end\n-    @test good\n+    good\n end\n \n if Sys.isbsd() || Sys.islinux()"
+    }
+  ]
 }

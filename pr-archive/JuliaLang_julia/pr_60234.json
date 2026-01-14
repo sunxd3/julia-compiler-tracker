@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60234/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "27924bbcc4dcdbe2bd40e620ae599df091d8724c",
+      "filename": "README.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/141777ec4ac8042596ae49e82c1a450bf0947644/README.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/141777ec4ac8042596ae49e82c1a450bf0947644/README.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/README.md?ref=141777ec4ac8042596ae49e82c1a450bf0947644",
+      "patch": "@@ -97,7 +97,7 @@ and then use the command prompt to change into the resulting julia directory. By\n Julia. However, most users should use the [most recent stable version](https://github.com/JuliaLang/julia/releases)\n of Julia. You can get this version by running:\n \n-    git checkout v1.11.7\n+    git checkout v1.12.2\n \n To build the `julia` executable, run `make` from within the julia directory.\n "
+    }
+  ]
 }

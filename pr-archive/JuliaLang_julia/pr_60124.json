@@ -86,5 +86,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60124/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "5a2aeb0475ed762af5089ca23e17e4c637519829",
+      "filename": "deps/checksums/utf8proc",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/9f2df0d17e8222a95c1d12f68785eedae0af1b9e/deps%2Fchecksums%2Futf8proc",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/9f2df0d17e8222a95c1d12f68785eedae0af1b9e/deps%2Fchecksums%2Futf8proc",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2Futf8proc?ref=9f2df0d17e8222a95c1d12f68785eedae0af1b9e",
+      "patch": "@@ -1,2 +1,2 @@\n-utf8proc-d7bf128df773c2a1a7242eb80e51e91a769fc985.tar.gz/md5/42a776162314cd5dfbec6aaa3e2af42d\n-utf8proc-d7bf128df773c2a1a7242eb80e51e91a769fc985.tar.gz/sha512/0bb54a5f296b5c7f480c45b8cf4de7e95b498106b5b165890539ec5861194baa6c9a45bff2566d695d2f4921c1086fbe8419e8e8db353a0517a76fc307829152\n+utf8proc-53f0bac76f5d5bd3ed69d1a06ee5b200c8940610.tar.gz/md5/4efb2eee18de062fd0a59607e862ed51\n+utf8proc-53f0bac76f5d5bd3ed69d1a06ee5b200c8940610.tar.gz/sha512/5742df3e2e0e1dc47fa1641197162c3b6a0896322ff3b2e9eaafc88f7b073da0d607c6f3255c87ea7ee0ecb34a0eaa2063e170571b38cde6145f38f500bf1c96"
+    },
+    {
+      "sha": "98ec437ea6f2b5fee5544ef5c35b2eae19a0e70d",
+      "filename": "deps/utf8proc.version",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/9f2df0d17e8222a95c1d12f68785eedae0af1b9e/deps%2Futf8proc.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/9f2df0d17e8222a95c1d12f68785eedae0af1b9e/deps%2Futf8proc.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Futf8proc.version?ref=9f2df0d17e8222a95c1d12f68785eedae0af1b9e",
+      "patch": "@@ -1,2 +1,2 @@\n-UTF8PROC_BRANCH=v2.11.0\n-UTF8PROC_SHA1=d7bf128df773c2a1a7242eb80e51e91a769fc985\n+UTF8PROC_BRANCH=v2.11.1\n+UTF8PROC_SHA1=53f0bac76f5d5bd3ed69d1a06ee5b200c8940610"
+    }
+  ]
 }

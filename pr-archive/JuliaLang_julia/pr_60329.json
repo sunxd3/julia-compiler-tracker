@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60329/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0ce2631a2ac64a86dcdb8d9940cf1c20ad1556e4",
+      "filename": "cli/Makefile",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/ab78201ee6e1d13def1508eb6f3b427900972f81/cli%2FMakefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/ab78201ee6e1d13def1508eb6f3b427900972f81/cli%2FMakefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/cli%2FMakefile?ref=ab78201ee6e1d13def1508eb6f3b427900972f81",
+      "patch": "@@ -176,7 +176,7 @@ $(BUILDDIR)/julia.expmap: $(SRCDIR)/julia.expmap.in $(JULIAHOME)/VERSION\n clean: | $(CLEAN_TARGETS)\n \trm -f $(BUILDDIR)/*.o $(BUILDDIR)/*.dbg.obj\n \trm -f $(build_bindir)/julia*\n-\trm -f $(BUILDDIR)/julia.expmap*\n+\trm -f $(BUILDDIR)/julia.expmap\n \trm -f $(BUILDDIR)/Info.plist*\n \n .PHONY: clean release debug julia-release julia-debug"
+    },
+    {
+      "sha": "592b7d355d322101325a29e7f82a173dc28164b1",
+      "filename": "src/Makefile",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/ab78201ee6e1d13def1508eb6f3b427900972f81/src%2FMakefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/ab78201ee6e1d13def1508eb6f3b427900972f81/src%2FMakefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2FMakefile?ref=ab78201ee6e1d13def1508eb6f3b427900972f81",
+      "patch": "@@ -588,7 +588,7 @@ clean:\n \t-rm -rf $(build_shlibdir)/libccalltest* $(build_shlibdir)/libllvmcalltest* $(build_shlibdir)/libccalllazyfoo* $(build_shlibdir)/libccalllazybar*\n \t-rm -f $(BUILDDIR)/julia_flisp.boot* $(BUILDDIR)/julia_flisp.boot.inc* $(BUILDDIR)/jl_internal_funcs.inc* $(BUILDDIR)/jl_data_globals_defs.inc*\n \t-rm -f $(BUILDDIR)/*.dbg.obj $(BUILDDIR)/*.o $(BUILDDIR)/*.dwo $(BUILDDIR)/*.$(SHLIB_EXT) $(BUILDDIR)/*.a $(BUILDDIR)/*.h.gen\n-\t-rm -f $(BUILDDIR)/julia.expmap*\n+\t-rm -f $(BUILDDIR)/julia.expmap\n \t-rm -f $(BUILDDIR)/julia_version.h\n \t-rm -f $(BUILDDIR)/compile_commands.json*\n "
+    }
+  ]
 }

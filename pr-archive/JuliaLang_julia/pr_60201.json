@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60201/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "84feb21f7aac54fa9dc15f22e0d0ec432f69d37b",
+      "filename": "test/runtests.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 0,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a9f75bf02f4f66a2d6a0d0abc6e52057cfc0256d/test%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a9f75bf02f4f66a2d6a0d0abc6e52057cfc0256d/test%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fruntests.jl?ref=a9f75bf02f4f66a2d6a0d0abc6e52057cfc0256d",
+      "patch": "@@ -15,6 +15,9 @@ include(\"buildkitetestjson.jl\")\n \n using .BuildkiteTestJSON\n \n+# Set JULIA_TESTS so that precompilation output is suppressed in test subprocesses\n+ENV[\"JULIA_TESTS\"] = \"true\"\n+\n const longrunning_delay = parse(Int, get(ENV, \"JULIA_TEST_LONGRUNNING_DELAY\", \"45\")) * 60 # minutes\n const longrunning_interval = parse(Int, get(ENV, \"JULIA_TEST_LONGRUNNING_INTERVAL\", \"15\")) * 60 # minutes\n "
+    }
+  ]
 }

@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59937/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "08e3337a915dd1476833b46ef2c4657d73c05ca6",
+      "filename": "base/runtime_internals.jl",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 1,
+      "changes": 5,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/d8852b80effbac6707463dbb99dac5d0d36f5d6d/base%2Fruntime_internals.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/d8852b80effbac6707463dbb99dac5d0d36f5d6d/base%2Fruntime_internals.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fruntime_internals.jl?ref=d8852b80effbac6707463dbb99dac5d0d36f5d6d",
+      "patch": "@@ -95,7 +95,7 @@ If `all` is true, then the list also includes non-public names defined in the mo\n deprecated names, and compiler-generated names.\n If `imported` is true, then names explicitly imported from other modules\n are also included.\n-If `usings` is true, then names explicitly imported via `using` are also included.\n+If `usings` is true, then names explicitly or implicitly imported via `using` are also included.\n Names are returned in sorted order.\n \n As a special case, all names defined in `Main` are considered \\\"public\\\",\n@@ -110,6 +110,9 @@ since it is not idiomatic to explicitly mark names from `Main` as public.\n     `names` may return duplicate names. The duplication happens, e.g. if an `import`ed name\n     conflicts with an already existing identifier.\n \n+!!! compat \"Julia 1.12\"\n+    The `usings` argument requires Julia 1.12 or later.\n+\n See also: [`Base.isexported`](@ref), [`Base.ispublic`](@ref), [`Base.@locals`](@ref), [`@__MODULE__`](@ref).\n \"\"\"\n names(m::Module; kwargs...) = sort!(unsorted_names(m; kwargs...))"
+    }
+  ]
 }

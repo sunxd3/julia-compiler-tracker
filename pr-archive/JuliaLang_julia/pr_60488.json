@@ -86,5 +86,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60488/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0a2cc85b5866086ff9d2b61a2b08c4b1ece12785",
+      "filename": "base/strings/annotated.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a68d59cded986400065c20d7ee4700fe70c795a8/base%2Fstrings%2Fannotated.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a68d59cded986400065c20d7ee4700fe70c795a8/base%2Fstrings%2Fannotated.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fstrings%2Fannotated.jl?ref=a68d59cded986400065c20d7ee4700fe70c795a8",
+      "patch": "@@ -367,8 +367,8 @@ annotate!(s::SubString{<:AnnotatedString}, label::Symbol, @nospecialize(val::Any\n \n Annotate `char` with the labeled value `(label, value)`.\n \"\"\"\n-annotate!(c::AnnotatedChar, label::Symbol, @nospecialize(val::Any)) =\n-    (push!(c.annotations, Annotation((; label, val))); c)\n+annotate!(c::AnnotatedChar, label::Symbol, @nospecialize(value::Any)) =\n+    (push!(c.annotations, Annotation((; label, value))); c)\n \n \"\"\"\n     annotations(str::Union{AnnotatedString, SubString{AnnotatedString}},"
+    },
+    {
+      "sha": "0fbcd84b7ba09449d33759dbb8e5e28c0626579f",
+      "filename": "test/strings/annotated.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 0,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a68d59cded986400065c20d7ee4700fe70c795a8/test%2Fstrings%2Fannotated.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a68d59cded986400065c20d7ee4700fe70c795a8/test%2Fstrings%2Fannotated.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fstrings%2Fannotated.jl?ref=a68d59cded986400065c20d7ee4700fe70c795a8",
+      "patch": "@@ -93,6 +93,9 @@ end\n     @test str[1] == Base.AnnotatedChar('h', [(:attr, \"h0h0\")])\n     @test str[2] == Base.AnnotatedChar('m', [(:attr, \"h0m1\"), (:attr, \"m1m2\")])\n     @test str[3] == Base.AnnotatedChar('m', [(:attr, \"m1m2\")])\n+    chr = Base.annotate!(Base.AnnotatedChar('m'), :attr, \"h0m1\")\n+    @test chr == Base.AnnotatedChar('m', [(:attr, \"h0m1\")])\n+    @test Base.annotate!(chr, :attr, \"m1m2\") == Base.AnnotatedChar('m', [(:attr, \"h0m1\"), (:attr, \"m1m2\")])\n end\n \n @testset \"Styling preservation\" begin"
+    }
+  ]
 }

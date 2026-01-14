@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59922/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "70341bd180fd3d583c00b43ed5c7321a748b9087",
+      "filename": "doc/src/manual/calling-c-and-fortran-code.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/78be5d49e68e6b29af0ab906e6f2562d26e37116/doc%2Fsrc%2Fmanual%2Fcalling-c-and-fortran-code.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/78be5d49e68e6b29af0ab906e6f2562d26e37116/doc%2Fsrc%2Fmanual%2Fcalling-c-and-fortran-code.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fsrc%2Fmanual%2Fcalling-c-and-fortran-code.md?ref=78be5d49e68e6b29af0ab906e6f2562d26e37116",
+      "patch": "@@ -1152,7 +1152,7 @@ A table of translations between the macro and function interfaces is given below\n | `@ccall`                                                                     | `ccall`                                                                     |\n |------------------------------------------------------------------------------|-----------------------------------------------------------------------------|\n | `@ccall clock()::Int32`                                                      | `ccall(:clock, Int32, ())`                                                  |\n-| `@ccall f(a::Cint)::Cint`                                                    | `ccall(:a, Cint, (Cint,), a)`                                               |\n+| `@ccall f(a::Cint)::Cint`                                                    | `ccall(:f, Cint, (Cint,), a)`                                               |\n | `@ccall \"mylib\".f(a::Cint, b::Cdouble)::Cvoid`                               | `ccall((:f, \"mylib\"), Cvoid, (Cint, Cdouble), a, b)`                        |\n | `@ccall $fptr.f()::Cvoid`                                                    | `ccall(fptr, f, Cvoid, ())`                                                 |\n | `@ccall printf(\"%s = %d\\n\"::Cstring ; \"foo\"::Cstring, foo::Cint)::Cint`      | `<unavailable>`                                                             |"
+    }
+  ]
 }

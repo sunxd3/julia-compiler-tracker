@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59744/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0d3dfde8629eab77639d425b0dd2b453718ddeae",
+      "filename": "base/regex.jl",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 2,
+      "changes": 13,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c733abe218cbc748dc29641d3d69752c1880a4e3/base%2Fregex.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c733abe218cbc748dc29641d3d69752c1880a4e3/base%2Fregex.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fregex.jl?ref=c733abe218cbc748dc29641d3d69752c1880a4e3",
+      "patch": "@@ -324,7 +324,7 @@ Return `true` if `s` starts with the regex pattern, `prefix`.\n     `match_option` to PCRE. If compile time is amortized,\n     `occursin(r\"^...\", s)` is faster than `startswith(s, r\"...\")`.\n \n-See also [`occursin`](@ref) and [`endswith`](@ref).\n+See also [`occursin`](@ref), [`endswith`](@ref), [`match`](@ref)\n \n !!! compat \"Julia 1.2\"\n     This method requires at least Julia 1.2.\n@@ -356,7 +356,7 @@ Return `true` if `s` ends with the regex pattern, `suffix`.\n     `match_option` to PCRE. If compile time is amortized,\n     `occursin(r\"...\\$\", s)` is faster than `endswith(s, r\"...\")`.\n \n-See also [`occursin`](@ref) and [`startswith`](@ref).\n+See also [`occursin`](@ref), [`startswith`](@ref), [`match`](@ref)\n \n !!! compat \"Julia 1.2\"\n     This method requires at least Julia 1.2.\n@@ -421,6 +421,9 @@ julia> m.match\n julia> match(rx, \"cabac\", 3) === nothing\n true\n ```\n+# See also\n+[`eachmatch`](@ref), [`occursin`](@ref), [`findfirst`](@ref)\n+\n \"\"\"\n function match end\n \n@@ -558,6 +561,9 @@ julia> count(r\"a(.)a\", \"cabacabac\", overlap=true)\n julia> count(r\"a(.)a\", \"cabacabac\")\n 2\n ```\n+# See also\n+[`eachmatch`](@ref), [`occursin`](@ref), [`findall`](@ref)\n+\n \"\"\"\n function count(t::Union{AbstractChar,AbstractString,AbstractPattern}, s::AbstractString; overlap::Bool=false)\n     n = 0\n@@ -789,6 +795,9 @@ julia> collect(eachmatch(rx, \"a1a2a3a\", overlap = true))\n  RegexMatch(\"a2a\")\n  RegexMatch(\"a3a\")\n ```\n+# See also\n+[`match`](@ref), [`findall`](@ref), [`count`](@ref)\n+\n \"\"\"\n eachmatch(re::Regex, str::AbstractString; overlap = false) =\n     RegexMatchIterator(re, str, overlap)"
+    }
+  ]
 }

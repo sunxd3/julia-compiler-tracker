@@ -137,5 +137,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59999/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "f07f25eeddf2557c80c8a1eef71d2bcd635c9021",
+      "filename": "base/toml_parser.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 3,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/base%2Ftoml_parser.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/base%2Ftoml_parser.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Ftoml_parser.jl?ref=938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b",
+      "patch": "@@ -1110,7 +1110,7 @@ function _parse_local_time(l::Parser, skip_hour=false)::Err{NTuple{4, Int64}}\n     second in 0:59 || return ParserError(ErrParsingDateTime)\n \n     # optional fractional second\n-    fractional_second = Int64(0)\n+    millisecond = Int64(0)\n     if accept(l, '.')\n         set_marker!(l)\n         found_fractional_digit = false\n@@ -1121,12 +1121,15 @@ function _parse_local_time(l::Parser, skip_hour=false)::Err{NTuple{4, Int64}}\n             return ParserError(ErrParsingDateTime)\n         end\n         # DateTime in base only manages 3 significant digits in fractional\n-        # second\n+        # second. Interpret parsed digits as fractional seconds and scale to\n+        # milliseconds precision (e.g., \".2\" => 200ms, \".20\" => 200ms).\n+        ndigits = l.prevpos - l.marker\n         fractional_second = parse_int(l, false)::Int64\n+        millisecond = fractional_second * 10^(3 - ndigits)\n         # Truncate off the rest eventual digits\n         accept_batch(l, isdigit)\n     end\n-    return hour, minute, second, fractional_second\n+    return hour, minute, second, millisecond\n end\n \n "
+    },
+    {
+      "sha": "b7c3730006723dc06c2a886c587e1c5414f9b8df",
+      "filename": "stdlib/TOML/test/values.jl",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 1,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/stdlib%2FTOML%2Ftest%2Fvalues.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/stdlib%2FTOML%2Ftest%2Fvalues.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FTOML%2Ftest%2Fvalues.jl?ref=938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b",
+      "patch": "@@ -116,6 +116,9 @@ end\n     @test testval(\"2016-09-09T09:09:09Z\"    , DateTime(2016 , 9 , 9 , 9 , 9 , 9))\n     @test testval(\"2016-09-09T09:09:09.0Z\"  , DateTime(2016 , 9 , 9 , 9 , 9 , 9))\n     @test testval(\"2016-09-09T09:09:09.012\" , DateTime(2016 , 9 , 9 , 9 , 9 , 9  , 12))\n+    @test testval(\"2016-09-09T09:09:09.2\"   , DateTime(2016 , 9 , 9 , 9 , 9 , 9  , 200))\n+    @test testval(\"2016-09-09T09:09:09.20\"  , DateTime(2016 , 9 , 9 , 9 , 9 , 9  , 200))\n+    @test testval(\"2016-09-09T09:09:09.02\"  , DateTime(2016 , 9 , 9 , 9 , 9 , 9  , 20))\n \n     @test failval(\"2016-09-09T09:09:09.0+10:00\"   , Internals.ErrOffsetDateNotSupported)\n     @test failval(\"2016-09-09T09:09:09.012-02:00\" , Internals.ErrOffsetDateNotSupported)\n@@ -132,8 +135,12 @@ end\n end\n \n @testset \"Time\" begin\n-    @test testval(\"09:09:09.99\"    , Time(9 , 9 , 9 , 99))\n+    @test testval(\"09:09:09.99\"    , Time(9 , 9 , 9 , 990))\n     @test testval(\"09:09:09.99999\" , Time(9 , 9 , 9 , 999))\n+    @test testval(\"00:00:00.2\"     , Time(0 , 0 , 0 , 200))\n+    @test testval(\"00:00:00.20\"    , Time(0 , 0 , 0 , 200))\n+    @test testval(\"00:00:00.23\"    , Time(0 , 0 , 0 , 230))\n+    @test testval(\"00:00:00.234\"   , Time(0 , 0 , 0 , 234))\n \n     @test failval(\"09:09x09\", Internals.ErrParsingDateTime)\n end"
+    }
+  ]
 }

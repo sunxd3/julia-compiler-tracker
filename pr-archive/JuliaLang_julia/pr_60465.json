@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60465/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "5819ab44c6f81d12e9976e323cfbdf6d082b1ec8",
+      "filename": "base/toml_parser.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/b2ba95d806ce14e84e1630bcd15b57e11b8e13d8/base%2Ftoml_parser.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/b2ba95d806ce14e84e1630bcd15b57e11b8e13d8/base%2Ftoml_parser.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Ftoml_parser.jl?ref=b2ba95d806ce14e84e1630bcd15b57e11b8e13d8",
+      "patch": "@@ -716,8 +716,8 @@ function parse_array(l::Parser{Dates})::Err{Vector} where Dates\n         copyto_typed!(new, array)\n     elseif T === Union{}\n         new = Any[]\n-    elseif (T === TOMLDict) || (T == BigInt) || (T === UInt128) || (T === Int128) || (T <: Vector) ||\n-        (T === Dates.Date) || (T === Dates.Time) || (T === Dates.DateTime)\n+    elseif (T === TOMLDict) || (T === BigInt) || (T === UInt128) || (T === Int128) || (T <: Vector) ||\n+        (Dates !== nothing && ((T === Dates.Date) || (T === Dates.Time) || (T === Dates.DateTime)))\n         # do nothing, leave as Vector{Any}\n         new = array\n     else @assert false end"
+    }
+  ]
 }

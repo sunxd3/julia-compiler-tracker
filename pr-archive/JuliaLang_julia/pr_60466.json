@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60466/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "2927f1db6167084732df02720d0be35cbc7ad5eb",
+      "filename": "base/file.jl",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 7,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/668c5784843395f7707a63b82cb900d26d9bb98e/base%2Ffile.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/668c5784843395f7707a63b82cb900d26d9bb98e/base%2Ffile.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Ffile.jl?ref=668c5784843395f7707a63b82cb900d26d9bb98e",
+      "patch": "@@ -1267,22 +1267,19 @@ function rename(oldpath::AbstractString, newpath::AbstractString)\n end\n \n function sendfile(src::AbstractString, dst::AbstractString)\n-    src_open = false\n-    dst_open = false\n-    local src_file, dst_file\n+    src_file = nothing\n+    dst_file = nothing\n     try\n         src_file = open(src, JL_O_RDONLY)\n-        src_open = true\n         dst_file = open(dst, JL_O_CREAT | JL_O_TRUNC | JL_O_WRONLY, filemode(src_file))\n-        dst_open = true\n \n         bytes = filesize(stat(src_file))\n         sendfile(dst_file, src_file, Int64(0), Int(bytes))\n     finally\n-        if src_open && isopen(src_file)\n+        if src_file !== nothing && isopen(src_file)\n             close(src_file)\n         end\n-        if dst_open && isopen(dst_file)\n+        if dst_file !== nothing && isopen(dst_file)\n             close(dst_file)\n         end\n     end"
+    }
+  ]
 }

@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59996/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0c33409c9701c8d62df06496f9ff0fcd7208bf00",
+      "filename": "src/interpreter.c",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5/src%2Finterpreter.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5/src%2Finterpreter.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Finterpreter.c?ref=e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5",
+      "patch": "@@ -540,7 +540,7 @@ static jl_value_t *eval_body(jl_array_t *stmts, interpreter_state *s, size_t ip,\n                 }\n                 // store current top of exception stack for restore in pop_exception.\n                 s->locals[jl_source_nslots(s->src) + ip] = jl_box_ulong(jl_excstack_state());\n-                if (!jl_setjmp(__eh.eh_ctx, 1)) {\n+                if (!jl_setjmp(__eh.eh_ctx, 0)) {\n                     return eval_body(stmts, s, next_ip, toplevel);\n                 }\n                 else if (s->continue_at) { // means we reached a :leave expression"
+    }
+  ]
 }

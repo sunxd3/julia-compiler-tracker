@@ -77,5 +77,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60600/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "cbb342c5a7d74d06b4f8358b472898a903a5ec4d",
+      "filename": "JuliaLowering/src/desugaring.jl",
+      "status": "modified",
+      "additions": 10,
+      "deletions": 1,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1ba875d5ce78b59e3126694df77706927f942c89/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1ba875d5ce78b59e3126694df77706927f942c89/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fdesugaring.jl?ref=1ba875d5ce78b59e3126694df77706927f942c89",
+      "patch": "@@ -2805,7 +2805,16 @@ function keyword_function_defs(ctx, srcref, callex_srcref, name_str, typevar_nam\n             push!(kw_val_vars, v)\n         end\n     else\n-        kw_val_vars = kw_names\n+        # Use kw_names directly as the values, but exclude slurp if present\n+        # because slurp is passed via remaining_kws\n+        if has_kw_slurp\n+            kw_val_vars = SyntaxList(ctx)\n+            for i in 1:length(kw_names)-1\n+                push!(kw_val_vars, kw_names[i])\n+            end\n+        else\n+            kw_val_vars = kw_names\n+        end\n     end\n \n     kwcall_body_tail = @ast ctx keywords [K\"block\""
+    },
+    {
+      "sha": "c6f274d07e58568afc59c9319d5036ae6cd4642e",
+      "filename": "JuliaLowering/test/functions.jl",
+      "status": "modified",
+      "additions": 9,
+      "deletions": 0,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1ba875d5ce78b59e3126694df77706927f942c89/JuliaLowering%2Ftest%2Ffunctions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1ba875d5ce78b59e3126694df77706927f942c89/JuliaLowering%2Ftest%2Ffunctions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Ffunctions.jl?ref=1ba875d5ce78b59e3126694df77706927f942c89",
+      "patch": "@@ -422,6 +422,15 @@ end\n     @test values(test_mod.f_kw_slurp_some(x = 1)) === (;)\n     @test values(test_mod.f_kw_slurp_some()) === (;)\n \n+    # Slurping with defaults depending on keyword names\n+    JuliaLowering.include_string(test_mod, \"\"\"\n+    function f_kw_slurp_dep(; a=1, b=a, kws...)\n+        (a, b, length(kws))\n+    end\n+    \"\"\")\n+    @test test_mod.f_kw_slurp_dep(; a=1) == (1, 1, 0)\n+    @test test_mod.f_kw_slurp_dep(; a=2, c=3) == (2, 2, 1)\n+\n     # Keyword defaults which depend on other keywords.\n     JuliaLowering.include_string(test_mod, \"\"\"\n     begin"
+    },
+    {
+      "sha": "53e646eb12537b9a5c0bf362ccd99d19eb26a259",
+      "filename": "JuliaLowering/test/functions_ir.jl",
+      "status": "modified",
+      "additions": 84,
+      "deletions": 0,
+      "changes": 84,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1ba875d5ce78b59e3126694df77706927f942c89/JuliaLowering%2Ftest%2Ffunctions_ir.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1ba875d5ce78b59e3126694df77706927f942c89/JuliaLowering%2Ftest%2Ffunctions_ir.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Ffunctions_ir.jl?ref=1ba875d5ce78b59e3126694df77706927f942c89",
+      "patch": "@@ -1366,6 +1366,90 @@ end\n 33  TestMod.f_kw_slurp\n 34  (return %\u2083\u2083)\n \n+########################################\n+# Keyword slurping with defaults depending on keyword names\n+# This tests the case where use_ssa_kw_temps=false because a keyword default\n+# depends on another keyword name. The slurp argument should not be included\n+# in kw_val_vars to avoid creating an unwanted global binding.\n+function f_kw_slurp_dep(; a=1, b=a, kws...)\n+    (a, b, kws)\n+end\n+#---------------------\n+1   (method TestMod.f_kw_slurp_dep)\n+2   latestworld\n+3   (method TestMod.#f_kw_slurp_dep#0)\n+4   latestworld\n+5   TestMod.#f_kw_slurp_dep#0\n+6   (call core.Typeof %\u2085)\n+7   (call top.pairs core.NamedTuple)\n+8   TestMod.f_kw_slurp_dep\n+9   (call core.Typeof %\u2088)\n+10  (call core.svec %\u2086 core.Any core.Any %\u2087 %\u2089)\n+11  (call core.svec)\n+12  SourceLocation::1:10\n+13  (call core.svec %\u2081\u2080 %\u2081\u2081 %\u2081\u2082)\n+14  --- method core.nothing %\u2081\u2083\n+    slots: [slot\u2081/#self#(!read) slot\u2082/a slot\u2083/b slot\u2084/kws slot\u2085/#self#]\n+    1   (meta :nkw 3)\n+    2   (call core.tuple slot\u2082/a slot\u2083/b slot\u2084/kws)\n+    3   (return %\u2082)\n+15  latestworld\n+16  (call core.typeof core.kwcall)\n+17  TestMod.f_kw_slurp_dep\n+18  (call core.Typeof %\u2081\u2087)\n+19  (call core.svec %\u2081\u2086 core.NamedTuple %\u2081\u2088)\n+20  (call core.svec)\n+21  SourceLocation::1:10\n+22  (call core.svec %\u2081\u2089 %\u2082\u2080 %\u2082\u2081)\n+23  --- method core.nothing %\u2082\u2082\n+    slots: [slot\u2081/#self#(!read) slot\u2082/kws slot\u2083/#self# slot\u2084/kwtmp slot\u2085/a(single_assign) slot\u2086/b(single_assign)]\n+    1   (call core.isdefined slot\u2082/kws :a)\n+    2   (gotoifnot %\u2081 label\u2086)\n+    3   (call core.getfield slot\u2082/kws :a)\n+    4   (= slot\u2084/kwtmp %\u2083)\n+    5   (goto label\u2087)\n+    6   (= slot\u2084/kwtmp 1)\n+    7   slot\u2084/kwtmp\n+    8   (= slot\u2085/a %\u2087)\n+    9   (call core.isdefined slot\u2082/kws :b)\n+    10  (gotoifnot %\u2089 label\u2081\u2084)\n+    11  (call core.getfield slot\u2082/kws :b)\n+    12  (= slot\u2084/kwtmp %\u2081\u2081)\n+    13  (goto label\u2081\u2086)\n+    14  slot\u2085/a\n+    15  (= slot\u2084/kwtmp %\u2081\u2084)\n+    16  slot\u2084/kwtmp\n+    17  (= slot\u2086/b %\u2081\u2086)\n+    18  (call core.tuple :a :b)\n+    19  (call core.apply_type core.NamedTuple %\u2081\u2088)\n+    20  (call top.structdiff slot\u2082/kws %\u2081\u2089)\n+    21  (call top.pairs %\u2082\u2080)\n+    22  TestMod.#f_kw_slurp_dep#0\n+    23  (call %\u2082\u2082 slot\u2085/a slot\u2086/b %\u2082\u2081 slot\u2083/#self#)\n+    24  (return %\u2082\u2083)\n+24  latestworld\n+25  TestMod.f_kw_slurp_dep\n+26  (call core.Typeof %\u2082\u2085)\n+27  (call core.svec %\u2082\u2086)\n+28  (call core.svec)\n+29  SourceLocation::1:10\n+30  (call core.svec %\u2082\u2087 %\u2082\u2088 %\u2082\u2089)\n+31  --- method core.nothing %\u2083\u2080\n+    slots: [slot\u2081/#self# slot\u2082/a(single_assign) slot\u2083/b(single_assign) slot\u2084/kws(single_assign)]\n+    1   1\n+    2   (= slot\u2082/a %\u2081)\n+    3   slot\u2082/a\n+    4   (= slot\u2083/b %\u2083)\n+    5   (call core.NamedTuple)\n+    6   (call top.pairs %\u2085)\n+    7   (= slot\u2084/kws %\u2086)\n+    8   TestMod.#f_kw_slurp_dep#0\n+    9   (call %\u2088 slot\u2082/a slot\u2083/b slot\u2084/kws slot\u2081/#self#)\n+    10  (return %\u2089)\n+32  latestworld\n+33  TestMod.f_kw_slurp_dep\n+34  (return %\u2083\u2083)\n+\n ########################################\n # Static parameters used in keywords, with and without the static parameter\n # being present in positional argument types."
+    }
+  ]
 }

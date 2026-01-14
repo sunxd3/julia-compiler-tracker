@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60324/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "d2bf171b14fb4cb0646a61fd025b13ed5060955b",
+      "filename": "src/gc-stock.c",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 0,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/033d877c4ca8b30e2a491a4905587381e89f2a5d/src%2Fgc-stock.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/033d877c4ca8b30e2a491a4905587381e89f2a5d/src%2Fgc-stock.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fgc-stock.c?ref=033d877c4ca8b30e2a491a4905587381e89f2a5d",
+      "patch": "@@ -1195,6 +1195,8 @@ int gc_sweep_prescan(jl_ptls_t ptls, jl_gc_padded_page_stack_t *new_gc_allocd_sc\n                     tail = pg;\n                 }\n                 n_pages_to_scan++;\n+                assert((&global_page_pool_lazily_freed != &tmp) &&\n+                    \"Cannot push back to the same stack we are popping from; see invariant of lock-free stack\");\n                 push_lf_back_nosync(&tmp, pg);\n             }\n             else {\n@@ -1279,6 +1281,8 @@ void gc_sweep_pool_parallel(jl_ptls_t ptls) JL_NOTSAFEPOINT\n                 }\n                 jl_gc_page_stack_t *dest = &allocd_scratch[ptls2->tid].stack;\n                 jl_gc_pagemeta_t *pg = try_pop_lf_back(&ptls2->gc_tls.page_metadata_allocd);\n+                assert((&ptls2->gc_tls.page_metadata_allocd != dest) &&\n+                    \"Cannot push back to the same stack we are popping from; see invariant of lock-free stack\");\n                 // failed steal attempt\n                 if (pg == NULL) {\n                     continue;\n@@ -1326,6 +1330,8 @@ void gc_free_pages(void) JL_NOTSAFEPOINT\n         n_pages_seen++;\n         // keep the last few pages around for a while\n         if (n_pages_seen * GC_PAGE_SZ <= default_collect_interval) {\n+            assert((&global_page_pool_lazily_freed != &tmp) &&\n+                \"Cannot push back to the same stack we are popping from; see invariant of lock-free stack\");\n             push_lf_back(&tmp, pg);\n             continue;\n         }\n@@ -1345,6 +1351,8 @@ void gc_free_pages(void) JL_NOTSAFEPOINT\n             if (pg == NULL) {\n                 break;\n             }\n+            assert((&global_page_pool_lazily_freed != &tmp) &&\n+                \"Cannot push back to the same stack we are popping from; see invariant of lock-free stack\");\n             push_lf_back(&global_page_pool_lazily_freed, pg);\n         }\n     }"
+    },
+    {
+      "sha": "826cea9bdd025925fd2595818726a5236ff46ea8",
+      "filename": "src/gc-stock.h",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/033d877c4ca8b30e2a491a4905587381e89f2a5d/src%2Fgc-stock.h",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/033d877c4ca8b30e2a491a4905587381e89f2a5d/src%2Fgc-stock.h",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fgc-stock.h?ref=033d877c4ca8b30e2a491a4905587381e89f2a5d",
+      "patch": "@@ -70,7 +70,7 @@ typedef struct {\n // large arrays that have not been scanned yet)\n \n typedef enum {\n-    GC_empty_chunk = 0, // sentine value representing no chunk\n+    GC_empty_chunk = 0, // sentinel value representing no chunk\n     GC_objary_chunk,    // for chunk of object array\n     GC_ary8_chunk,      // for chunk of array with 8 bit field descriptors\n     GC_ary16_chunk,     // for chunk of array with 16 bit field descriptors"
+    }
+  ]
 }

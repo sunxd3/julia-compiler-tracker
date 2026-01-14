@@ -77,5 +77,67 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60563/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "3051aa94e5d587f793ba897441c744a37b53ee9b",
+      "filename": "stdlib/Markdown/src/Common/Common.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 4,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/42bd189a0bd715aff79b43a8fcf856a186fa86e5/stdlib%2FMarkdown%2Fsrc%2FCommon%2FCommon.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/42bd189a0bd715aff79b43a8fcf856a186fa86e5/stdlib%2FMarkdown%2Fsrc%2FCommon%2FCommon.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FCommon%2FCommon.jl?ref=42bd189a0bd715aff79b43a8fcf856a186fa86e5",
+      "patch": "@@ -5,10 +5,8 @@ abstract type MarkdownElement end\n include(\"block.jl\")\n include(\"inline.jl\")\n \n-\n-\n-@flavor common [list, indentcode, blockquote, admonition, footnote, hashheader,\n-                horizontalrule, paragraph,\n+@flavor common [horizontalrule, list, indentcode, blockquote, admonition, footnote, hashheader,\n+                paragraph,\n \n                 linebreak, escapes,\n                 inline_code,"
+    },
+    {
+      "sha": "5ddc224b7222280d69286a7c349c0186f7ddd28f",
+      "filename": "stdlib/Markdown/src/Common/block.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 4,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/42bd189a0bd715aff79b43a8fcf856a186fa86e5/stdlib%2FMarkdown%2Fsrc%2FCommon%2Fblock.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/42bd189a0bd715aff79b43a8fcf856a186fa86e5/stdlib%2FMarkdown%2Fsrc%2FCommon%2Fblock.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FCommon%2Fblock.jl?ref=42bd189a0bd715aff79b43a8fcf856a186fa86e5",
+      "patch": "@@ -358,20 +358,21 @@ pushitem!(list, buffer) = push!(list.items, parse(takestring!(buffer)).content)\n mutable struct HorizontalRule <: MarkdownElement\n end\n \n+@breaking true ->\n function horizontalrule(stream::IO, block::MD)\n    withstream(stream) do\n        n, rule = 0, ' '\n        for char in readeach(stream, Char)\n            char == '\\n' && break\n            isspace(char) && continue\n-           if n==0 || char==rule\n+           if n == 0\n                rule = char\n-               n += 1\n-           else\n+           elseif char != rule\n                return false\n            end\n+           n += 1\n        end\n-       is_hr = (n \u2265 3 && rule in \"*-\")\n+       is_hr = (n \u2265 3 && rule in \"*-_\")\n        is_hr && push!(block, HorizontalRule())\n        return is_hr\n    end"
+    },
+    {
+      "sha": "a2527a034e3c055f405e218d5a5cd9906479082b",
+      "filename": "stdlib/Markdown/src/GitHub/GitHub.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/42bd189a0bd715aff79b43a8fcf856a186fa86e5/stdlib%2FMarkdown%2Fsrc%2FGitHub%2FGitHub.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/42bd189a0bd715aff79b43a8fcf856a186fa86e5/stdlib%2FMarkdown%2Fsrc%2FGitHub%2FGitHub.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FGitHub%2FGitHub.jl?ref=42bd189a0bd715aff79b43a8fcf856a186fa86e5",
+      "patch": "@@ -57,7 +57,7 @@ function github_paragraph(stream::IO, md::MD)\n     return true\n end\n \n-@flavor github [list, indentcode, blockquote, admonition, footnote, hashheader,\n+@flavor github [horizontalrule, list, indentcode, blockquote, admonition, footnote, hashheader,\n                 fencedcode, github_table, github_paragraph,\n \n                 linebreak, escapes,"
+    },
+    {
+      "sha": "3055a26cc853f69a8966359f64a34001fa3e569f",
+      "filename": "stdlib/Markdown/src/Julia/Julia.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/42bd189a0bd715aff79b43a8fcf856a186fa86e5/stdlib%2FMarkdown%2Fsrc%2FJulia%2FJulia.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/42bd189a0bd715aff79b43a8fcf856a186fa86e5/stdlib%2FMarkdown%2Fsrc%2FJulia%2FJulia.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FJulia%2FJulia.jl?ref=42bd189a0bd715aff79b43a8fcf856a186fa86e5",
+      "patch": "@@ -8,8 +8,8 @@\n include(\"interp.jl\")\n \n @flavor julia [blocktex, blockinterp,\n-               list, indentcode, blockquote, admonition, footnote, hashheader,\n-               fencedcode, github_table, horizontalrule, setextheader, paragraph,\n+               horizontalrule, list, indentcode, blockquote, admonition, footnote, hashheader,\n+               fencedcode, github_table, setextheader, paragraph,\n \n                linebreak, escapes,\n                tex, interp,"
+    },
+    {
+      "sha": "5288391ea11319df1966b5eda8dfb303f8f65f40",
+      "filename": "stdlib/Markdown/test/test_spec.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 6,
+      "changes": 12,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/42bd189a0bd715aff79b43a8fcf856a186fa86e5/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/42bd189a0bd715aff79b43a8fcf856a186fa86e5/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl?ref=42bd189a0bd715aff79b43a8fcf856a186fa86e5",
+      "patch": "@@ -295,7 +295,7 @@ end\n     input = \"***\\n---\\n___\\n\"\n     expected = \"<hr />\\n<hr />\\n<hr />\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 44\n     input = \"+++\\n\"\n@@ -337,13 +337,13 @@ end\n     input = \"_____________________________________\\n\"\n     expected = \"<hr />\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 51\n     input = \" - - -\\n\"\n     expected = \"<hr />\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 52\n     input = \" **  * ** * ** * **\\n\"\n@@ -355,13 +355,13 @@ end\n     input = \"-     -      -      -\\n\"\n     expected = \"<hr />\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 54\n     input = \"- - - -    \\n\"\n     expected = \"<hr />\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 55\n     input = \"_ _ _ _ a\\n\\na------\\n\\n---a---\\n\"\n@@ -385,7 +385,7 @@ end\n     input = \"Foo\\n***\\nbar\\n\"\n     expected = \"<p>Foo</p>\\n<hr />\\n<p>bar</p>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 59\n     input = \"Foo\\n---\\nbar\\n\""
+    }
+  ]
 }

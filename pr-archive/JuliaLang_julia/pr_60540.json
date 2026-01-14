@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60540/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "6465fbb7eea36f42fe73587a4b83334f987ce863",
+      "filename": "stdlib/Markdown/test/runtests.jl",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 8,
+      "changes": 19,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1ee23850a9c98256a57cdaee194c804441c265e9/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1ee23850a9c98256a57cdaee194c804441c265e9/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Fruntests.jl?ref=1ee23850a9c98256a57cdaee194c804441c265e9",
+      "patch": "@@ -487,18 +487,14 @@ for (input, output) in (\n end\n \n # Interpolation / Custom types\n-mutable struct Reference\n+mutable struct Reference1\n     ref\n end\n \n-ref(x) = Reference(x)\n-\n-ref(sum)\n-\n-show(io::IO, m::MIME\"text/plain\", r::Reference) =\n+show(io::IO, m::MIME\"text/plain\", r::Reference1) =\n     print(io, \"$(r.ref) (see Julia docs)\")\n \n-sum_ref = md\"Behaves like $(ref(sum))\"\n+sum_ref = md\"Behaves like $(Reference1(sum))\"\n @test plain(sum_ref) == \"Behaves like sum (see Julia docs)\\n\"\n @test html(sum_ref) == \"<p>Behaves like sum &#40;see Julia docs&#41;</p>\\n\"\n \n@@ -531,7 +527,14 @@ sum_ref = md\"Behaves like $(ref(sum))\"\n     @test plain(result) == expected\n end\n \n-show(io::IO, m::MIME\"text/html\", r::Reference) =\n+mutable struct Reference2\n+    ref\n+end\n+\n+sum_ref = md\"Behaves like $(Reference2(sum))\"\n+show(io::IO, m::MIME\"text/plain\", r::Reference2) =\n+    print(io, \"$(r.ref) (see Julia docs)\")\n+show(io::IO, m::MIME\"text/html\", r::Reference2) =\n     Markdown.withtag(io, :a, :href=>\"test\") do\n         Markdown.htmlesc(io, Markdown.plaininline(r))\n     end"
+    }
+  ]
 }

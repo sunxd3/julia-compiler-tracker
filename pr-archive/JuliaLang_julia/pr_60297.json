@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60297/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "3db778943f10a0076dad253c427b8c16b9b2890a",
+      "filename": "Compiler/src/effects.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/758718094f4922a63816572fe8f0b1fe364bb559/Compiler%2Fsrc%2Feffects.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/758718094f4922a63816572fe8f0b1fe364bb559/Compiler%2Fsrc%2Feffects.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Compiler%2Fsrc%2Feffects.jl?ref=758718094f4922a63816572fe8f0b1fe364bb559",
+      "patch": "@@ -218,7 +218,7 @@ function is_better_effects(new::Effects, old::Effects)\n         end\n     end\n     if new.effect_free == ALWAYS_TRUE\n-        any_improved |= old.consistent != ALWAYS_TRUE\n+        any_improved |= old.effect_free != ALWAYS_TRUE\n     elseif new.effect_free == EFFECT_FREE_IF_INACCESSIBLEMEMONLY\n         old.effect_free == ALWAYS_TRUE && return false\n         any_improved |= old.effect_free != EFFECT_FREE_IF_INACCESSIBLEMEMONLY"
+    }
+  ]
 }

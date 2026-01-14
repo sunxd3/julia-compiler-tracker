@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60396/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "942438c6f4fd08a46f71c9de579e0777f19b858e",
+      "filename": "test/parse.jl",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 0,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/049bd8524f7d54c0dbee6ec195d1768042f1db94/test%2Fparse.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/049bd8524f7d54c0dbee6ec195d1768042f1db94/test%2Fparse.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fparse.jl?ref=049bd8524f7d54c0dbee6ec195d1768042f1db94",
+      "patch": "@@ -24,11 +24,19 @@\n     @test parse(Int64,\"3830974272\") == 3830974272\n     @test parse(Int64,\"-3830974272\") == -3830974272\n \n+    @test parse(Int32,'1',base=2)==1\n+    @test parse(Int32,'c',base=58) == 38\n+    @test parse(Int32,'d',base=62)==39\n+    @test parse(Int32,'8') == 8\n     @test parse(Int,'3') == 3\n     @test parse(Int,'3', base = 8) == 3\n     @test parse(Int, 'a', base=16) == 10\n     @test_throws ArgumentError parse(Int, 'a')\n     @test_throws ArgumentError parse(Int,typemax(Char))\n+    @test_throws ArgumentError parse(Int8,'A',base=64)\n+    @test_throws ArgumentError parse(Int8,'B',base=1)\n+    @test_throws ArgumentError parse(Int8,'\u03c6',base=20)\n+    @test_throws ArgumentError parse(Int32,'A',base=10)\n end\n \n # Issue 29451"
+    }
+  ]
 }

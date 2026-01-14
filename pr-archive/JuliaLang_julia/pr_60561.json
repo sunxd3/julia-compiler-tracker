@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60561/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "ec952b0097a182bb41d8955ffe27fcadfd3922a1",
+      "filename": "JuliaLowering/src/desugaring.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 5,
+      "changes": 10,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/f1989bfa9dee31f36f1c13a6ac95be7388b264ed/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/f1989bfa9dee31f36f1c13a6ac95be7388b264ed/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fdesugaring.jl?ref=f1989bfa9dee31f36f1c13a6ac95be7388b264ed",
+      "patch": "@@ -279,9 +279,7 @@ end\n # right hand side is directly indexable.\n function _destructure(ctx, assignment_srcref, stmts, lhs, rhs, is_const)\n     n_lhs = numchildren(lhs)\n-    if n_lhs > 0\n-        iterstate = new_local_binding(ctx, rhs, \"iterstate\")\n-    end\n+    iterstate = n_lhs > 0 ? new_local_binding(ctx, rhs, \"iterstate\") : nothing\n \n     end_stmts = SyntaxList(ctx)\n     wrap(asgn) = is_const ? (@ast ctx assignment_srcref [K\"const\" asgn]) : asgn\n@@ -1620,7 +1618,7 @@ function expand_named_tuple(ctx, ex, kws, eq_is_kw;\n     names = SyntaxList(ctx)\n     values = SyntaxList(ctx)\n     current_nt = nothing\n-    for (i,kw) in enumerate(kws)\n+    for kw in kws\n         k = kind(kw)\n         appended_nt = nothing\n         name = nothing\n@@ -3488,6 +3486,8 @@ function analyze_type_sig(ctx, ex)\n         end\n     end\n     @isdefined(name) || throw(LoweringError(ex, \"invalid type signature\"))\n+    @isdefined(type_params) || throw(LoweringError(ex, \"invalid type signature\"))\n+    @isdefined(supertype) || throw(LoweringError(ex, \"invalid type signature\"))\n \n     return (name, type_params, supertype)\n end\n@@ -3524,8 +3524,8 @@ function expand_abstract_or_primitive_type(ctx, ex)\n     else\n         @assert kind(ex) == K\"primitive\"\n         @chk numchildren(ex) == 2\n-        nbits = ex[2]\n     end\n+    nbits = is_abstract ? nothing : ex[2]\n     name, type_params, supertype = analyze_type_sig(ctx, ex[1])\n     typevar_names, typevar_stmts = expand_typevars(ctx, type_params)\n     newtype_var = ssavar(ctx, ex, \"new_type\")"
+    }
+  ]
 }

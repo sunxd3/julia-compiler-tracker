@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60079/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "c11357d276482e6c616d03351c8a1c6342d4f6fe",
+      "filename": "src/aotcompile.cpp",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/53d89061df1f373f381b59c89f06fb43bd245336/src%2Faotcompile.cpp",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/53d89061df1f373f381b59c89f06fb43bd245336/src%2Faotcompile.cpp",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Faotcompile.cpp?ref=53d89061df1f373f381b59c89f06fb43bd245336",
+      "patch": "@@ -708,7 +708,7 @@ void *jl_create_native_impl(LLVMOrcThreadSafeModuleRef llvmmod, int trim, int ex\n     fargs[1] = (jl_value_t*)worlds;\n     jl_array_data(worlds, size_t)[0] = jl_typeinf_world;\n     int compiler_world = 1;\n-    if (trim || jl_array_data(worlds, size_t)[0] == 0)\n+    if (trim || jl_array_data(worlds, size_t)[0] == 0 || external_linkage)\n         compiler_world = 0;\n     jl_array_data(worlds, size_t)[compiler_world] = world; // might overwrite previous\n     worlds->dimsize[0] = 1 + compiler_world;"
+    }
+  ]
 }

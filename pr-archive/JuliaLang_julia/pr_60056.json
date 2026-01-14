@@ -86,5 +86,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60056/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "704ca0e28bee7a66e773e2d1a001aa251113479a",
+      "filename": "src/gc-stock.c",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src%2Fgc-stock.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src%2Fgc-stock.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fgc-stock.c?ref=a969c027ebd8d82c1e29cbb8c6b6b0982e275c07",
+      "patch": "@@ -3586,7 +3586,6 @@ void jl_start_gc_threads(void)\n         else {\n             uv_thread_create(&uvtid, jl_parallel_gc_threadfun, t);\n         }\n-        uv_thread_detach(&uvtid);\n     }\n }\n "
+    },
+    {
+      "sha": "1702bc338b16f572fd9a3b966e8f85b89a1b2537",
+      "filename": "src/signals-win.c",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src%2Fsignals-win.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src%2Fsignals-win.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fsignals-win.c?ref=a969c027ebd8d82c1e29cbb8c6b6b0982e275c07",
+      "patch": "@@ -445,6 +445,7 @@ static int jl_thread_suspend_and_get_state(int tid, int timeout, bt_context_t *c\n     if (ct2 == NULL) // this thread is already dead\n         return 0;\n     HANDLE hThread = ptls2->system_id;\n+    assert(GetCurrentThreadId() != GetThreadId(hThread));\n     if ((DWORD)-1 == SuspendThread(hThread)) {\n         // jl_safe_fprintf(ios_safe_stderr, \"failed to suspend thread %d: %lu\\n\", tid, GetLastError());\n         return 0;"
+    },
+    {
+      "sha": "fb7c4621df201e405c409826d007553464ecb5fe",
+      "filename": "stdlib/Profile/test/runtests.jl",
+      "status": "modified",
+      "additions": 32,
+      "deletions": 13,
+      "changes": 45,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/stdlib%2FProfile%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/stdlib%2FProfile%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FProfile%2Ftest%2Fruntests.jl?ref=a969c027ebd8d82c1e29cbb8c6b6b0982e275c07",
+      "patch": "@@ -246,6 +246,23 @@ end\n     @test occursin(\"@julialib\" * slash, str)\n end\n \n+function run_with_watchdog(cmd, timeout=120)\n+    p = open(cmd)\n+    t = Timer(timeout) do t\n+        # should be under 10 seconds, so give it 2 minutes then report failure\n+        println(\"KILLING debuginfo registration test BY PROFILE TEST WATCHDOG\\n\")\n+        kill(p, Base.SIGQUIT)\n+        sleep(30)\n+        kill(p, Base.SIGQUIT)\n+        sleep(30)\n+        kill(p, Base.SIGKILL)\n+    end\n+    s = read(p, String)\n+    close(t)\n+    close(p)\n+    success(p) ? s : \"\"\n+end\n+\n # Profile deadlocking in compilation (debuginfo registration)\n let cmd = Base.julia_cmd()\n     script = \"\"\"\n@@ -259,24 +276,26 @@ let cmd = Base.julia_cmd()\n         print(Profile.len_data())\n         \"\"\"\n     # use multiple threads here to ensure that profiling works with threading\n-    p = open(`$cmd -t2 -e $script`)\n-    t = Timer(120) do t\n-        # should be under 10 seconds, so give it 2 minutes then report failure\n-        println(\"KILLING debuginfo registration test BY PROFILE TEST WATCHDOG\\n\")\n-        kill(p, Base.SIGQUIT)\n-        sleep(30)\n-        kill(p, Base.SIGQUIT)\n-        sleep(30)\n-        kill(p, Base.SIGKILL)\n-    end\n-    s = read(p, String)\n-    close(t)\n-    @test success(p)\n+    s = run_with_watchdog(`$cmd -t2 -e $script`)\n     @test !isempty(s)\n     @test occursin(\"done\", s)\n     @test parse(Int, split(s, '\\n')[end]) > 100\n end\n \n+# Thread suspend deadlock - run many times (#60042)\n+let cmd = Base.julia_cmd()\n+    script = \"\"\"\n+        using Profile\n+        @profile println(\"done\")\n+        \"\"\"\n+    good = true\n+    for i=1:100\n+        s = run_with_watchdog(`$cmd -t2 -e $script`, 5)\n+        good &= occursin(\"done\", s)\n+    end\n+    @test good\n+end\n+\n if Sys.isbsd() || Sys.islinux()\n     @testset \"SIGINFO/SIGUSR1 profile triggering\" begin\n         let cmd = Base.julia_cmd()"
+    }
+  ]
 }

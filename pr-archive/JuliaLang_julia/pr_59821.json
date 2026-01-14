@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59821/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "551b965a491c6b59e7eead1c8e038cecd4fea19a",
+      "filename": "NEWS.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 2,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c6da56de21bcef20d890a23df09af61ec805ce22/NEWS.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c6da56de21bcef20d890a23df09af61ec805ce22/NEWS.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/NEWS.md?ref=c6da56de21bcef20d890a23df09af61ec805ce22",
+      "patch": "@@ -14,8 +14,7 @@ New language features\n \n Language changes\n ----------------\n-* `mod(x::AbstractFloat, -Inf)` now returns `x` (as long as `x` is finite), this aligns with C standard and\n-is considered a bug fix ([#47102])\n+* `mod(x::AbstractFloat, -Inf)` now returns `x` (as long as `x` is finite), this aligns with C standard and is considered a bug fix ([#47102])\n \n * The `hash` algorithm and its values have changed for certain types, most notably AbstractString. Any `hash` specializations for equal types to those that changed, such as some third-party string packages, may need to be deleted. ([#57509], [#59691])\n "
+    }
+  ]
 }

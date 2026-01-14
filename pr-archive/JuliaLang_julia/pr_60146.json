@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60146/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "a1fa054d20f214ac5308a9011cb5a26cec535ce1",
+      "filename": "base/loading.jl",
+      "status": "modified",
+      "additions": 10,
+      "deletions": 3,
+      "changes": 13,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c223ef2eb395e2bfac9740a5440bb83b502eafa3/base%2Floading.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c223ef2eb395e2bfac9740a5440bb83b502eafa3/base%2Floading.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Floading.jl?ref=c223ef2eb395e2bfac9740a5440bb83b502eafa3",
+      "patch": "@@ -824,7 +824,10 @@ function manifest_uuid_path(env::String, pkg::PkgId)::Union{Nothing,String,Missi\n         # if env names a directory, search it\n         proj = implicit_manifest_uuid_path(env, pkg)\n         proj === nothing || return proj\n-        # if not found\n+        # if not found, this might be an extension - first we fast path needing\n+        # to scan the whole directory for a matching extension by peeking at\n+        # EXT_PRIMED. However, this only works if the parent package was loaded.\n+        # This is usually the case, but not always, e.g. in precompilation.\n         triggers = get(EXT_PRIMED, pkg, nothing)\n         if triggers !== nothing\n             parentid = triggers[1]\n@@ -836,6 +839,10 @@ function manifest_uuid_path(env::String, pkg::PkgId)::Union{Nothing,String,Missi\n                     mby_ext === nothing || return mby_ext\n                 end\n             end\n+        else\n+            # We still need to scan the whole directory for extensions.\n+            ext_path, ext_proj = implicit_env_project_file_extension(env, pkg)\n+            ext_path === nothing || return ext_path\n         end\n     end\n     return nothing\n@@ -1130,8 +1137,8 @@ function explicit_manifest_uuid_path(project_file::String, pkg::PkgId)::Union{No\n             uuid = get(entry, \"uuid\", nothing)::Union{Nothing, String}\n             extensions = get(entry, \"extensions\", nothing)::Union{Nothing, Dict{String, Any}}\n             if extensions !== nothing && haskey(extensions, pkg.name) && uuid !== nothing && uuid5(UUID(uuid), pkg.name) == pkg.uuid\n-                parent_path = locate_package(PkgId(UUID(uuid), name))\n-                if parent_path === nothing\n+                parent_path = explicit_manifest_entry_path(manifest_file, PkgId(UUID(uuid), name), entry)\n+                if parent_path === nothing || parent_path === missing\n                     error(\"failed to find source of parent package: \\\"$name\\\"\")\n                 end\n                 p = normpath(dirname(parent_path), \"..\")"
+    }
+  ]
 }

@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59692/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "8bd4e33a9bfd2d083328e0bf42bb39d4474d3b06",
+      "filename": "stdlib/REPL/src/REPLCompletions.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 6,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e7dd1451efdf3edfdc38bd0794e6cefa012ec518/stdlib%2FREPL%2Fsrc%2FREPLCompletions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e7dd1451efdf3edfdc38bd0794e6cefa012ec518/stdlib%2FREPL%2Fsrc%2FREPLCompletions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2FREPLCompletions.jl?ref=e7dd1451efdf3edfdc38bd0794e6cefa012ec518",
+      "patch": "@@ -901,12 +901,6 @@ function complete_keyword_argument!(suggestions::Vector{Completion},\n     kwargs_flag == 2 && return false # one of the previous kwargs is invalid\n \n     methods = Completion[]\n-    # Limit kwarg completions to cases when function is concretely known; looking up\n-    # matching methods for abstract functions \u2014 particularly `Any` or `Function` \u2014 can\n-    # take many seconds to run over the thousands of possible methods. Note that\n-    # isabstracttype would return naively return true for common constructor calls\n-    # like Array, but the REPL's introspection here may know their Type{T}.\n-    isconcretetype(funct) || return false\n     complete_methods!(methods, funct, Any[Vararg{Any}], kwargs_ex, -1, arg_pos == :kwargs)\n     # TODO: use args_ex instead of Any[Vararg{Any}] and only provide kwarg completion for\n     # method calls compatible with the current arguments."
+    },
+    {
+      "sha": "a4adb09402b2335609d3154200a808cf29d7e89a",
+      "filename": "stdlib/REPL/test/replcompletions.jl",
+      "status": "modified",
+      "additions": 48,
+      "deletions": 2,
+      "changes": 50,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e7dd1451efdf3edfdc38bd0794e6cefa012ec518/stdlib%2FREPL%2Ftest%2Freplcompletions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e7dd1451efdf3edfdc38bd0794e6cefa012ec518/stdlib%2FREPL%2Ftest%2Freplcompletions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Ftest%2Freplcompletions.jl?ref=e7dd1451efdf3edfdc38bd0794e6cefa012ec518",
+      "patch": "@@ -2687,8 +2687,54 @@ f54131 = F54131()\n \n     s = \"f54131.x(kwa\"\n     a, b, c = completions(s, lastindex(s), @__MODULE__, false)\n-    @test_broken REPLCompletions.KeywordArgumentCompletion(\"kwarg\") in a\n-    @test (@elapsed completions(s, lastindex(s), @__MODULE__, false)) < 1\n+    @test REPLCompletions.KeywordArgumentCompletion(\"kwarg\") in a\n+    @test (@elapsed completions(s, lastindex(s), @__MODULE__, false)) < 100\n+end\n+\n+@kwdef struct T59244\n+    asdf = 1\n+    qwer = 2\n+end\n+@kwdef struct S59244{T}\n+    asdf::T = 1\n+    qwer::T = 2\n+end\n+@testset \"kwarg completion of types\" begin\n+    s = \"T59244(as\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"asdf\") in a\n+\n+    s = \"T59244(; qw\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") in a\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") == only(a)\n+\n+    s = \"S59244(as\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"asdf\") in a\n+\n+    s = \"S59244(; qw\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") in a\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") == only(a)\n+\n+    s = \"S59244{Int}(as\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"asdf\") in a\n+\n+    s = \"S59244{Int}(; qw\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") in a\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") == only(a)\n+\n+    s = \"S59244{Any}(as\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"asdf\") in a\n+\n+    s = \"S59244{Any}(; qw\"\n+    a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") in a\n+    @test REPLCompletions.KeywordArgumentCompletion(\"qwer\") == only(a)\n end\n \n # Completion inside string interpolation"
+    }
+  ]
 }

@@ -95,5 +95,55 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60195/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "e0604c6c15cc3afecc8034f29e7897cf81d0c20e",
+      "filename": "JuliaLowering/src/desugaring.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 1,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e49a23d429f7d2bba0edf4973f568735ef50d3a2/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e49a23d429f7d2bba0edf4973f568735ef50d3a2/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fdesugaring.jl?ref=e49a23d429f7d2bba0edf4973f568735ef50d3a2",
+      "patch": "@@ -539,7 +539,11 @@ function _arg_to_temp(ctx, stmts, ex, eq_is_kw=false)\n     elseif k == K\"...\"\n         @ast ctx ex [k _arg_to_temp(ctx, stmts, ex[1])]\n     elseif k == K\"=\" && eq_is_kw\n-        @ast ctx ex [K\"=\" ex[1] _arg_to_temp(ex[2])]\n+        @ast ctx ex [K\"=\" ex[1] _arg_to_temp(ctx, stmts, ex[2], false)]\n+    elseif k == K\"parameters\"\n+        mapchildren(ctx, ex) do e\n+            _arg_to_temp(ctx, stmts, e, true)\n+        end\n     else\n         emit_assign_tmp(stmts, ctx, ex)\n     end"
+    },
+    {
+      "sha": "7bd37e6f14f46ec08e6cbdd84bb149aad45911f3",
+      "filename": "JuliaLowering/test/assignments.jl",
+      "status": "modified",
+      "additions": 14,
+      "deletions": 0,
+      "changes": 14,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e49a23d429f7d2bba0edf4973f568735ef50d3a2/JuliaLowering%2Ftest%2Fassignments.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e49a23d429f7d2bba0edf4973f568735ef50d3a2/JuliaLowering%2Ftest%2Fassignments.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fassignments.jl?ref=e49a23d429f7d2bba0edf4973f568735ef50d3a2",
+      "patch": "@@ -95,4 +95,18 @@ let\n end\n \"\"\") == 3\n \n+# removing argument side effect in kwcall lhs\n+@eval test_mod f60152(v, pa; kw) = copy(v)\n+@test JuliaLowering.include_string(test_mod, \"\"\"\n+    f60152([1, 2, 3], 0; kw=0) .*= 2\n+\"\"\") == [2,4,6]\n+@test JuliaLowering.include_string(test_mod, \"\"\"\n+let\n+    pa_execs = 0\n+    kw_execs = 0\n+    out = f60152([1, 2, 3], (pa_execs+=1); kw=(kw_execs+=1)) .*= 2\n+    (out, pa_execs, kw_execs)\n+end\n+\"\"\") == ([2,4,6], 1, 1)\n+\n end"
+    },
+    {
+      "sha": "c9b1fd551e359d3a339e104b3d7f609ebfd5ac1f",
+      "filename": "src/julia-syntax.scm",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 4,
+      "changes": 10,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e49a23d429f7d2bba0edf4973f568735ef50d3a2/src%2Fjulia-syntax.scm",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e49a23d429f7d2bba0edf4973f568735ef50d3a2/src%2Fjulia-syntax.scm",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fjulia-syntax.scm?ref=e49a23d429f7d2bba0edf4973f568735ef50d3a2",
+      "patch": "@@ -1809,11 +1809,13 @@\n       (cons e '())\n       (let ((a '()))\n         (define (arg-to-temp x)\n-          (cond ((effect-free? x)  x)\n-                ((or (eq? (car x) '...) (eq? (car x) '&))\n-                 `(,(car x) ,(arg-to-temp (cadr x))))\n+          (cond ((effect-free? x) x)\n+                ((eq? (car x) '...)\n+                 `(... ,(arg-to-temp (cadr x))))\n                 ((eq? (car x) 'kw)\n-                 `(,(car x) ,(cadr x) ,(arg-to-temp (caddr x))))\n+                 `(kw ,(cadr x) ,(arg-to-temp (caddr x))))\n+                ((eq? (car x) 'parameters)\n+                 `(parameters ,@(map arg-to-temp (cdr x))))\n                 (else\n                  (let ((g (make-ssavalue)))\n                    (begin (set! a (cons `(= ,g ,x) a))"
+    },
+    {
+      "sha": "eef4e58bb626da805eec861aadaefe44b7b3bba2",
+      "filename": "test/syntax.jl",
+      "status": "modified",
+      "additions": 10,
+      "deletions": 1,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e49a23d429f7d2bba0edf4973f568735ef50d3a2/test%2Fsyntax.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e49a23d429f7d2bba0edf4973f568735ef50d3a2/test%2Fsyntax.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fsyntax.jl?ref=e49a23d429f7d2bba0edf4973f568735ef50d3a2",
+      "patch": "@@ -3730,7 +3730,7 @@ end\n     @test p(\"public() = 6\") == Expr(:(=), Expr(:call, :public), Expr(:block, 6))\n end\n \n-@testset \"removing argument sideeffects\" begin\n+@testset \"removing argument side effects\" begin\n     # Allow let blocks in broadcasted LHSes, but only evaluate them once:\n     execs = 0\n     array = [1]\n@@ -3746,6 +3746,15 @@ end\n     let; execs += 1; array; end::Vector{Int} .= 7\n     @test array == [7]\n     @test execs == 4\n+\n+    # remove argument side effects on lhs kwcall\n+    pa_execs = 0\n+    kw_execs = 0\n+    f60152(v, pa; kw) = copy(v)\n+    @test (f60152([1, 2, 3], 0; kw=0) .*= 2) == [2,4,6]\n+    @test (f60152([1, 2, 3], (pa_execs+=1); kw=(kw_execs+=1)) .*= 2) == [2,4,6]\n+    @test pa_execs === 1\n+    @test kw_execs === 1\n end\n \n # Allow GlobalRefs in macro definition"
+    }
+  ]
 }

@@ -109,5 +109,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60070/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "cd7b71f028044c8a86ba0779eba070b8d46f48ca",
+      "filename": "deps/checksums/mmtk_julia",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 4,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7b973efdb8bb2684b52795218fc2ca1468bf49ea/deps%2Fchecksums%2Fmmtk_julia",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7b973efdb8bb2684b52795218fc2ca1468bf49ea/deps%2Fchecksums%2Fmmtk_julia",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2Fmmtk_julia?ref=7b973efdb8bb2684b52795218fc2ca1468bf49ea",
+      "patch": "@@ -1,4 +1,2 @@\n-mmtk_julia-4933fb41ba5d1d21f720e2ca1bfa5bc938b73b12.tar.gz/md5/e27debba476479953bdc23eb970f297f\n-mmtk_julia-4933fb41ba5d1d21f720e2ca1bfa5bc938b73b12.tar.gz/sha512/6541bacfd16cbf1969103fea612c2f8b2011c3e38748bf82c41633c6084c2bf981bca9fb0d9f736832b0d7ef505271ba48465bcd27e8cd1fa45f7f4c5e36f246\n-mmtk_julia.v0.30.6+0.x86_64-linux-gnu.tar.gz/md5/9b0c3e1ae95d82aa2184cbe889def0da\n-mmtk_julia.v0.30.6+0.x86_64-linux-gnu.tar.gz/sha512/04fd29468fea544f18622046c5d237d335c80e7c1c3b968f8445e439449f94afd4b82266ee49fa8c2b69b41776062959346a06e916d6b525a15f449529013311\n+mmtk_julia.v0.31.1+0.x86_64-linux-gnu.tar.gz/md5/80894e5c6582e8a6a30f2712a2b91c83\n+mmtk_julia.v0.31.1+0.x86_64-linux-gnu.tar.gz/sha512/8997351c716943c757c27c8f5fdb24320c681f6f393c11bc4134d6535ed09560cec9622500825bd1652c9867ac92eb0626556483d859e9271927ab89f33fbe74"
+    },
+    {
+      "sha": "87241d09205050d9fdfb6b528cc0dbfe13642c14",
+      "filename": "deps/mmtk_julia.version",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 3,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7b973efdb8bb2684b52795218fc2ca1468bf49ea/deps%2Fmmtk_julia.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7b973efdb8bb2684b52795218fc2ca1468bf49ea/deps%2Fmmtk_julia.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fmmtk_julia.version?ref=7b973efdb8bb2684b52795218fc2ca1468bf49ea",
+      "patch": "@@ -1,6 +1,6 @@\n MMTK_JULIA_BRANCH = master\n-MMTK_JULIA_SHA1 = 4933fb41ba5d1d21f720e2ca1bfa5bc938b73b12\n+MMTK_JULIA_SHA1 = f299191f32388673a3f447f35f91a9ec47955cc7\n MMTK_JULIA_GIT_URL := https://github.com/mmtk/mmtk-julia.git\n-MMTK_JULIA_TAR_URL = https://github.com/mmtk/mmtk-julia/archive/refs/tags/v0.30.6.tar.gz\n-MMTK_JULIA_JLL_VER := 0.30.6+0\n+MMTK_JULIA_TAR_URL = https://github.com/mmtk/mmtk-julia/archive/refs/tags/v0.31.1.tar.gz\n+MMTK_JULIA_JLL_VER := 0.31.1+0\n MMTK_JULIA_JLL_NAME := mmtk_julia"
+    }
+  ]
 }

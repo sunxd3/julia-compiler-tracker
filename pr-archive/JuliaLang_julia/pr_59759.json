@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59759/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "9570137b1ef7934588448e61f59423ca11e72b4e",
+      "filename": ".buildkite-external-version",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a5e9da65a2d5232bd82512ae84e50436bc553817/.buildkite-external-version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a5e9da65a2d5232bd82512ae84e50436bc553817/.buildkite-external-version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/.buildkite-external-version?ref=a5e9da65a2d5232bd82512ae84e50436bc553817",
+      "patch": "@@ -1 +1 @@\n-main\n+release-julia-1.12"
+    }
+  ]
 }

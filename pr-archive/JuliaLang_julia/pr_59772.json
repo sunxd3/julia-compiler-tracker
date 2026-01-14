@@ -67,5 +67,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59772/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "1d3a9636ddfa93df19bd5765f98523c8c1bf6ccc",
+      "filename": "src/gf.c",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/07b856c0dc1d75b7b5a5bbf451b93a0105385583/src%2Fgf.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/07b856c0dc1d75b7b5a5bbf451b93a0105385583/src%2Fgf.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fgf.c?ref=07b856c0dc1d75b7b5a5bbf451b93a0105385583",
+      "patch": "@@ -3809,7 +3809,7 @@ JL_DLLEXPORT jl_value_t *jl_normalize_to_compilable_sig(jl_tupletype_t *ti, jl_s\n jl_method_instance_t *jl_normalize_to_compilable_mi(jl_method_instance_t *mi JL_PROPAGATES_ROOT)\n {\n     jl_method_t *def = mi->def.method;\n-    if (!jl_is_method(def) || !jl_is_datatype(mi->specTypes))\n+    if (!jl_is_method(def) || !jl_is_datatype(mi->specTypes) || def->is_for_opaque_closure)\n         return mi;\n     jl_value_t *compilationsig = jl_normalize_to_compilable_sig((jl_datatype_t*)mi->specTypes, mi->sparam_vals, def, 1);\n     if (compilationsig == jl_nothing || jl_egal(compilationsig, mi->specTypes))"
+    },
+    {
+      "sha": "2de5193ec4f35ee1c922988df12195355c02a337",
+      "filename": "test/opaque_closure.jl",
+      "status": "modified",
+      "additions": 14,
+      "deletions": 0,
+      "changes": 14,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/07b856c0dc1d75b7b5a5bbf451b93a0105385583/test%2Fopaque_closure.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/07b856c0dc1d75b7b5a5bbf451b93a0105385583/test%2Fopaque_closure.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fopaque_closure.jl?ref=07b856c0dc1d75b7b5a5bbf451b93a0105385583",
+      "patch": "@@ -297,6 +297,20 @@ let src = code_typed((Int,Int)) do x, y...\n         @test oc(1,2) === (1,(2,))\n         @test_throws MethodError oc(1,2,3)\n     end\n+\n+    # with manually constructed IRCode, without round-trip to CodeInfo\n+    f59222(xs...) = length(xs)\n+    ir = Base.code_ircode_by_type(Tuple{typeof(f59222), Symbol, Symbol})[1][1]\n+    ir.argtypes[1] = Tuple{}\n+    let oc = OpaqueClosure(ir; isva=true)\n+        @test oc(:a, :b) == 2\n+    end\n+    ir = Base.code_ircode_by_type(Tuple{typeof(f59222), Symbol, Vararg{Symbol}})[1][1]\n+    ir.argtypes[1] = Tuple{}\n+    let oc = OpaqueClosure(ir; isva=true)\n+        @test oc(:a) == 1\n+        @test oc(:a, :b, :c) == 3\n+    end\n end\n \n # Check for correct handling in case of broken return type."
+    }
+  ]
 }

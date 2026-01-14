@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60093/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "ab34fce647a2c61844ae59681c4d520f619e728d",
+      "filename": "src/aotcompile.cpp",
+      "status": "modified",
+      "additions": 24,
+      "deletions": 0,
+      "changes": 24,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/59896641c53fd4ec9cb8d4b510871eaacbc2933d/src%2Faotcompile.cpp",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/59896641c53fd4ec9cb8d4b510871eaacbc2933d/src%2Faotcompile.cpp",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Faotcompile.cpp?ref=59896641c53fd4ec9cb8d4b510871eaacbc2933d",
+      "patch": "@@ -422,6 +422,28 @@ static void aot_optimize_roots(jl_codegen_params_t &params, egal_set &method_roo\n     }\n }\n \n+static jl_compiled_functions_t::iterator get_ci_equiv_compiled(jl_code_instance_t *ci JL_PROPAGATES_ROOT, jl_compiled_functions_t &compiled_functions) JL_NOTSAFEPOINT\n+{\n+    jl_value_t *def = ci->def;\n+    jl_value_t *owner = ci->owner;\n+    jl_value_t *rettype = ci->rettype;\n+    size_t min_world = jl_atomic_load_relaxed(&ci->min_world);\n+    size_t max_world = jl_atomic_load_relaxed(&ci->max_world);\n+    for (auto it = compiled_functions.begin(), E = compiled_functions.end(); it != E; ++it) {\n+        auto codeinst = it->first;\n+        if (codeinst != ci &&\n+            jl_atomic_load_relaxed(&codeinst->inferred) != NULL &&\n+            jl_atomic_load_relaxed(&codeinst->min_world) <= min_world &&\n+            jl_atomic_load_relaxed(&codeinst->max_world) >= max_world &&\n+            jl_egal(codeinst->def, def) &&\n+            jl_egal(codeinst->owner, owner) &&\n+            jl_egal(codeinst->rettype, rettype)) {\n+            return it;\n+        }\n+    }\n+    return compiled_functions.end();\n+}\n+\n static void resolve_workqueue(jl_codegen_params_t &params, egal_set &method_roots, jl_compiled_functions_t &compiled_functions)\n {\n     jl_workqueue_t workqueue;\n@@ -439,6 +461,8 @@ static void resolve_workqueue(jl_codegen_params_t &params, egal_set &method_root\n         bool preal_specsig = false;\n         {\n             auto it = compiled_functions.find(codeinst);\n+            if (it == compiled_functions.end())\n+                it = get_ci_equiv_compiled(codeinst, compiled_functions);\n             if (it != compiled_functions.end()) {\n                 auto &decls = it->second.decls;\n                 invokeName = decls.functionObject;"
+    }
+  ]
 }

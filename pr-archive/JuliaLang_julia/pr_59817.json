@@ -119,5 +119,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59817/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "8344cd90da9afd9c42b0b76f21b7eb3d7e6cd516",
+      "filename": "doc/src/devdocs/types.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/ae4538a2d2dd86d60808cd79e77b3557222450ac/doc%2Fsrc%2Fdevdocs%2Ftypes.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/ae4538a2d2dd86d60808cd79e77b3557222450ac/doc%2Fsrc%2Fdevdocs%2Ftypes.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fsrc%2Fdevdocs%2Ftypes.md?ref=ae4538a2d2dd86d60808cd79e77b3557222450ac",
+      "patch": "@@ -526,5 +526,5 @@ considered more specific. However, `morespecific` does get a bonus for length: i\n `Tuple{Int,Int}` is more specific than `Tuple{Int,Vararg{Int}}`.\n \n Additionally, if 2 methods are defined with identical signatures, per type-equal, then they\n-will instead by compared by order of addition, such that the later method is more specific\n+will instead be compared by order of addition, such that the later method is more specific\n than the earlier one."
+    },
+    {
+      "sha": "bbba8b5473630e1637c1c3cccc3a418fa7a7da5b",
+      "filename": "doc/src/manual/methods.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/ae4538a2d2dd86d60808cd79e77b3557222450ac/doc%2Fsrc%2Fmanual%2Fmethods.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/ae4538a2d2dd86d60808cd79e77b3557222450ac/doc%2Fsrc%2Fmanual%2Fmethods.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fsrc%2Fmanual%2Fmethods.md?ref=ae4538a2d2dd86d60808cd79e77b3557222450ac",
+      "patch": "@@ -582,7 +582,7 @@ However, future calls to `tryeval` will continue to see the definition of `newfu\n \n You may want to try this for yourself to see how it works.\n \n-The implementation of this behavior is a \"world age counter\", which is further described in the [Worldage](@ref man-worldage)\n+The implementation of this behavior is a \"world age counter\", which is further described in the [World Age](@ref World-age-in-general)\n manual chapter.\n \n ## Design Patterns with Parametric Methods"
+    }
+  ]
 }

@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60575/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "79cf2d077d1721ab2c6188634c670d610276dc53",
+      "filename": "contrib/windows/build-installer.iss",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7bc646575e529651c2786c00c06e5799db89ff5d/contrib%2Fwindows%2Fbuild-installer.iss",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7bc646575e529651c2786c00c06e5799db89ff5d/contrib%2Fwindows%2Fbuild-installer.iss",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/contrib%2Fwindows%2Fbuild-installer.iss?ref=7bc646575e529651c2786c00c06e5799db89ff5d",
+      "patch": "@@ -109,7 +109,7 @@ Source: \"{#SourceDir}\\{#AppMainExeName}\"; DestDir: \"{app}\\bin\"; Flags: ignorever\n \n [Icons]\n Name: \"{autodesktop}\\{#AppNameLong}\"; Filename: \"{app}\\{#AppMainExeName}\"; WorkingDir: \"{%USERPROFILE}\"; Tasks: desktopicon\n-Name: \"{autostartmenu}\\{#AppNameLong}\"; Filename: \"{app}\\{#AppMainExeName}\"; WorkingDir: \"{%USERPROFILE}\"; Tasks: startmenu\n+Name: \"{autostartmenu}\\Programs\\{#AppNameLong}\"; Filename: \"{app}\\{#AppMainExeName}\"; WorkingDir: \"{%USERPROFILE}\"; Tasks: startmenu\n \n \n [Run]"
+    }
+  ]
 }

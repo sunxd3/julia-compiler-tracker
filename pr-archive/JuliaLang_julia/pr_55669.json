@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/55669/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "952ca548d80f1a6f06ec0a10e4c1db8e8332db99",
+      "filename": "base/operators.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 12,
+      "changes": 13,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/6064e1d4d9429faab4c9b29a38788d4050984e37/base%2Foperators.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/6064e1d4d9429faab4c9b29a38788d4050984e37/base%2Foperators.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Foperators.jl?ref=6064e1d4d9429faab4c9b29a38788d4050984e37",
+      "patch": "@@ -1365,18 +1365,7 @@ used to implement specialized methods.\n \"\"\"\n in(x) = Fix2(in, x)\n \n-function in(x, itr::Any)\n-    anymissing = false\n-    for y in itr\n-        v = (y == x)\n-        if ismissing(v)\n-            anymissing = true\n-        elseif v\n-            return true\n-        end\n-    end\n-    return anymissing ? missing : false\n-end\n+in(x, itr::Any) = any(==(x), itr)\n \n # Specialized variant of in for Tuple, which can generate typed comparisons for each element\n # of the tuple, skipping values that are statically known to be != at compile time."
+    }
+  ]
 }

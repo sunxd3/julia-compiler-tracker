@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60236/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "3971999691d774f434912a1a88ee1008f4adf39e",
+      "filename": "README.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e5008242ad08fb73f5a0e1922316b0f4ce23d13f/README.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e5008242ad08fb73f5a0e1922316b0f4ce23d13f/README.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/README.md?ref=e5008242ad08fb73f5a0e1922316b0f4ce23d13f",
+      "patch": "@@ -68,7 +68,7 @@ the latest stable `julia` for you and help keep it up to date. It can also let\n you install and run different Julia versions simultaneously. Instructions for\n this can be found [here](https://julialang.org/downloads/). If you want to manually\n download specific Julia binaries, you can find those on the [Manual Downloads\n-page](https://julialang.org/manual-downloads/). The downloads page also provides\n+page](https://julialang.org/downloads/manual-downloads/). The downloads page also provides\n details on the [different tiers of\n support](https://julialang.org/downloads/support) for OS and\n platform combinations."
+    }
+  ]
 }

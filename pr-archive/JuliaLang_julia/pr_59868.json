@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59868/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "3606566d341ea2b2cac8905608f2222cb4b3a4c1",
+      "filename": "stdlib/REPL/src/StylingPasses.jl",
+      "status": "modified",
+      "additions": 10,
+      "deletions": 10,
+      "changes": 20,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/5f500169b8018d5e2b61797610717290e4cc96bd/stdlib%2FREPL%2Fsrc%2FStylingPasses.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/5f500169b8018d5e2b61797610717290e4cc96bd/stdlib%2FREPL%2Fsrc%2FStylingPasses.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2FStylingPasses.jl?ref=5f500169b8018d5e2b61797610717290e4cc96bd",
+      "patch": "@@ -37,27 +37,29 @@ function merge_annotations(annotated_strings::Vector{<:AnnotatedString})\n     return result\n end\n \n-function apply_style(pass::StylingPass, input::String, context::StylingContext)\n-    return pass(input, context)::AnnotatedString{String}\n+function apply_style(pass::StylingPass, input::String, ast, context::StylingContext)\n+    return pass(input, ast, context)::AnnotatedString{String}\n end\n \n function apply_styling_passes(input::String, passes::Vector{StylingPass}, context::StylingContext)\n     if isempty(passes)\n         return AnnotatedString(input)\n     end\n \n-    results = [apply_style(pass, input, context) for pass in passes]\n+    # Parse once and share AST across all passes\n+    ast = JuliaSyntax.parseall(JuliaSyntax.GreenNode, input; ignore_errors=true)\n+\n+    results = [apply_style(pass, input, ast, context) for pass in passes]\n     return merge_annotations(results)\n end\n \n # Applies Julia syntax highlighting\n struct SyntaxHighlightPass <: StylingPass end\n \n-function (::SyntaxHighlightPass)(input::String, ::StylingContext)\n+function (::SyntaxHighlightPass)(input::String, ast, ::StylingContext)\n     try\n-        return JuliaSyntaxHighlighting.highlight(input)\n+        return JuliaSyntaxHighlighting.highlight(input, ast)\n     catch e\n-        e isa InterruptException && rethrow()\n         @error \"Error in SyntaxHighlightPass\" exception=(e, catch_backtrace()) maxlog=1\n         return AnnotatedString(input)\n     end\n@@ -66,7 +68,7 @@ end\n # Applies inverse video styling to the selected region\n struct RegionHighlightPass <: StylingPass end\n \n-function (::RegionHighlightPass)(input::String, context::StylingContext)\n+function (::RegionHighlightPass)(input::String, ::Any, context::StylingContext)\n     result = AnnotatedString(input)\n \n     if context.region_start > 0 && context.region_stop >= context.region_start\n@@ -86,23 +88,21 @@ end\n \n EnclosingParenHighlightPass() = EnclosingParenHighlightPass(Face(weight=:bold, underline=true))\n \n-function (pass::EnclosingParenHighlightPass)(input::String, context::StylingContext)\n+function (pass::EnclosingParenHighlightPass)(input::String, ast, context::StylingContext)\n     result = AnnotatedString(input)\n \n     if isempty(input) || context.cursor_pos < 1\n         return result\n     end\n \n     try\n-        ast = JuliaSyntax.parseall(JuliaSyntax.GreenNode, input; ignore_errors=true)\n         paren_pairs = find_enclosing_parens(input, ast, context.cursor_pos)\n \n         for (open_pos, close_pos) in paren_pairs\n             annotate!(result, open_pos:open_pos, :face, pass.face)\n             annotate!(result, close_pos:close_pos, :face, pass.face)\n         end\n     catch e\n-        e isa InterruptException && rethrow()\n         @error \"Error in EnclosingParenHighlightPass\" exception=(e, catch_backtrace()) maxlog=1\n     end\n "
+    }
+  ]
 }

@@ -86,5 +86,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60327/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "4f05384a530acb73461d2eb14f7180cb57c9236d",
+      "filename": "JuliaLowering/src/syntax_graph.jl",
+      "status": "modified",
+      "additions": 7,
+      "deletions": 6,
+      "changes": 13,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/d72b5ac01192831a708cffa589fcd1ea0c796b60/JuliaLowering%2Fsrc%2Fsyntax_graph.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/d72b5ac01192831a708cffa589fcd1ea0c796b60/JuliaLowering%2Fsrc%2Fsyntax_graph.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fsyntax_graph.jl?ref=d72b5ac01192831a708cffa589fcd1ea0c796b60",
+      "patch": "@@ -877,12 +877,10 @@ function _green_to_ast(parent::Kind, ex::SyntaxTree; eq_to_kw=false)\n         makenode(graph, ex, ex, _map_green_to_ast(k, children(ex); eq_to_kw))\n     elseif k === K\"parens\"\n         cs = _map_green_to_ast(parent, children(ex); eq_to_kw)\n-        @assert length(cs) === 1\n-        cs[1]\n+        length(cs) === 1 ? cs[1] : makenode(graph, ex, ex, cs)\n     elseif k in KSet\"var char\"\n         cs = _map_green_to_ast(parent, children(ex))\n-        @assert length(cs) === 1\n-        cs[1]\n+        length(cs) === 1 ? cs[1] : makenode(graph, ex, ex, cs)\n     elseif k === K\"=\" && eq_to_kw\n         setattr!(makenode(graph, ex, ex, _map_green_to_ast(k, children(ex))),\n                  :kind, K\"kw\")\n@@ -894,8 +892,11 @@ function _green_to_ast(parent::Kind, ex::SyntaxTree; eq_to_kw=false)\n         # M.@x parses to (. M (macro_name x))\n         # @M.x parses to (macro_name (. M x))\n         # We want (. M @x) (both identifiers) in either case\n-        @assert numchildren(ex) === 2 && kind(ex[1]) === K\"@\"\n-        id = ex[2]\n+        cs = _map_green_to_ast(k, children(ex))\n+        if length(cs) !== 1 || !(kind(cs[1]) in KSet\". Identifier\")\n+            return makenode(graph, ex, ex, cs)\n+        end\n+        id = cs[1]\n         mname_raw = (kind(id) === K\".\" ? id[2] : id).name_val\n         mac_id = setattr!(makeleaf(graph, ex, K\"Identifier\"), :name_val,\n                           lower_identifier_name(mname_raw, K\"macro_name\"))"
+    },
+    {
+      "sha": "68196e14b6a50dd4c64db9624c140517639ee84b",
+      "filename": "JuliaLowering/test/syntax_graph.jl",
+      "status": "modified",
+      "additions": 7,
+      "deletions": 0,
+      "changes": 7,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/d72b5ac01192831a708cffa589fcd1ea0c796b60/JuliaLowering%2Ftest%2Fsyntax_graph.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/d72b5ac01192831a708cffa589fcd1ea0c796b60/JuliaLowering%2Ftest%2Fsyntax_graph.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fsyntax_graph.jl?ref=d72b5ac01192831a708cffa589fcd1ea0c796b60",
+      "patch": "@@ -45,6 +45,13 @@ end\n     @test Expr(parsestmt(SyntaxTree, \"begin a + b ; c end\", filename=\"none\")) ==\n         Meta.parse(\"begin a + b ; c end\")\n \n+    # Parsing to SyntaxTree: errors should fall through\n+    @test parsestmt(SyntaxTree, \"@\"; ignore_errors=true) isa SyntaxTree\n+    @test parsestmt(SyntaxTree, \"@@@\"; ignore_errors=true) isa SyntaxTree\n+    @test parsestmt(SyntaxTree, \"(a b c)\"; ignore_errors=true) isa SyntaxTree\n+    @test parsestmt(SyntaxTree, \"'a b c'\"; ignore_errors=true) isa SyntaxTree\n+\n+    # @SyntaxTree\n     tree1 = JuliaLowering.@SyntaxTree :(some_unique_identifier)\n     @test tree1 isa SyntaxTree\n     @test kind(tree1) == K\"Identifier\""
+    }
+  ]
 }

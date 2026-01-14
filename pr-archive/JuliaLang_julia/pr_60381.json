@@ -67,5 +67,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60381/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "c4509bf991d1d1f2ff408db9a826461cc93e7b9a",
+      "filename": "base/libdl.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 0,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a64d62458c77a59aa7ec44f4fe652a7e88dbb165/base%2Flibdl.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a64d62458c77a59aa7ec44f4fe652a7e88dbb165/base%2Flibdl.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Flibdl.jl?ref=a64d62458c77a59aa7ec44f4fe652a7e88dbb165",
+      "patch": "@@ -506,6 +506,9 @@ function dlopen(ll::LazyLibrary, flags::Integer = ll.flags; kwargs...)\n                 if ll.on_load_callback !== nothing\n                     ll.on_load_callback()\n                 end\n+            else\n+                # Another thread loaded the library while we were waiting\n+                handle = @atomic :acquire ll.handle\n             end\n         end\n     else"
+    },
+    {
+      "sha": "7c6edcd2fa8f8abb9683838dc8f8f07afb2de340",
+      "filename": "stdlib/Libdl/test/runtests.jl",
+      "status": "modified",
+      "additions": 13,
+      "deletions": 0,
+      "changes": 13,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a64d62458c77a59aa7ec44f4fe652a7e88dbb165/stdlib%2FLibdl%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a64d62458c77a59aa7ec44f4fe652a7e88dbb165/stdlib%2FLibdl%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FLibdl%2Ftest%2Fruntests.jl?ref=a64d62458c77a59aa7ec44f4fe652a7e88dbb165",
+      "patch": "@@ -339,6 +339,19 @@ end\n     libname = LazyLibraryPath(private_libdir, \"libccalllazyfoo.$(Libdl.dlext)\")\n     lazy_name_lazy_lib = LazyLibrary(libname)\n     @test dlpath(lazy_name_lazy_lib) == realpath(string(libname))\n+\n+    # Test parallel loading doesn't return C_NULL (issue #60378)\n+    script = \"\"\"\n+    using Libdl\n+    ll = LazyLibrary(ARGS[1])\n+    handles = Vector{Ptr{Cvoid}}(undef, 10)\n+    @sync for i in 1:10\n+        Threads.@spawn handles[i] = dlopen(ll)\n+    end\n+    @assert all(h -> h != C_NULL, handles) \"Some handles were C_NULL\"\n+    @assert all(h -> h == handles[1], handles) \"Handles were not all equal\"\n+    \"\"\"\n+    @test success(run(`$(Base.julia_cmd()) -t4 -e $script $lclf_path`))\n end\n \n @testset \"Docstrings\" begin"
+    }
+  ]
 }

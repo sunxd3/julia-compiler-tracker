@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59888/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0ed55b4902194fc835583413058fa6c9325ae5c8",
+      "filename": "base/float.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/5dd00a927e458ef84ced8438defbaf58f4a0ad9e/base%2Ffloat.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/5dd00a927e458ef84ced8438defbaf58f4a0ad9e/base%2Ffloat.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Ffloat.jl?ref=5dd00a927e458ef84ced8438defbaf58f4a0ad9e",
+      "patch": "@@ -708,7 +708,7 @@ See also: [`iszero`](@ref), [`isone`](@ref), [`isinf`](@ref), [`ismissing`](@ref\n isnan(x::AbstractFloat) = (x != x)::Bool\n isnan(x::Number) = false\n \n-isfinite(x::AbstractFloat) = !isnan(x - x)\n+isfinite(x::AbstractFloat) = !(isnan(x - x)::Bool)\n isfinite(x::Real) = decompose(x)[3] != 0\n isfinite(x::Integer) = true\n "
+    }
+  ]
 }

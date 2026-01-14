@@ -137,5 +137,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60330/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "4a1c23a19925039b022ab0085b0c727bc3843a27",
+      "filename": "base/logging/logging.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 0,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/58b0458bf58f186ba040a294db51b04d6b185e4b/base%2Flogging%2Flogging.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/58b0458bf58f186ba040a294db51b04d6b185e4b/base%2Flogging%2Flogging.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Flogging%2Flogging.jl?ref=58b0458bf58f186ba040a294db51b04d6b185e4b",
+      "patch": "@@ -129,6 +129,8 @@ end\n LogLevel(level::LogLevel) = level\n \n isless(a::LogLevel, b::LogLevel) = isless(a.level, b.level)\n+isless(a::LogLevel, b::Integer) = isless(a.level, b)\n+isless(a::Integer, b::LogLevel) = isless(a, b.level)\n +(level::LogLevel, inc::Integer) = LogLevel(level.level+inc)\n -(level::LogLevel, inc::Integer) = LogLevel(level.level-inc)\n convert(::Type{LogLevel}, level::Integer) = LogLevel(level)"
+    },
+    {
+      "sha": "d585ec8167aa498bdd90ba712a16aca32cf5c4fd",
+      "filename": "stdlib/Logging/test/runtests.jl",
+      "status": "modified",
+      "additions": 7,
+      "deletions": 0,
+      "changes": 7,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/58b0458bf58f186ba040a294db51b04d6b185e4b/stdlib%2FLogging%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/58b0458bf58f186ba040a294db51b04d6b185e4b/stdlib%2FLogging%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FLogging%2Ftest%2Fruntests.jl?ref=58b0458bf58f186ba040a294db51b04d6b185e4b",
+      "patch": "@@ -19,6 +19,13 @@ macro customlog(exs...) Base.CoreLogging.logmsg_code((Base.CoreLogging.@_sourcei\n     @test :handle_message in names(Logging, all=true)  # non-exported public function\n end\n \n+@testset \"LogLevel compatibility with integers\" begin\n+    @test Logging.Debug + 1000 == Logging.Info\n+    @test Logging.Warn - 1000 == Logging.Info\n+    @test Logging.Info < 500\n+    @test 500 < Logging.Warn\n+end\n+\n @testset \"ConsoleLogger\" begin\n     # First pass log limiting\n     @test min_enabled_level(ConsoleLogger(devnull, Logging.Debug)) == Logging.Debug"
+    }
+  ]
 }

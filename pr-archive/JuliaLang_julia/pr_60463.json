@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60463/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "db6e1f61de0c0dbb6d013eaeddb75df808b4ea85",
+      "filename": "src/signals-win.c",
+      "status": "modified",
+      "additions": 15,
+      "deletions": 12,
+      "changes": 27,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/d53e65e56175d9b091db3a056a632110442de94c/src%2Fsignals-win.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/d53e65e56175d9b091db3a056a632110442de94c/src%2Fsignals-win.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fsignals-win.c?ref=d53e65e56175d9b091db3a056a632110442de94c",
+      "patch": "@@ -484,10 +484,9 @@ int jl_thread_suspend(int16_t tid, bt_context_t *ctx)\n static DWORD WINAPI profile_bt( LPVOID lparam )\n {\n     // Note: illegal to use jl_* functions from this thread except for profiling-specific functions\n-    // Dummy event for RegisterWaitForSingleObject (to use timeout callback)\n-    HANDLE hProfileEvent = CreateEvent(NULL, TRUE, FALSE, NULL);\n-    if (hProfileEvent == NULL) {\n-        jl_safe_fprintf(ios_safe_stderr, \"failed to create profile event.\\n\");\n+    HANDLE hTimerQueue = CreateTimerQueue();\n+    if (hTimerQueue == NULL) {\n+        jl_safe_fprintf(ios_safe_stderr, \"failed to create profile watchdog timer queue.\\n\");\n         abort();\n     }\n     while (1) {\n@@ -531,25 +530,29 @@ static DWORD WINAPI profile_bt( LPVOID lparam )\n                 timeout_data.abort_ptr = &abort_profiling;\n                 timeout_data.tid = tid;\n                 jl_set_profile_abort_ptr(&abort_profiling);\n-                HANDLE hWaitHandle = NULL;\n-                if (!RegisterWaitForSingleObject(&hWaitHandle, hProfileEvent, profile_timeout_cb,\n-                                                 &timeout_data, 100, WT_EXECUTEONLYONCE | WT_EXECUTEINWAITTHREAD)) {\n+                HANDLE hTimer = NULL;\n+                if (!CreateTimerQueueTimer(&hTimer, hTimerQueue, profile_timeout_cb,\n+                                           &timeout_data, 1000 /* milliseconds */, 0,\n+                                           WT_EXECUTEONLYONCE | WT_EXECUTEINWAITTHREAD)) {\n                     // Failed to register wait, proceed without timeout protection\n-                    hWaitHandle = NULL;\n+                    hTimer = NULL;\n                 }\n #endif\n+\n                 // Get backtrace data\n                 profile_bt_size_cur += rec_backtrace_ctx((jl_bt_element_t*)profile_bt_data_prof + profile_bt_size_cur,\n                         profile_bt_size_max - profile_bt_size_cur - 1, &c, NULL);\n #ifdef _CPU_X86_64_\n                 // Clear abort pointer from TLS\n                 jl_set_profile_abort_ptr(NULL);\n                 // Wait for callback to complete or cancel before continuing\n-                if (hWaitHandle != NULL)\n-                    UnregisterWaitEx(hWaitHandle, INVALID_HANDLE_VALUE);\n+                if (hTimer != NULL)\n+                    DeleteTimerQueueTimer(hTimerQueue, hTimer, INVALID_HANDLE_VALUE);\n                 if (timeout_data.tid != -1)\n-#endif\n                     jl_thread_resume(tid);\n+#else\n+                jl_thread_resume(tid);\n+#endif\n \n                 // META_OFFSET_THREADID store threadid but add 1 as 0 is preserved to indicate end of block\n                 profile_bt_data_prof[profile_bt_size_cur++].uintptr = tid + 1;\n@@ -575,7 +578,7 @@ static DWORD WINAPI profile_bt( LPVOID lparam )\n     hBtThread = NULL;\n     uv_mutex_unlock(&bt_data_prof_lock);\n     jl_profile_stop_timer();\n-    CloseHandle(hProfileEvent);\n+    DeleteTimerQueue(hTimerQueue);\n     return 0;\n }\n "
+    }
+  ]
 }

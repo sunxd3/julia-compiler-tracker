@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60235/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "e96f95b90e4ff656953703f118872ca5776cf03d",
+      "filename": "README.md",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 5,
+      "changes": 10,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/fb8f95b645355d578290d143ec15a6f6295679a3/README.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/fb8f95b645355d578290d143ec15a6f6295679a3/README.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/README.md?ref=fb8f95b645355d578290d143ec15a6f6295679a3",
+      "patch": "@@ -43,7 +43,7 @@ and installing Julia, below.\n ## Resources\n \n - **Homepage:** <https://julialang.org>\n-- **Install:** <https://julialang.org/install/>\n+- **Install:** <https://julialang.org/downloads/>\n - **Source code:** <https://github.com/JuliaLang/julia>\n - **Documentation:** <https://docs.julialang.org>\n - **Packages:** <https://julialang.org/packages/>\n@@ -66,11 +66,11 @@ helpful to start contributing to the Julia codebase.\n The recommended way of installing Julia is to use `juliaup` which will install\n the latest stable `julia` for you and help keep it up to date. It can also let\n you install and run different Julia versions simultaneously. Instructions for\n-this can be found [here](https://julialang.org/install/). If you want to manually\n-download specific Julia binaries, you can find those on the [downloads\n-page](https://julialang.org/downloads/). The downloads page also provides\n+this can be found [here](https://julialang.org/downloads/). If you want to manually\n+download specific Julia binaries, you can find those on the [Manual Downloads\n+page](https://julialang.org/manual-downloads/). The downloads page also provides\n details on the [different tiers of\n-support](https://julialang.org/downloads/#supported_platforms) for OS and\n+support](https://julialang.org/downloads/support) for OS and\n platform combinations.\n \n If everything works correctly, you will get a `julia` program and when you run"
+    }
+  ]
 }

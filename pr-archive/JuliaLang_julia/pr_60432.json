@@ -67,5 +67,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60432/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "57b16ebee3a824d8d3236e6d0ac3c8febb9b82eb",
+      "filename": "JuliaLowering/src/desugaring.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 1,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e2e7ed8aa7069cd11c93999d60e2033a69c5dfdf/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e2e7ed8aa7069cd11c93999d60e2033a69c5dfdf/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fdesugaring.jl?ref=e2e7ed8aa7069cd11c93999d60e2033a69c5dfdf",
+      "patch": "@@ -2330,10 +2330,12 @@ function expand_function_arg(ctx, body_stmts, arg, is_last_arg, is_kw, arg_id)\n         # Lowering should be able to use placeholder args as rvalues internally,\n         # e.g. for kw method dispatch.  Duplicate positional placeholder names\n         # should be allowed.\n+        is_nospecialize = getmeta(ex, :nospecialize, false)\n         name = if is_kw\n             @ast ctx ex ex=>K\"Identifier\"\n         else\n-            new_local_binding(ctx, ex, \"#arg$(string(arg_id))#\"; kind=:argument)\n+            new_local_binding(ctx, ex, \"#arg$(string(arg_id))#\"; kind=:argument,\n+                              is_nospecialize=is_nospecialize)\n         end\n     elseif k == K\"Identifier\"\n         name = ex"
+    },
+    {
+      "sha": "67b96ca75b683f8cff9317072206919be2e84ce7",
+      "filename": "JuliaLowering/src/linear_ir.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 1,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e2e7ed8aa7069cd11c93999d60e2033a69c5dfdf/JuliaLowering%2Fsrc%2Flinear_ir.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e2e7ed8aa7069cd11c93999d60e2033a69c5dfdf/JuliaLowering%2Fsrc%2Flinear_ir.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Flinear_ir.jl?ref=e2e7ed8aa7069cd11c93999d60e2033a69c5dfdf",
+      "patch": "@@ -1065,7 +1065,8 @@ function compile_lambda(outer_ctx, ex)\n     for arg in children(lambda_args)\n         if kind(arg) == K\"Placeholder\"\n             # Unused functions arguments like: `_` or `::T`\n-            push!(slots, Slot(arg.name_val, :argument, false, false, false, false, false))\n+            push!(slots, Slot(arg.name_val, :argument, getmeta(arg, :nospecialize, false),\n+                              false, false, false, false))\n         else\n             @assert kind(arg) == K\"BindingId\"\n             id = arg.var_id"
+    },
+    {
+      "sha": "2fb8bfa1c6be8716f5ac33cc175a6ea8aef01bed",
+      "filename": "JuliaLowering/test/functions.jl",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 0,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e2e7ed8aa7069cd11c93999d60e2033a69c5dfdf/JuliaLowering%2Ftest%2Ffunctions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e2e7ed8aa7069cd11c93999d60e2033a69c5dfdf/JuliaLowering%2Ftest%2Ffunctions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Ffunctions.jl?ref=e2e7ed8aa7069cd11c93999d60e2033a69c5dfdf",
+      "patch": "@@ -325,6 +325,14 @@ end\n     # flagged as nospecialize.\n     @test only(methods(test_mod.f_nospecialize)).nospecialize == 0b10100\n \n+    # @nospecialize on unnamed arguments (issue #44428)\n+    JuliaLowering.include_string(test_mod, \"\"\"\n+    function f_nospecialize_unnamed(@nospecialize(::Any), @nospecialize(x::Any))\n+        x\n+    end\n+    \"\"\")\n+    @test only(methods(test_mod.f_nospecialize_unnamed)).nospecialize == 0b11\n+\n     JuliaLowering.include_string(test_mod, \"\"\"\n     function f_slotflags(x, y, f, z)\n         f() + x + y"
+    }
+  ]
 }

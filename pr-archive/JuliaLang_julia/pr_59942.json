@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59942/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "564b505530c1d2ba19fe2ef5c09f2cc57ac26b8f",
+      "filename": "test/cmdlineargs.jl",
+      "status": "modified",
+      "additions": 7,
+      "deletions": 1,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a576e0c2a67c6d50d690c54d48818856064ae23f/test%2Fcmdlineargs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a576e0c2a67c6d50d690c54d48818856064ae23f/test%2Fcmdlineargs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fcmdlineargs.jl?ref=a576e0c2a67c6d50d690c54d48818856064ae23f",
+      "patch": "@@ -91,8 +91,14 @@ if Sys.isunix()\n         # disable coredumps for this process\n         p = open(pipeline(`$exename -e $script`, stderr=errp), \"r\")\n         @test read(p, UInt8) == UInt8('r')\n-        Base.kill(p, Base.SIGQUIT)\n+        # The process might ignore the first SIGQUIT, since it will try to then run cleanup,\n+        # which may fail for many reasons.\n+        # The process will not ignore the second SIGQUIT, but the kernel might ignore it.\n+        # So keep sending SIGQUIT every few seconds until the kernel delivers the second one\n+        # and `p` exits.\n+        t = Timer(0, interval=10) do t; Base.kill(p, Base.SIGQUIT); end\n         wait(p)\n+        close(t)\n         err_s = readchomp(errp)\n         @test Base.process_signaled(p) && p.termsignal == Base.SIGQUIT\n         @test occursin(\"==== Thread \", err_s)"
+    }
+  ]
 }

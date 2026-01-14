@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59853/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0a554edfb570835b0c947e2f0341bd538cd13b20",
+      "filename": "stdlib/REPL/src/StylingPasses.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c175ce04b7342f41537c88efd958b0a2150750ff/stdlib%2FREPL%2Fsrc%2FStylingPasses.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c175ce04b7342f41537c88efd958b0a2150750ff/stdlib%2FREPL%2Fsrc%2FStylingPasses.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2FStylingPasses.jl?ref=c175ce04b7342f41537c88efd958b0a2150750ff",
+      "patch": "@@ -124,7 +124,7 @@ function find_enclosing_parens(content::String, ast, cursor_pos::Int)\n     innermost_pairs = Dict{Symbol,Tuple{Int,Int}}()\n     paren_stack = Tuple{Int,Int,Symbol}[]  # (open_pos, depth, type)\n \n-    walk_tree(ast, content, 0) do node, offset\n+    walk_tree(ast, content, UInt32(0)) do node, offset\n         nkind = JuliaSyntax.kind(node)\n         pos = firstindex(content) + offset\n \n@@ -151,7 +151,7 @@ function find_enclosing_parens(content::String, ast, cursor_pos::Int)\n     return collect(values(innermost_pairs))\n end\n \n-function walk_tree(f::Function, node, content::String, offset::Int)\n+function walk_tree(f::Function, node, content::String, offset::UInt32)\n     f(node, offset)\n \n     if JuliaSyntax.numchildren(node) > 0"
+    }
+  ]
 }

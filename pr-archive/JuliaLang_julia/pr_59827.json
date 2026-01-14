@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59827/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "505e761a04a1e6e14db4869466e16e84ba267ab4",
+      "filename": "stdlib/REPL/src/options.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/9e9ddf90e8248e458688fe65e57eda54700a3034/stdlib%2FREPL%2Fsrc%2Foptions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/9e9ddf90e8248e458688fe65e57eda54700a3034/stdlib%2FREPL%2Fsrc%2Foptions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2Foptions.jl?ref=9e9ddf90e8248e458688fe65e57eda54700a3034",
+      "patch": "@@ -47,7 +47,7 @@ Options(;\n         auto_indent_tmp_off = false,\n         auto_indent_bracketed_paste = false,\n         auto_indent_time_threshold = 0.005,\n-        auto_refresh_time_delay = Sys.iswindows() ? 0.05 : 0.0,\n+        auto_refresh_time_delay = 0.0, # this no longer seems beneficial\n         hint_tab_completes = true,\n         iocontext = Dict{Symbol,Any}()) =\n             Options(hascolor, extra_keymap, tabwidth,"
+    }
+  ]
 }

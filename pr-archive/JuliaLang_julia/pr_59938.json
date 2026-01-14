@@ -109,5 +109,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59938/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "450d99ab7c4c7f0e5363a1906aff5dcc6d622208",
+      "filename": "doc/make.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a7add0bc481c7465d2e4048996a0f524d0b542bc/doc%2Fmake.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a7add0bc481c7465d2e4048996a0f524d0b542bc/doc%2Fmake.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fmake.jl?ref=a7add0bc481c7465d2e4048996a0f524d0b542bc",
+      "patch": "@@ -270,6 +270,7 @@ DevDocs = [\n         \"devdocs/jit.md\",\n         \"devdocs/builtins.md\",\n         \"devdocs/precompile_hang.md\",\n+        \"devdocs/compiler_changes.md\",\n     ],\n     \"Developing/debugging Julia's C code\" => [\n         \"devdocs/backtraces.md\","
+    },
+    {
+      "sha": "a1278d0bf5b754b95f5fcfbe6c41728fb57ae056",
+      "filename": "doc/src/devdocs/compiler_changes.md",
+      "status": "added",
+      "additions": 41,
+      "deletions": 0,
+      "changes": 41,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a7add0bc481c7465d2e4048996a0f524d0b542bc/doc%2Fsrc%2Fdevdocs%2Fcompiler_changes.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a7add0bc481c7465d2e4048996a0f524d0b542bc/doc%2Fsrc%2Fdevdocs%2Fcompiler_changes.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fsrc%2Fdevdocs%2Fcompiler_changes.md?ref=a7add0bc481c7465d2e4048996a0f524d0b542bc",
+      "patch": "@@ -0,0 +1,41 @@\n+# History of changes to the compiler\n+\n+The Julia compiler is not part of the public interface of Julia's `Core`, and may change in non-breaking Julia releases. This page lists breaking changes introduced to the compiler to aid in adapting to those changes, intended for packages that do interface with the compiler. It is maintained on a best-effort basis and may be incomplete.\n+\n+## v1.12\n+\n+### Changes to the `IRCode` type\n+\n+The `linetable` field of `IRCode` has been removed, and the source line information is now available in a different format in the `debuginfo` field. ([#52415](https://github.com/JuliaLang/julia/pull/52415))\n+\n+Related to the above, the `verify_linetable` function changed its signature from `verify_linetable(::Vector{Core.LineInfoNode})` to `verify_linetable(::DebugInfoStream, nstmts::Int64)`, the second argument being the number of statements.\n+\n+`IRCode` now has a `valid_worlds` field, to explicitly communicate which worlds are\n+to be considered for type inference and optimization purposes. As 1.12 introduced world-age\n+partitioned bindings, this information is key to properly infer through global bindings.\n+An upper bound that is not constrained enough may lead to a failure to accurately infer and optimize these.\n+\n+### `InstructionStream` constructors have gotten stricter\n+\n+The constructor for `InstructionStream` now requires the arguments to be of exactly the correct types. The fields haven't changed, but for instance you need to cast the second argument called `type` to be a `Vector{Any}` instead of being able to pass in something like a `Vector{Type}` and relying on an automatic cast.\n+\n+### `CodeInstance`s replacing certain uses of `MethodInstance`s\n+\n+`CodeInstance` has gradually replaced `MethodInstance` in more and more places, over several\n+extensive PRs. `CodeInstance` holds the cached results of inference, and usually end up stored in\n+the `.cache` field of their parent `MethodInstance`s (with the `.next` field of `CodeInstance`\n+allowing a linked list to be formed by holding further `CodeInstance`s).\n+\n+One notable change is that the first argument to `invoke` expressions is now a `CodeInstance`\n+instead of a `MethodInstance`.\n+\n+The parent `MethodInstance` of a `CodeInstance` may be accessed with `Compiler.get_ci_mi(code_instance)`.\n+\n+### `SpecInfo` replaces `MethodInfo`\n+\n+`MethodInfo` was renamed to `SpecInfo`, and two fields `nargs::Int` and `isva::Bool` have been prepended to it, indicating how many arguments a specialization takes, and whether its signature is variadic (of the form `f(x...)`). ([#55976](https://github.com/JuliaLang/julia/pull/55976))\n+\n+### Changes to `OpaqueClosure`s\n+\n+`OpaqueClosure` now requires the first argument type of its source `IRCode` to be the type of\n+its environment (passed through `env...`), such as `Tuple{Int, Float64}` or `Tuple{}` for no captures. ([#54458](https://github.com/JuliaLang/julia/pull/54458))"
+    }
+  ]
 }

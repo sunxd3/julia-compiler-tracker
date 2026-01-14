@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59690/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "6c8fc684d8e534294af61a7eb98779e4be882c13",
+      "filename": "stdlib/Random/src/RNGs.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c4b49c3a5e50273268bc1bd37a6311abc20c12be/stdlib%2FRandom%2Fsrc%2FRNGs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c4b49c3a5e50273268bc1bd37a6311abc20c12be/stdlib%2FRandom%2Fsrc%2FRNGs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FRandom%2Fsrc%2FRNGs.jl?ref=c4b49c3a5e50273268bc1bd37a6311abc20c12be",
+      "patch": "@@ -287,7 +287,7 @@ function random_seed()\n         # almost surely always getting distinct seeds, while having them printed reasonably tersely\n         return rand(RandomDevice(), UInt128)\n     catch ex\n-        ex isa IOError || rethrow()\n+        ex isa Base.IOError || rethrow()\n         @warn \"Entropy pool not available to seed RNG; using ad-hoc entropy sources.\"\n         return Libc.rand()\n     end"
+    }
+  ]
 }

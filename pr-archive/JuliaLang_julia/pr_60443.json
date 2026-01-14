@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60443/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "c1a153436f7988168cf51c378be742d565a42375",
+      "filename": "README.md",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 3,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2cbbbc25cd257b93720acf667af4f5d09d6c01f1/README.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2cbbbc25cd257b93720acf667af4f5d09d6c01f1/README.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/README.md?ref=2cbbbc25cd257b93720acf667af4f5d09d6c01f1",
+      "patch": "@@ -53,9 +53,14 @@ and installing Julia, below.\n - **YouTube:** <https://www.youtube.com/user/JuliaLanguage>\n - **Code coverage:** <https://coveralls.io/r/JuliaLang/julia>\n \n-New developers may find the notes in\n-[CONTRIBUTING](https://github.com/JuliaLang/julia/blob/master/CONTRIBUTING.md)\n-helpful to start contributing to the Julia codebase.\n+\n+## Contributing to Julia\n+\n+We welcome contributions from developers of all experience levels, including bug fixes,\n+documentation improvements, tests, and performance enhancements.\n+\n+New contributors are encouraged to start by reading [CONTRIBUTING.md](https://github.com/JuliaLang/julia/blob/master/CONTRIBUTING.md).\n+\n \n ### Learning Julia\n "
+    }
+  ]
 }

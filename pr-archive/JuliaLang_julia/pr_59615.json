@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59615/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "973c1d68badce330959501e7029e51cc951c4710",
+      "filename": "base/strings/substring.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base%2Fstrings%2Fsubstring.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/9bbafb90677eebb4d518e5e9afa5e9102829692c/base%2Fstrings%2Fsubstring.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fstrings%2Fsubstring.jl?ref=9bbafb90677eebb4d518e5e9afa5e9102829692c",
+      "patch": "@@ -109,8 +109,8 @@ function isvalid(s::SubString, i::Integer)\n     @inbounds return ib && isvalid(s.string, s.offset + i)::Bool\n end\n \n-thisind(s::SubString{String}, i::Int) = _thisind_str(s, i)\n-nextind(s::SubString{String}, i::Int) = _nextind_str(s, i)\n+@propagate_inbounds thisind(s::SubString{String}, i::Int) = _thisind_str(s, i)\n+@propagate_inbounds nextind(s::SubString{String}, i::Int) = _nextind_str(s, i)\n \n parent(s::SubString) = s.string\n parentindices(s::SubString) = (s.offset + 1 : thisind(s.string, s.offset + s.ncodeunits),)"
+    }
+  ]
 }

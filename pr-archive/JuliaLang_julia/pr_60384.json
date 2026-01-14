@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60384/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "317602d2aacee5b0c3755c6a760b04d71d49e702",
+      "filename": "HISTORY.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/49b239dadaad2899ec7e942ccfbc090051e1330f/HISTORY.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/49b239dadaad2899ec7e942ccfbc090051e1330f/HISTORY.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/HISTORY.md?ref=49b239dadaad2899ec7e942ccfbc090051e1330f",
+      "patch": "@@ -164,7 +164,7 @@ New language features\n   entry points. Entry points can be marked using `Base.Experimental.entrypoint` ([#55047]). Not all\n   code is expected to work with this option, and since it is experimental you may encounter problems.\n * Redefinition of constants is now well defined and follows world age semantics ([#57253]). Additional redefinitions\n-  (e.g. of types) are now allowed. See [the new manual chapter on world age](https://docs.julialang.org/en/v1.13-dev/manual/worldage/).\n+  (e.g. of types) are now allowed. See [the new manual chapter on world age](https://docs.julialang.org/en/v1/manual/worldage/).\n * A new keyword argument `usings::Bool` has been added to `names`, returning all names visible\n   via `using` ([#54609]).\n * The `@atomic` macro family now supports reference assignment syntax, e.g. `@atomic :monotonic v[3] += 4`,"
+    }
+  ]
 }

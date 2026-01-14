@@ -137,5 +137,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60623/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0f7767e0aef37fa56469ee98f11f85e71c30b323",
+      "filename": "base/Makefile",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/425faa693076ea73cc53ac88ae470769c9adcc7e/base%2FMakefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/425faa693076ea73cc53ac88ae470769c9adcc7e/base%2FMakefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2FMakefile?ref=425faa693076ea73cc53ac88ae470769c9adcc7e",
+      "patch": "@@ -183,14 +183,14 @@ endif\n endef\n \n # libexec executables\n-symlink_p7zip: $(build_bindir)/7z$(EXE)\n+symlink_p7zip: $(build_private_libexecdir)/7z$(EXE)\n \n ifneq ($(USE_SYSTEM_P7ZIP),0)\n SYMLINK_SYSTEM_LIBRARIES += symlink_p7zip\n 7Z_PATH := $(shell which 7z$(EXE))\n endif\n \n-$(build_bindir)/7z$(EXE):\n+$(build_private_libexecdir)/7z$(EXE):\n \t[ -e \"$(7Z_PATH)\" ] && \\\n \trm -f \"$@\" && \\\n \tln -sf \"$(7Z_PATH)\" \"$@\""
+    }
+  ]
 }

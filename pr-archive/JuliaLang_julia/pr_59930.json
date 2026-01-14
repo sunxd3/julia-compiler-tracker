@@ -86,5 +86,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59930/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "49df2b849e60d0b9f2bcaf5c56fcda1d665b86c2",
+      "filename": "base/intfuncs.jl",
+      "status": "modified",
+      "additions": 39,
+      "deletions": 12,
+      "changes": 51,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base%2Fintfuncs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base%2Fintfuncs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fintfuncs.jl?ref=610f7504d4f2bc7eedf489e3e16bcd30d3798ade",
+      "patch": "@@ -535,20 +535,47 @@ function powermod(x::Integer, p::Integer, m::T) where T<:Integer\n         end\n     end\n     (m == 1 || m == -1) && return zero(m)\n-    b = oftype(m,mod(x,m))  # this also checks for divide by zero\n-\n-    t = prevpow(2, p)\n-    r = 1\n-    while true\n-        if p >= t\n-            r = mod(widemul(r,b),m)\n-            p -= t\n+\n+    mm = uabs(m)\n+    rr = one(mm)\n+    bb = oftype(mm, mod(x, mm))\n+\n+    # legal && profitable\n+    if _powermod_mi_legal(mm) && (p > 2sizeof(mm))\n+        if bb == 0\n+            rr = zero(mm)\n+        else\n+            mis = MultiplicativeInverses.multiplicativeinverse(mm)\n+            Base.@assume_effects :terminates_locally while true\n+                if (p & 1) != 0\n+                    rr = mod(rr * bb, mis)\n+                end\n+                p >>= 1\n+                p == 0 && break\n+                bb = mod(bb * bb, mis)\n+            end\n+        end\n+    else\n+        if bb == 0\n+            rr = zero(mm)\n+        else\n+            Base.@assume_effects :terminates_locally while true\n+                if (p & 1) != 0\n+                    rr = oftype(mm, mod(widemul(rr, bb), mm))\n+                end\n+                p >>= 1\n+                p == 0 && break\n+                bb = oftype(mm, mod(widemul(bb, bb), mm))\n+            end\n         end\n-        t >>>= 1\n-        t <= 0 && break\n-        r = mod(widemul(r,r),m)\n     end\n-    return r\n+    r = oftype(m, rr)\n+    return (iszero(r) || (m > 0)) ? r : r + m\n+end\n+\n+_powermod_mi_legal(::Integer) = false\n+function _powermod_mi_legal(mm::T) where {T<:Unsigned}\n+    return Base.hastypemax(T) && (mm <= (typemax(T) >> (sizeof(T) << 2)))\n end\n \n # optimization: promote the modulus m to BigInt only once (cf. widemul in generic powermod above)"
+    },
+    {
+      "sha": "7ce082268bfcf64c0eae942503d8fa36903af0d2",
+      "filename": "base/multinverses.jl",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 1,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base%2Fmultinverses.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base%2Fmultinverses.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fmultinverses.jl?ref=610f7504d4f2bc7eedf489e3e16bcd30d3798ade",
+      "patch": "@@ -2,7 +2,7 @@\n \n module MultiplicativeInverses\n \n-import Base: div, divrem, mul_hi, rem, unsigned\n+import Base: div, divrem, mul_hi, rem, unsigned, mod\n using  Base: IndexLinear, IndexCartesian, tail\n export multiplicativeinverse\n \n@@ -153,6 +153,13 @@ function divrem(a::T, b::MultiplicativeInverse{T}) where T\n     (d, a - d*b.divisor)\n end\n \n+mod(a::T, b::UnsignedMultiplicativeInverse{T}) where {T} = rem(a, b)\n+\n+function mod(a::T, b::SignedMultiplicativeInverse{T}) where {T}\n+    r = rem(a, b)\n+    return (iszero(r) || signbit(r) == signbit(b.divisor)) ? r : r + b.divisor\n+end\n+\n multiplicativeinverse(x::Signed) = SignedMultiplicativeInverse(x)\n multiplicativeinverse(x::Unsigned) = UnsignedMultiplicativeInverse(x)\n "
+    },
+    {
+      "sha": "9774903c23f0a21d973943e0a0f6fd8557ecadb4",
+      "filename": "test/intfuncs.jl",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 0,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/test%2Fintfuncs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/test%2Fintfuncs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fintfuncs.jl?ref=610f7504d4f2bc7eedf489e3e16bcd30d3798ade",
+      "patch": "@@ -385,6 +385,10 @@ end\n \n     @test powermod(-3, 0x80, 7) === 2\n     @test powermod(0x03, 0x80, 0x07) === 0x02\n+\n+    @test powermod(511, 1, 0x00000021) === 0x00000010\n+    @test powermod(Int8(-1), 0xff, Int8(33)) === Int8(32)\n+    @test powermod(0, 10, -5) === 0\n end\n \n @testset \"nextpow/prevpow\" begin"
+    }
+  ]
 }

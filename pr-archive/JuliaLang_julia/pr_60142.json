@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60142/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "44db067019cd9ea133afd1fb6b9799b3f4d83472",
+      "filename": "src/support/dtypes.h",
+      "status": "modified",
+      "additions": 12,
+      "deletions": 4,
+      "changes": 16,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c96f45a10f5b491d979d5d1fbcb6c12d9b55dffe/src%2Fsupport%2Fdtypes.h",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c96f45a10f5b491d979d5d1fbcb6c12d9b55dffe/src%2Fsupport%2Fdtypes.h",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fsupport%2Fdtypes.h?ref=c96f45a10f5b491d979d5d1fbcb6c12d9b55dffe",
+      "patch": "@@ -27,7 +27,9 @@\n #define WIN32_LEAN_AND_MEAN\n /* Clang does not like fvisibility=hidden with windows headers. This adds the visibility attribute there.\n    Arguably this is a clang bug. */\n-#define DECLSPEC_IMPORT __declspec(dllimport) __attribute__ ((visibility(\"default\")))\n+# ifndef _COMPILER_MICROSOFT_\n+#  define DECLSPEC_IMPORT __declspec(dllimport) __attribute__ ((visibility(\"default\")))\n+# endif\n #include <windows.h>\n \n #if defined(_COMPILER_MICROSOFT_) && !defined(_SSIZE_T_) && !defined(_SSIZE_T_DEFINED)\n@@ -59,15 +61,21 @@ typedef intptr_t ssize_t;\n */\n \n #ifdef _OS_WINDOWS_\n+# ifndef _COMPILER_MICROSOFT_\n+#  define JL_VISIBILITY_DEFAULT __attribute__ ((visibility(\"default\")))\n+# else\n+#  define JL_VISIBILITY_DEFAULT\n+#  define JL_VISIBILITY_HIDDEN\n+# endif\n #define STDCALL  __stdcall\n # ifdef JL_LIBRARY_EXPORTS_INTERNAL\n-#  define JL_DLLEXPORT __declspec(dllexport) __attribute__ ((visibility(\"default\")))\n+#  define JL_DLLEXPORT __declspec(dllexport) JL_VISIBILITY_DEFAULT\n # endif\n # ifdef JL_LIBRARY_EXPORTS_CODEGEN\n-#  define JL_DLLEXPORT_CODEGEN __declspec(dllexport) __attribute__ ((visibility(\"default\")))\n+#  define JL_DLLEXPORT_CODEGEN __declspec(dllexport) JL_VISIBILITY_DEFAULT\n # endif\n #define JL_HIDDEN\n-#define JL_DLLIMPORT   __declspec(dllimport) __attribute__ ((visibility(\"default\")))\n+#define JL_DLLIMPORT   __declspec(dllimport) JL_VISIBILITY_DEFAULT\n #else\n #define STDCALL\n #define JL_DLLIMPORT __attribute__ ((visibility(\"default\")))"
+    }
+  ]
 }

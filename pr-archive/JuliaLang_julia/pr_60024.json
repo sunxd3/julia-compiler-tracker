@@ -77,5 +77,55 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60024/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "30d141be146d7e06ea30fb9be9de3b106ce59345",
+      "filename": "stdlib/LibGit2/src/LibGit2.jl",
+      "status": "modified",
+      "additions": 28,
+      "deletions": 4,
+      "changes": 32,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7c8e217a0062cbbeb04602e87910a36f3e5cbd6f/stdlib%2FLibGit2%2Fsrc%2FLibGit2.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7c8e217a0062cbbeb04602e87910a36f3e5cbd6f/stdlib%2FLibGit2%2Fsrc%2FLibGit2.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FLibGit2%2Fsrc%2FLibGit2.jl?ref=7c8e217a0062cbbeb04602e87910a36f3e5cbd6f",
+      "patch": "@@ -262,15 +262,21 @@ The keyword arguments are:\n   * `remoteurl::AbstractString=\"\"`: the URL of `remote`. If not specified,\n     will be assumed based on the given name of `remote`.\n   * `refspecs=AbstractString[]`: determines properties of the fetch.\n+  * `depth::Integer=0`: limit fetching to the specified number of commits from the tip\n+    of each remote branch. `0` indicates a full fetch (the default).\n+    Use `Consts.FETCH_DEPTH_UNSHALLOW` to fetch all missing data from a shallow clone.\n+    Note: depth is, at the time of writing, only supported for network protocols (http, https, git, ssh), not for local filesystem paths.\n+    (https://github.com/libgit2/libgit2/issues/6634)\n   * `credentials=nothing`: provides credentials and/or settings when authenticating against\n     a private `remote`.\n   * `callbacks=Callbacks()`: user provided callbacks and payloads.\n \n-Equivalent to `git fetch [<remoteurl>|<repo>] [<refspecs>]`.\n+Equivalent to `git fetch [--depth <depth>] [<remoteurl>|<repo>] [<refspecs>]`.\n \"\"\"\n function fetch(repo::GitRepo; remote::AbstractString=\"origin\",\n                remoteurl::AbstractString=\"\",\n                refspecs::Vector{<:AbstractString}=AbstractString[],\n+               depth::Integer=0,\n                credentials::Creds=nothing,\n                callbacks::Callbacks=Callbacks())\n     rmt = if isempty(remoteurl)\n@@ -290,7 +296,12 @@ function fetch(repo::GitRepo; remote::AbstractString=\"origin\",\n \n     result = try\n         remote_callbacks = RemoteCallbacks(callbacks)\n-        fo = FetchOptions(callbacks=remote_callbacks)\n+        @static if LibGit2.VERSION >= v\"1.7.0\"\n+            fo = FetchOptions(callbacks=remote_callbacks, depth=Cuint(depth))\n+        else\n+            depth != 0 && throw(ArgumentError(\"Depth parameter for fetch requires libgit2 >= 1.7.0\"))\n+            fo = FetchOptions(callbacks=remote_callbacks)\n+        end\n         fetch(rmt, refspecs, msg=\"from $(url(rmt))\", options=fo)\n     catch err\n         if isa(err, GitError) && err.code === Error.EAUTH\n@@ -539,11 +550,16 @@ The keyword arguments are:\n   * `remote_cb::Ptr{Cvoid}=C_NULL`: a callback which will be used to create the remote\n     before it is cloned. If `C_NULL` (the default), no attempt will be made to create\n     the remote - it will be assumed to already exist.\n+  * `depth::Integer=0`: create a shallow clone with a history truncated to the\n+    specified number of commits. `0` indicates a full clone (the default).\n+    Use `Consts.FETCH_DEPTH_UNSHALLOW` to fetch all missing data from a shallow clone.\n+    Note: shallow clones are, at the time of writing, only supported for network protocols (http, https, git, ssh), not for local filesystem paths.\n+    (https://github.com/libgit2/libgit2/issues/6634)\n   * `credentials::Creds=nothing`: provides credentials and/or settings when authenticating\n     against a private repository.\n   * `callbacks::Callbacks=Callbacks()`: user provided callbacks and payloads.\n \n-Equivalent to `git clone [-b <branch>] [--bare] <repo_url> <repo_path>`.\n+Equivalent to `git clone [-b <branch>] [--bare] [--depth <depth>] <repo_url> <repo_path>`.\n \n # Examples\n ```julia\n@@ -552,12 +568,15 @@ repo1 = LibGit2.clone(repo_url, \"test_path\")\n repo2 = LibGit2.clone(repo_url, \"test_path\", isbare=true)\n julia_url = \"https://github.com/JuliaLang/julia\"\n julia_repo = LibGit2.clone(julia_url, \"julia_path\", branch=\"release-0.6\")\n+# Shallow clone with only the most recent commit\n+shallow_repo = LibGit2.clone(repo_url, \"shallow_path\", depth=1)\n ```\n \"\"\"\n function clone(repo_url::AbstractString, repo_path::AbstractString;\n                branch::AbstractString=\"\",\n                isbare::Bool = false,\n                remote_cb::Ptr{Cvoid} = C_NULL,\n+               depth::Integer = 0,\n                credentials::Creds=nothing,\n                callbacks::Callbacks=Callbacks())\n     cred_payload = reset!(CredentialPayload(credentials))\n@@ -573,7 +592,12 @@ function clone(repo_url::AbstractString, repo_path::AbstractString;\n     lbranch = Base.cconvert(Cstring, branch)\n     GC.@preserve lbranch begin\n         remote_callbacks = RemoteCallbacks(callbacks)\n-        fetch_opts = FetchOptions(callbacks=remote_callbacks)\n+        @static if LibGit2.VERSION >= v\"1.7.0\"\n+            fetch_opts = FetchOptions(callbacks=remote_callbacks, depth=Cuint(depth))\n+        else\n+            depth != 0 && throw(ArgumentError(\"Shallow clone (depth parameter) requires libgit2 >= 1.7.0\"))\n+            fetch_opts = FetchOptions(callbacks=remote_callbacks)\n+        end\n         clone_opts = CloneOptions(\n                     bare = Cint(isbare),\n                     checkout_branch = isempty(lbranch) ? Cstring(C_NULL) : Base.unsafe_convert(Cstring, lbranch),"
+    },
+    {
+      "sha": "97d414fc664e4146a725c5f2d1a7d5a11b634e79",
+      "filename": "stdlib/LibGit2/src/repository.jl",
+      "status": "modified",
+      "additions": 21,
+      "deletions": 0,
+      "changes": 21,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7c8e217a0062cbbeb04602e87910a36f3e5cbd6f/stdlib%2FLibGit2%2Fsrc%2Frepository.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7c8e217a0062cbbeb04602e87910a36f3e5cbd6f/stdlib%2FLibGit2%2Fsrc%2Frepository.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FLibGit2%2Fsrc%2Frepository.jl?ref=7c8e217a0062cbbeb04602e87910a36f3e5cbd6f",
+      "patch": "@@ -112,6 +112,27 @@ function isattached(repo::GitRepo)\n     ccall((:git_repository_head_detached, libgit2), Cint, (Ptr{Cvoid},), repo) != 1\n end\n \n+\"\"\"\n+    isshallow(repo::GitRepo)::Bool\n+\n+Determine if `repo` is a shallow clone. A shallow clone has a truncated history,\n+created by cloning with a specific depth (e.g., `LibGit2.clone(url, path, depth=1)`).\n+\n+# Examples\n+```julia\n+shallow_repo = LibGit2.clone(url, \"shallow_path\", depth=1)\n+LibGit2.isshallow(shallow_repo)  # returns true\n+\n+normal_repo = LibGit2.clone(url, \"normal_path\")\n+LibGit2.isshallow(normal_repo)  # returns false\n+```\n+\"\"\"\n+function isshallow(repo::GitRepo)\n+    ensure_initialized()\n+    @assert repo.ptr != C_NULL\n+    ccall((:git_repository_is_shallow, libgit2), Cint, (Ptr{Cvoid},), repo) == 1\n+end\n+\n @doc \"\"\"\n     GitObject(repo::GitRepo, hash::AbstractGitHash)\n     GitObject(repo::GitRepo, spec::AbstractString)"
+    },
+    {
+      "sha": "b6112e1ee6f9dc909197e88a0792fba732ea8b35",
+      "filename": "stdlib/LibGit2/test/libgit2-tests.jl",
+      "status": "modified",
+      "additions": 17,
+      "deletions": 0,
+      "changes": 17,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7c8e217a0062cbbeb04602e87910a36f3e5cbd6f/stdlib%2FLibGit2%2Ftest%2Flibgit2-tests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7c8e217a0062cbbeb04602e87910a36f3e5cbd6f/stdlib%2FLibGit2%2Ftest%2Flibgit2-tests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FLibGit2%2Ftest%2Flibgit2-tests.jl?ref=7c8e217a0062cbbeb04602e87910a36f3e5cbd6f",
+      "patch": "@@ -744,6 +744,23 @@ mktempdir() do dir\n             cred_payload = LibGit2.CredentialPayload()\n             @test_throws ArgumentError LibGit2.clone(cache_repo, test_repo, callbacks=callbacks, credentials=cred_payload)\n         end\n+        @testset \"shallow clone\" begin\n+            @static if LibGit2.VERSION >= v\"1.7.0\"\n+                # Note: Shallow clones are not supported with local file:// transport\n+                # This is a limitation in libgit2 - shallow clones only work with\n+                # network protocols (http, https, git, ssh)\n+                # See online-tests.jl for tests with remote repositories\n+\n+                # Test normal clone is not shallow\n+                normal_path = joinpath(dir, \"Example.NotShallow\")\n+                LibGit2.with(LibGit2.clone(cache_repo, normal_path)) do repo\n+                    @test !LibGit2.isshallow(repo)\n+                end\n+            else\n+                # Test that depth parameter throws error on older libgit2\n+                @test_throws ArgumentError LibGit2.clone(cache_repo, joinpath(dir, \"Example.Shallow\"), depth=1)\n+            end\n+        end\n     end\n \n     @testset \"Update cache repository\" begin"
+    },
+    {
+      "sha": "c4d3cf452e78bafc63938e869ae03181669efa71",
+      "filename": "stdlib/LibGit2/test/online-tests.jl",
+      "status": "modified",
+      "additions": 16,
+      "deletions": 0,
+      "changes": 16,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7c8e217a0062cbbeb04602e87910a36f3e5cbd6f/stdlib%2FLibGit2%2Ftest%2Fonline-tests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7c8e217a0062cbbeb04602e87910a36f3e5cbd6f/stdlib%2FLibGit2%2Ftest%2Fonline-tests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FLibGit2%2Ftest%2Fonline-tests.jl?ref=7c8e217a0062cbbeb04602e87910a36f3e5cbd6f",
+      "patch": "@@ -87,6 +87,22 @@ mktempdir() do dir\n                 @test ex.code == LibGit2.Error.EAUTH\n             end\n         end\n+\n+        @testset \"Shallow clone\" begin\n+            @static if LibGit2.VERSION >= v\"1.7.0\"\n+                # Test shallow clone with depth=1\n+                repo_path = joinpath(dir, \"Example.Shallow\")\n+                c = LibGit2.CredentialPayload(allow_prompt=false, allow_git_helpers=false)\n+                repo = LibGit2.clone(repo_url, repo_path, depth=1, credentials=c)\n+                try\n+                    @test isdir(repo_path)\n+                    @test isdir(joinpath(repo_path, \".git\"))\n+                    @test LibGit2.isshallow(repo)\n+                finally\n+                    close(repo)\n+                end\n+            end\n+        end\n     end\n end\n "
+    }
+  ]
 }

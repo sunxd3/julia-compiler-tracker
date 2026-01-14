@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60326/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "3d0947309be60b767c6aff0cccbe950a57303dd6",
+      "filename": "stdlib/REPL/src/precompile.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c8b626d3ad7ffa094cb78d38856faf179b37088a/stdlib%2FREPL%2Fsrc%2Fprecompile.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c8b626d3ad7ffa094cb78d38856faf179b37088a/stdlib%2FREPL%2Fsrc%2Fprecompile.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2Fprecompile.jl?ref=c8b626d3ad7ffa094cb78d38856faf179b37088a",
+      "patch": "@@ -77,7 +77,7 @@ function repl_workload()\n     display(\"a string\")\n     foo(x) = 1\n     @time @eval foo(1)\n-    ; pwd\n+    ;\n     $CTRL_C\n     $CTRL_R$CTRL_C#\n     ? reinterpret"
+    }
+  ]
 }

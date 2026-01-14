@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/55455/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "9720820920e2d9f16aae24b3573044d2d26873bd",
+      "filename": "stdlib/Markdown/src/Markdown.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/30dc61f34a8be6b733e09eec943a67c34e51da6c/stdlib%2FMarkdown%2Fsrc%2FMarkdown.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/30dc61f34a8be6b733e09eec943a67c34e51da6c/stdlib%2FMarkdown%2Fsrc%2FMarkdown.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FMarkdown.jl?ref=30dc61f34a8be6b733e09eec943a67c34e51da6c",
+      "patch": "@@ -47,7 +47,7 @@ const MARKDOWN_FACES = [\n     :markdown_h6 => Face(height=1.05, inherit=:markdown_header),\n     :markdown_admonition => Face(weight=:bold),\n     :markdown_code => Face(inherit=:code),\n-    :markdown_julia_prompt => Face(inherit=:repl_prompt_julia),\n+    :markdown_julia_prompt => Face(slant=:italic, foreground=:bright_green, inherit=:repl_prompt_julia),\n     :markdown_footnote => Face(inherit=:bright_yellow),\n     :markdown_hrule => Face(inherit=:shadow),\n     :markdown_inlinecode => Face(inherit=:markdown_code),"
+    }
+  ]
 }

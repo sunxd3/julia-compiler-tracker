@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60040/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "71290bc95b7696de62e88850756edef2829f391c",
+      "filename": "base/version.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 0,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/980109c99cd602b76a82afa4fc6320fc49891737/base%2Fversion.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/980109c99cd602b76a82afa4fc6320fc49891737/base%2Fversion.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fversion.jl?ref=980109c99cd602b76a82afa4fc6320fc49891737",
+      "patch": "@@ -12,9 +12,12 @@ Version number type which follows the specifications of\n [semantic versioning (semver)](https://semver.org/spec/v2.0.0-rc.2.html), composed of major, minor\n and patch numeric values, followed by pre-release and build\n alphanumeric annotations.\n+As an extension to this standard, Julia also allows a single, empty prerelease annotation\n+if there is no build identifier present (e.g. `1.0-`), or a single, empty build annotation (e.g. `1.0+`).\n \n `VersionNumber` objects can be compared with all of the standard comparison\n operators (`==`, `<`, `<=`, etc.), with the result following semver v2.0.0-rc.2 rules.\n+Different from the semver standard, build annotations are not ignored when comparing version numbers.\n \n `VersionNumber` has the following public fields:\n - `v.major::Integer`"
+    }
+  ]
 }

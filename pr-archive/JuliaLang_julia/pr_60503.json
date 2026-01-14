@@ -67,5 +67,67 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60503/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "7512b07eaa7cfe87d288991f795c4534863f0c3c",
+      "filename": "deps/checksums/StyledStrings-9bb8ffdd8c2858cced7b6b6fcee85be41c9a1867.tar.gz/md5",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/d1b898de63a14d1a104086393253bbe8e77fbbfe/deps%2Fchecksums%2FStyledStrings-9bb8ffdd8c2858cced7b6b6fcee85be41c9a1867.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/d1b898de63a14d1a104086393253bbe8e77fbbfe/deps%2Fchecksums%2FStyledStrings-9bb8ffdd8c2858cced7b6b6fcee85be41c9a1867.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FStyledStrings-9bb8ffdd8c2858cced7b6b6fcee85be41c9a1867.tar.gz%2Fmd5?ref=d1b898de63a14d1a104086393253bbe8e77fbbfe",
+      "patch": "@@ -1 +0,0 @@\n-e788177e4a0f7dfdbd794b1203786aa5"
+    },
+    {
+      "sha": "52c5e04fe621229d5bd59b4f4c1a7e2959cc9f37",
+      "filename": "deps/checksums/StyledStrings-9bb8ffdd8c2858cced7b6b6fcee85be41c9a1867.tar.gz/sha512",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/d1b898de63a14d1a104086393253bbe8e77fbbfe/deps%2Fchecksums%2FStyledStrings-9bb8ffdd8c2858cced7b6b6fcee85be41c9a1867.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/d1b898de63a14d1a104086393253bbe8e77fbbfe/deps%2Fchecksums%2FStyledStrings-9bb8ffdd8c2858cced7b6b6fcee85be41c9a1867.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FStyledStrings-9bb8ffdd8c2858cced7b6b6fcee85be41c9a1867.tar.gz%2Fsha512?ref=d1b898de63a14d1a104086393253bbe8e77fbbfe",
+      "patch": "@@ -1 +0,0 @@\n-904399dee5a9d284ccf4d508965867c3533bbd97d8d7bac12ecca924cc4fd783f6e67c77d9c8723fdced5f6a28041b7488cb0b309ba5cb3885443e64fd6a1ee8"
+    },
+    {
+      "sha": "ae6d64abcae79592e258208628a39290ef09e919",
+      "filename": "deps/checksums/StyledStrings-a033d46988b2e01fd6ea58a39132fd609904ebc1.tar.gz/md5",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1b4153820161d6ed09d9844f311741ed29966ec4/deps%2Fchecksums%2FStyledStrings-a033d46988b2e01fd6ea58a39132fd609904ebc1.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1b4153820161d6ed09d9844f311741ed29966ec4/deps%2Fchecksums%2FStyledStrings-a033d46988b2e01fd6ea58a39132fd609904ebc1.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FStyledStrings-a033d46988b2e01fd6ea58a39132fd609904ebc1.tar.gz%2Fmd5?ref=1b4153820161d6ed09d9844f311741ed29966ec4",
+      "patch": "@@ -0,0 +1 @@\n+97f191fbde65a0a1a961fc0dde0ad68f"
+    },
+    {
+      "sha": "3f6dbd144d6545959290199340960706a8b1441b",
+      "filename": "deps/checksums/StyledStrings-a033d46988b2e01fd6ea58a39132fd609904ebc1.tar.gz/sha512",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1b4153820161d6ed09d9844f311741ed29966ec4/deps%2Fchecksums%2FStyledStrings-a033d46988b2e01fd6ea58a39132fd609904ebc1.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1b4153820161d6ed09d9844f311741ed29966ec4/deps%2Fchecksums%2FStyledStrings-a033d46988b2e01fd6ea58a39132fd609904ebc1.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FStyledStrings-a033d46988b2e01fd6ea58a39132fd609904ebc1.tar.gz%2Fsha512?ref=1b4153820161d6ed09d9844f311741ed29966ec4",
+      "patch": "@@ -0,0 +1 @@\n+d382133269fc8e31173cb1d2d9ab47732ca6550af4c4f97553b416250d72e3d5fcf496989587ac2660d3037a78bdb953e0464fe8a7daa0558865948403aa8ef1"
+    },
+    {
+      "sha": "ee80cc7b5a9a2fe98ec4d4978e7e2f51abb3f9f4",
+      "filename": "stdlib/StyledStrings.version",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1b4153820161d6ed09d9844f311741ed29966ec4/stdlib%2FStyledStrings.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1b4153820161d6ed09d9844f311741ed29966ec4/stdlib%2FStyledStrings.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FStyledStrings.version?ref=1b4153820161d6ed09d9844f311741ed29966ec4",
+      "patch": "@@ -1,4 +1,4 @@\n STYLEDSTRINGS_BRANCH = main\n-STYLEDSTRINGS_SHA1 = 9bb8ffdd8c2858cced7b6b6fcee85be41c9a1867\n+STYLEDSTRINGS_SHA1 = a033d46988b2e01fd6ea58a39132fd609904ebc1\n STYLEDSTRINGS_GIT_URL := https://github.com/JuliaLang/StyledStrings.jl.git\n STYLEDSTRINGS_TAR_URL = https://api.github.com/repos/JuliaLang/StyledStrings.jl/tarball/$1"
+    }
+  ]
 }

@@ -128,5 +128,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60267/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "f58cb82c7bf09d33e6681d84fc0a36d2e03ec75b",
+      "filename": "NEWS.md",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 0,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/338e88636b1db3ab931ec5d90d62cd75c46f51ad/NEWS.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/338e88636b1db3ab931ec5d90d62cd75c46f51ad/NEWS.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/NEWS.md?ref=338e88636b1db3ab931ec5d90d62cd75c46f51ad",
+      "patch": "@@ -37,6 +37,9 @@ New library functions\n New library features\n --------------------\n \n+* `IOContext` supports a new boolean `hexunsigned` option that allows for\n+  printing unsigned integers in decimal instead of hexadecimal ([#60267]).\n+\n Standard library changes\n ------------------------\n "
+    },
+    {
+      "sha": "37db037d3bb3ff15a36957a1ecac95782e799e8b",
+      "filename": "base/show.jl",
+      "status": "modified",
+      "additions": 16,
+      "deletions": 1,
+      "changes": 17,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/338e88636b1db3ab931ec5d90d62cd75c46f51ad/base%2Fshow.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/338e88636b1db3ab931ec5d90d62cd75c46f51ad/base%2Fshow.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fshow.jl?ref=338e88636b1db3ab931ec5d90d62cd75c46f51ad",
+      "patch": "@@ -385,6 +385,11 @@ The following properties are in common use:\n  - `:color`: Boolean specifying whether ANSI color/escape codes are supported/expected.\n    By default, this is determined by whether `io` is a compatible terminal and by any\n    `--color` command-line flag when `julia` was launched.\n+ - `:hexunsigned`: Boolean specifying whether to print unsigned integers in\n+   hexadecimal. Defaults to `true`, otherwise they will be printed in decimal.\n+\n+!!! compat \"Julia 1.14\"\n+    The `:hexunsigned` option requires Julia 1.14 or later.\n \n # Examples\n \n@@ -1293,7 +1298,17 @@ nonnothing_nonmissing_typeinfo(io::IO) = nonmissingtype(nonnothingtype(get(io, :\n show(io::IO, b::Bool) = print(io, nonnothing_nonmissing_typeinfo(io) === Bool ? (b ? \"1\" : \"0\") : (b ? \"true\" : \"false\"))\n show(io::IO, ::Nothing) = print(io, \"nothing\")\n show(io::IO, n::Signed) = (write(io, string(n)); nothing)\n-show(io::IO, n::Unsigned) = print(io, \"0x\", string(n, pad = sizeof(n)<<1, base = 16))\n+function show(io::IO, n::Unsigned)\n+    if get(io, :hexunsigned, true)::Bool\n+        print(io, \"0x\", string(n, pad = sizeof(n)<<1, base = 16))\n+    else\n+        if get(io, :typeinfo, Nothing)::Type == typeof(n)\n+            print(io, n)\n+        else\n+            print(io, typeof(n), \"($(n))\")\n+        end\n+    end\n+end\n print(io::IO, n::Unsigned) = print(io, string(n))\n \n has_tight_type(p::Pair) ="
+    },
+    {
+      "sha": "14481643ae5467f0147e76a75c2ebfd4e5c0688d",
+      "filename": "test/show.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 0,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/338e88636b1db3ab931ec5d90d62cd75c46f51ad/test%2Fshow.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/338e88636b1db3ab931ec5d90d62cd75c46f51ad/test%2Fshow.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fshow.jl?ref=338e88636b1db3ab931ec5d90d62cd75c46f51ad",
+      "patch": "@@ -1363,6 +1363,12 @@ end\n     let repr = sprint(dump, Ptr{UInt8}(UInt(1)))\n         @test repr == \"Ptr{UInt8}($(Base.repr(UInt(1))))\\n\"\n     end\n+    let repr = sprint(show, UInt(42); context=(:hexunsigned => false))\n+        @test repr == \"$(UInt)(42)\"\n+    end\n+    let repr = sprint(show, UInt16[1, 2]; context=(:hexunsigned => false))\n+        @test repr == \"UInt16[1, 2]\"\n+    end\n     let repr = sprint(dump, Core.svec())\n         @test repr == \"empty SimpleVector\\n\"\n     end"
+    }
+  ]
 }

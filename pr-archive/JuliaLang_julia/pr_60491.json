@@ -67,5 +67,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60491/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "075b3f27d5ece513f02353df50f740d4aa5aca5c",
+      "filename": "base/loading.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 1,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/37e763890478b5b8a3b9ba160713ee6a178ece8d/base%2Floading.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/37e763890478b5b8a3b9ba160713ee6a178ece8d/base%2Floading.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Floading.jl?ref=37e763890478b5b8a3b9ba160713ee6a178ece8d",
+      "patch": "@@ -2694,6 +2694,7 @@ function require_stdlib(package_uuidkey::PkgId, ext::Union{Nothing, String}, fro\n         return newm\n     end\n     env = Sys.STDLIB\n+    loading_started = false\n     try\n         depot_path = append_bundled_depot_path!(empty(DEPOT_PATH))\n         from_stdlib = true # set to false if `from` is a normal package so we do not want the internal loader for the extension either\n@@ -2718,10 +2719,11 @@ function require_stdlib(package_uuidkey::PkgId, ext::Union{Nothing, String}, fro\n             set_pkgorigin_version_path(this_uuidkey, sourcepath)\n             newm = start_loading(this_uuidkey, UInt128(0), true)\n             newm === nothing || return newm\n+            loading_started = true\n             newm = _require_search_from_serialized(this_uuidkey, sourcepath, UInt128(0), false; DEPOT_PATH=depot_path)\n         end\n     finally\n-        end_loading(this_uuidkey, newm)\n+        loading_started && end_loading(this_uuidkey, newm)\n     end\n     if newm isa Module\n         # After successfully loading, notify downstream consumers"
+    },
+    {
+      "sha": "c96bf49c00edc2c1be96ffac96e75dd1dc3e46db",
+      "filename": "test/loading.jl",
+      "status": "modified",
+      "additions": 19,
+      "deletions": 0,
+      "changes": 19,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/37e763890478b5b8a3b9ba160713ee6a178ece8d/test%2Floading.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/37e763890478b5b8a3b9ba160713ee6a178ece8d/test%2Floading.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Floading.jl?ref=37e763890478b5b8a3b9ba160713ee6a178ece8d",
+      "patch": "@@ -1639,3 +1639,22 @@ end\n         end\n     end\n end\n+@testset \"require_stdlib extension with non-stdlib from module\" begin\n+    # Test that require_stdlib doesn't error when called with an extension\n+    # and the `from` module is not from the bundled depot (from_stdlib=false path)\n+    # This is a regression test for https://github.com/JuliaLang/julia/issues/60392\n+    cmd = `$(Base.julia_cmd()) --startup-file=no -e '\n+        Pkg_pkgid = Base.PkgId(Base.UUID(\"44cfe95a-1eb2-52ea-b672-e2afdf69b78f\"), \"Pkg\")\n+        REPLExt_pkgid = Base.PkgId(Base.uuid5(Pkg_pkgid.uuid, \"REPLExt\"), \"REPLExt\")\n+        # Create and register a fake REPL module to simulate a non-stdlib module being loaded\n+        # This triggers the from_stdlib=false path since the fake module is not from the bundled depot\n+        FakeREPL = Module(:REPL)\n+        FakeREPL_pkgid = Base.PkgId(Base.UUID(\"3fa0cd96-eef1-5676-8a61-b3b8758bbffb\"), \"REPL\")\n+        Base.register_root_module(FakeREPL)\n+        # This should not throw a KeyError from end_loading\n+        Base.require_stdlib(Pkg_pkgid, \"REPLExt\", FakeREPL)\n+        # Verify the extension was loaded\n+        Base.maybe_root_module(REPLExt_pkgid) isa Module || error(\"Something is wrong\")\n+    '`\n+    @test success(cmd)\n+end\n\\ No newline at end of file"
+    }
+  ]
 }

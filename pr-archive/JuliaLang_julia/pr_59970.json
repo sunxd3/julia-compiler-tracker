@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59970/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "752dc505092fa892c0ea0be40ad25c6db1dd8a43",
+      "filename": "src/debuginfo.cpp",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/95a0b8491e92406a6442ec50d68a7a56b2820c0e/src%2Fdebuginfo.cpp",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/95a0b8491e92406a6442ec50d68a7a56b2820c0e/src%2Fdebuginfo.cpp",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fdebuginfo.cpp?ref=95a0b8491e92406a6442ec50d68a7a56b2820c0e",
+      "patch": "@@ -491,7 +491,7 @@ static int lookup_pointer(\n     if (noInline)\n         n_frames = 1;\n     if (n_frames > 1) {\n-        jl_frame_t *new_frames = (jl_frame_t*)calloc(sizeof(jl_frame_t), n_frames);\n+        jl_frame_t *new_frames = (jl_frame_t*)calloc(n_frames, sizeof(jl_frame_t));\n         memcpy(&new_frames[n_frames - 1], *frames, sizeof(jl_frame_t));\n         free(*frames);\n         *frames = new_frames;\n@@ -1277,7 +1277,7 @@ extern \"C\" JL_DLLEXPORT_CODEGEN int jl_getFunctionInfo_impl(jl_frame_t **frames_\n     // This function is not allowed to reference any TLS variables if noInline\n     // since it can be called from an unmanaged thread on OSX.\n \n-    jl_frame_t *frames = (jl_frame_t*)calloc(sizeof(jl_frame_t), 1);\n+    jl_frame_t *frames = (jl_frame_t*)calloc(1, sizeof(jl_frame_t));\n     frames[0].line = -1;\n     *frames_out = frames;\n "
+    }
+  ]
 }

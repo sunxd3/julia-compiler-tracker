@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60150/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "a8441184bebe81bd3ec9d365feadc3fd41457728",
+      "filename": "base/loading.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/578505271a42696b29f83c5d27c87eee9eb3e50e/base%2Floading.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/578505271a42696b29f83c5d27c87eee9eb3e50e/base%2Floading.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Floading.jl?ref=578505271a42696b29f83c5d27c87eee9eb3e50e",
+      "patch": "@@ -4225,7 +4225,6 @@ end\n                 # file before comparing it with `modpath`.\n                 stdlib_path = fixup_stdlib_path(includes[1].filename)\n                 if !(isreadable(stdlib_path) && samefile(stdlib_path, modpath))\n-                    !samefile(fixup_stdlib_path(includes[1].filename), modpath)\n                     @debug \"Rejecting cache file $cachefile because it is for file $(includes[1].filename) not file $modpath\"\n                     record_reason(reasons, \"different source file path\")\n                     return true # cache file was compiled from a different path"
+    }
+  ]
 }

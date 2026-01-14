@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59969/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "a4ce0e3f01c855658156e047e9d6b6955a8f68ec",
+      "filename": "src/llvm_api.cpp",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/704ac7761d8263567ae1b5434cd8f8fd2d2c74de/src%2Fllvm_api.cpp",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/704ac7761d8263567ae1b5434cd8f8fd2d2c74de/src%2Fllvm_api.cpp",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fllvm_api.cpp?ref=704ac7761d8263567ae1b5434cd8f8fd2d2c74de",
+      "patch": "@@ -123,7 +123,7 @@ JLJITGetTripleString_impl(JuliaOJITRef JIT)\n     return unwrap(JIT)->getTargetTriple().str().c_str();\n }\n \n-JL_DLLEXPORT_CODEGEN const char\n+JL_DLLEXPORT_CODEGEN char\n JLJITGetGlobalPrefix_impl(JuliaOJITRef JIT)\n {\n     return unwrap(JIT)->getDataLayout().getGlobalPrefix();"
+    }
+  ]
 }

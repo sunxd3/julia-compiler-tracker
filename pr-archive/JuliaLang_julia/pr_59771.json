@@ -123,5 +123,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59771/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "8bb889d2ded70b04ad13b2eb1f7f8112370463aa",
+      "filename": "stdlib/Test/src/Test.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 1,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/76a35b60c916205f65b59319faa26e308e8cc5d9/stdlib%2FTest%2Fsrc%2FTest.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/76a35b60c916205f65b59319faa26e308e8cc5d9/stdlib%2FTest%2Fsrc%2FTest.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FTest%2Fsrc%2FTest.jl?ref=76a35b60c916205f65b59319faa26e308e8cc5d9",
+      "patch": "@@ -631,7 +631,9 @@ function _escape_call(@nospecialize ex)\n         # Update broadcast comparison calls to the function call syntax\n         # (e.g. `1 .== 1` becomes `(==).(1, 1)`)\n         func_str = string(ex.args[1])\n-        escaped_func = if first(func_str) == '.'\n+        # Check if this is a broadcast operator (starts with '.' and has more characters that aren't '.')\n+        is_broadcast = length(func_str) >= 2 && first(func_str) == '.' && any(c -> c != '.', func_str[2:end])\n+        escaped_func = if is_broadcast\n             esc(Expr(:., Symbol(func_str[2:end])))\n         else\n             esc(ex.args[1])"
+    },
+    {
+      "sha": "41dabe746e29e1dd2fbb7029380ec442a13bff6d",
+      "filename": "stdlib/Test/test/runtests.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 0,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/76a35b60c916205f65b59319faa26e308e8cc5d9/stdlib%2FTest%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/76a35b60c916205f65b59319faa26e308e8cc5d9/stdlib%2FTest%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FTest%2Ftest%2Fruntests.jl?ref=76a35b60c916205f65b59319faa26e308e8cc5d9",
+      "patch": "@@ -24,6 +24,10 @@ import Logging: Debug, Info, Warn, with_logger\n     @test isapprox(1, 1; [(:atol, 0)]...)\n     @test isapprox(1, 2; atol)\n     @test isapprox(1, 3; a.atol)\n+    # Test custom .. operator (not a broadcast operator)\n+    ..(x, y) = x == y\n+    @test 'a' .. 'a'\n+    @test !('a' .. 'b')\n end\n @testset \"@test with skip/broken kwargs\" begin\n     # Make sure the local variables can be used in conditions\n@@ -1950,6 +1954,8 @@ end\n         @test _escape_call(:(Main.f.(x, y))) == (; func=:(Broadcast.BroadcastFunction($(esc(:(Main.f))))), args, kwargs, quoted_func=QuoteNode(Expr(:., :(Main.f))))\n         @test _escape_call(:(x .== y)) == (; func=esc(:(.==)), args, kwargs, quoted_func=:(:.==))\n         @test _escape_call(:((==).(x, y))) == (; func=Expr(:., esc(:(==))), args, kwargs, quoted_func=QuoteNode(Expr(:., :(==))))\n+        # Test that .. operator is not treated as a broadcast operator\n+        @test _escape_call(:(x .. y)) == (; func=esc(:(..)), args, kwargs, quoted_func=:(:..))\n     end\n end\n "
+    }
+  ]
 }

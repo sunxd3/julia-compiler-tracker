@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59824/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "ed686fb92bf34064d94be507031b87925dc48ea9",
+      "filename": "base/fastmath.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/f90a98327b90914dda93960d2cf01a63c9ff1280/base%2Ffastmath.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/f90a98327b90914dda93960d2cf01a63c9ff1280/base%2Ffastmath.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Ffastmath.jl?ref=f90a98327b90914dda93960d2cf01a63c9ff1280",
+      "patch": "@@ -297,7 +297,7 @@ exp10_fast(x::Union{Float32,Float64}) = Base.Math.exp10_fast(x)\n \n # builtins\n \n-function pow_fast(x::Float64, y::Integer)\n+@inline function pow_fast(x::Float64, y::Integer)\n     z = y % Int32\n     z == y ? pow_fast(x, z) : x^y\n end"
+    }
+  ]
 }

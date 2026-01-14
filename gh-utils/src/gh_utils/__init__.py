@@ -8,6 +8,13 @@ from .client import (
     api_get_paginated,
     get_token,
 )
+from .filter import (
+    COMPILER_PATHS,
+    filter_compiler_prs,
+    get_compiler_files,
+    is_compiler_file,
+    is_compiler_pr,
+)
 from .pr import (
     DEFAULT_REPO,
     fetch_prs_between_tags,
@@ -37,4 +44,10 @@ __all__ = [
     "DEFAULT_REPO",
     # Cache
     "PRCache",
+    # Filter
+    "COMPILER_PATHS",
+    "is_compiler_file",
+    "is_compiler_pr",
+    "get_compiler_files",
+    "filter_compiler_prs",
 ]

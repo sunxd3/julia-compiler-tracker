@@ -119,5 +119,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59588/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "5162f084ac43e3ac6777095f4183768e6b0c3228",
+      "filename": "base/operators.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 1,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e7feb14de0a105080180307517253d2dc2a58965/base%2Foperators.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e7feb14de0a105080180307517253d2dc2a58965/base%2Foperators.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Foperators.jl?ref=e7feb14de0a105080180307517253d2dc2a58965",
+      "patch": "@@ -1194,7 +1194,8 @@ end\n \n function (f::Fix{N})(args::Vararg{Any,M}; kws...) where {N,M}\n     M < N-1 && throw(ArgumentError(LazyString(\"expected at least \", N-1, \" arguments to `Fix{\", N, \"}`, but got \", M)))\n-    return f.f(args[begin:begin+(N-2)]..., f.x, args[begin+(N-1):end]...; kws...)\n+    (left, right) = _split_tuple(args, N-1)\n+    return f.f(left..., f.x, right...; kws...)\n end\n \n # Special cases for improved constant propagation"
+    },
+    {
+      "sha": "5a5469bf8fb6a784292d0d15fa41fab4baf72a8b",
+      "filename": "base/tuple.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 1,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e7feb14de0a105080180307517253d2dc2a58965/base%2Ftuple.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e7feb14de0a105080180307517253d2dc2a58965/base%2Ftuple.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Ftuple.jl?ref=e7feb14de0a105080180307517253d2dc2a58965",
+      "patch": "@@ -261,7 +261,9 @@ function _split_rest(a::Union{AbstractArray, Core.SimpleVector}, n::Int)\n     return a[begin:end-n], a[end-n+1:end]\n end\n \n-@eval split_rest(t::Tuple, n::Int, i=1) = ($(Expr(:meta, :aggressive_constprop)); (t[i:end-n], t[end-n+1:end]))\n+@eval _split_tuple(t::Tuple, n::Int, i::Int=1) = ($(Expr(:meta, :aggressive_constprop)); (t[i:n], t[n+1:end]))\n+\n+@eval split_rest(t::Tuple, n::Int, i=1) = ($(Expr(:meta, :aggressive_constprop)); _split_tuple(t, length(t)-n, Int(i)))\n \n # Use dispatch to avoid a branch in first\n first(::Tuple{}) = throw(ArgumentError(\"tuple must be non-empty\"))"
+    },
+    {
+      "sha": "d5e6a6e1ae24115a99b96200a2226da56c08a79d",
+      "filename": "test/tuple.jl",
+      "status": "modified",
+      "additions": 23,
+      "deletions": 0,
+      "changes": 23,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e7feb14de0a105080180307517253d2dc2a58965/test%2Ftuple.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e7feb14de0a105080180307517253d2dc2a58965/test%2Ftuple.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Ftuple.jl?ref=e7feb14de0a105080180307517253d2dc2a58965",
+      "patch": "@@ -815,6 +815,29 @@ namedtup = (;a=1, b=2, c=3)\n         NamedTuple{(:c,), Tuple{Int}},\n     }\n \n+@testset \"`Base.split_rest(::Tuple, ::Vararg)` return type inference\" begin\n+    let f(t) = Base.split_rest(t, 3)\n+        tuple_types_of_length(n::Int) = (NTuple{n, Any}, NTuple{n}, NTuple{n, Float32})\n+        @testset \"inferred return type must subtype `NTuple{2, Tuple}`\" begin\n+            for T in (\n+                Tuple, Tuple{Vararg{Float32}},  # any length\n+                Tuple{Any, Vararg{Any}}, (Tuple{T, Vararg{T}} where {T}), Tuple{Float32, Vararg{Float32}},  # length greater than one\n+                tuple_types_of_length(5)...,  # length five\n+            )\n+                @test Base.infer_return_type(f, Tuple{T}) <: NTuple{2, Tuple}\n+                for S in (Tuple{T, Any, Any}, Tuple{T, Any}, Tuple{T, Int, Any}, Tuple{T, Int}, Tuple{T, Int, Int})\n+                    @test Base.infer_return_type(Base.split_rest, S) <: NTuple{2, Tuple}\n+                end\n+            end\n+        end\n+        @testset \"with exactly-known length: `5 == 2 + 3`\" begin\n+            for T in tuple_types_of_length(5)\n+                @test Base.infer_return_type(f, Tuple{T}) <: Tuple{Tuple{Any, Any}, Tuple{Any, Any, Any}}\n+            end\n+        end\n+    end\n+end\n+\n # Make sure that tuple iteration is foldable\n @test Core.Compiler.is_foldable(Base.infer_effects(iterate, Tuple{NTuple{4, Float64}, Int}))\n @test Core.Compiler.is_foldable(Base.infer_effects(eltype, Tuple{Tuple}))"
+    }
+  ]
 }

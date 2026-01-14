@@ -86,5 +86,79 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60160/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "ea586fa0f9b9cd7b04ee712dc49908c1f93872a0",
+      "filename": "Make.inc",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 9,
+      "changes": 13,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c459ad86247588cc5106ca7361ea1854a4c0e90f/Make.inc",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c459ad86247588cc5106ca7361ea1854a4c0e90f/Make.inc",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Make.inc?ref=c459ad86247588cc5106ca7361ea1854a4c0e90f",
+      "patch": "@@ -1508,11 +1508,9 @@ RPATH_LIB := $(RPATH_ORIGIN)\n \n # --whole-archive\n ifeq ($(OS), Darwin)\n-  WHOLE_ARCHIVE := -Xlinker -all_load\n-  NO_WHOLE_ARCHIVE :=\n+  whole_archive = -Xlinker -force_load $(1)\n else\n-  WHOLE_ARCHIVE := -Wl,--whole-archive\n-  NO_WHOLE_ARCHIVE := -Wl,--no-whole-archive\n+  whole_archive = -Wl,--whole-archive $(1) -Wl,--no-whole-archive\n endif\n \n # Initialize these once, then add to them in OS-specific blocks\n@@ -1558,8 +1556,7 @@ ifeq (,$(findstring aarch64,$(ARCH)))\n OSLIBS += -lgcc_s\n endif\n \n-OSLIBS += -Wl,--export-dynamic -Wl,--version-script=$(BUILDROOT)/src/julia.expmap \\\n-\t$(NO_WHOLE_ARCHIVE)\n+OSLIBS += -Wl,--export-dynamic -Wl,--version-script=$(BUILDROOT)/src/julia.expmap -Wl,--no-whole-archive\n endif\n \n ifeq ($(OS), OpenBSD)\n@@ -1578,16 +1575,14 @@ endif\n ifeq ($(OS), Darwin)\n SHLIB_EXT := dylib\n OSLIBS += -framework CoreFoundation\n-WHOLE_ARCHIVE := -Xlinker -all_load\n-NO_WHOLE_ARCHIVE :=\n HAVE_SSP := 1\n JLIBLDFLAGS += -Wl,-compatibility_version,$(SOMAJOR) -Wl,-current_version,$(JULIA_MAJOR_VERSION).$(JULIA_MINOR_VERSION).$(JULIA_PATCH_VERSION)\n endif\n \n ifeq ($(OS), WINNT)\n HAVE_SSP := 1\n OSLIBS += -Wl,--export-all-symbols -Wl,--version-script=$(BUILDROOT)/src/julia.expmap \\\n-\t$(NO_WHOLE_ARCHIVE) -lpsapi -lkernel32 -lws2_32 -liphlpapi -lwinmm -ldbghelp -luserenv -lsecur32 -latomic -lole32\n+\t-Wl,--no-whole-archive -lpsapi -lkernel32 -lws2_32 -liphlpapi -lwinmm -ldbghelp -luserenv -lsecur32 -latomic -lole32\n # N.B.: Unlike in the sysimage, we cannot -Wl,--disable-auto-import -Wl,--disable-runtime-pseudo-reloc here, because libstdc++/LLVM are not fully correct under\n # enforced visibility at this point.\n JLDFLAGS += -Wl,--stack,8388608"
+    },
+    {
+      "sha": "84b53c2134ede71fe70190ff5a696a7b2f5c382c",
+      "filename": "base/linking.jl",
+      "status": "modified",
+      "additions": 12,
+      "deletions": 1,
+      "changes": 13,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c459ad86247588cc5106ca7361ea1854a4c0e90f/base%2Flinking.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c459ad86247588cc5106ca7361ea1854a4c0e90f/base%2Flinking.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Flinking.jl?ref=c459ad86247588cc5106ca7361ea1854a4c0e90f",
+      "patch": "@@ -118,6 +118,17 @@ else\n     \"--no-whole-archive\"\n end\n \n+# Prefer whole_archive to WHOLE_ARCHIVE\n+whole_archive(paths::String; is_cc=false) = whole_archive([paths]; is_cc)\n+function whole_archive(paths::Vector{String}; is_cc=false)\n+    cc_arg(a) = is_cc ? \"-Wl,$a\" : a\n+    if Sys.isapple()\n+        Cmd(collect(Iterators.flatmap(p -> (cc_arg(\"-force_load\"), p), paths)))\n+    else\n+        `$(cc_arg(\"--whole-archive\")) $paths $(cc_arg(\"--no-whole-archive\"))`\n+    end\n+end\n+\n const SHARED = if Sys.isapple()\n     \"-dylib\"\n else\n@@ -152,7 +163,7 @@ function link_image_cmd(path, out)\n     end\n \n     V = verbose_linking() ? \"--verbose\" : \"\"\n-    `$(ld()) $V $SHARED -o $out $WHOLE_ARCHIVE $path $NO_WHOLE_ARCHIVE $PRIVATE_LIBDIR $SHLIBDIR $LIBS`\n+    `$(ld()) $V $SHARED -o $out $(whole_archive(path)) $PRIVATE_LIBDIR $SHLIBDIR $LIBS`\n end\n \n function link_image(path, out, internal_stderr::IO=stderr, internal_stdout::IO=stdout)"
+    },
+    {
+      "sha": "23eb1d93ffa8244d9f366c0c9cf60a2ff284777a",
+      "filename": "contrib/juliac/juliac.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 3,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c459ad86247588cc5106ca7361ea1854a4c0e90f/contrib%2Fjuliac%2Fjuliac.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c459ad86247588cc5106ca7361ea1854a4c0e90f/contrib%2Fjuliac%2Fjuliac.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/contrib%2Fjuliac%2Fjuliac.jl?ref=c459ad86247588cc5106ca7361ea1854a4c0e90f",
+      "patch": "@@ -202,11 +202,11 @@ function link_products()\n     julia_libs = Base.shell_split(Base.isdebugbuild() ? \"-ljulia-debug -ljulia-internal-debug\" : \"-ljulia -ljulia-internal\")\n     try\n         if output_type == \"--output-lib\"\n-            cmd2 = `$(cc) $(allflags) $(rpath) -o $outname -shared -Wl,$(Base.Linking.WHOLE_ARCHIVE) $img_path  -Wl,$(Base.Linking.NO_WHOLE_ARCHIVE)  $(julia_libs)`\n+            cmd2 = `$(cc) $(allflags) $(rpath) -o $outname -shared $(Base.Linking.whole_archive(img_path; is_cc=true)) $(julia_libs)`\n         elseif output_type == \"--output-sysimage\"\n-            cmd2 = `$(cc) $(allflags) $(rpath) -o $outname -shared -Wl,$(Base.Linking.WHOLE_ARCHIVE) $img_path  -Wl,$(Base.Linking.NO_WHOLE_ARCHIVE)             $(julia_libs)`\n+            cmd2 = `$(cc) $(allflags) $(rpath) -o $outname -shared -Wl,$(Base.Linking.whole_archive(img_path; is_cc=true)) $(julia_libs)`\n         else\n-            cmd2 = `$(cc) $(allflags) $(rpath) -o $outname -Wl,$(Base.Linking.WHOLE_ARCHIVE) $img_path -Wl,$(Base.Linking.NO_WHOLE_ARCHIVE)  $(julia_libs)`\n+            cmd2 = `$(cc) $(allflags) $(rpath) -o $outname -Wl,$(Base.Linking.whole_archive(img_path; is_cc=true)) $(julia_libs)`\n         end\n         verbose && println(\"Running: $cmd2\")\n         run(cmd2)"
+    },
+    {
+      "sha": "8cef80977d10a8def43eae4ac8381cf616b16026",
+      "filename": "src/Makefile",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 4,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c459ad86247588cc5106ca7361ea1854a4c0e90f/src%2FMakefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c459ad86247588cc5106ca7361ea1854a4c0e90f/src%2FMakefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2FMakefile?ref=c459ad86247588cc5106ca7361ea1854a4c0e90f",
+      "patch": "@@ -203,7 +203,7 @@ LIBJULIA_PATH_REL := libjulia\n endif\n \n COMMON_LIBPATHS := -L$(build_libdir) -L$(build_shlibdir)\n-RT_LIBS := $(WHOLE_ARCHIVE) $(LIBUV) $(WHOLE_ARCHIVE) $(LIBUTF8PROC) $(NO_WHOLE_ARCHIVE) $(LIBUNWIND) $(RT_LLVMLINK) $(OSLIBS) $(LIBTRACYCLIENT) $(LIBITTAPI) -lzstd\n+RT_LIBS := $(call whole_archive,$(LIBUV)) $(call whole_archive,$(LIBUTF8PROC)) $(LIBUNWIND) $(RT_LLVMLINK) $(OSLIBS) $(LIBTRACYCLIENT) $(LIBITTAPI) -lzstd\n # NB: CG needs uv_mutex_* symbols, but we expect to export them from libjulia-internal\n CG_LIBS := $(LIBUNWIND) $(CG_LLVMLINK) $(OSLIBS) $(LIBTRACYCLIENT) $(LIBITTAPI)\n \n@@ -212,9 +212,9 @@ RT_LIBS += $(MMTK_LIB)\n CG_LIBS += $(MMTK_LIB)\n endif\n \n-RT_DEBUG_LIBS := $(COMMON_LIBPATHS) $(WHOLE_ARCHIVE) $(BUILDDIR)/flisp/libflisp-debug.a $(WHOLE_ARCHIVE) $(BUILDDIR)/support/libsupport-debug.a -ljulia-debug $(RT_LIBS)\n+RT_DEBUG_LIBS := $(COMMON_LIBPATHS) $(call whole_archive,$(BUILDDIR)/flisp/libflisp-debug.a) $(call whole_archive,$(BUILDDIR)/support/libsupport-debug.a) -ljulia-debug $(RT_LIBS)\n CG_DEBUG_LIBS := $(COMMON_LIBPATHS) $(CG_LIBS) -ljulia-debug -ljulia-internal-debug\n-RT_RELEASE_LIBS := $(COMMON_LIBPATHS) $(WHOLE_ARCHIVE) $(BUILDDIR)/flisp/libflisp.a $(WHOLE_ARCHIVE) $(BUILDDIR)/support/libsupport.a -ljulia $(RT_LIBS)\n+RT_RELEASE_LIBS := $(COMMON_LIBPATHS) $(call whole_archive,$(BUILDDIR)/flisp/libflisp.a) $(call whole_archive,$(BUILDDIR)/support/libsupport.a) -ljulia $(RT_LIBS)\n CG_RELEASE_LIBS := $(COMMON_LIBPATHS) $(CG_LIBS) -ljulia -ljulia-internal\n \n OBJS := $(SRCS:%=$(BUILDDIR)/%.o)\n@@ -355,7 +355,7 @@ $(build_shlibdir)/libccalllazybar.$(SHLIB_EXT): $(SRCDIR)/ccalllazybar.c $(build\n \t@$(call PRINT_CC, $(CC) $(JCFLAGS) $(JCPPFLAGS) $(FLAGS_COMMON) -O3 $< $(fPIC) -shared -o $@ $(LDFLAGS) $(COMMON_LIBPATHS) $(call SONAME_FLAGS,libccalllazybar.$(SHLIB_EXT)) -lccalllazyfoo)\n \n $(build_shlibdir)/libllvmcalltest.$(SHLIB_EXT): $(SRCDIR)/llvmcalltest.cpp $(LLVM_CONFIG_ABSOLUTE)\n-\t@$(call PRINT_CC, $(CXX) $(JCXXFLAGS) $(LLVM_CXXFLAGS) $(FLAGS_COMMON) $(CPPFLAGS) $(CXXFLAGS) -O3 $< $(fPIC) -shared -o $@ $(LDFLAGS) $(COMMON_LIBPATHS) $(NO_WHOLE_ARCHIVE) $(CG_LLVMLINK)) -lpthread\n+\t@$(call PRINT_CC, $(CXX) $(JCXXFLAGS) $(LLVM_CXXFLAGS) $(FLAGS_COMMON) $(CPPFLAGS) $(CXXFLAGS) -O3 $< $(fPIC) -shared -o $@ $(LDFLAGS) $(COMMON_LIBPATHS) $(CG_LLVMLINK)) -lpthread\n \n .PHONY: julia_flisp.boot.inc.phony\n julia_flisp.boot.inc.phony: $(BUILDDIR)/julia_flisp.boot.inc"
+    },
+    {
+      "sha": "67464947eefdb3f3f7a3eeb8a2b41b859f83e01b",
+      "filename": "sysimage.mk",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c459ad86247588cc5106ca7361ea1854a4c0e90f/sysimage.mk",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c459ad86247588cc5106ca7361ea1854a4c0e90f/sysimage.mk",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/sysimage.mk?ref=c459ad86247588cc5106ca7361ea1854a4c0e90f",
+      "patch": "@@ -18,7 +18,7 @@ VERSDIR := v$(shell cut -d. -f1-2 < $(JULIAHOME)/VERSION)\n \n $(build_private_libdir)/%.$(SHLIB_EXT): $(build_private_libdir)/%-o.a\n \t@$(call PRINT_LINK, $(CXX) $(LDFLAGS) -shared $(fPIC) -L$(build_private_libdir) -L$(build_libdir) -L$(build_shlibdir) -o $@ \\\n-\t\t$(WHOLE_ARCHIVE) $< $(NO_WHOLE_ARCHIVE) \\\n+\t\t$(call whole_archive,$<) \\\n \t\t$(if $(findstring -debug,$(notdir $@)),-ljulia-internal-debug -ljulia-debug,-ljulia-internal -ljulia) \\\n \t\t$$([ $(OS) = WINNT ] && echo '' $(LIBM) -lssp -Wl,--disable-auto-import -Wl,--disable-runtime-pseudo-reloc))\n \t@$(INSTALL_NAME_CMD)$(notdir $@) $@"
+    },
+    {
+      "sha": "f0ee34dcc370376954d672ee23e73c65a969c076",
+      "filename": "test/trimming/Makefile",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 3,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c459ad86247588cc5106ca7361ea1854a4c0e90f/test%2Ftrimming%2FMakefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c459ad86247588cc5106ca7361ea1854a4c0e90f/test%2Ftrimming%2FMakefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Ftrimming%2FMakefile?ref=c459ad86247588cc5106ca7361ea1854a4c0e90f",
+      "patch": "@@ -52,13 +52,13 @@ $(BIN)/libsimple-o.a: $(SRCDIR)/libsimple.jl $(JULIAC_BUILDSCRIPT)\n \t$(JULIA) -t 1 -J $(JULIA_LIBDIR)/julia/sys.$(SHLIB_EXT) --startup-file=no --history-file=no --output-o $@ --output-incremental=no --strip-ir --strip-metadata --experimental --trim $(JULIAC_BUILDSCRIPT) $< --output-lib true $(BIN)/bindinginfo_libsimple.json\n \n $(BIN)/hello$(EXE): $(BIN)/hello-o.a\n-\t$(CC) -o $@ $(WHOLE_ARCHIVE) $< $(NO_WHOLE_ARCHIVE) $(CPPFLAGS_ADD) $(CPPFLAGS) $(CFLAGS_ADD) $(CFLAGS) $(LDFLAGS_ADD) $(LDFLAGS)\n+\t$(CC) -o $@ $(call whole_archive,$<) $(CPPFLAGS_ADD) $(CPPFLAGS) $(CFLAGS_ADD) $(CFLAGS) $(LDFLAGS_ADD) $(LDFLAGS)\n \n $(BIN)/trimmability$(EXE): $(BIN)/trimmability-o.a\n-\t$(CC) -o $@ $(WHOLE_ARCHIVE) $< $(NO_WHOLE_ARCHIVE) $(CPPFLAGS_ADD) $(CPPFLAGS) $(CFLAGS_ADD) $(CFLAGS) $(LDFLAGS_ADD) $(LDFLAGS)\n+\t$(CC) -o $@ $(call whole_archive,$<) $(CPPFLAGS_ADD) $(CPPFLAGS) $(CFLAGS_ADD) $(CFLAGS) $(LDFLAGS_ADD) $(LDFLAGS)\n \n $(BIN)/basic_jll$(EXE): $(BIN)/basic_jll-o.a\n-\t$(CC) -o $@ $(WHOLE_ARCHIVE) $< $(NO_WHOLE_ARCHIVE) $(CPPFLAGS_ADD) $(CPPFLAGS) $(CFLAGS_ADD) $(CFLAGS) $(LDFLAGS_ADD) $(LDFLAGS)\n+\t$(CC) -o $@ $(call whole_archive,$<) $(CPPFLAGS_ADD) $(CPPFLAGS) $(CFLAGS_ADD) $(CFLAGS) $(LDFLAGS_ADD) $(LDFLAGS)\n \n $(BIN)/capplication$(EXE): $(SRCDIR)/capplication.c $(SRCDIR)/libsimple.h $(BIN)/libsimple-o.a\n \t$(CC) -I$(BIN) -I$(SRCDIR) -I$(JULIA_LIBDIR) -o $@ $< -Wl,--whole-archive $(BIN)/libsimple-o.a -Wl,--no-whole-archive $(LDFLAGS_ADD) $(LDFLAGS) $(CPPFLAGS_ADD) $(CPPFLAGS) $(CFLAGS_ADD) $(CFLAGS)"
+    }
+  ]
 }

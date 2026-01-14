@@ -109,5 +109,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59695/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0db396c9a42d314018f2ee8e2915e9df62db9283",
+      "filename": "base/sysinfo.jl",
+      "status": "modified",
+      "additions": 9,
+      "deletions": 0,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/base%2Fsysinfo.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c0b62335dc4ee52151ffdc89350de7881c984db5/base%2Fsysinfo.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fsysinfo.jl?ref=c0b62335dc4ee52151ffdc89350de7881c984db5",
+      "patch": "@@ -14,6 +14,7 @@ export BINDIR,\n        MACHINE,\n        KERNEL,\n        JIT,\n+       PAGESIZE,\n        cpu_info,\n        cpu_summary,\n        sysimage_target,\n@@ -144,6 +145,13 @@ Note: Included in the detailed system information via `versioninfo(verbose=true)\n \"\"\"\n global JIT::String\n \n+\"\"\"\n+    Sys.PAGESIZE::Clong\n+\n+A number providing the pagesize of the given OS.  Common values being 4kb or 64kb on Linux.\n+\"\"\"\n+global PAGESIZE::Clong\n+\n function __init__()\n     env_threads = nothing\n     if haskey(ENV, \"JULIA_CPU_THREADS\")\n@@ -162,6 +170,7 @@ function __init__()\n     global SC_CLK_TCK = ccall(:jl_SC_CLK_TCK, Clong, ())\n     global CPU_NAME = ccall(:jl_get_cpu_name, Ref{String}, ())\n     global JIT = ccall(:jl_get_JIT, Ref{String}, ())\n+    global PAGESIZE = Int(Sys.isunix() ? ccall(:jl_getpagesize, Clong, ()) : ccall(:jl_getallocationgranularity, Clong, ()))\n     __init_build()\n     nothing\n end"
+    },
+    {
+      "sha": "806abc714d3912d86703b78b6df7fb3a638c2e45",
+      "filename": "stdlib/Mmap/src/Mmap.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 2,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/stdlib%2FMmap%2Fsrc%2FMmap.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c0b62335dc4ee52151ffdc89350de7881c984db5/stdlib%2FMmap%2Fsrc%2FMmap.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMmap%2Fsrc%2FMmap.jl?ref=c0b62335dc4ee52151ffdc89350de7881c984db5",
+      "patch": "@@ -6,11 +6,10 @@ Low level module for mmap (memory mapping of files).\n module Mmap\n \n import Base: OS_HANDLE, INVALID_OS_HANDLE\n+using Base.Sys: PAGESIZE\n \n export mmap\n \n-const PAGESIZE = Int(Sys.isunix() ? ccall(:jl_getpagesize, Clong, ()) : ccall(:jl_getallocationgranularity, Clong, ()))\n-\n # for mmaps not backed by files\n mutable struct Anonymous <: IO\n     name::String"
+    },
+    {
+      "sha": "ec4c85c69254911def95571ed5deb7d45bec920d",
+      "filename": "stdlib/Mmap/test/runtests.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/stdlib%2FMmap%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c0b62335dc4ee52151ffdc89350de7881c984db5/stdlib%2FMmap%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMmap%2Ftest%2Fruntests.jl?ref=c0b62335dc4ee52151ffdc89350de7881c984db5",
+      "patch": "@@ -269,6 +269,7 @@ A2 = mmap(s, Matrix{Int}, (m,n))\n seek(s, 0)\n A3 = mmap(s, Matrix{Int}, (m,n), convert(Int64, 2*sizeof(Int)))\n @test A == A3\n+seek(s, 0)\n A4 = mmap(s, Matrix{Int}, (m,150), convert(Int64, (2+150*m)*sizeof(Int)))\n @test A[:, 151:end] == A4\n close(s)"
+    }
+  ]
 }

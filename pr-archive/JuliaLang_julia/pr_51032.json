@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/51032/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0c66dd3ebe78b0c4b7e14809c098fd8cdef4c7b3",
+      "filename": "stdlib/Markdown/docs/src/index.md",
+      "status": "modified",
+      "additions": 19,
+      "deletions": 2,
+      "changes": 21,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c1465183ec74f883744145550ba55eac2240a4bd/stdlib%2FMarkdown%2Fdocs%2Fsrc%2Findex.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c1465183ec74f883744145550ba55eac2240a4bd/stdlib%2FMarkdown%2Fdocs%2Fsrc%2Findex.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fdocs%2Fsrc%2Findex.md?ref=c1465183ec74f883744145550ba55eac2240a4bd",
+      "patch": "@@ -51,13 +51,15 @@ parts of a Julia program.\n \n ### ``\\LaTeX``\n \n-Surround text that should be displayed as mathematics using ``\\LaTeX`` syntax with double backticks,\n-``` `` ``` .\n+Surround text that should be displayed as mathematics using ``\\LaTeX`` syntax with double backticks:\n+``` `` ```.\n \n ```\n A paragraph containing some ``\\LaTeX`` markup.\n ```\n \n+See the [Display equations](@ref) section for non-inline LaTeX.\n+\n !!! tip\n     As with literals in the previous section, if literal backticks need to be written within double\n     backticks use an even number greater than two. Note that if a single literal backtick needs to\n@@ -71,6 +73,13 @@ A paragraph containing some ``\\LaTeX`` markup.\n     ```\n     @doc raw\"``\\LaTeX`` syntax in a docstring.\" functionname\n     ```\n+!!! note\n+    Inline ``\\LaTeX`` may also be created within a set of single of `$` characters. However\n+    this is not recommend as `$` is also used for string interpolation. Thus using it can\n+    easily lead to unintended results. For example, inside an `md` string the parser will\n+    interpret an unmatched `$` as string interpolation, leading to unexpected errors or\n+    worse, undesired behavior, when a variable is unexpectedly interpolated into a string.\n+    In contrast, an unmatched ``` `` ``` results in a helpful error message.\n \n ### Links\n \n@@ -289,6 +298,14 @@ f(a) = \\frac{1}{2\\pi}\\int_{0}^{2\\pi} (\\alpha+R\\cos(\\theta))d\\theta\n ```\n ````\n \n+Note that the `\\$\\$` version is available but deprecated:\n+\n+```julia\n+raw\"$$H = - \\sum p(x) \\log p(x)$$\"\n+```\n+\n+See the [Inline elements](@ref) for inline ``\\LaTeX`` and a note about the status of the dollar-sign (`\\$`) deprecated form.\n+\n ### Footnotes\n \n This syntax is paired with the inline syntax for [Footnote references](@ref). Make sure to read"
+    }
+  ]
 }

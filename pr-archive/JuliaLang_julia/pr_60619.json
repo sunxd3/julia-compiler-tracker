@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60619/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "d751e0b6be9efb9bc561310771180b1dc7494a67",
+      "filename": "JuliaLowering/src/eval.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e61a047e1c108ff555ee93cea27f7c5c1781484a/JuliaLowering%2Fsrc%2Feval.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e61a047e1c108ff555ee93cea27f7c5c1781484a/JuliaLowering%2Fsrc%2Feval.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Feval.jl?ref=e61a047e1c108ff555ee93cea27f7c5c1781484a",
+      "patch": "@@ -383,7 +383,7 @@ function _to_lowered_expr(ex::SyntaxTree, stmt_offset::Int)\n     elseif k == K\"gotoifnot\"\n         Core.GotoIfNot(_to_lowered_expr(ex[1], stmt_offset), ex[2].id + stmt_offset)\n     elseif k == K\"enter\"\n-        catch_idx = ex[1].id\n+        catch_idx = ex[1].id + stmt_offset\n         numchildren(ex) == 1 ?\n             Core.EnterNode(catch_idx) :\n             Core.EnterNode(catch_idx, _to_lowered_expr(ex[2], stmt_offset))"
+    },
+    {
+      "sha": "6af93bcc068834536e781d56f6cc34cf6cb25166",
+      "filename": "JuliaLowering/test/exceptions.jl",
+      "status": "modified",
+      "additions": 17,
+      "deletions": 0,
+      "changes": 17,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e61a047e1c108ff555ee93cea27f7c5c1781484a/JuliaLowering%2Ftest%2Fexceptions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e61a047e1c108ff555ee93cea27f7c5c1781484a/JuliaLowering%2Ftest%2Fexceptions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fexceptions.jl?ref=e61a047e1c108ff555ee93cea27f7c5c1781484a",
+      "patch": "@@ -335,4 +335,21 @@ finally\n end\n \"\"\") == 2\n \n+@test JuliaLowering.include_string(test_mod, \"\"\"\n+begin\n+    function f_try_catch_nospecialize(@nospecialize(cond))\n+        try\n+            cond && throw(ArgumentError(\"\"))\n+        catch\n+            return 1\n+        end\n+        return 2\n+    end\n+    (\n+        f_try_catch_nospecialize(true),\n+        f_try_catch_nospecialize(false),\n+    )\n+end\n+\"\"\") == (1,2)\n+\n end"
+    }
+  ]
 }

@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/57870/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "13db82af137f03eabe4f44f09b0f1178642c8268",
+      "filename": "stdlib/InteractiveUtils/src/codeview.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 4,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/4bd1def81530e28934ea59b21fe836e92d3e534f/stdlib%2FInteractiveUtils%2Fsrc%2Fcodeview.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/4bd1def81530e28934ea59b21fe836e92d3e534f/stdlib%2FInteractiveUtils%2Fsrc%2Fcodeview.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FInteractiveUtils%2Fsrc%2Fcodeview.jl?ref=4bd1def81530e28934ea59b21fe836e92d3e534f",
+      "patch": "@@ -137,7 +137,8 @@ characteristics of a particular type is an implementation detail of the compiler\n concern, so some types may be colored red even if they do not impact performance.\n Small unions of concrete types are usually not a concern, so these are highlighted in yellow.\n \n-Keyword argument `debuginfo` may be one of `:source` or `:none` (default), to specify the verbosity of code comments.\n+Keyword argument `debuginfo` may be one of `:source`, `:none` or `:default`, to specify the verbosity of code comments.\n+Unless the user changes `Base.IRShow.default_debuginfo[]`, the value `:default` is equivalent to `:source`.\n \n See the [`@code_warntype`](@ref man-code-warntype) section in the Performance Tips page of the manual for more information.\n \n@@ -324,16 +325,16 @@ end\n code_llvm(args...; kwargs...) = (@nospecialize; code_llvm(stdout, args...; kwargs...))\n \n \"\"\"\n-    code_native([io=stdout,], f, types; syntax=:intel, debuginfo=:default, binary=false, dump_module=true)\n+    code_native([io=stdout,], f, types; syntax=:intel, debuginfo=:default, binary=false, dump_module=true, raw=false)\n \n Prints the native assembly instructions generated for running the method matching the given\n generic function and type signature to `io`.\n \n * Set assembly syntax by setting `syntax` to `:intel` (default) for intel syntax or `:att` for AT&T syntax.\n-* Specify verbosity of code comments by setting `debuginfo` to `:source` (default) or `:none`.\n+* Specify verbosity of code comments by setting `debuginfo` to `:source` (equivalently, `:default`) or `:none`.\n * If `binary` is `true`, also print the binary machine code for each instruction precedented by an abbreviated address.\n * If `dump_module` is `false`, do not print metadata such as rodata or directives.\n-* If `raw` is `false`, uninteresting instructions (like the safepoint function prologue) are elided.\n+* If `raw` is `false` (default), uninteresting instructions (like the safepoint function prologue) are elided.\n \n See also: [`@code_native`](@ref), [`code_warntype`](@ref), [`code_typed`](@ref), [`code_lowered`](@ref), [`code_llvm`](@ref).\n \"\"\""
+    }
+  ]
 }

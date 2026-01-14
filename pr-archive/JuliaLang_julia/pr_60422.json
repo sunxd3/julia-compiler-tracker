@@ -128,5 +128,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60422/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "3ac85d12e0480f5d28fd62c7d84de1209e0a6445",
+      "filename": "Makefile",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/109ae3b04975ac99f55a2b64012b960d1d614d21/Makefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/109ae3b04975ac99f55a2b64012b960d1d614d21/Makefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Makefile?ref=109ae3b04975ac99f55a2b64012b960d1d614d21",
+      "patch": "@@ -273,7 +273,7 @@ JL_PRIVATE_LIBS-$(USE_SYSTEM_ZLIB) += zlib\n else\n JL_PRIVATE_LIBS-$(USE_SYSTEM_ZLIB) += libz\n endif\n-JL_PRIVATE_LIBS-$(USE_SYSTEM_ZLIB) += libzstd\n+JL_PRIVATE_LIBS-$(USE_SYSTEM_ZSTD) += libzstd\n JL_PRIVATE_EXES += zstd$(EXE) zstdmt$(EXE)\n ifeq ($(USE_LLVM_SHLIB),1)\n JL_PRIVATE_LIBS-$(USE_SYSTEM_LLVM) += libLLVM $(LLVM_SHARED_LIB_NAME)"
+    }
+  ]
 }

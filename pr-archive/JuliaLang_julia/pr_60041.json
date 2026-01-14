@@ -155,5 +155,79 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60041/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "5e71d6346f3d4e4428579bb6b44bc53bcdeadb10",
+      "filename": "deps/checksums/cacert-2025-09-09.pem/md5",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/fda084f06388ade885b69214e5f31b36b263b31f/deps%2Fchecksums%2Fcacert-2025-09-09.pem%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/fda084f06388ade885b69214e5f31b36b263b31f/deps%2Fchecksums%2Fcacert-2025-09-09.pem%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2Fcacert-2025-09-09.pem%2Fmd5?ref=fda084f06388ade885b69214e5f31b36b263b31f",
+      "patch": "@@ -1 +0,0 @@\n-b7cf55bb817092ae0848509613079931"
+    },
+    {
+      "sha": "5683f52ecc0d7681c025a420a54ab03ae863b575",
+      "filename": "deps/checksums/cacert-2025-09-09.pem/sha512",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/fda084f06388ade885b69214e5f31b36b263b31f/deps%2Fchecksums%2Fcacert-2025-09-09.pem%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/fda084f06388ade885b69214e5f31b36b263b31f/deps%2Fchecksums%2Fcacert-2025-09-09.pem%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2Fcacert-2025-09-09.pem%2Fsha512?ref=fda084f06388ade885b69214e5f31b36b263b31f",
+      "patch": "@@ -1 +0,0 @@\n-bddfc1575a830d31417b3f55adf3b18c2d4bd1434da6e3883f771ab61194e3bf2d5a7d50033f60354bd425bc78f2e07d0663ddab711bfb9d48a8ea2e8cf7de4e"
+    },
+    {
+      "sha": "641a98aecef0284bb8fabe0a6e0d7be4ac07df0b",
+      "filename": "deps/checksums/cacert-2025-11-04.pem/md5",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1856887a32e220ffc4d9b81dddd254b598f4c315/deps%2Fchecksums%2Fcacert-2025-11-04.pem%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1856887a32e220ffc4d9b81dddd254b598f4c315/deps%2Fchecksums%2Fcacert-2025-11-04.pem%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2Fcacert-2025-11-04.pem%2Fmd5?ref=1856887a32e220ffc4d9b81dddd254b598f4c315",
+      "patch": "@@ -0,0 +1 @@\n+4ca8e1c3e8fc44c3ecd7a1fb9d3a6d03"
+    },
+    {
+      "sha": "bbd48b9475d7fe73a39652c41e839728213e0bb9",
+      "filename": "deps/checksums/cacert-2025-11-04.pem/sha512",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1856887a32e220ffc4d9b81dddd254b598f4c315/deps%2Fchecksums%2Fcacert-2025-11-04.pem%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1856887a32e220ffc4d9b81dddd254b598f4c315/deps%2Fchecksums%2Fcacert-2025-11-04.pem%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2Fcacert-2025-11-04.pem%2Fsha512?ref=1856887a32e220ffc4d9b81dddd254b598f4c315",
+      "patch": "@@ -0,0 +1 @@\n+9d9f7ecc829bafc222501d8a66852d96a51f522b04a82963e4166c87b85d6a5e5eedb50ced2ef3026cd7cb06fcb4b7dca59c4157813a067cb7b185e32f2957ec"
+    },
+    {
+      "sha": "6c80bdc41e928f5650984a2dbc22874d71896394",
+      "filename": "deps/libgit2.version",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1856887a32e220ffc4d9b81dddd254b598f4c315/deps%2Flibgit2.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1856887a32e220ffc4d9b81dddd254b598f4c315/deps%2Flibgit2.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Flibgit2.version?ref=1856887a32e220ffc4d9b81dddd254b598f4c315",
+      "patch": "@@ -11,4 +11,4 @@ LIBGIT2_SHA1=0060d9cf5666f015b1067129bd874c6cc4c9c7ac\n # The versions of cacert.pem are identified by the date (YYYY-MM-DD) of their changes.\n # See https://curl.haxx.se/docs/caextract.html for more details.\n # Keep in sync with `stdlib/MozillaCACerts_jll/Project.toml`.\n-MOZILLA_CACERT_VERSION := 2025-09-09\n+MOZILLA_CACERT_VERSION := 2025-11-04"
+    },
+    {
+      "sha": "d63251d59d58fc1c492f5a61a88261277ab5c0f8",
+      "filename": "stdlib/MozillaCACerts_jll/Project.toml",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/1856887a32e220ffc4d9b81dddd254b598f4c315/stdlib%2FMozillaCACerts_jll%2FProject.toml",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/1856887a32e220ffc4d9b81dddd254b598f4c315/stdlib%2FMozillaCACerts_jll%2FProject.toml",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMozillaCACerts_jll%2FProject.toml?ref=1856887a32e220ffc4d9b81dddd254b598f4c315",
+      "patch": "@@ -1,7 +1,7 @@\n name = \"MozillaCACerts_jll\"\n uuid = \"14a3606d-f60d-562e-9121-12d972cd8159\"\n # Keep in sync with `deps/libgit2.version`.\n-version = \"2025.09.09\"\n+version = \"2025.11.04\"\n \n [extras]\n Test = \"8dfed614-e22c-5e08-85e1-65c5234f0b40\""
+    }
+  ]
 }

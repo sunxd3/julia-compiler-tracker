@@ -67,5 +67,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60604/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "44bb88a21ef953f52bffd0101576223ae44fda1c",
+      "filename": "JuliaLowering/src/desugaring.jl",
+      "status": "modified",
+      "additions": 15,
+      "deletions": 0,
+      "changes": 15,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/333ab696678d764ec94fd0dceafe0ede0be2e4c0/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/333ab696678d764ec94fd0dceafe0ede0be2e4c0/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fdesugaring.jl?ref=333ab696678d764ec94fd0dceafe0ede0be2e4c0",
+      "patch": "@@ -4372,6 +4372,18 @@ end\n #-------------------------------------------------------------------------------\n # Expand docstring-annotated expressions\n \n+function isquotedmacrocall(ex)\n+    kind(ex) == K\"call\" || return false\n+    numchildren(ex) == 3 || return false\n+    let (f, ex) = (ex[1], ex[3])\n+        kind(f) == K\"Value\" || return false\n+        kind(ex) == K\"inert\" || return false\n+        f.value === interpolate_ast || return false\n+        kind(ex[1]) == K\"macrocall\" || return false\n+        return true\n+    end\n+end\n+\n function expand_doc(ctx, ex, docex, mod=ctx.mod)\n     if kind(ex) in (K\"Identifier\", K\".\")\n         expand_forms_2(ctx, @ast ctx docex [K\"call\"\n@@ -4382,6 +4394,9 @@ function expand_doc(ctx, ex, docex, mod=ctx.mod)\n             ::K\"SourceLocation\"(ex)\n             Union{}::K\"Value\"\n         ])\n+    elseif isquotedmacrocall(ex)\n+        # TODO: implement proper `doc!` support here\n+        expand_forms_2(ctx, ex, docex)\n     elseif is_eventually_call(ex)\n         expand_function_def(ctx, @ast(ctx, ex, [K\"function\" ex [K\"block\"]]),\n                             docex; doc_only=true)"
+    },
+    {
+      "sha": "5fe9b19f47371925b828ee128920c57b13df967a",
+      "filename": "JuliaLowering/test/misc.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 0,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/333ab696678d764ec94fd0dceafe0ede0be2e4c0/JuliaLowering%2Ftest%2Fmisc.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/333ab696678d764ec94fd0dceafe0ede0be2e4c0/JuliaLowering%2Ftest%2Fmisc.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fmisc.jl?ref=333ab696678d764ec94fd0dceafe0ede0be2e4c0",
+      "patch": "@@ -236,6 +236,12 @@ end\n     @test d |> string === \"docstr12\\n\"\n     @test d.meta[:results][1].data[:typesig] === Union{Tuple{Int, U, T}, Tuple{Int, U}} where {T, U<:Number}\n \n+    # doc-strings on macrocalls (punned on quoted macrocall)\n+    # TODO: implement and test `doc!` support for this\n+    @test jeval(test_mod, \"\"\"\n+        \"doc string\"\n+        :@test\n+    \"\"\") isa Expr\n end\n \n # SyntaxTree @eval should pass along expr_compat_mode"
+    },
+    {
+      "sha": "0ba7bf3acfe64989189d4c180704ad5c4be286e0",
+      "filename": "test/JuliaLowering_stdlibs.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 3,
+      "changes": 5,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/333ab696678d764ec94fd0dceafe0ede0be2e4c0/test%2FJuliaLowering_stdlibs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/333ab696678d764ec94fd0dceafe0ede0be2e4c0/test%2FJuliaLowering_stdlibs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2FJuliaLowering_stdlibs.jl?ref=333ab696678d764ec94fd0dceafe0ede0be2e4c0",
+      "patch": "@@ -2,12 +2,11 @@ import Libdl\n \n # known precompilation failures under JL\n const INCOMPATIBLE_STDLIBS = String[\n-    \"InteractiveUtils\", # Invalid function name\n     \"LibGit2\", # op isa Symbol (JuliaLang/JuliaLowering.jl#126)\n     \"SparseArrays\", # type-alias bug (JuliaLang/JuliaLowering.jl#123)\n     \"TOML\", # @invokelatest / QuoteNode bug\n-    \"Test\", # depends on InteractiveUtils\n-    \"REPL\", # depends on InteractiveUtils\n+    \"Test\", # nested + destructured args splat (JuliaLang/JuliaLowering.jl#133)\n+    \"REPL\", # infinite softscope (in REPL code)\n     \"Pkg\", # depends on TOML\n     \"SuiteSparse\", # depends on SparseArrays\n     \"LazyArtifacts\", # depends on Pkg"
+    }
+  ]
 }

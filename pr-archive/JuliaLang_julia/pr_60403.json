@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60403/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "6809ed81c7eb0240b6a0f9307b9f428f14db41db",
+      "filename": "JuliaSyntax/src/julia/parser.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c4eeca783a6af42ad7b8c78f9c77d76daa6fc59a/JuliaSyntax%2Fsrc%2Fjulia%2Fparser.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c4eeca783a6af42ad7b8c78f9c77d76daa6fc59a/JuliaSyntax%2Fsrc%2Fjulia%2Fparser.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaSyntax%2Fsrc%2Fjulia%2Fparser.jl?ref=c4eeca783a6af42ad7b8c78f9c77d76daa6fc59a",
+      "patch": "@@ -3189,8 +3189,8 @@ end\n # (a,b=1; c,d=2; e,f=3)  ==>  (tuple-p a (= b 1) (parameters c (= d 2)) (parameters e (= f 3)))\n #\n # flisp: parts of parse-paren- and parse-arglist\n-function parse_brackets(after_parse::Function,\n-                        ps::ParseState, closing_kind, generator_is_last=true)\n+function parse_brackets(after_parse::F,\n+                        ps::ParseState, closing_kind, generator_is_last=true) where {F}\n     ps = ParseState(ps, range_colon_enabled=true,\n                     space_sensitive=false,\n                     where_enabled=true,"
+    }
+  ]
 }

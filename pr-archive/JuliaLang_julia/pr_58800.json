@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/58800/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "51e92432b4017ed9b23d68df3652a0cb5d6e4490",
+      "filename": "base/subarray.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 9,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/56b2c36e997bec0a4bc1fc50505cc2246be1a219/base%2Fsubarray.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/56b2c36e997bec0a4bc1fc50505cc2246be1a219/base%2Fsubarray.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fsubarray.jl?ref=56b2c36e997bec0a4bc1fc50505cc2246be1a219",
+      "patch": "@@ -298,15 +298,8 @@ reindex(idxs::Tuple{AbstractMatrix, Vararg{Any}}, subidxs::Tuple{Any, Any, Varar\n     (@_propagate_inbounds_meta; (idxs[1][subidxs[1], subidxs[2]], reindex(tail(idxs), tail(tail(subidxs)))...))\n \n # In general, we index N-dimensional parent arrays with N indices\n-@generated function reindex(idxs::Tuple{AbstractArray{T,N}, Vararg{Any}}, subidxs::Tuple{Vararg{Any}}) where {T,N}\n-    if length(subidxs.parameters) >= N\n-        subs = [:(subidxs[$d]) for d in 1:N]\n-        tail = [:(subidxs[$d]) for d in N+1:length(subidxs.parameters)]\n-        :(@_propagate_inbounds_meta; (idxs[1][$(subs...)], reindex(tail(idxs), ($(tail...),))...))\n-    else\n-        :(throw(ArgumentError(\"cannot re-index SubArray with fewer indices than dimensions\\nThis should not occur; please submit a bug report.\")))\n-    end\n-end\n+reindex(idxs::Tuple{AbstractArray{<:Any,N}, Vararg{Any}}, subidxs::Tuple{Vararg{Any}}) where {N} =\n+    (@_propagate_inbounds_meta; (idxs[1][subidxs[1:N]...], reindex(tail(idxs), subidxs[N+1:end])...))\n \n # In general, we simply re-index the parent indices by the provided ones\n SlowSubArray{T,N,P,I} = SubArray{T,N,P,I,false}"
+    }
+  ]
 }

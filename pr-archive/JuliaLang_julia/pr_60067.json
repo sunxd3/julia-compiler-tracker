@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60067/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0a98735e1db3f0c2d72d5f7114ee75a5f4f00268",
+      "filename": "NEWS.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/178b8a02b7aa536e51c06c43286217b587d63d19/NEWS.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/178b8a02b7aa536e51c06c43286217b587d63d19/NEWS.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/NEWS.md?ref=178b8a02b7aa536e51c06c43286217b587d63d19",
+      "patch": "@@ -104,6 +104,7 @@ Standard library changes\n * History searching has been rewritten to use a new interactive modal dialogue, using a fzf-like style.\n * The display of `AbstractChar`s in the main REPL mode now includes LaTeX input information like what is shown in help mode ([#58181]).\n * Display of repeated frames and cycles in stack traces has been improved by bracketing them in the trace and treating them consistently ([#55841]).\n+* The superscript character U+107A5 \ud801\udfa5 (MODIFIER LETTER SMALL Q), which was already supported in the language, can now be accessed at the REPL with `\\^q` ([#59544]).\n \n #### Test\n "
+    }
+  ]
 }

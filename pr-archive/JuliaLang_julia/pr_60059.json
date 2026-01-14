@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60059/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "52b0dd5233e39edf72aa4ea5eec1cee2953b14f2",
+      "filename": "base/public.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/288b01f1a07a8d181a94f3b3c78eab511c61600c/base%2Fpublic.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/288b01f1a07a8d181a94f3b3c78eab511c61600c/base%2Fpublic.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fpublic.jl?ref=288b01f1a07a8d181a94f3b3c78eab511c61600c",
+      "patch": "@@ -99,6 +99,7 @@ public\n     @constprop,\n     @locals,\n     @propagate_inbounds,\n+    @__doc__,\n \n # External processes\n     shell_escape,"
+    }
+  ]
 }

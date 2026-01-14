@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59832/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "76aaf927b60f2e0eb2110f20900cbd8de3233a81",
+      "filename": "base/binaryplatforms.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/cbd0f9c799ab2ceaf822ae2146b0d85adb2c600f/base%2Fbinaryplatforms.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/cbd0f9c799ab2ceaf822ae2146b0d85adb2c600f/base%2Fbinaryplatforms.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fbinaryplatforms.jl?ref=cbd0f9c799ab2ceaf822ae2146b0d85adb2c600f",
+      "patch": "@@ -1096,7 +1096,7 @@ function platforms_match(a::AbstractPlatform, b::AbstractPlatform)\n \n         # Call the comparator, passing in which objects requested this comparison (one, the other, or both)\n         # For some comparators this doesn't matter, but for non-symmetrical comparisons, it does.\n-        if !(comparator(ak, bk, a_comp === comparator, b_comp === comparator)::Bool)\n+        if !(@invokelatest(comparator(ak, bk, a_comp === comparator, b_comp === comparator))::Bool)\n             return false\n         end\n     end"
+    }
+  ]
 }

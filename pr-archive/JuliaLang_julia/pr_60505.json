@@ -67,5 +67,67 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60505/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "fbb7d5b86627f9b349dbdfef5968ab67c9304ac4",
+      "filename": "deps/checksums/NetworkOptions-532992fcc0f1d02df48374969cbae37e34c01360.tar.gz/md5",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/368ae19adffb5715fcca5ad75603ebe60be516c5/deps%2Fchecksums%2FNetworkOptions-532992fcc0f1d02df48374969cbae37e34c01360.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/368ae19adffb5715fcca5ad75603ebe60be516c5/deps%2Fchecksums%2FNetworkOptions-532992fcc0f1d02df48374969cbae37e34c01360.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FNetworkOptions-532992fcc0f1d02df48374969cbae37e34c01360.tar.gz%2Fmd5?ref=368ae19adffb5715fcca5ad75603ebe60be516c5",
+      "patch": "@@ -1 +0,0 @@\n-afab093d162a62d5a488894f33d3b396"
+    },
+    {
+      "sha": "146d3a3d1bad873a330a3bb84b334bcdf5c9ca7e",
+      "filename": "deps/checksums/NetworkOptions-532992fcc0f1d02df48374969cbae37e34c01360.tar.gz/sha512",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/368ae19adffb5715fcca5ad75603ebe60be516c5/deps%2Fchecksums%2FNetworkOptions-532992fcc0f1d02df48374969cbae37e34c01360.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/368ae19adffb5715fcca5ad75603ebe60be516c5/deps%2Fchecksums%2FNetworkOptions-532992fcc0f1d02df48374969cbae37e34c01360.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FNetworkOptions-532992fcc0f1d02df48374969cbae37e34c01360.tar.gz%2Fsha512?ref=368ae19adffb5715fcca5ad75603ebe60be516c5",
+      "patch": "@@ -1 +0,0 @@\n-14b41cc9c93e2f9eeaa9499d65b8c42ee80691cbd533ef6cafabdb6e94c7cf31eee00fb603ca70dfe86930c871419cf17a8f05c0a76bd379a8bbf705b875dfe2"
+    },
+    {
+      "sha": "8f918b40b2ffb77bca0baab955257660671913d0",
+      "filename": "deps/checksums/NetworkOptions-7034c55dbf52ee959cabd63bcbe656df658f5bda.tar.gz/md5",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/50b035f2ccfdcbb3ecd781a638e09d8825bff0fe/deps%2Fchecksums%2FNetworkOptions-7034c55dbf52ee959cabd63bcbe656df658f5bda.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/50b035f2ccfdcbb3ecd781a638e09d8825bff0fe/deps%2Fchecksums%2FNetworkOptions-7034c55dbf52ee959cabd63bcbe656df658f5bda.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FNetworkOptions-7034c55dbf52ee959cabd63bcbe656df658f5bda.tar.gz%2Fmd5?ref=50b035f2ccfdcbb3ecd781a638e09d8825bff0fe",
+      "patch": "@@ -0,0 +1 @@\n+1fbf59e3052ec0d40a195d935b3d4a96"
+    },
+    {
+      "sha": "feeb688dcb7e278708bc788ea73818f5962a36c5",
+      "filename": "deps/checksums/NetworkOptions-7034c55dbf52ee959cabd63bcbe656df658f5bda.tar.gz/sha512",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/50b035f2ccfdcbb3ecd781a638e09d8825bff0fe/deps%2Fchecksums%2FNetworkOptions-7034c55dbf52ee959cabd63bcbe656df658f5bda.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/50b035f2ccfdcbb3ecd781a638e09d8825bff0fe/deps%2Fchecksums%2FNetworkOptions-7034c55dbf52ee959cabd63bcbe656df658f5bda.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FNetworkOptions-7034c55dbf52ee959cabd63bcbe656df658f5bda.tar.gz%2Fsha512?ref=50b035f2ccfdcbb3ecd781a638e09d8825bff0fe",
+      "patch": "@@ -0,0 +1 @@\n+4ec9724062d97a9d400bfb4a672ed5ce52999738ddbc01d2892d97df3fd256fe03bb5ea69f2ebbbbdbfef91edc24d82e54df48f997781eba2c6cd8e1c36d046c"
+    },
+    {
+      "sha": "7a3c0ccd27d3f702b900de8112b5fae9dfb3ceb3",
+      "filename": "stdlib/NetworkOptions.version",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/50b035f2ccfdcbb3ecd781a638e09d8825bff0fe/stdlib%2FNetworkOptions.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/50b035f2ccfdcbb3ecd781a638e09d8825bff0fe/stdlib%2FNetworkOptions.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FNetworkOptions.version?ref=50b035f2ccfdcbb3ecd781a638e09d8825bff0fe",
+      "patch": "@@ -1,4 +1,4 @@\n NETWORKOPTIONS_BRANCH = master\n-NETWORKOPTIONS_SHA1 = 532992fcc0f1d02df48374969cbae37e34c01360\n+NETWORKOPTIONS_SHA1 = 7034c55dbf52ee959cabd63bcbe656df658f5bda\n NETWORKOPTIONS_GIT_URL := https://github.com/JuliaLang/NetworkOptions.jl.git\n NETWORKOPTIONS_TAR_URL = https://api.github.com/repos/JuliaLang/NetworkOptions.jl/tarball/$1"
+    }
+  ]
 }

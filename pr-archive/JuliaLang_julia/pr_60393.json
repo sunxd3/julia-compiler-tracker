@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60393/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "64ad007acdf3b52678ae78d7101f1e3fc6b078f8",
+      "filename": "Compiler/src/typeinfer.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/6ed0698b7ec684b04071ed94f6304c6aeb9393da/Compiler%2Fsrc%2Ftypeinfer.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/6ed0698b7ec684b04071ed94f6304c6aeb9393da/Compiler%2Fsrc%2Ftypeinfer.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Compiler%2Fsrc%2Ftypeinfer.jl?ref=6ed0698b7ec684b04071ed94f6304c6aeb9393da",
+      "patch": "@@ -817,7 +817,7 @@ function compute_edges!(sv::InferenceState)\n     for i in 1:length(sv.stmt_info)\n         add_edges!(edges, sv.stmt_info[i])\n     end\n-    user_edges = sv.src.edges\n+    user_edges = sv.src.edges::Union{Nothing, SimpleVector, Vector{Any}}\n     if user_edges !== nothing && user_edges !== empty_edges\n         append!(edges, user_edges)\n     end"
+    }
+  ]
 }

@@ -95,5 +95,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/54575/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "65ea9ff0233dcfeb2e2536233036f601ef289957",
+      "filename": "doc/src/manual/modules.md",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/ec8b6440a6a499d7ebfcaeaae46ea61eac3761c0/doc%2Fsrc%2Fmanual%2Fmodules.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/ec8b6440a6a499d7ebfcaeaae46ea61eac3761c0/doc%2Fsrc%2Fmanual%2Fmodules.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fsrc%2Fmanual%2Fmodules.md?ref=ec8b6440a6a499d7ebfcaeaae46ea61eac3761c0",
+      "patch": "@@ -154,8 +154,8 @@ In contrast,\n julia> import .NiceStuff\n ```\n \n-brings *only* the module name into scope. Users would need to use `NiceStuff.DOG`, `NiceStuff.Dog`, and `NiceStuff.nice` to access its contents. Usually, `import ModuleName` is used in contexts when the user wants to keep the namespace clean.\n-As we will see in the next section `import .NiceStuff` is equivalent to `using .NiceStuff: NiceStuff`.\n+brings *only* the module name into scope. Users would need to use `NiceStuff.DOG`, `NiceStuff.Dog`, and `NiceStuff.nice` to access its contents.\n+As we will see in the next section `import .NiceStuff` is equivalent to `using .NiceStuff: NiceStuff`. Usually, `import ModuleName` or `using ModuleName: ModuleName` is used in contexts when the user wants to keep the namespace clean.\n \n You can combine multiple `using` and `import` statements of the same kind in a comma-separated expression, e.g.\n "
+    }
+  ]
 }

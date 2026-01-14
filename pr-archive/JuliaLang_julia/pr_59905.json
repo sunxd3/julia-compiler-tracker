@@ -128,5 +128,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59905/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "8b40e73bbc845fd62e847cd2de7f94b64320555c",
+      "filename": "base/task.jl",
+      "status": "modified",
+      "additions": 12,
+      "deletions": 6,
+      "changes": 18,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c686e1fac8b316fcb84ce005088d55bbb0afa31a/base%2Ftask.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c686e1fac8b316fcb84ce005088d55bbb0afa31a/base%2Ftask.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Ftask.jl?ref=c686e1fac8b316fcb84ce005088d55bbb0afa31a",
+      "patch": "@@ -435,19 +435,21 @@ function _wait_multiple(waiting_tasks, throwexc=false, all=false, failfast=false\n             done_mask[i] = true\n             exception |= istaskfailed(t)\n             nremaining -= 1\n-        else\n-            done_mask[i] = false\n         end\n     end\n \n-    if nremaining == 0\n-        return tasks, Task[]\n-    elseif any(done_mask) && (!all || (failfast && exception))\n+    # We can return early all tasks are done, or if any is done and we only\n+    # needed to wait for one, or if any task failed and we have failfast\n+    if nremaining == 0 || (any(done_mask) && (!all || (failfast && exception)))\n         if throwexc && (!all || failfast) && exception\n             exceptions = [TaskFailedException(t) for t in tasks[done_mask] if istaskfailed(t)]\n             throw(CompositeException(exceptions))\n         else\n-            return tasks[done_mask], tasks[.~done_mask]\n+            if nremaining == 0\n+                return tasks, Task[]\n+            else\n+                return tasks[done_mask], tasks[.~done_mask]\n+            end\n         end\n     end\n \n@@ -489,6 +491,10 @@ function _wait_multiple(waiting_tasks, throwexc=false, all=false, failfast=false\n     close(chan)\n \n     if nremaining == 0\n+        if throwexc && exception\n+            exceptions = [TaskFailedException(t) for t in tasks if istaskfailed(t)]\n+            throw(CompositeException(exceptions))\n+        end\n         return tasks, Task[]\n     else\n         remaining_mask = .~done_mask"
+    },
+    {
+      "sha": "54ab20538e70fd492b27e58118197fc493ad0bb7",
+      "filename": "test/threads_exec.jl",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 0,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c686e1fac8b316fcb84ce005088d55bbb0afa31a/test%2Fthreads_exec.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c686e1fac8b316fcb84ce005088d55bbb0afa31a/test%2Fthreads_exec.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fthreads_exec.jl?ref=c686e1fac8b316fcb84ce005088d55bbb0afa31a",
+      "patch": "@@ -1364,6 +1364,17 @@ end\n                 @test !istaskdone(tasks[3])\n \n                 teardown(tasks, event)\n+\n+                @test_throws CompositeException begin\n+                    waitall(Threads.@spawn(div(1, i)) for i = 0:1)\n+                end\n+\n+                tasks = [Threads.@spawn(div(1, i)) for i = 0:1]\n+                wait(tasks[1]; throw=false)\n+                wait(tasks[2]; throw=false)\n+                @test_throws CompositeException begin\n+                    waitall(Threads.@spawn(div(1, i)) for i = 0:1)\n+                end\n             end\n         end\n     end"
+    }
+  ]
 }

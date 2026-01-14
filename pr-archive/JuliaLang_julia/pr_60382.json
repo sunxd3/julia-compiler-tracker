@@ -67,5 +67,67 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60382/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "511b5c1d551334b9d9cce85de1481e18890623f4",
+      "filename": "deps/checksums/Pkg-1e90f07f9f28e9cec60c5aea0e55302a02164b10.tar.gz/md5",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/4ef42fe7273fbbf025bc9b196f55f7df86b516a0/deps%2Fchecksums%2FPkg-1e90f07f9f28e9cec60c5aea0e55302a02164b10.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/4ef42fe7273fbbf025bc9b196f55f7df86b516a0/deps%2Fchecksums%2FPkg-1e90f07f9f28e9cec60c5aea0e55302a02164b10.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FPkg-1e90f07f9f28e9cec60c5aea0e55302a02164b10.tar.gz%2Fmd5?ref=4ef42fe7273fbbf025bc9b196f55f7df86b516a0",
+      "patch": "@@ -1 +0,0 @@\n-e2064b38167e42b7e96fdb2b6a738b31"
+    },
+    {
+      "sha": "8dcd6313d01f7b090e12e1ba33c81660cc967920",
+      "filename": "deps/checksums/Pkg-1e90f07f9f28e9cec60c5aea0e55302a02164b10.tar.gz/sha512",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/4ef42fe7273fbbf025bc9b196f55f7df86b516a0/deps%2Fchecksums%2FPkg-1e90f07f9f28e9cec60c5aea0e55302a02164b10.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/4ef42fe7273fbbf025bc9b196f55f7df86b516a0/deps%2Fchecksums%2FPkg-1e90f07f9f28e9cec60c5aea0e55302a02164b10.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FPkg-1e90f07f9f28e9cec60c5aea0e55302a02164b10.tar.gz%2Fsha512?ref=4ef42fe7273fbbf025bc9b196f55f7df86b516a0",
+      "patch": "@@ -1 +0,0 @@\n-b21d6c58f3132af8dd739c8b23073a6702e554d517c6d364e883a355ea1d692cdae01d8600d7eed7c9d4b3792025d1e4d7aa258f5850817aff2fae48f631b2c3"
+    },
+    {
+      "sha": "a788f598720cee4277cc0f6ae9e3c28c74516f30",
+      "filename": "deps/checksums/Pkg-61e074274077ea5b283194d5020b62b21a3576b7.tar.gz/md5",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2269ec0b294833c3c4865fe7378199cc481f52b4/deps%2Fchecksums%2FPkg-61e074274077ea5b283194d5020b62b21a3576b7.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2269ec0b294833c3c4865fe7378199cc481f52b4/deps%2Fchecksums%2FPkg-61e074274077ea5b283194d5020b62b21a3576b7.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FPkg-61e074274077ea5b283194d5020b62b21a3576b7.tar.gz%2Fmd5?ref=2269ec0b294833c3c4865fe7378199cc481f52b4",
+      "patch": "@@ -0,0 +1 @@\n+db6d184a7c3fd777dcb0e2a7994dcc63"
+    },
+    {
+      "sha": "2e0fc1a997947807b3ede92474c7840225997669",
+      "filename": "deps/checksums/Pkg-61e074274077ea5b283194d5020b62b21a3576b7.tar.gz/sha512",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2269ec0b294833c3c4865fe7378199cc481f52b4/deps%2Fchecksums%2FPkg-61e074274077ea5b283194d5020b62b21a3576b7.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2269ec0b294833c3c4865fe7378199cc481f52b4/deps%2Fchecksums%2FPkg-61e074274077ea5b283194d5020b62b21a3576b7.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FPkg-61e074274077ea5b283194d5020b62b21a3576b7.tar.gz%2Fsha512?ref=2269ec0b294833c3c4865fe7378199cc481f52b4",
+      "patch": "@@ -0,0 +1 @@\n+de1313e6ff442a6b1f0d324a4dfe23be8e81b3852692526505063b755685cf2b69e09bb303f8e3e3581753a295aa058cda21e4aaff143ebd9480457613e5a987"
+    },
+    {
+      "sha": "268b647269149304f85d492735a601658e420409",
+      "filename": "stdlib/Pkg.version",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2269ec0b294833c3c4865fe7378199cc481f52b4/stdlib%2FPkg.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2269ec0b294833c3c4865fe7378199cc481f52b4/stdlib%2FPkg.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FPkg.version?ref=2269ec0b294833c3c4865fe7378199cc481f52b4",
+      "patch": "@@ -1,4 +1,4 @@\n PKG_BRANCH = master\n-PKG_SHA1 = 1e90f07f9f28e9cec60c5aea0e55302a02164b10\n+PKG_SHA1 = 61e074274077ea5b283194d5020b62b21a3576b7\n PKG_GIT_URL := https://github.com/JuliaLang/Pkg.jl.git\n PKG_TAR_URL = https://api.github.com/repos/JuliaLang/Pkg.jl/tarball/$1"
+    }
+  ]
 }

@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60572/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "2888a3ce22c821bac430b221d7b2e282bc122b1b",
+      "filename": "stdlib/Markdown/src/Common/inline.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/cc68acc10ca533db3eabeaa81fac9a36ad0d3676/stdlib%2FMarkdown%2Fsrc%2FCommon%2Finline.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/cc68acc10ca533db3eabeaa81fac9a36ad0d3676/stdlib%2FMarkdown%2Fsrc%2FCommon%2Finline.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FCommon%2Finline.jl?ref=cc68acc10ca533db3eabeaa81fac9a36ad0d3676",
+      "patch": "@@ -190,7 +190,7 @@ function en_or_em_dash(stream::IO, md::MD)\n     end\n end\n \n-const escape_chars = \"\\\\`*_#+-.!{}[]()\\$\"\n+const escape_chars = \"\"\"!\"#\\$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~\"\"\"\n \n @trigger '\\\\' ->\n function escapes(stream::IO, md::MD)"
+    },
+    {
+      "sha": "88d22d18f22c914c782b1fcc4e97353d0a3f9926",
+      "filename": "stdlib/Markdown/test/test_spec.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 3,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/cc68acc10ca533db3eabeaa81fac9a36ad0d3676/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/cc68acc10ca533db3eabeaa81fac9a36ad0d3676/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl?ref=cc68acc10ca533db3eabeaa81fac9a36ad0d3676",
+      "patch": "@@ -88,7 +88,7 @@ end\n     input = \"\\\\!\\\\\\\"\\\\#\\\\\\$\\\\%\\\\&\\\\'\\\\(\\\\)\\\\*\\\\+\\\\,\\\\-\\\\.\\\\/\\\\:\\\\;\\\\<\\\\=\\\\>\\\\?\\\\@\\\\[\\\\\\\\\\\\]\\\\^\\\\_\\\\`\\\\{\\\\|\\\\}\\\\~\\n\"\n     expected = \"<p>!&quot;#\\$%&amp;'()*+,-./:;&lt;=&gt;?@[\\\\]^_`{|}~</p>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 13\n     input = \"\\\\\\t\\\\A\\\\a\\\\ \\\\3\\\\\u03c6\\\\\u00ab\\n\"\n@@ -663,7 +663,7 @@ end\n     input = \"\\\\> foo\\n------\\n\"\n     expected = \"<h2>&gt; foo</h2>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 103\n     input = \"Foo\\n\\nbar\\n---\\nbaz\\n\"\n@@ -3955,7 +3955,7 @@ end\n     input = \"<a href=\\\"\\\\\\\"\\\">\\n\"\n     expected = \"<p>&lt;a href=&quot;&quot;&quot;&gt;</p>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n end\n "
+    }
+  ]
 }

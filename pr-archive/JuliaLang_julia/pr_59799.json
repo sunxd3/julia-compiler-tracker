@@ -77,5 +77,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59799/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "4309094e9fa1dc4bce157abcb336b4f72c587348",
+      "filename": "base/parse.jl",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 32,
+      "changes": 43,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/33b14351506d4c7ee4e2fe8a65b409a14c9d7907/base%2Fparse.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/33b14351506d4c7ee4e2fe8a65b409a14c9d7907/base%2Fparse.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fparse.jl?ref=33b14351506d4c7ee4e2fe8a65b409a14c9d7907",
+      "patch": "@@ -38,38 +38,16 @@ julia> parse(Complex{Float64}, \"3.2e-1 + 4.5im\")\n parse(T::Type, str; base = Int)\n parse(::Type{Union{}}, slurp...; kwargs...) = error(\"cannot parse a value as Union{}\")\n \n-@noinline function _invalid_base(base)\n-    throw(ArgumentError(\"invalid base: base must be 2 \u2264 base \u2264 62, got $base\"))\n-end\n-\n-@noinline _invalid_digit(base, char) = throw(ArgumentError(\"invalid base $base digit $(repr(char))\"))\n-\n-function parse_char(::Type{T}, c::AbstractChar, base::Integer, throw::Bool) where T\n-    a::UInt8 = (base <= 36 ? 10 : 36)\n-    (2 <= base <= 62) || _invalid_base(base)\n-    base = base % UInt8\n-    cp = codepoint(c)\n-    cp = cp > 0x7a ? 0xff : cp % UInt8\n-    d = UInt8('0') \u2264 cp \u2264 UInt8('9') ? cp - UInt8('0') :\n-        UInt8('A') \u2264 cp \u2264 UInt8('Z') ? cp - UInt8('A') + UInt8(10) :\n-        UInt8('a') \u2264 cp \u2264 UInt8('z') ? cp - UInt8('a') + a :\n-        0xff\n-    d < base || (throw ? _invalid_digit(base, c) : return nothing)\n-    convert(T, d)::T\n-end\n-\n-function parse(::Type{T}, c::AbstractChar; base::Integer=10) where {T <: Integer}\n-    @inline parse_char(T, c, base, true)\n+function parse(::Type{T}, c::AbstractChar; base::Integer = 10) where T<:Integer\n+    a::Int = (base <= 36 ? 10 : 36)\n+    2 <= base <= 62 || throw(ArgumentError(\"invalid base: base must be 2 \u2264 base \u2264 62, got $base\"))\n+    d = '0' <= c <= '9' ? c-'0'    :\n+        'A' <= c <= 'Z' ? c-'A'+10 :\n+        'a' <= c <= 'z' ? c-'a'+a  : throw(ArgumentError(\"invalid digit: $(repr(c))\"))\n+    d < base || throw(ArgumentError(\"invalid base $base digit $(repr(c))\"))\n+    convert(T, d)\n end\n \n-function tryparse(::Type{T}, c::AbstractChar; base::Integer=10) where {T <: Integer}\n-    @inline parse_char(T, c, base, false)\n-end\n-\n-# For consistency with parse(t, AbstractString), support a `base` argument only when T<:Integer\n-parse(::Type{T}, c::AbstractChar) where T = @inline parse_char(T, c, 10, true)\n-tryparse(::Type{T}, c::AbstractChar) where T = @inline parse_char(T, c, 10, false)\n-\n function parseint_iterate(s::AbstractString, startpos::Int, endpos::Int)\n     (0 < startpos <= endpos) || (return Char(0), 0, 0)\n     j = startpos\n@@ -138,7 +116,8 @@ function tryparse_internal(::Type{T}, s::AbstractString, startpos::Int, endpos::\n         return nothing\n     end\n     if !(2 <= base <= 62)\n-        raise ? _invalid_base(base) : return nothing\n+        raise && throw(ArgumentError(LazyString(\"invalid base: base must be 2 \u2264 base \u2264 62, got \", base)))\n+        return nothing\n     end\n     if i == 0\n         raise && throw(ArgumentError(\"premature end of integer: $(repr(SubString(s,startpos,endpos)))\"))\n@@ -257,7 +236,7 @@ end\n     if 2 <= base <= 62\n         return base\n     end\n-    _invalid_base(base)\n+    throw(ArgumentError(\"invalid base: base must be 2 \u2264 base \u2264 62, got $base\"))\n end\n \n \"\"\""
+    },
+    {
+      "sha": "3329af875a8355d7d39f5a50cf2898e439740500",
+      "filename": "base/public.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/33b14351506d4c7ee4e2fe8a65b409a14c9d7907/base%2Fpublic.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/33b14351506d4c7ee4e2fe8a65b409a14c9d7907/base%2Fpublic.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fpublic.jl?ref=33b14351506d4c7ee4e2fe8a65b409a14c9d7907",
+      "patch": "@@ -2,7 +2,6 @@\n \n public\n # Modules\n-    Cartesian,\n     Checked,\n     Filesystem,\n     Order,"
+    },
+    {
+      "sha": "e2b94a45cc4460918d52e225ad241fb9cd7bfd41",
+      "filename": "test/parse.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 7,
+      "changes": 7,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/33b14351506d4c7ee4e2fe8a65b409a14c9d7907/test%2Fparse.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/33b14351506d4c7ee4e2fe8a65b409a14c9d7907/test%2Fparse.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fparse.jl?ref=33b14351506d4c7ee4e2fe8a65b409a14c9d7907",
+      "patch": "@@ -29,13 +29,6 @@\n     @test parse(Int, 'a', base=16) == 10\n     @test_throws ArgumentError parse(Int, 'a')\n     @test_throws ArgumentError parse(Int,typemax(Char))\n-\n-    @test tryparse(Int, '8') === 8\n-    @test tryparse(Int, 'a') === nothing\n-    @test tryparse(Int, 'a'; base=11) === 10\n-    @test tryparse(Int32, 'a'; base=11) === Int32(10)\n-    @test tryparse(UInt8, 'f'; base=16) === 0x0f\n-    @test tryparse(UInt8, 'f'; base=15) === nothing\n end\n \n # Issue 29451"
+    }
+  ]
 }

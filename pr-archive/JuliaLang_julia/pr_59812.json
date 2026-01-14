@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59812/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "dcfc780084a198116ead515c3ef22c2098c91c4a",
+      "filename": "stdlib/Test/src/Test.jl",
+      "status": "modified",
+      "additions": 9,
+      "deletions": 2,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/01c020dca73f6d156285a37f4761230d5a9c1fa3/stdlib%2FTest%2Fsrc%2FTest.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/01c020dca73f6d156285a37f4761230d5a9c1fa3/stdlib%2FTest%2Fsrc%2FTest.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FTest%2Fsrc%2FTest.jl?ref=01c020dca73f6d156285a37f4761230d5a9c1fa3",
+      "patch": "@@ -1235,7 +1235,14 @@ mutable struct DefaultTestSet <: AbstractTestSet\n     results_lock::ReentrantLock\n     results::Vector{Any}\n end\n-function DefaultTestSet(desc::AbstractString; verbose::Bool = something(Base.ScopedValues.get(VERBOSE_TESTSETS)), showtiming::Bool = true, failfast::Union{Nothing,Bool} = nothing, source = nothing, rng = nothing)\n+function DefaultTestSet(desc::AbstractString;\n+                        verbose::Bool = something(Base.ScopedValues.get(VERBOSE_TESTSETS)),\n+                        showtiming::Bool = true,\n+                        failfast::Union{Nothing,Bool} = nothing,\n+                        source = nothing,\n+                        time_start::Float64 = time(),\n+                        rng = nothing,\n+                        )\n     if isnothing(failfast)\n         # pass failfast state into child testsets\n         parent_ts = get_testset()\n@@ -1247,7 +1254,7 @@ function DefaultTestSet(desc::AbstractString; verbose::Bool = something(Base.Sco\n     end\n     return DefaultTestSet(String(desc)::String,\n         verbose, showtiming, failfast, extract_file(source),\n-        time(), rng, 0, 0., 0x00, ReentrantLock(), Any[])\n+        time_start, rng, 0, 0., 0x00, ReentrantLock(), Any[])\n end\n extract_file(source::LineNumberNode) = extract_file(source.file)\n extract_file(file::Symbol) = string(file)"
+    },
+    {
+      "sha": "cc39dc72ce44f5b916e320058a1760d0f8e18a76",
+      "filename": "stdlib/Test/test/runtests.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/01c020dca73f6d156285a37f4761230d5a9c1fa3/stdlib%2FTest%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/01c020dca73f6d156285a37f4761230d5a9c1fa3/stdlib%2FTest%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FTest%2Ftest%2Fruntests.jl?ref=01c020dca73f6d156285a37f4761230d5a9c1fa3",
+      "patch": "@@ -2020,7 +2020,7 @@ end\n     io = IOBuffer()\n \n     # Create a testset with passing and failing tests\n-    ts = Test.DefaultTestSet(\"IO Test\")\n+    ts = Test.DefaultTestSet(\"IO Test\"; time_start=1.36071654e9)\n     Test.record(ts, Test.Pass(:test, nothing, nothing, nothing, LineNumberNode(1), false))\n     fail = Test.Fail(:test, \"1 == 2\", nothing, nothing, LineNumberNode(2, Symbol(\"test.jl\")))\n     push!(ts.results, fail)"
+    }
+  ]
 }

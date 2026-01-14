@@ -104,5 +104,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60308/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "bce8f832b5755b881a2ce994d8462e69f3f926ed",
+      "filename": "pkgimage.mk",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2676de5f9e25b2ab7b8d65c021e2acddf82486d7/pkgimage.mk",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2676de5f9e25b2ab7b8d65c021e2acddf82486d7/pkgimage.mk",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/pkgimage.mk?ref=2676de5f9e25b2ab7b8d65c021e2acddf82486d7",
+      "patch": "@@ -27,7 +27,7 @@ print-depot-path:\n \n $(BUILDDIR)/stdlib/%.image: $(JULIAHOME)/stdlib/Project.toml $(JULIAHOME)/stdlib/Manifest.toml $(INDEPENDENT_STDLIBS_SRCS) $(DEPOTDIR)/compiled\n \t@$(call PRINT_JULIA, JULIA_CPU_TARGET=\"sysimage\" $(call spawn,$(JULIA_EXECUTABLE)) --startup-file=no -e \\\n-\t\t'Base.Precompilation.precompilepkgs(configs=[``=>Base.CacheFlags(debug_level=2, opt_level=3), ``=>Base.CacheFlags(check_bounds=1, debug_level=2, opt_level=3)])')\n+\t\t'Base.Precompilation.precompilepkgs(configs=[``=>Base.CacheFlags(debug_level=2, opt_level=3), ``=>Base.CacheFlags(check_bounds=1, debug_level=2, opt_level=3)]; strict=true)')\n \ttouch $@\n \n $(BUILDDIR)/stdlib/release.image: $(build_private_libdir)/sys.$(SHLIB_EXT)"
+    }
+  ]
 }

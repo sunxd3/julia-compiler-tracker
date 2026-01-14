@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60525/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "6af09ce5958bb99f758446aa47c8c7215a4f0653",
+      "filename": "base/bitarray.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a932d0aa441e16f497276509f26d834841e444b5/base%2Fbitarray.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a932d0aa441e16f497276509f26d834841e444b5/base%2Fbitarray.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fbitarray.jl?ref=a932d0aa441e16f497276509f26d834841e444b5",
+      "patch": "@@ -260,7 +260,7 @@ end\n copy_to_bitarray_chunks!(dest::Vector{UInt64}, pos_d::Int, src::BitArray, pos_s::Int, numbits::Int) =\n     copy_chunks!(dest, pos_d, src.chunks, pos_s, numbits)\n \n-# pack 8 Bools encoded as one contiguous UIn64 into a single byte, e.g.:\n+# pack 8 Bools encoded as one contiguous UInt64 into a single byte, e.g.:\n # 0000001:0000001:00000000:00000000:00000001:00000000:00000000:00000001 \u2192 11001001 \u2192 0xc9\n function pack8bools(z::UInt64)\n     z |= z >>> 7"
+    }
+  ]
 }

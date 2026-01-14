@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60494/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "6f9a62d11f53968145765a2615d53b18a577e852",
+      "filename": "base/timing.jl",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 0,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/116cab1287a297223734cf3ab82871f81fca0d35/base%2Ftiming.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/116cab1287a297223734cf3ab82871f81fca0d35/base%2Ftiming.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Ftiming.jl?ref=116cab1287a297223734cf3ab82871f81fca0d35",
+      "patch": "@@ -539,6 +539,14 @@ function is_simply_call(@nospecialize ex)\n         Meta.isexpr(a, :..., 1) && is_simple_atom(a.args[1]) && continue\n         return false\n     end\n+    # Ensure Expr(:call, .+, ...) get wrapped\n+    if ex.args[1] isa Symbol\n+        sa = String(ex.args[1]::Symbol)\n+        startswith(sa, \".\") &&\n+            !endswith(sa, \".\") &&\n+            isoperator(Symbol(sa[2:end])) &&\n+            return false\n+    end\n     return true\n end\n "
+    },
+    {
+      "sha": "7ccc56db512425db8305b9ff5a3c77b308d60ef7",
+      "filename": "test/misc.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 0,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/116cab1287a297223734cf3ab82871f81fca0d35/test%2Fmisc.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/116cab1287a297223734cf3ab82871f81fca0d35/test%2Fmisc.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fmisc.jl?ref=116cab1287a297223734cf3ab82871f81fca0d35",
+      "patch": "@@ -1560,6 +1560,9 @@ end\n     @allocated _x = 1+2\n     @test _x === 3\n \n+    # test `@allocated` works for dotted operations\n+    @test (@allocated 1 .+ 1) == 0\n+\n     n, m = 10, 20\n     X = rand(n, m)\n     treshape59278(X, n, m)"
+    }
+  ]
 }

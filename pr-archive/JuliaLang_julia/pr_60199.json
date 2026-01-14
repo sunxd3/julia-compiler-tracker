@@ -86,5 +86,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60199/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "ac786f964d7d28c54f18255c8a99ef02cddfea62",
+      "filename": "JuliaSyntax/src/julia/tokenize.jl",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 0,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/59ff9f957b9bff31d34986d55521966a5452791d/JuliaSyntax%2Fsrc%2Fjulia%2Ftokenize.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/59ff9f957b9bff31d34986d55521966a5452791d/JuliaSyntax%2Fsrc%2Fjulia%2Ftokenize.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaSyntax%2Fsrc%2Fjulia%2Ftokenize.jl?ref=59ff9f957b9bff31d34986d55521966a5452791d",
+      "patch": "@@ -1057,6 +1057,14 @@ function lex_digit(l::Lexer, kind)\n                 if !accept_number(l, isdigit) || !had_digits\n                     return emit(l, K\"ErrorInvalidNumericConstant\") # `0x1p` `0x.p0`\n                 end\n+                # Check for invalid trailing decimal point\n+                # https://github.com/JuliaLang/julia/issues/60189\n+                pc = peekchar(l)\n+                if pc == '.'\n+                    accept_batch(l, c->(c == '.' || isdigit(c)))\n+                    # `0x1p3.` `0x1p3.2` `0x1.5p2.3`\n+                    return emit(l, K\"ErrorInvalidNumericConstant\")\n+                end\n             elseif isfloat\n                 return emit(l, K\"ErrorHexFloatMustContainP\") # `0x.` `0x1.0`\n             end"
+    },
+    {
+      "sha": "0e0c4f7ad5d69af74c4da8a90386c29f00d2437d",
+      "filename": "JuliaSyntax/test/tokenize.jl",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 0,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/59ff9f957b9bff31d34986d55521966a5452791d/JuliaSyntax%2Ftest%2Ftokenize.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/59ff9f957b9bff31d34986d55521966a5452791d/JuliaSyntax%2Ftest%2Ftokenize.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaSyntax%2Ftest%2Ftokenize.jl?ref=59ff9f957b9bff31d34986d55521966a5452791d",
+      "patch": "@@ -632,6 +632,10 @@ end\n     @test onlytok(\"0x.p0\") == K\"ErrorInvalidNumericConstant\"\n     @test onlytok(\"0x.\")   == K\"ErrorHexFloatMustContainP\"\n     @test onlytok(\"0x1.0\") == K\"ErrorHexFloatMustContainP\"\n+    # https://github.com/JuliaLang/julia/issues/60189\n+    @test onlytok(\"0x1p3.\") == K\"ErrorInvalidNumericConstant\"\n+    @test onlytok(\"0x1p3.2\") == K\"ErrorInvalidNumericConstant\"\n+    @test onlytok(\"0x1.5p2.3\") == K\"ErrorInvalidNumericConstant\"\n end\n \n @testset \"binary literals\" begin"
+    },
+    {
+      "sha": "36cb07514592b61dc1b407a3e1cf85b2b642a5b7",
+      "filename": "test/syntax.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 0,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/59ff9f957b9bff31d34986d55521966a5452791d/test%2Fsyntax.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/59ff9f957b9bff31d34986d55521966a5452791d/test%2Fsyntax.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fsyntax.jl?ref=59ff9f957b9bff31d34986d55521966a5452791d",
+      "patch": "@@ -1684,6 +1684,9 @@ end\n # #16356\n @test_parseerror \"0xapi\"\n \n+# #60189\n+@test_parseerror \"0x1p3.2\"\n+\n # #22523 #22712\n @test_parseerror \"a?b:c\"\n @test_parseerror \"a ?b:c\""
+    }
+  ]
 }

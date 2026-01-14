@@ -86,5 +86,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60570/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "efbd1a087e42ffcc9a3b969fb53f30b9649c3539",
+      "filename": "stdlib/Markdown/src/Common/inline.jl",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 1,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/4e5bd06a1f9f510b3d7bcd304dfe2e3f8967fe3b/stdlib%2FMarkdown%2Fsrc%2FCommon%2Finline.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/4e5bd06a1f9f510b3d7bcd304dfe2e3f8967fe3b/stdlib%2FMarkdown%2Fsrc%2FCommon%2Finline.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FCommon%2Finline.jl?ref=4e5bd06a1f9f510b3d7bcd304dfe2e3f8967fe3b",
+      "patch": "@@ -141,6 +141,7 @@ function autolink(stream::IO, md::MD)\n         url \u2261 nothing && return\n         _is_link(url) && return Link(url, url)\n         _is_mailto(url) && return Link(url, url)\n+        _is_email(url) && return Link(url, \"mailto:\" * url)\n         return\n     end\n end\n@@ -161,9 +162,15 @@ function _is_link(s::AbstractString)\n end\n \n # non-normative regex from the HTML5 spec\n-const _email_regex = r\"^mailto\\:[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$\"\n+const _email_regex_str = raw\"\"\"[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$\"\"\"\n+const _mailto_regex = Regex(\"^mailto\\\\:\" * _email_regex_str)\n+const _email_regex = Regex(\"^\" * _email_regex_str)\n \n function _is_mailto(s::AbstractString)\n+    return occursin(_mailto_regex, s)\n+end\n+\n+function _is_email(s::AbstractString)\n     return occursin(_email_regex, s)\n end\n "
+    },
+    {
+      "sha": "207da0a98db2c37184c3fff7c458380f3ea82f44",
+      "filename": "stdlib/Markdown/test/test_spec.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/4e5bd06a1f9f510b3d7bcd304dfe2e3f8967fe3b/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/4e5bd06a1f9f510b3d7bcd304dfe2e3f8967fe3b/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl?ref=4e5bd06a1f9f510b3d7bcd304dfe2e3f8967fe3b",
+      "patch": "@@ -3780,13 +3780,13 @@ end\n     input = \"<foo@bar.example.com>\\n\"\n     expected = \"<p><a href=\\\"mailto:foo@bar.example.com\\\">foo@bar.example.com</a></p>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 605\n     input = \"<foo+special@Bar.baz-bar0.com>\\n\"\n     expected = \"<p><a href=\\\"mailto:foo+special@Bar.baz-bar0.com\\\">foo+special@Bar.baz-bar0.com</a></p>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 606\n     input = \"<foo\\\\+@bar.example.com>\\n\""
+    }
+  ]
 }

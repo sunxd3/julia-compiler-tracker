@@ -67,5 +67,67 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60395/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0981743e0907a16734a9224efbbaf0e0825a56e6",
+      "filename": "deps/checksums/LinearAlgebra-997c4b7e7664f30645ef8bd51d8a4203e49c4631.tar.gz/md5",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/966d0af0fdffc727eb240e2e4c908fdd46697e57/deps%2Fchecksums%2FLinearAlgebra-997c4b7e7664f30645ef8bd51d8a4203e49c4631.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/966d0af0fdffc727eb240e2e4c908fdd46697e57/deps%2Fchecksums%2FLinearAlgebra-997c4b7e7664f30645ef8bd51d8a4203e49c4631.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FLinearAlgebra-997c4b7e7664f30645ef8bd51d8a4203e49c4631.tar.gz%2Fmd5?ref=966d0af0fdffc727eb240e2e4c908fdd46697e57",
+      "patch": "@@ -1 +0,0 @@\n-1cf83c7ea8935ac0804e07ebe8ce7506"
+    },
+    {
+      "sha": "971b146eecf644ff8228b63f343824b5e1eb8fa7",
+      "filename": "deps/checksums/LinearAlgebra-997c4b7e7664f30645ef8bd51d8a4203e49c4631.tar.gz/sha512",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/966d0af0fdffc727eb240e2e4c908fdd46697e57/deps%2Fchecksums%2FLinearAlgebra-997c4b7e7664f30645ef8bd51d8a4203e49c4631.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/966d0af0fdffc727eb240e2e4c908fdd46697e57/deps%2Fchecksums%2FLinearAlgebra-997c4b7e7664f30645ef8bd51d8a4203e49c4631.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FLinearAlgebra-997c4b7e7664f30645ef8bd51d8a4203e49c4631.tar.gz%2Fsha512?ref=966d0af0fdffc727eb240e2e4c908fdd46697e57",
+      "patch": "@@ -1 +0,0 @@\n-ec3edd7208e25fb1af0b9cb2324abbfb66e556442b75df619ffdf428f1d59f851055117db896fd3514352a32c34c4c42cf50e1386deca4ebd051de98369d5a3e"
+    },
+    {
+      "sha": "b49795485f6793d45ad4735ac69b69b5dafe5ae9",
+      "filename": "deps/checksums/LinearAlgebra-dd3ea72ec654706060220118f4a65a708733b84c.tar.gz/md5",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8c6060648dbddd9d83a4d164137105fb1c3a8395/deps%2Fchecksums%2FLinearAlgebra-dd3ea72ec654706060220118f4a65a708733b84c.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8c6060648dbddd9d83a4d164137105fb1c3a8395/deps%2Fchecksums%2FLinearAlgebra-dd3ea72ec654706060220118f4a65a708733b84c.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FLinearAlgebra-dd3ea72ec654706060220118f4a65a708733b84c.tar.gz%2Fmd5?ref=8c6060648dbddd9d83a4d164137105fb1c3a8395",
+      "patch": "@@ -0,0 +1 @@\n+89bf516f59c6e35cb0ca090d93fa347b"
+    },
+    {
+      "sha": "3c87627b5a126685b741d5da3b55f75873042fba",
+      "filename": "deps/checksums/LinearAlgebra-dd3ea72ec654706060220118f4a65a708733b84c.tar.gz/sha512",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8c6060648dbddd9d83a4d164137105fb1c3a8395/deps%2Fchecksums%2FLinearAlgebra-dd3ea72ec654706060220118f4a65a708733b84c.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8c6060648dbddd9d83a4d164137105fb1c3a8395/deps%2Fchecksums%2FLinearAlgebra-dd3ea72ec654706060220118f4a65a708733b84c.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FLinearAlgebra-dd3ea72ec654706060220118f4a65a708733b84c.tar.gz%2Fsha512?ref=8c6060648dbddd9d83a4d164137105fb1c3a8395",
+      "patch": "@@ -0,0 +1 @@\n+286da5f2e9d6472f52e9eeee4ee9ec7b09bea8584fe95764de459b923c2323cb6ed6d9f04748c12c7f521a0a5bca07ec6ea69668e2f8e2a52595ce6a16f62410"
+    },
+    {
+      "sha": "88a6d52a7b804932a6301aa4ebca3e6026a8e7f4",
+      "filename": "stdlib/LinearAlgebra.version",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8c6060648dbddd9d83a4d164137105fb1c3a8395/stdlib%2FLinearAlgebra.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8c6060648dbddd9d83a4d164137105fb1c3a8395/stdlib%2FLinearAlgebra.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FLinearAlgebra.version?ref=8c6060648dbddd9d83a4d164137105fb1c3a8395",
+      "patch": "@@ -1,4 +1,4 @@\n LINEARALGEBRA_BRANCH = release-1.12\n-LINEARALGEBRA_SHA1 = 997c4b7e7664f30645ef8bd51d8a4203e49c4631\n+LINEARALGEBRA_SHA1 = dd3ea72ec654706060220118f4a65a708733b84c\n LINEARALGEBRA_GIT_URL := https://github.com/JuliaLang/LinearAlgebra.jl.git\n LINEARALGEBRA_TAR_URL = https://api.github.com/repos/JuliaLang/LinearAlgebra.jl/tarball/$1"
+    }
+  ]
 }

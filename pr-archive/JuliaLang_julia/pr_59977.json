@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59977/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "dc8c1e5e1dc9fb158bbda3f72955a0c1581e63f4",
+      "filename": "stdlib/Markdown/src/Common/inline.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/d4a034c133c1a6d740e872689c0a2316b2eb76b6/stdlib%2FMarkdown%2Fsrc%2FCommon%2Finline.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/d4a034c133c1a6d740e872689c0a2316b2eb76b6/stdlib%2FMarkdown%2Fsrc%2FCommon%2Finline.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FCommon%2Finline.jl?ref=d4a034c133c1a6d740e872689c0a2316b2eb76b6",
+      "patch": "@@ -96,7 +96,6 @@ function link(stream::IO, md::MD)\n         startswith(stream, '[') || return\n         text = readuntil(stream, ']', match = '[')\n         text \u2261 nothing && return\n-        skipwhitespace(stream)\n         startswith(stream, '(') || return\n         url = readuntil(stream, ')', match = '(')\n         url \u2261 nothing && return"
+    }
+  ]
 }

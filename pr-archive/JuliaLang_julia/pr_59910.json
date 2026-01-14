@@ -119,5 +119,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59910/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "c296cbeba1fad68056c297393e305ed7c3a8e914",
+      "filename": "src/jlapi.c",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 33,
+      "changes": 44,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/4c8ac4cfcf10385ac1b7bf8c392f33e3e8127d38/src%2Fjlapi.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/4c8ac4cfcf10385ac1b7bf8c392f33e3e8127d38/src%2Fjlapi.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fjlapi.c?ref=4c8ac4cfcf10385ac1b7bf8c392f33e3e8127d38",
+      "patch": "@@ -1173,21 +1173,20 @@ static const char *absformat(const char *in)\n static char *absrealpath(const char *in, int nprefix)\n { // compute an absolute realpath location, so that chdir doesn't change the file reference\n   // ignores (copies directly over) nprefix characters at the start of abspath\n-#ifndef _OS_WINDOWS_\n-    char *out = realpath(in + nprefix, NULL);\n-    if (out) {\n-        if (nprefix > 0) {\n-            size_t sz = strlen(out) + 1;\n-            char *cpy = (char*)malloc_s(sz + nprefix);\n-            memcpy(cpy, in, nprefix);\n-            memcpy(cpy + nprefix, out, sz);\n-            free(out);\n-            out = cpy;\n-        }\n+    char *out;\n+    uv_fs_t req;\n+    int realpath_ret = uv_fs_realpath(NULL, &req, in + nprefix, NULL);\n+    if (realpath_ret >= 0) {\n+        size_t sz = strlen((char*)(req.ptr)) + 1;\n+        out = (char*)malloc_s(sz + nprefix);\n+        memcpy(out, in, nprefix);\n+        memcpy(out + nprefix, req.ptr, sz);\n+        uv_fs_req_cleanup(&req);\n     }\n     else {\n+        uv_fs_req_cleanup(&req);\n         size_t sz = strlen(in + nprefix) + 1;\n-        if (in[nprefix] == PATHSEPSTRING[0]) {\n+        if (jl_isabspath(in + nprefix)) {\n             out = (char*)malloc_s(sz + nprefix);\n             memcpy(out, in, sz + nprefix);\n         }\n@@ -1205,27 +1204,6 @@ static char *absrealpath(const char *in, int nprefix)\n             free(path);\n         }\n     }\n-#else\n-    // GetFullPathName intentionally errors if given an empty string so manually insert `.` to invoke cwd\n-    char *in2 = (char*)malloc_s(JL_PATH_MAX);\n-    if (strlen(in) - nprefix == 0) {\n-        memcpy(in2, in, nprefix);\n-        in2[nprefix] = '.';\n-        in2[nprefix+1] = '\\0';\n-        in = in2;\n-    }\n-    DWORD n = GetFullPathName(in + nprefix, 0, NULL, NULL);\n-    if (n <= 0) {\n-        jl_error(\"fatal error: jl_options.image_file path too long or GetFullPathName failed\");\n-    }\n-    char *out = (char*)malloc_s(n + nprefix);\n-    DWORD m = GetFullPathName(in + nprefix, n, out + nprefix, NULL);\n-    if (n != m + 1) {\n-        jl_error(\"fatal error: jl_options.image_file path too long or GetFullPathName failed\");\n-    }\n-    memcpy(out, in, nprefix);\n-    free(in2);\n-#endif\n     return out;\n }\n "
+    },
+    {
+      "sha": "ebc57a104da355d6a03387eb39bd86efdaa4d9a3",
+      "filename": "test/cmdlineargs.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/4c8ac4cfcf10385ac1b7bf8c392f33e3e8127d38/test%2Fcmdlineargs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/4c8ac4cfcf10385ac1b7bf8c392f33e3e8127d38/test%2Fcmdlineargs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fcmdlineargs.jl?ref=4c8ac4cfcf10385ac1b7bf8c392f33e3e8127d38",
+      "patch": "@@ -580,7 +580,7 @@ let exename = `$(Base.julia_cmd()) --startup-file=no --color=no`\n         tdir = dirname(realpath(inputfile))\n         cd(tdir) do\n             # there may be atrailing separator here so use rstrip\n-            @test readchomp(`$cov_exename -E \"(Base.JLOptions().code_coverage, rstrip(unsafe_string(Base.JLOptions().tracked_path), '/'))\" -L $inputfile\n+            @test readchomp(`$cov_exename -E \"(Base.JLOptions().code_coverage, rstrip(unsafe_string(Base.JLOptions().tracked_path), Base.Filesystem.path_separator[1]))\" -L $inputfile\n                 --code-coverage=$covfile --code-coverage=@`) == \"(3, $(repr(tdir)))\"\n         end\n         @test isfile(covfile)"
+    }
+  ]
 }

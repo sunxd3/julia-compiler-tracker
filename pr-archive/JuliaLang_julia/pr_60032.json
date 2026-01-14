@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60032/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "a168d051ef30cd8722eb4278e7c59b948742f99c",
+      "filename": "doc/src/manual/noteworthy-differences.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a8003569001f8e19f489e24e65f1893620ec1992/doc%2Fsrc%2Fmanual%2Fnoteworthy-differences.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a8003569001f8e19f489e24e65f1893620ec1992/doc%2Fsrc%2Fmanual%2Fnoteworthy-differences.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fsrc%2Fmanual%2Fnoteworthy-differences.md?ref=a8003569001f8e19f489e24e65f1893620ec1992",
+      "patch": "@@ -446,7 +446,7 @@ For users coming to Julia from R, these are some noteworthy differences:\n | function scope     | `function x()` ... `end` | `int x() {` ... `}`                          |\n | global scope       | `module MyMod` ... `end` | `namespace MyNS {` ... `}`                   |\n | software module    | A Julia \"package\"        | `.h`/`.hpp` files<br>+compiled `somelib.a`   |\n-| assembling<br>software modules | `SomePkg.jl`: ...<br>`import(\"subfile1.jl\")`<br>`import(\"subfile2.jl\")`<br>... | `$(AR) *.o` &rArr; `somelib.a` |\n+| assembling<br>software modules | `SomePkg.jl`: ...<br>`include(\"subfile1.jl\")`<br>`include(\"subfile2.jl\")`<br>... | `$(AR) *.o` \u21d2 `somelib.a` |\n | import<br>software module | `import SomePkg`  | `#include <somelib>`<br>+link in `somelib.a` |\n | module library     | `LOAD_PATH[]`, \\*Git repository,<br>\\*\\*custom package registry  | more `.h`/`.hpp` files<br>+bigger compiled `somebiglib.a` |\n "
+    }
+  ]
 }

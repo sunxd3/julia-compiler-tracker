@@ -86,5 +86,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59991/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "62f31e237f4b6a9127d064a2a8eab9d049c56956",
+      "filename": "src/cgutils.cpp",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 1,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c7eff33a430646168b9b0043c837c55748b4566f/src%2Fcgutils.cpp",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c7eff33a430646168b9b0043c837c55748b4566f/src%2Fcgutils.cpp",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fcgutils.cpp?ref=c7eff33a430646168b9b0043c837c55748b4566f",
+      "patch": "@@ -2676,9 +2676,11 @@ static jl_cgval_t typed_store(jl_codectx_t &ctx,\n                     assert(!isboxed && maybe_null_if_boxed);\n                     Value *first_ptr = extract_first_ptr(ctx, realinstr);\n                     assert(first_ptr != nullptr);\n-                    Done = ctx.builder.CreateIsNotNull(first_ptr);\n+                    // Done = Success || first_ptr != NULL\n+                    Done = ctx.builder.CreateOr(Success, ctx.builder.CreateIsNotNull(first_ptr));\n                 }\n                 else {\n+                    // Done = Success || first_ptr == NULL || oldval == cmpop)\n                     // Done = !(!Success && (first_ptr != NULL && oldval == cmpop))\n                     Done = emit_guarded_test(ctx, ctx.builder.CreateNot(Success), false, [&] {\n                         Value *first_ptr = nullptr;"
+    },
+    {
+      "sha": "369a63f7d5fbf25a1b8097d49836685cc4ab1f5c",
+      "filename": "test/atomics.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 2,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c7eff33a430646168b9b0043c837c55748b4566f/test%2Fatomics.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c7eff33a430646168b9b0043c837c55748b4566f/test%2Fatomics.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fatomics.jl?ref=c7eff33a430646168b9b0043c837c55748b4566f",
+      "patch": "@@ -57,9 +57,8 @@ swap(x, y) = y\n struct UndefComplex{T}\n     re::T\n     im::T\n-    UndefComplex{T}() where {T} = new{T}()\n end\n-Base.convert(T::Type{<:UndefComplex}, S) = T()\n+Base.convert(T::Type{<:UndefComplex}, S) = T(S, 0)\n \n let T1 = Refxy{NTuple{3,UInt8}},\n     T2 = ARefxy{NTuple{3,UInt8}}"
+    }
+  ]
 }

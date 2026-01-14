@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60288/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "3d02a5e207ce961c1094118e1c1ecaeebf75dfc3",
+      "filename": "stdlib/FileWatching/test/pidfile.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/984e4d171d7a97296fcc0337ec5afa1c7918ba45/stdlib%2FFileWatching%2Ftest%2Fpidfile.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/984e4d171d7a97296fcc0337ec5afa1c7918ba45/stdlib%2FFileWatching%2Ftest%2Fpidfile.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FFileWatching%2Ftest%2Fpidfile.jl?ref=984e4d171d7a97296fcc0337ec5afa1c7918ba45",
+      "patch": "@@ -236,7 +236,7 @@ end\n     @test t < 2\n     t = @elapsed f = open_exclusive(\"pidfile\", poll_interval=3, stale_age=10)::File\n     close(f)\n-    @test 8 < t < 20\n+    @test 8 < t < 25\n     rm(\"pidfile\")\n end\n "
+    }
+  ]
 }

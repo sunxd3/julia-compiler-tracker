@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60506/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "d4b5de2cf7151b1c629df1dae5faf76fe10fed6b",
+      "filename": "base/file.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/464c7d080617f6aaad1d293871a91c5dd77a76ed/base%2Ffile.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/464c7d080617f6aaad1d293871a91c5dd77a76ed/base%2Ffile.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Ffile.jl?ref=464c7d080617f6aaad1d293871a91c5dd77a76ed",
+      "patch": "@@ -1059,7 +1059,7 @@ struct DirEntry\n end\n function Base.getproperty(obj::DirEntry, p::Symbol)\n     if p === :path\n-        return joinpath(obj.dir, obj.name)\n+        return joinpath(getfield(obj, :dir), getfield(obj, :name))\n     else\n         return getfield(obj, p)\n     end"
+    }
+  ]
 }

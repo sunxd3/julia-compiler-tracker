@@ -119,5 +119,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60285/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "7d60cbd8f18fd407e9a71408d040c85e511cd6b9",
+      "filename": "JuliaSyntax/src/julia/tokenize.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/aa465d5c401587e6bb4ede92f95f8361c187ef09/JuliaSyntax%2Fsrc%2Fjulia%2Ftokenize.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/aa465d5c401587e6bb4ede92f95f8361c187ef09/JuliaSyntax%2Fsrc%2Fjulia%2Ftokenize.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaSyntax%2Fsrc%2Fjulia%2Ftokenize.jl?ref=aa465d5c401587e6bb4ede92f95f8361c187ef09",
+      "patch": "@@ -147,7 +147,7 @@ end\n     end\n     # Additional allowed cases\n     return $(_char_in_set_expr(:u,\n-        collect(\"\u00b2\u00b3\u00b9\u02b0\u02b2\u02b3\u02b7\u02b8\u02e1\u02e2\u02e3\u1d2c\u1d2e\u1d30\u1d31\u1d33\u1d34\u1d35\u1d36\u1d37\u1d38\u1d39\u1d3a\u1d3c\u1d3e\u1d3f\u1d40\u1d41\u1d42\u1d43\u1d47\u1d48\u1d49\u1d4d\u1d4f\u1d50\u1d52\u1d56\u1d57\u1d58\u1d5b\u1d5d\u1d5e\u1d5f\u1d60\u1d61\u1d62\u1d63\u1d64\u1d65\u1d66\u1d67\u1d68\u1d69\u1d6a\u1d9c\u1da0\u1da5\u1da6\u1dab\u1db0\u1db8\u1dbb\u1dbf\u2032\u2033\u2034\u2035\u2036\u2037\u2057\u2070\u2071\u2074\u2075\u2076\u2077\u2078\u2079\u207a\u207b\u207c\u207d\u207e\u207f\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089\u208a\u208b\u208c\u208d\u208e\u2090\u2091\u2092\u2093\u2095\u2096\u2097\u2098\u2099\u209a\u209b\u209c\u2c7c\u2c7d\ua71b\ua71c\ua71d\")))\n+        collect(\"\u00b2\u00b3\u00b9\u02b0\u02b2\u02b3\u02b7\u02b8\u02e1\u02e2\u02e3\u02f1\u02f2\u1d2c\u1d2e\u1d30\u1d31\u1d33\u1d34\u1d35\u1d36\u1d37\u1d38\u1d39\u1d3a\u1d3c\u1d3e\u1d3f\u1d40\u1d41\u1d42\u1d43\u1d45\u1d47\u1d48\u1d49\u1d4b\u1d4d\u1d4f\u1d50\u1d52\u1d56\u1d57\u1d58\u1d5b\u1d5d\u1d5e\u1d5f\u1d60\u1d61\u1d62\u1d63\u1d64\u1d65\u1d66\u1d67\u1d68\u1d69\u1d6a\u1d9c\u1da0\u1da5\u1da6\u1dab\u1db0\u1db2\u1db8\u1dbb\u1dbf\u2032\u2033\u2034\u2035\u2036\u2037\u2057\u2070\u2071\u2074\u2075\u2076\u2077\u2078\u2079\u207a\u207b\u207c\u207d\u207e\u207f\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089\u208a\u208b\u208c\u208d\u208e\u2090\u2091\u2092\u2093\u2094\u2095\u2096\u2097\u2098\u2099\u209a\u209b\u209c\u2c7c\u2c7d\ua71b\ua71c\ua71d\")))\n end\n \n function optakessuffix(k)"
+    },
+    {
+      "sha": "b1b64ea3c6e849af7e95a6e679811d66a56dc9b8",
+      "filename": "NEWS.md",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 0,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/aa465d5c401587e6bb4ede92f95f8361c187ef09/NEWS.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/aa465d5c401587e6bb4ede92f95f8361c187ef09/NEWS.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/NEWS.md?ref=aa465d5c401587e6bb4ede92f95f8361c187ef09",
+      "patch": "@@ -15,6 +15,9 @@ New language features\n     `compat.julia` or `syntax.julia_version` key in Project.toml. This feature is similar to the notion of \"editions\"\n     in other language ecosystems and will allow non-breaking evolution of Julia syntax in future versions.\n     See the \"Syntax Versioning\" section in the code loading documentation ([#60018]).\n+  - `\u1d45` (U+U+1D45), `\u1d4b` (U+1D4B), `\u1db2` (U+1DB2), `\u02f1` (U+02F1), `\u02f2` (U+02F2), and `\u2094` (U+2094) can now also be used as\n+    operator suffixes, accessible as `\\^alpha`, `\\^epsilon`, `\\^ltphi`, `\\_<`, `\\_>`, and `\\_schwa` at the REPL\n+    ([#60285]).\n \n Language changes\n ----------------"
+    },
+    {
+      "sha": "d9baa5ee8aea1337d6b57de1cddb236c477e4a1e",
+      "filename": "src/flisp/julia_opsuffs.h",
+      "status": "modified",
+      "additions": 7,
+      "deletions": 1,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/aa465d5c401587e6bb4ede92f95f8361c187ef09/src%2Fflisp%2Fjulia_opsuffs.h",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/aa465d5c401587e6bb4ede92f95f8361c187ef09/src%2Fflisp%2Fjulia_opsuffs.h",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fflisp%2Fjulia_opsuffs.h?ref=aa465d5c401587e6bb4ede92f95f8361c187ef09",
+      "patch": "@@ -3,7 +3,7 @@\n \n    produced by:\n \n-   for c in sort(unique(collect(\"\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089\u208a\u208b\u208c\u208d\u208e\u00b2\u00b3\u00b9\u02b0\u02b2\u02b3\u02b7\u02b8\u02e1\u02e2\u02e3\u1d2c\u1d2e\u1d30\u1d31\u1d33\u1d34\u1d35\u1d36\u1d37\u1d38\u1d39\u1d3a\u1d3c\u1d3e\u1d3f\u1d40\u1d41\u1d42\u1d43\u1d47\u1d48\u1d49\u1d4d\u1d4f\u1d50\u1d52\u1d56\u1d57\u1d58\u1d5b\u1d5d\u1d5e\u1d5f\u1d60\u1d61\u1d62\u1d63\u1d64\u1d65\u1d66\u1d67\u1d68\u1d69\u1d6a\u1d9c\u1da0\u1da5\u1da6\u1dab\u1db0\u1db8\u1dbb\u1dbf\u2070\u2071\u2074\u2075\u2076\u2077\u2078\u2079\u207a\u207b\u207c\u207d\u207e\u207f\u2090\u2091\u2092\u2093\u2095\u2096\u2097\u2098\u2099\u209a\u209b\u209c\u2c7c\u2c7d\" * \"\u2032\u2033\u2034\u2035\u2036\u2037\u2057\")))\n+   for c in sort(unique(collect(\"\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089\u208a\u208b\u208c\u208d\u208e\u00b2\u00b3\u00b9\u02b0\u02b2\u02b3\u02b7\u02b8\u02e1\u02e2\u02e3\u02f1\u02f2\u1d2c\u1d2e\u1d30\u1d31\u1d33\u1d34\u1d35\u1d36\u1d37\u1d38\u1d39\u1d3a\u1d3c\u1d3e\u1d3f\u1d40\u1d41\u1d42\u1d43\u1d45\u1d47\u1d48\u1d49\u1d4b\u1d4d\u1d4f\u1d50\u1d52\u1d56\u1d57\u1d58\u1d5b\u1d5d\u1d5e\u1d5f\u1d60\u1d61\u1db2\u1d62\u1d63\u1d64\u1d65\u1d66\u1d67\u1d68\u1d69\u1d6a\u1d9c\u1da0\u1da5\u1da6\u1dab\u1db0\u1db8\u1dbb\u1dbf\u2070\u2071\u2074\u2075\u2076\u2077\u2078\u2079\u207a\u207b\u207c\u207d\u207e\u207f\u2090\u2091\u2092\u2093\u2094\u2095\u2096\u2097\u2098\u2099\u209a\u209b\u209c\u2c7c\u2c7d\ua71b\ua71c\ua71d\" * \"\u2032\u2033\u2034\u2035\u2036\u2037\u2057\")))\n        println(\"   \", repr(UInt32(c)), \", // \", c)\n    end\n */\n@@ -20,6 +20,8 @@ static const uint32_t opsuffs[] = {\n    0x000002e1, // \u02e1\n    0x000002e2, // \u02e2\n    0x000002e3, // \u02e3\n+   0x000002f1, // \u02f1\n+   0x000002f2, // \u02f2\n    0x00001d2c, // \u1d2c\n    0x00001d2e, // \u1d2e\n    0x00001d30, // \u1d30\n@@ -39,9 +41,11 @@ static const uint32_t opsuffs[] = {\n    0x00001d41, // \u1d41\n    0x00001d42, // \u1d42\n    0x00001d43, // \u1d43\n+   0x00001d45, // \u1d45\n    0x00001d47, // \u1d47\n    0x00001d48, // \u1d48\n    0x00001d49, // \u1d49\n+   0x00001d4b, // \u1d4b\n    0x00001d4d, // \u1d4d\n    0x00001d4f, // \u1d4f\n    0x00001d50, // \u1d50\n@@ -70,6 +74,7 @@ static const uint32_t opsuffs[] = {\n    0x00001da6, // \u1da6\n    0x00001dab, // \u1dab\n    0x00001db0, // \u1db0\n+   0x00001db2, // \u1db2\n    0x00001db8, // \u1db8\n    0x00001dbb, // \u1dbb\n    0x00001dbf, // \u1dbf\n@@ -113,6 +118,7 @@ static const uint32_t opsuffs[] = {\n    0x00002091, // \u2091\n    0x00002092, // \u2092\n    0x00002093, // \u2093\n+   0x00002094, // \u2094\n    0x00002095, // \u2095\n    0x00002096, // \u2096\n    0x00002097, // \u2097"
+    }
+  ]
 }

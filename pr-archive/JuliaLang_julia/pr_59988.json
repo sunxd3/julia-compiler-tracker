@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59988/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "81dfe4f94ac00f01ec0485334189ad1f21b3fe28",
+      "filename": ".github/CODEOWNERS",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 0,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/99e493a32f9fda54d7d7c3bbe4dc3c9256bac86e/.github%2FCODEOWNERS",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/99e493a32f9fda54d7d7c3bbe4dc3c9256bac86e/.github%2FCODEOWNERS",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/.github%2FCODEOWNERS?ref=99e493a32f9fda54d7d7c3bbe4dc3c9256bac86e",
+      "patch": "@@ -12,3 +12,11 @@ CODEOWNERS @JuliaLang/github-actions\n /base/binaryplatforms.jl @giordano\n /src/julia_gcext.h @fingolfin\n /test/gcext/gcext.c @fingolfin\n+/src/gc-common.* @d-netto\n+/src/gc-debug.c @d-netto\n+/src/gc-interface.h @d-netto\n+/src/gc-page-profiler.* @d-netto\n+/src/gc-pages.c @d-netto\n+/src/gc-stock.* @d-netto\n+/src/gc-tls-common.h @d-netto\n+/src/gc-tls-stock.h @d-netto"
+    }
+  ]
 }

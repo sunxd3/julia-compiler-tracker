@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60453/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "04565411cabfbcf40e6bbb209f4f783f9c8d764e",
+      "filename": "base/bitarray.jl",
+      "status": "modified",
+      "additions": 13,
+      "deletions": 18,
+      "changes": 31,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/d8f11675116ad0f31396e8776fca7950ae839599/base%2Fbitarray.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/d8f11675116ad0f31396e8776fca7950ae839599/base%2Fbitarray.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fbitarray.jl?ref=d8f11675116ad0f31396e8776fca7950ae839599",
+      "patch": "@@ -146,16 +146,14 @@ function copy_chunks!(dest::Vector{UInt64}, pos_d::Int, src::Vector{UInt64}, pos\n     delta_ks = ks1 - ks0\n \n     u = _msk64\n+    msk_d0 = ~(u << ld0)\n+    msk_d1 = (u << (ld1+1))\n     if delta_kd == 0\n-        msk_d0 = ~(u << ld0) | (u << (ld1+1))\n-    else\n-        msk_d0 = ~(u << ld0)\n-        msk_d1 = (u << (ld1+1))\n+        msk_d0 |= msk_d1\n     end\n+    msk_s0 = (u << ls0)\n     if delta_ks == 0\n-        msk_s0 = (u << ls0) & ~(u << (ls1+1))\n-    else\n-        msk_s0 = (u << ls0)\n+        msk_s0 &= ~(u << (ls1+1))\n     end\n \n     chunk_s0 = glue_src_bitchunks(src, ks0, ks1, msk_s0, ls0)\n@@ -206,16 +204,14 @@ function copy_chunks_rtol!(chunks::Vector{UInt64}, pos_d::Int, pos_s::Int, numbi\n         delta_kd = kd1 - kd0\n         delta_ks = ks1 - ks0\n \n+        msk_d0 = ~(u << ld0)\n+        msk_d1 = (u << (ld1+1))\n         if delta_kd == 0\n-            msk_d0 = ~(u << ld0) | (u << (ld1+1))\n-        else\n-            msk_d0 = ~(u << ld0)\n-            msk_d1 = (u << (ld1+1))\n+            msk_d0 |= msk_d1\n         end\n+        msk_s0 = (u << ls0)\n         if delta_ks == 0\n-            msk_s0 = (u << ls0) & ~(u << (ls1+1))\n-        else\n-            msk_s0 = (u << ls0)\n+            msk_s0 &= ~(u << (ls1+1))\n         end\n \n         chunk_s0 = glue_src_bitchunks(chunks, ks0, ks1, msk_s0, ls0) & ~(u << s)\n@@ -241,11 +237,10 @@ function fill_chunks!(Bc::Array{UInt64}, x::Bool, pos::Int, numbits::Int)\n     k1, l1 = get_chunks_id(pos+numbits-1)\n \n     u = _msk64\n+    msk0 = (u << l0)\n+    msk1 = ~(u << (l1+1))\n     if k1 == k0\n-        msk0 = (u << l0) & ~(u << (l1+1))\n-    else\n-        msk0 = (u << l0)\n-        msk1 = ~(u << (l1+1))\n+        msk0 &= msk1\n     end\n     @inbounds if x\n         Bc[k0] |= msk0"
+    }
+  ]
 }

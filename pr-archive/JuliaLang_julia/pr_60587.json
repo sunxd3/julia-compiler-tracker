@@ -86,5 +86,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60587/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "e224b8f0fcd22d123c422162e571f69d4ed21a27",
+      "filename": "JuliaLowering/src/desugaring.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/84fd6d0ad20f95c48ac5c53f83c9b35766712616/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/84fd6d0ad20f95c48ac5c53f83c9b35766712616/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fdesugaring.jl?ref=84fd6d0ad20f95c48ac5c53f83c9b35766712616",
+      "patch": "@@ -2797,7 +2797,7 @@ function keyword_function_defs(ctx, srcref, callex_srcref, name_str, typevar_nam\n         for n in kw_names\n             # If not using slots for the keyword argument values, still declare\n             # them for reflection purposes.\n-            push!(kw_val_stmts, @ast ctx n [K\"local\" n])\n+            push!(kw_val_stmts, @ast ctx n [K\"local\"(meta=CompileHints(:is_internal, true)) n])\n         end\n         kw_val_vars = SyntaxList(ctx)\n         for val in kw_values"
+    },
+    {
+      "sha": "cb709796e97e15b9c3d7d3e924e104adcfac0c86",
+      "filename": "JuliaLowering/src/scope_analysis.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 1,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/84fd6d0ad20f95c48ac5c53f83c9b35766712616/JuliaLowering%2Fsrc%2Fscope_analysis.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/84fd6d0ad20f95c48ac5c53f83c9b35766712616/JuliaLowering%2Fsrc%2Fscope_analysis.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fscope_analysis.jl?ref=84fd6d0ad20f95c48ac5c53f83c9b35766712616",
+      "patch": "@@ -194,7 +194,11 @@ function _find_scope_decls!(ctx, scope, ex)\n     if k === K\"local\" && kind(ex[1]) === K\"Identifier\"\n         var_k = getmeta(ex, :is_destructured_arg, false) ?\n             :destructured_arg : :local\n-        maybe_declare_in_scope!(ctx, scope, ex[1], var_k)\n+        if getmeta(ex, :is_internal, false)\n+            declare_in_scope!(ctx, scope, ex[1], var_k; is_internal=true)\n+        else\n+            maybe_declare_in_scope!(ctx, scope, ex[1], var_k)\n+        end\n     elseif k === K\"global\" && kind(ex[1]) === K\"Identifier\"\n         maybe_declare_in_scope!(ctx, scope, ex[1], :global)\n     elseif k in KSet\"= constdecl assign_or_constdecl_if_global function_decl\""
+    }
+  ]
 }

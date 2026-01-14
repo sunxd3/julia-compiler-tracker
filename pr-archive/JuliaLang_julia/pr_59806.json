@@ -109,5 +109,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59806/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "10ef6889cd6a54a102acd1072a1dc4a81bdca7a5",
+      "filename": "stdlib/Markdown/src/Julia/interp.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/6429086fec5f16211637c62ac61126aeb9a11d7c/stdlib%2FMarkdown%2Fsrc%2FJulia%2Finterp.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/6429086fec5f16211637c62ac61126aeb9a11d7c/stdlib%2FMarkdown%2Fsrc%2FJulia%2Finterp.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FJulia%2Finterp.jl?ref=6429086fec5f16211637c62ac61126aeb9a11d7c",
+      "patch": "@@ -46,7 +46,7 @@ toexpr(x) = x\n toexpr(xs::Union{Vector{Any},Vector{Vector{Any}}}) =\n     Expr(:call, GlobalRef(Base,:getindex), Any, mapany(toexpr, xs)...)\n \n-for T in Any[MD, Paragraph, Header, Link, Bold, Italic]\n+for T in Any[MD, Paragraph, Header, Link, Bold, Italic, Footnote, Admonition]\n     @eval function toexpr(md::$T)\n         Expr(:call, typeof(md), $(map(x->:(toexpr(md.$x)), fieldnames(Base.unwrap_unionall(T)))...))\n     end"
+    },
+    {
+      "sha": "6c5f6f12e771cad3464b7619425996f84172d9f0",
+      "filename": "stdlib/Markdown/test/runtests.jl",
+      "status": "modified",
+      "additions": 24,
+      "deletions": 0,
+      "changes": 24,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/6429086fec5f16211637c62ac61126aeb9a11d7c/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/6429086fec5f16211637c62ac61126aeb9a11d7c/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Fruntests.jl?ref=6429086fec5f16211637c62ac61126aeb9a11d7c",
+      "patch": "@@ -502,6 +502,30 @@ sum_ref = md\"Behaves like $(ref(sum))\"\n @test plain(sum_ref) == \"Behaves like sum (see Julia docs)\\n\"\n @test html(sum_ref) == \"<p>Behaves like sum &#40;see Julia docs&#41;</p>\\n\"\n \n+# JuliaLang/julia#59783\n+let x = 1,\n+    result = md\"\"\"\n+    $x\n+\n+    [^1]: $x\n+\n+    !!! note\n+    $x\n+    \"\"\",\n+    expected = \"\"\"\n+    1\n+\n+    [^1]: 1\n+\n+    !!! note\n+\n+\n+\n+    1\n+    \"\"\"\n+    @test plain(result) == expected\n+end\n+\n show(io::IO, m::MIME\"text/html\", r::Reference) =\n     Markdown.withtag(io, :a, :href=>\"test\") do\n         Markdown.htmlesc(io, Markdown.plaininline(r))"
+    }
+  ]
 }

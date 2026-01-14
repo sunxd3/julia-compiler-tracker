@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60539/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "89c881bc9cb9229d8f5a6e165c0ade0471987682",
+      "filename": "VERSION",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/96c352ea9d59aa004e4b040b488507ab2931f65f/VERSION",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/96c352ea9d59aa004e4b040b488507ab2931f65f/VERSION",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/VERSION?ref=96c352ea9d59aa004e4b040b488507ab2931f65f",
+      "patch": "@@ -1 +1 @@\n-1.12.3\n+1.12.4"
+    }
+  ]
 }

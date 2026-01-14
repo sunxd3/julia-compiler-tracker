@@ -77,5 +77,79 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60163/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "34aec5e686981ff4d8fe9b7db51ea9a184e1447e",
+      "filename": "JuliaLowering/src/ast.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 8,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/90b27fce1060ce5fc1bd0d4d9e61a280e193a21f/JuliaLowering%2Fsrc%2Fast.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/90b27fce1060ce5fc1bd0d4d9e61a280e193a21f/JuliaLowering%2Fsrc%2Fast.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fast.jl?ref=90b27fce1060ce5fc1bd0d4d9e61a280e193a21f",
+      "patch": "@@ -538,14 +538,6 @@ end\n # the middle of a pass.\n const CompileHints = Base.ImmutableDict{Symbol,Any}\n \n-function CompileHints(d::Dict{Symbol, Any})\n-    id = CompileHints()\n-    for (k, v) in d\n-        id = CompileHints(id, k, v)\n-    end\n-    id\n-end\n-\n function setmeta!(ex::SyntaxTree; kws...)\n     @assert length(kws) == 1 # todo relax later ?\n     key = first(keys(kws))"
+    },
+    {
+      "sha": "be88e1b0e41e4a6eec92790b895b4cb468291283",
+      "filename": "JuliaLowering/src/kinds.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 2,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/90b27fce1060ce5fc1bd0d4d9e61a280e193a21f/JuliaLowering%2Fsrc%2Fkinds.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/90b27fce1060ce5fc1bd0d4d9e61a280e193a21f/JuliaLowering%2Fsrc%2Fkinds.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fkinds.jl?ref=90b27fce1060ce5fc1bd0d4d9e61a280e193a21f",
+      "patch": "@@ -21,8 +21,6 @@ function _register_kinds()\n             \"Symbol\"\n             # QuoteNode; not quasiquote\n             \"inert\"\n-            # Compiler metadata hints\n-            \"meta\"\n             # TODO: Use `meta` for inbounds and loopinfo etc?\n             \"inbounds\"\n             \"boundscheck\""
+    },
+    {
+      "sha": "974c51902caf5abfca00d83a8d44985b28882782",
+      "filename": "JuliaLowering/src/linear_ir.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 1,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/90b27fce1060ce5fc1bd0d4d9e61a280e193a21f/JuliaLowering%2Fsrc%2Flinear_ir.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/90b27fce1060ce5fc1bd0d4d9e61a280e193a21f/JuliaLowering%2Fsrc%2Flinear_ir.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Flinear_ir.jl?ref=90b27fce1060ce5fc1bd0d4d9e61a280e193a21f",
+      "patch": "@@ -1103,8 +1103,12 @@ function compile_lambda(outer_ctx, ex)\n         slot_rewrites[id] = i\n     end\n     code = renumber_body(ctx, ctx.code, slot_rewrites)\n+    meta = CompileHints()\n+    for (k, v) in ctx.meta\n+        meta = CompileHints(meta, k, v)\n+    end\n     @ast ctx ex [K\"code_info\"(is_toplevel_thunk=ex.is_toplevel_thunk,\n-                              slots=slots, meta=CompileHints(ctx.meta))\n+                              slots=slots, meta=meta)\n         [K\"block\"(ex[3])\n             code...\n         ]"
+    },
+    {
+      "sha": "5fd017c70e0f4c05879ae647f039f762ddaa8577",
+      "filename": "JuliaLowering/test/hooks.jl",
+      "status": "modified",
+      "additions": 36,
+      "deletions": 39,
+      "changes": 75,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/90b27fce1060ce5fc1bd0d4d9e61a280e193a21f/JuliaLowering%2Ftest%2Fhooks.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/90b27fce1060ce5fc1bd0d4d9e61a280e193a21f/JuliaLowering%2Ftest%2Fhooks.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fhooks.jl?ref=90b27fce1060ce5fc1bd0d4d9e61a280e193a21f",
+      "patch": "@@ -24,47 +24,46 @@ const JL = JuliaLowering\n         @test Core.eval(test_mod, lwr) === 2\n     end\n \n-    if isdefined(Core, :_lower)\n-        function jeval(str)\n-            prog = parseall(Expr, str)\n-            local out\n-            try\n-                JL.activate!()\n-                out = Core.eval(test_mod, prog)\n-            finally\n-                JL.activate!(false)\n-            end\n+    function jeval(str)\n+        prog = parseall(Expr, str)\n+        local out\n+        try\n+            JL.activate!()\n+            out = Core.eval(test_mod, prog)\n+        finally\n+            JL.activate!(false)\n         end\n-        @testset \"integration: `JuliaLowering.activate!`\" begin\n-            out = jeval(\"global asdf = 1\")\n-            @test out === 1\n-            @test isdefined(test_mod, :asdf)\n+    end\n+    @testset \"integration: `JuliaLowering.activate!`\" begin\n+        out = jeval(\"global asdf = 1\")\n+        @test out === 1\n+        @test isdefined(test_mod, :asdf)\n \n-            out = jeval(\"module M; x = 1; end\")\n-            @test out isa Module\n-            @test isdefined(test_mod, :M)\n-            @test isdefined(test_mod.M, :x)\n+        out = jeval(\"module M; x = 1; end\")\n+        @test out isa Module\n+        @test isdefined(test_mod, :M)\n+        @test isdefined(test_mod.M, :x)\n \n-            @test jeval(\"@ccall jl_value_ptr(nothing::Any)::Ptr{Cvoid}\") isa Ptr{Cvoid}\n+        @test jeval(\"@ccall jl_value_ptr(nothing::Any)::Ptr{Cvoid}\") isa Ptr{Cvoid}\n \n-            # Tricky cases with symbols\n-            out = jeval(\"\"\"module M2\n+        # Tricky cases with symbols\n+        out = jeval(\"\"\"module M2\n                 Base.@constprop :aggressive function f(x); x; end\n                 const what = ccall(:jl_value_ptr, Ptr{Cvoid}, (Any,), Core.nothing)\n             end\"\"\")\n-            @test out isa Module\n-            @test isdefined(test_mod, :M2)\n-            @test isdefined(test_mod.M2, :f)\n-            @test isdefined(test_mod.M2, :what)\n+        @test out isa Module\n+        @test isdefined(test_mod, :M2)\n+        @test isdefined(test_mod.M2, :f)\n+        @test isdefined(test_mod.M2, :what)\n \n-            out = jeval(\"\"\" \"docstring\" module M3 end \"\"\")\n-            @test out isa Module\n-            @test isdefined(test_mod, :M3)\n+        out = jeval(\"\"\" \"docstring\" module M3 end \"\"\")\n+        @test out isa Module\n+        @test isdefined(test_mod, :M3)\n \n-            # Macros may produce toplevel expressions.  Note that julia handles\n-            # this case badly (macro expansion replaces M5_inner with a\n-            # globalref) and we handle esc(:M5_inner) badly\n-            out = jeval(\"\"\"module M5\n+        # Macros may produce toplevel expressions.  Note that julia handles\n+        # this case badly (macro expansion replaces M5_inner with a\n+        # globalref) and we handle esc(:M5_inner) badly\n+        out = jeval(\"\"\"module M5\n             macro newmod()\n                 return quote\n                     let a = 1\n@@ -76,13 +75,11 @@ const JL = JuliaLowering\n             end\n             @newmod()\n             end\"\"\")\n-            @test out isa Module\n-            @test isdefined(test_mod, :M5)\n-            @test isdefined(test_mod.M5, :M5_inner)\n-            @test isdefined(test_mod.M5.M5_inner, :asdf)\n+        @test out isa Module\n+        @test isdefined(test_mod, :M5)\n+        @test isdefined(test_mod.M5, :M5_inner)\n+        @test isdefined(test_mod.M5.M5_inner, :asdf)\n \n-            # TODO: broken, commented to prevent error logging\n-            # @test jeval(\"Base.@propagate_inbounds @inline meta_double_quote_issue(x) = x\") isa Function\n-        end\n+        @test jeval(\"Base.@propagate_inbounds @inline meta_double_quote_issue(x) = x\") isa Function\n     end\n end"
+    },
+    {
+      "sha": "0783ee3f04e5c9674468e29e044d25fad67daf2e",
+      "filename": "JuliaSyntax/src/integration/expr.jl",
+      "status": "modified",
+      "additions": 7,
+      "deletions": 0,
+      "changes": 7,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/90b27fce1060ce5fc1bd0d4d9e61a280e193a21f/JuliaSyntax%2Fsrc%2Fintegration%2Fexpr.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/90b27fce1060ce5fc1bd0d4d9e61a280e193a21f/JuliaSyntax%2Fsrc%2Fintegration%2Fexpr.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaSyntax%2Fsrc%2Fintegration%2Fexpr.jl?ref=90b27fce1060ce5fc1bd0d4d9e61a280e193a21f",
+      "patch": "@@ -634,6 +634,13 @@ end\n                 args[i] = Symbol(\".\", arg.args[1])\n             end\n         end\n+    elseif k == K\"meta\"\n+        # Expr uses plain identifiers, but JuliaSyntax uses quoted (Symbol) identifiers\n+        for (i, a) in enumerate(args)\n+            if a isa QuoteNode && a.value isa Symbol\n+                args[i] = a.value\n+            end\n+        end\n     end\n \n     return retexpr"
+    },
+    {
+      "sha": "13d86f1b68bc892011f4ab87216851af4ee1890e",
+      "filename": "JuliaSyntax/src/julia/kinds.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/90b27fce1060ce5fc1bd0d4d9e61a280e193a21f/JuliaSyntax%2Fsrc%2Fjulia%2Fkinds.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/90b27fce1060ce5fc1bd0d4d9e61a280e193a21f/JuliaSyntax%2Fsrc%2Fjulia%2Fkinds.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaSyntax%2Fsrc%2Fjulia%2Fkinds.jl?ref=90b27fce1060ce5fc1bd0d4d9e61a280e193a21f",
+      "patch": "@@ -1032,6 +1032,7 @@ register_kinds!(JuliaSyntax, 0, [\n         \"vect\"\n         \"parens\"\n         \"importpath\"\n+        \"meta\"\n         # Concatenation syntax\n         \"braces\"\n         \"bracescat\""
+    }
+  ]
 }

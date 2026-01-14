@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60203/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "22e26457b41a4ea1ef9902d7c8b3721570e26462",
+      "filename": "base/strings/search.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/9e75bd005b2c64070ea3abad965d54d402894fd0/base%2Fstrings%2Fsearch.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/9e75bd005b2c64070ea3abad965d54d402894fd0/base%2Fstrings%2Fsearch.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fstrings%2Fsearch.jl?ref=9e75bd005b2c64070ea3abad965d54d402894fd0",
+      "patch": "@@ -535,7 +535,7 @@ Find the last occurrence of `pattern` in `string`. Equivalent to\n julia> findlast(\"o\", \"Hello to the world\")\n 15:15\n \n-julia> findfirst(\"Julia\", \"JuliaLang\")\n+julia> findlast(\"Julia\", \"JuliaLang\")\n 1:5\n ```\n \"\"\""
+    }
+  ]
 }

@@ -67,5 +67,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/58352/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "f9db189960c8029ceccd4ad3a143b8011f377dd7",
+      "filename": "stdlib/Base64/src/decode.jl",
+      "status": "modified",
+      "additions": 19,
+      "deletions": 15,
+      "changes": 34,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/703999eacbda01bd8af91a11b673b0efeb1bca67/stdlib%2FBase64%2Fsrc%2Fdecode.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/703999eacbda01bd8af91a11b673b0efeb1bca67/stdlib%2FBase64%2Fsrc%2Fdecode.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FBase64%2Fsrc%2Fdecode.jl?ref=703999eacbda01bd8af91a11b673b0efeb1bca67",
+      "patch": "@@ -32,17 +32,19 @@ julia> String(read(iob64_decode))\n \"Hello!\"\n ```\n \"\"\"\n-struct Base64DecodePipe <: IO\n-    io::IO\n+struct Base64DecodePipe{T <: IO} <: IO\n+    io::T\n     buffer::Buffer\n     rest::Vector{UInt8}\n \n-    function Base64DecodePipe(io::IO)\n+    function Base64DecodePipe{T}(io::T) where {T <: IO}\n         buffer = Buffer(512)\n-        return new(io, buffer, UInt8[])\n+        return new{T}(io, buffer, UInt8[])\n     end\n end\n \n+Base64DecodePipe(io::IO) = Base64DecodePipe{IO}(io)\n+\n Base.isreadable(pipe::Base64DecodePipe) = !isempty(pipe.rest) || isreadable(pipe.io)\n Base.iswritable(::Base64DecodePipe) = false\n \n@@ -172,21 +174,23 @@ function decode_slow(b1, b2, b3, b4, buffer, i, input, ptr, n, rest)\n     # Write output.\n     p::Ptr{UInt8} = ptr\n     p_end = ptr + n\n-    function output(b)\n-        if p < p_end\n-            unsafe_store!(p, b)\n-            p += 1\n-        else\n-            push!(rest, b)\n-        end\n-    end\n-    k \u2265 1 && output(b1 << 2 | b2 >> 4)\n-    k \u2265 2 && output(b2 << 4 | b3 >> 2)\n-    k \u2265 3 && output(b3 << 6 | b4     )\n+    k \u2265 1 && (p = _output(b1 << 2 | b2 >> 4, p, p_end, rest))\n+    k \u2265 2 && (p = _output(b2 << 4 | b3 >> 2, p, p_end, rest))\n+    k \u2265 3 && (p = _output(b3 << 6 | b4     , p, p_end, rest))\n \n     return i, p, k == 0\n end\n \n+function _output(b, p, p_end, rest)\n+    if p < p_end\n+        unsafe_store!(p, b)\n+        return p + 1\n+    else\n+        push!(rest, b)\n+        return p\n+    end\n+end\n+\n \"\"\"\n     base64decode(string)\n "
+    },
+    {
+      "sha": "d690db651fcd8e688248a0486ba98cfb1f819baf",
+      "filename": "stdlib/Base64/src/encode.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 4,
+      "changes": 10,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/703999eacbda01bd8af91a11b673b0efeb1bca67/stdlib%2FBase64%2Fsrc%2Fencode.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/703999eacbda01bd8af91a11b673b0efeb1bca67/stdlib%2FBase64%2Fsrc%2Fencode.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FBase64%2Fsrc%2Fencode.jl?ref=703999eacbda01bd8af91a11b673b0efeb1bca67",
+      "patch": "@@ -31,19 +31,21 @@ julia> String(base64decode(str))\n \"Hello!\"\n ```\n \"\"\"\n-struct Base64EncodePipe <: IO\n-    io::IO\n+struct Base64EncodePipe{T <: IO} <: IO\n+    io::T\n     buffer::Buffer\n \n-    function Base64EncodePipe(io::IO)\n+    function Base64EncodePipe{T}(io::T) where {T <: IO}\n         # The buffer size must be at least 3.\n         buffer = Buffer(512)\n-        pipe = new(io, buffer)\n+        pipe = new{T}(io, buffer)\n         finalizer(_ -> close(pipe), buffer)\n         return pipe\n     end\n end\n \n+Base64EncodePipe(io::IO) = Base64EncodePipe{IO}(io)\n+\n Base.isreadable(::Base64EncodePipe) = false\n Base.iswritable(pipe::Base64EncodePipe) = iswritable(pipe.io)\n "
+    }
+  ]
 }

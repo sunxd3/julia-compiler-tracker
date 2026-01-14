@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59917/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "fab25cf95dac9e28f7edd8d48911cac749af5dc1",
+      "filename": "src/task.c",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 6,
+      "changes": 7,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/4227e7241d1b996cba5b592476ac78b550be96c6/src%2Ftask.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/4227e7241d1b996cba5b592476ac78b550be96c6/src%2Ftask.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Ftask.c?ref=4227e7241d1b996cba5b592476ac78b550be96c6",
+      "patch": "@@ -1094,12 +1094,7 @@ JL_DLLEXPORT jl_task_t *jl_new_task(jl_function_t *start, jl_value_t *completion\n     jl_timing_task_init(t);\n \n #ifdef COPY_STACKS\n-    if (!t->copy_stack) {\n-#if defined(JL_DEBUG_BUILD)\n-        memset(&t->ctx, 0, sizeof(t->ctx));\n-#endif\n-    }\n-    else {\n+    if (t->copy_stack) {\n         if (always_copy_stacks)\n             memcpy(&t->ctx.copy_ctx, &ct->ptls->copy_stack_ctx, sizeof(t->ctx.copy_ctx));\n         else"
+    }
+  ]
 }

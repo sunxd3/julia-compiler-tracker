@@ -119,5 +119,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60086/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "969fb04523d0ad22e65afee26fa30f0231e3cf27",
+      "filename": "Makefile",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 3,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/438fcc14107c557218f7736e25555a46cc329e6d/Makefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/438fcc14107c557218f7736e25555a46cc329e6d/Makefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Makefile?ref=438fcc14107c557218f7736e25555a46cc329e6d",
+      "patch": "@@ -219,9 +219,6 @@ endif\n JL_PRIVATE_LIBS-0 := libccalltest libccalllazyfoo libccalllazybar libllvmcalltest\n JL_PRIVATE_LIBS-1 := # libraries from USE_SYSTEM=1\n JL_PRIVATE_EXES := 7z\n-ifeq ($(OS),WINNT)\n-JL_PRIVATE_EXES += 7z.dll\n-endif\n JL_PRIVATE_TOOLS :=\n ifeq ($(JULIA_BUILD_MODE),release)\n JL_PRIVATE_LIBS-0 += libjulia-internal libjulia-codegen"
+    },
+    {
+      "sha": "83ac6d77ddf1d70cbc863bdb73b41160d8978aec",
+      "filename": "NEWS.md",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 0,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/438fcc14107c557218f7736e25555a46cc329e6d/NEWS.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/438fcc14107c557218f7736e25555a46cc329e6d/NEWS.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/NEWS.md?ref=438fcc14107c557218f7736e25555a46cc329e6d",
+      "patch": "@@ -125,6 +125,8 @@ Standard library changes\n External dependencies\n ---------------------\n \n+  * 7-Zip updated from p7zip v17.06 to upstream 7-Zip v25.01. On Windows, the full 7z.exe/7z.dll bundle is replaced with standalone 7za.exe, which supports fewer formats but unifies cross-platform behavior. ([#60025]).\n+\n Tooling Improvements\n --------------------\n "
+    }
+  ]
 }

@@ -128,5 +128,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60451/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "172c9c7d3ae7bd9ea67844dd27a1ef94736004c1",
+      "filename": "base/show.jl",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 0,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/f2f68ad9eb5af363dce865e1f256e73f67b926a5/base%2Fshow.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/f2f68ad9eb5af363dce865e1f256e73f67b926a5/base%2Fshow.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fshow.jl?ref=f2f68ad9eb5af363dce865e1f256e73f67b926a5",
+      "patch": "@@ -3128,6 +3128,14 @@ function array_summary(io::IO, a, inds)\n     print(io, \" with indices \", inds2string(inds))\n end\n \n+## `summary` for GenericMemoryRef\n+function summary(io::IO, mref::GenericMemoryRef)\n+    offset = Core.memoryrefoffset(mref)\n+    len_after_offset = length(mref.mem) - offset + 1\n+    print(io, len_after_offset, \"-element \")\n+    showarg(io, mref, true)\n+end\n+\n ## `summary` for Function\n summary(io::IO, f::Function) = show(io, MIME\"text/plain\"(), f)\n "
+    },
+    {
+      "sha": "d08a85e5c23694759c9bd0f374cda8080803ab7b",
+      "filename": "test/errorshow.jl",
+      "status": "modified",
+      "additions": 20,
+      "deletions": 0,
+      "changes": 20,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/f2f68ad9eb5af363dce865e1f256e73f67b926a5/test%2Ferrorshow.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/f2f68ad9eb5af363dce865e1f256e73f67b926a5/test%2Ferrorshow.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Ferrorshow.jl?ref=f2f68ad9eb5af363dce865e1f256e73f67b926a5",
+      "patch": "@@ -1511,3 +1511,23 @@ end\n     @test occursin(\"This hint caught my concrete exception type\", exc_print)\n     @test occursin(\"This other hint caught my abstract exception supertype\", exc_print)\n end\n+\n+@testset \"MemoryRef BoundsError summary\" begin\n+    mem = Memory{Int}(undef, 10)\n+    ref = memoryref(mem, 9)\n+    err_str = @except_str memoryref(ref, 3) BoundsError\n+    @test occursin(\"MemoryRef\", err_str)\n+    @test occursin(\"2-element\", err_str)\n+    @test occursin(\" at index [3]\", err_str)\n+\n+    ref2 = memoryref(mem, 10)\n+    err_str2 = @except_str memoryref(ref2, 2) BoundsError\n+    @test occursin(\"MemoryRef\", err_str2)\n+    @test occursin(\"1-element\", err_str2)\n+\n+    memA = AtomicMemory{Int}(undef, 4)\n+    refA = memoryref(memA, 4)\n+    err_strA = @except_str memoryref(refA, 2) BoundsError\n+    @test occursin(\"AtomicMemoryRef\", err_strA)\n+    @test occursin(\"1-element\", err_strA)\n+end"
+    }
+  ]
 }

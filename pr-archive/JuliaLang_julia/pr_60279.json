@@ -95,5 +95,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60279/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "627b9ddad312296fb8d786c8e2bc383ec5969078",
+      "filename": "base/lock.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2d472acaac1bf49653572f06f625549db89427ad/base%2Flock.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2d472acaac1bf49653572f06f625549db89427ad/base%2Flock.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Flock.jl?ref=2d472acaac1bf49653572f06f625549db89427ad",
+      "patch": "@@ -366,7 +366,7 @@ This is similar to using [`lock`](@ref) with a `do` block, but avoids creating a\n and thus can improve the performance.\n \n !!! compat\n-    `@lock` was added in Julia 1.3, and exported in Julia 1.10.\n+    `@lock` was added in Julia 1.3, and exported in Julia 1.7.\n \"\"\"\n macro lock(l, expr)\n     quote"
+    }
+  ]
 }

@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60244/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "1a933bc571ddae921f26eb21dc19617f3744ebf5",
+      "filename": "Makefile",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/afa68006a6dcdd480c6f31d305e979662b66e9dd/Makefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/afa68006a6dcdd480c6f31d305e979662b66e9dd/Makefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Makefile?ref=afa68006a6dcdd480c6f31d305e979662b66e9dd",
+      "patch": "@@ -714,7 +714,7 @@ clean: | $(CLEAN_TARGETS)\n .PHONY: cleanall\n cleanall: clean\n \t@-$(MAKE) -C $(BUILDROOT)/src clean-flisp clean-support\n-\t@-$(MAKE) -C $(BUILDROOT)/deps clean-libuv\n+\t@-$(MAKE) -C $(BUILDROOT)/deps clean-libuv clean-utf8proc\n \t-rm -fr $(build_prefix) $(build_staging)\n \n .PHONY: distcleanall"
+    }
+  ]
 }

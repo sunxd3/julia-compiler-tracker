@@ -77,5 +77,112 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60628/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "395379cbe468b5e28053001aa8405e446976eafa",
+      "filename": "stdlib/Markdown/src/Common/block.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Fsrc%2FCommon%2Fblock.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Fsrc%2FCommon%2Fblock.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FCommon%2Fblock.jl?ref=3cf894b47f5fa04d5c4335ba2a0f9973fe434747",
+      "patch": "@@ -313,7 +313,7 @@ function list(stream::IO, block::MD)\n                 # An ordered list with `1) ` style numbering.\n                 Base.parse(Int, m.captures[2]), r\"^ {0,3}(\\d+)\\)( |$)\"\n             else\n-                # Failed to match any bullets. This branch shouldn't actually be needed\n+                # Failed to match any list marker. This branch shouldn't actually be needed\n                 # since the `NUM_OR_BULLETS` regex should cover this, but we include it\n                 # simply for thoroughness.\n                 return false"
+    },
+    {
+      "sha": "99f33c1e7b301cabce3cae7598b5147d8229401f",
+      "filename": "stdlib/Markdown/src/Markdown.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Fsrc%2FMarkdown.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Fsrc%2FMarkdown.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FMarkdown.jl?ref=3cf894b47f5fa04d5c4335ba2a0f9973fe434747",
+      "patch": "@@ -119,7 +119,7 @@ corresponding [`MD`](@ref) object.\n the manual section on [documentation](@ref man-documentation) for more information.\n \n # Examples\n-```\n+```jldoctest\n julia> s = doc\"f(x) = 2*x\"\n   f(x) = 2*x\n "
+    },
+    {
+      "sha": "937e7b72a1a1c8c5d6142103c0d17364cac0e3f0",
+      "filename": "stdlib/Markdown/src/render/plain.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 3,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Fsrc%2Frender%2Fplain.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Fsrc%2Frender%2Fplain.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2Frender%2Fplain.jl?ref=3cf894b47f5fa04d5c4335ba2a0f9973fe434747",
+      "patch": "@@ -35,11 +35,11 @@ end\n \n function plain(io::IO, list::List)\n     for (i, item) in enumerate(list.items)\n-        bullet = isordered(list) ? \"$(i + list.ordered - 1). \" : \"  * \"\n-        print(io, bullet)\n+        list_marker = isordered(list) ? \"$(i + list.ordered - 1). \" : \"  * \"\n+        print(io, list_marker)\n         lines = split(rstrip(sprint(plain, item)), \"\\n\")\n         for (n, line) in enumerate(lines)\n-            print(io, (n == 1 || isempty(line)) ? \"\" : (\" \"^length(bullet)), line)\n+            print(io, (n == 1 || isempty(line)) ? \"\" : \" \"^length(list_marker), line)\n             n < length(lines) && println(io)\n         end\n         println(io)"
+    },
+    {
+      "sha": "d60d7448a213ef519cc525f823b627d2eecb5c68",
+      "filename": "stdlib/Markdown/src/render/rst.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 3,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Fsrc%2Frender%2Frst.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Fsrc%2Frender%2Frst.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2Frender%2Frst.jl?ref=3cf894b47f5fa04d5c4335ba2a0f9973fe434747",
+      "patch": "@@ -44,11 +44,11 @@ end\n \n function rst(io::IO, list::List)\n     for (i, item) in enumerate(list.items)\n-        bullet = isordered(list) ? \"$(i + list.ordered - 1). \" : \"* \"\n-        print(io, bullet)\n+        list_marker = isordered(list) ? \"$(i + list.ordered - 1). \" : \"* \"\n+        print(io, list_marker)\n         lines = split(rstrip(sprint(rst, item)), '\\n')\n         for (n, line) in enumerate(lines)\n-            print(io, (n == 1 || isempty(line)) ? \"\" : \" \"^length(bullet), line)\n+            print(io, (n == 1 || isempty(line)) ? \"\" : \" \"^length(list_marker), line)\n             n < length(lines) && println(io)\n         end\n         println(io)"
+    },
+    {
+      "sha": "95ffaf1173213d6c3382e8d913bb417cd450a44d",
+      "filename": "stdlib/Markdown/src/render/terminal/render.jl",
+      "status": "modified",
+      "additions": 9,
+      "deletions": 9,
+      "changes": 18,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Fsrc%2Frender%2Fterminal%2Frender.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Fsrc%2Frender%2Fterminal%2Frender.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2Frender%2Fterminal%2Frender.jl?ref=3cf894b47f5fa04d5c4335ba2a0f9973fe434747",
+      "patch": "@@ -70,30 +70,30 @@ function term(io::IO, f::Footnote, columns)\n     end\n end\n \n-const _list_bullets = (\"\u2022 \", \"\u2013 \", \"\u25aa \")\n+const _bullets = (\"\u2022 \", \"\u2013 \", \"\u25aa \")\n \n function term(io::IO, md::List, columns, depth::Int = 1)\n     dterm(io, md, columns, _depth)      = term(io, md, columns)\n     dterm(io, md::List, columns, depth) = term(io, md, columns, depth)\n \n-    function make_bullet(i::Int)\n-        bullet = if isordered(md)\n+    function make_list_marker(i::Int)\n+        list_marker = if isordered(md)\n             string(lpad(i + md.ordered - 1, ndigits(length(md.items) + md.ordered - 1)), \". \")\n         elseif depth == 1\n-            first(_list_bullets)\n+            first(_bullets)\n         else\n-            _list_bullets[2 + mod(depth, length(_list_bullets) - 1)]\n+            _bullets[2 + mod(depth, length(_bullets) - 1)]\n         end\n     end\n \n     # adjust column count to ensure word wrap works correctly; the last\n     # label will be the widest (for ordered lists; for unordered lists they\n     # are all the same anyway)\n-    columns -= length(make_bullet(length(md.items)))\n+    columns -= length(make_list_marker(length(md.items)))\n \n     for (i, point) in enumerate(md.items)\n-        bullet = make_bullet(i)\n-        print(io, ' '^margin, styled\"{markdown_list:$bullet}\")\n+        list_marker = make_list_marker(i)\n+        print(io, ' '^margin, styled\"{markdown_list:$list_marker}\")\n         buf = AnnotatedIOBuffer()\n         if point isa Vector && !isempty(point)\n             for (i, elt) in enumerate(point[1:end-1])\n@@ -112,7 +112,7 @@ function term(io::IO, md::List, columns, depth::Int = 1)\n              for line in Iterators.filter(!isempty, lines)),\n             init=if isempty(lines) 0 else length(first(lines)) end)\n         for (l, line) in enumerate(lines)\n-            l > 1 && print(io, ' '^(margin + length(bullet)))\n+            l > 1 && print(io, ' '^(margin + length(list_marker)))\n             !isempty(line) && print(io, line[common_indent+1:end])\n             l < length(lines) && println(io)\n         end"
+    },
+    {
+      "sha": "c9f191523bf580ae8896c780f314a60f80f4b928",
+      "filename": "stdlib/Markdown/test/regenerate_test_spec.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Ftest%2Fregenerate_test_spec.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Ftest%2Fregenerate_test_spec.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Fregenerate_test_spec.jl?ref=3cf894b47f5fa04d5c4335ba2a0f9973fe434747",
+      "patch": "@@ -123,7 +123,7 @@ function generate_test_file(io::IO, data, mode::Symbol; flavor::Symbol=:julia)\n             println(io, \"    actual = Markdown.html(md)\");\n         elseif mode == :roundtrip\n             println(io, \"    expected = Markdown.parse(input; flavor=:$(flavor))\");\n-            println(io, \"    new_input = Markdown.Markdown.plain(expected)\");\n+            println(io, \"    new_input = Markdown.plain(expected)\");\n             println(io, \"    actual = Markdown.parse(new_input; flavor=:$(flavor))\");\n         else\n             error(\"unsupported mode $mode\")"
+    },
+    {
+      "sha": "dc7effa0c2d0b0fc6dbfbf85e741e68ef97da239",
+      "filename": "stdlib/Markdown/test/test_spec_roundtrip_common.jl",
+      "status": "modified",
+      "additions": 652,
+      "deletions": 652,
+      "changes": 1304,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_common.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_common.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_common.jl?ref=3cf894b47f5fa04d5c4335ba2a0f9973fe434747"
+    },
+    {
+      "sha": "baecd853c830fa8562e5260312db00378ccb177d",
+      "filename": "stdlib/Markdown/test/test_spec_roundtrip_github.jl",
+      "status": "modified",
+      "additions": 652,
+      "deletions": 652,
+      "changes": 1304,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_github.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_github.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_github.jl?ref=3cf894b47f5fa04d5c4335ba2a0f9973fe434747"
+    },
+    {
+      "sha": "71fef625e3f3d1cae124166988006dad2c693094",
+      "filename": "stdlib/Markdown/test/test_spec_roundtrip_julia.jl",
+      "status": "modified",
+      "additions": 652,
+      "deletions": 652,
+      "changes": 1304,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_julia.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3cf894b47f5fa04d5c4335ba2a0f9973fe434747/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_julia.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_julia.jl?ref=3cf894b47f5fa04d5c4335ba2a0f9973fe434747"
+    }
+  ]
 }

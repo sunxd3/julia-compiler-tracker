@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59787/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "1b62f870ae1b85a43f77459c0d326c3c8bfa2d6c",
+      "filename": "base/client.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/26952f701adf31d1c6ba29777b9828c20c6e67e3/base%2Fclient.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/26952f701adf31d1c6ba29777b9828c20c6e67e3/base%2Fclient.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fclient.jl?ref=26952f701adf31d1c6ba29777b9828c20c6e67e3",
+      "patch": "@@ -627,8 +627,8 @@ entrypoint. The precise semantics of the entrypoint depend on the CLI driver.\n In the `julia` driver, if `Main.main` is marked as an entrypoint, it will be automatically called upon\n the completion of script execution.\n \n-The `@main` macro may be used standalone or as part of the function definition, though in the latter\n-case, parentheses are required. In particular, the following are equivalent:\n+The `@main` macro may be used standalone or as part of the function definition.\n+The following are equivalent:\n \n ```\n function @main(args)"
+    }
+  ]
 }

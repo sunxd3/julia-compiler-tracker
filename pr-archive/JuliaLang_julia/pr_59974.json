@@ -95,5 +95,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59974/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "a1f27205172cb6e7ccdd082e693db8e6da97643d",
+      "filename": "Compiler/src/typeinfer.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 12,
+      "changes": 17,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/f5d319e7534658ca12301e8cabb5081069ac983c/Compiler%2Fsrc%2Ftypeinfer.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/f5d319e7534658ca12301e8cabb5081069ac983c/Compiler%2Fsrc%2Ftypeinfer.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Compiler%2Fsrc%2Ftypeinfer.jl?ref=f5d319e7534658ca12301e8cabb5081069ac983c",
+      "patch": "@@ -891,17 +891,10 @@ function type_annotate!(::AbstractInterpreter, sv::InferenceState)\n end\n \n function merge_call_chain!(::AbstractInterpreter, parent::InferenceState, child::InferenceState)\n-    # add backedge of parent <- child\n-    # then add all backedges of parent <- parent.parent\n+    # update all cycleid to be in the same group\n     frames = parent.callstack::Vector{AbsIntState}\n     @assert child.callstack === frames\n     ancestorid = child.cycleid\n-    while true\n-        add_cycle_backedge!(parent, child)\n-        parent.cycleid === ancestorid && break\n-        child = parent\n-        parent = cycle_parent(child)::InferenceState\n-    end\n     # ensure that walking the callstack has the same cycleid (DAG)\n     for frameid = reverse(ancestorid:length(frames))\n         frame = frames[frameid]::InferenceState\n@@ -912,7 +905,6 @@ function merge_call_chain!(::AbstractInterpreter, parent::InferenceState, child:\n end\n \n function add_cycle_backedge!(caller::InferenceState, frame::InferenceState)\n-    update_valid_age!(caller, frame.world.valid_worlds)\n     backedge = (caller, caller.currpc)\n     contains_is(frame.cycle_backedges, backedge) || push!(frame.cycle_backedges, backedge)\n     return frame\n@@ -931,9 +923,8 @@ end\n # frame matching `mi` is encountered, then there is a cycle in the call graph\n # (i.e. `mi` is a descendant callee of itself). Upon encountering this cycle,\n # we \"resolve\" it by merging the call chain, which entails updating each intermediary\n-# frame's `cycleid` field and adding the appropriate backedges. Finally,\n-# we return `mi`'s pre-existing frame. If no cycles are found, `nothing` is\n-# returned instead.\n+# frame's `cycleid` field. Finally, we return `mi`'s pre-existing frame.\n+# If no cycles are found, `nothing` is returned instead.\n function resolve_call_cycle!(interp::AbstractInterpreter, mi::MethodInstance, parent::AbsIntState)\n     # TODO (#48913) implement a proper recursion handling for irinterp:\n     # This works most of the time currently just because the irinterp code doesn't get used much with\n@@ -1117,6 +1108,7 @@ function typeinf_edge(interp::AbstractInterpreter, method::Method, @nospecialize\n                     result.ci_as_edge = edge_ci # set the edge for the inliner usage\n                     VolatileInferenceResult(result)\n                 end\n+                isinferred || add_cycle_backedge!(caller, frame)\n                 mresult[] = MethodCallResult(interp, caller, method, bestguess, exc_bestguess, effects,\n                     edge, edgecycle, edgelimited, volatile_inf_result)\n                 return true\n@@ -1134,6 +1126,7 @@ function typeinf_edge(interp::AbstractInterpreter, method::Method, @nospecialize\n     effects = adjust_effects(effects_for_cycle(frame.ipo_effects), method)\n     bestguess = frame.bestguess\n     exc_bestguess = refine_exception_type(frame.exc_bestguess, effects)\n+    add_cycle_backedge!(caller, frame)\n     return Future(MethodCallResult(interp, caller, method, bestguess, exc_bestguess, effects, nothing, edgecycle, edgelimited))\n end\n "
+    }
+  ]
 }

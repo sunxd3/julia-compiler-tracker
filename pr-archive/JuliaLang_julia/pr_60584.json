@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60584/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "ab153534184658c1f6104a037e5e91f494ea9e30",
+      "filename": "base/version_git.sh",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 3,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/894ad8a07722c0c0b7c4d27717fc91ad76396897/base%2Fversion_git.sh",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/894ad8a07722c0c0b7c4d27717fc91ad76396897/base%2Fversion_git.sh",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fversion_git.sh?ref=894ad8a07722c0c0b7c4d27717fc91ad76396897",
+      "patch": "@@ -36,6 +36,9 @@ echo \"    end\"\n echo \"end\"\n echo \"\"\n \n+# Counter the user's git config to show the signature in logs.\n+gitnosig=\"-c log.showSignature=false\"\n+\n cd $1\n \n # If the script didn't ask not to use git info\n@@ -50,7 +53,7 @@ origin=$(git config -l 2>/dev/null | grep 'remote\\.\\w*\\.url.*JuliaLang/julia' |\n if [ -z \"$origin\" ]; then\n     origin=\"origin/\"\n fi\n-git_time=$(git log -1 --pretty=format:%ct)\n+git_time=$(git $gitnosig log -1 --pretty=format:%ct)\n \n #collect the contents\n commit=$(git rev-parse HEAD)\n@@ -89,7 +92,7 @@ case $(uname) in\n     fi\n     ;;\n   MINGW*)\n-    git_time=$(git log -1 --pretty=format:%ci)\n+    git_time=$(git $gitnosig log -1 --pretty=format:%ci)\n     date_string=\"$(date --date=\"$git_time\" -u '+%Y-%m-%d %H:%M %Z')\"\n     ;;\n   *)\n@@ -102,7 +105,7 @@ else\n     tagged_commit=\"false\"\n fi\n fork_master_distance=$(git rev-list HEAD ^\"$(echo $origin)master\" | wc -l | sed -e 's/[^[:digit:]]//g')\n-fork_master_timestamp=$(git show -s $(git merge-base HEAD $(echo $origin)master) --format=format:\"%ct\")\n+fork_master_timestamp=$(git $gitnosig show -s $(git merge-base HEAD $(echo $origin)master) --format=format:\"%ct\")\n \n # Check for errors and emit default value for missing numbers.\n if [ -z \"$build_number\" ]; then"
+    }
+  ]
 }

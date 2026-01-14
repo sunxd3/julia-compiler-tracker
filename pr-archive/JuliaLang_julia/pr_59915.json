@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59915/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "b3252df78d1b897d18255b4e6e42674f38d644e9",
+      "filename": "base/reflection.jl",
+      "status": "modified",
+      "additions": 17,
+      "deletions": 2,
+      "changes": 19,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/fa731f55b7b57769949179c12eba358591b25842/base%2Freflection.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/fa731f55b7b57769949179c12eba358591b25842/base%2Freflection.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Freflection.jl?ref=fa731f55b7b57769949179c12eba358591b25842",
+      "patch": "@@ -308,14 +308,29 @@ function invoke_interp_compiler(interp, fname::Symbol, args...)\n         T = typeof(interp)\n         while true\n             Tname = typename(T).name\n-            Tname === :Any && error(\"Expected Interpreter\")\n+            Tname === :Any && error(\"Expected AbstractInterpreter\")\n             Tname === :AbstractInterpreter && break\n             T = supertype(T)\n         end\n         return getglobal(typename(T).module, fname)(args...)\n     end\n end\n \n+function invoke_mt_compiler(mt, fname::Symbol, args...)\n+    if mt === nothing\n+        return invoke_default_compiler(fname, args...)\n+    else\n+        T = typeof(mt)\n+        while true\n+            Tname = typename(T).name\n+            Tname === :Any && error(\"Expected MethodTableView\")\n+            Tname === :MethodTableView && break\n+            T = supertype(T)\n+        end\n+        return getglobal(typename(T).module, fname)(args...)\n+    end\n+end\n+\n \"\"\"\n     code_typed_by_type(types::Type{<:Tuple}; ...)\n \n@@ -922,7 +937,7 @@ function _which(@nospecialize(tt::Type);\n     world::UInt=get_world_counter(),\n     raise::Bool=true)\n     world == typemax(UInt) && error(\"code reflection cannot be used from generated functions\")\n-    match, = invoke_default_compiler(:findsup_mt, tt, world, method_table)\n+    match, = invoke_mt_compiler(method_table, :findsup_mt, tt, world, method_table)\n     if match === nothing\n         raise && error(\"no unique matching method found for the specified argument types\")\n         return nothing"
+    }
+  ]
 }

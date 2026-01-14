@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60559/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "afda226692be69f01c3d876848e676e013f2b8c6",
+      "filename": "stdlib/Markdown/docs/src/index.md",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2f1a5c88c6db1e2266535e30791bba1b1bb31e9c/stdlib%2FMarkdown%2Fdocs%2Fsrc%2Findex.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2f1a5c88c6db1e2266535e30791bba1b1bb31e9c/stdlib%2FMarkdown%2Fdocs%2Fsrc%2Findex.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fdocs%2Fsrc%2Findex.md?ref=2f1a5c88c6db1e2266535e30791bba1b1bb31e9c",
+      "patch": "@@ -82,8 +82,8 @@ See the [Display equations](@ref) section for non-inline LaTeX.\n     @doc raw\"``\\LaTeX`` syntax in a docstring.\" functionname\n     ```\n !!! note\n-    Inline ``\\LaTeX`` may also be created within a set of single of `$` characters. However\n-    this is not recommend as `$` is also used for string interpolation. Thus using it can\n+    Inline ``\\LaTeX`` can also be created using a pair of single `$` characters. However\n+    this is not recommended as `$` is also used for string interpolation. Thus using it can\n     easily lead to unintended results. For example, inside an `md` string the parser will\n     interpret an unmatched `$` as string interpolation, leading to unexpected errors or\n     worse, undesired behavior, when a variable is unexpectedly interpolated into a string."
+    }
+  ]
 }

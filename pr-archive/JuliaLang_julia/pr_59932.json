@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59932/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "aca013955b28faeb56214517241bfa503666b0eb",
+      "filename": "stdlib/TOML/src/print.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/58498f919ce6a2fdfa69222780cbba950bfaa6ed/stdlib%2FTOML%2Fsrc%2Fprint.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/58498f919ce6a2fdfa69222780cbba950bfaa6ed/stdlib%2FTOML%2Fsrc%2Fprint.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FTOML%2Fsrc%2Fprint.jl?ref=58498f919ce6a2fdfa69222780cbba950bfaa6ed",
+      "patch": "@@ -117,7 +117,7 @@ function print_integer(io::IO, value::Integer)\n end\n \n function print_inline_table(f::Function, io::IO, value::AbstractDict, sorted::Bool)\n-    vkeys = collect(keys(value))\n+    vkeys = collect(keys(value))::AbstractArray\n     if sorted\n         sort!(vkeys)\n     end"
+    }
+  ]
 }

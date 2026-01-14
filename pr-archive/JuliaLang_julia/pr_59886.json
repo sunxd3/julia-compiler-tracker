@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59886/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "b6f775a153fc9cf531e1742c7af31db7cf593713",
+      "filename": "base/runtime_internals.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 4,
+      "changes": 10,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/540a58af714513fad29c8c0fa69b7b505e9b5ab7/base%2Fruntime_internals.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/540a58af714513fad29c8c0fa69b7b505e9b5ab7/base%2Fruntime_internals.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fruntime_internals.jl?ref=540a58af714513fad29c8c0fa69b7b505e9b5ab7",
+      "patch": "@@ -580,8 +580,9 @@ alignment of the elements, not the whole object.\n \"\"\"\n function datatype_alignment(dt::DataType)\n     @_foldable_meta\n-    dt.layout == C_NULL && throw(UndefRefError())\n-    alignment = unsafe_load(convert(Ptr{DataTypeLayout}, dt.layout)).alignment\n+    layout = dt.layout::Ptr{Cvoid}\n+    layout == C_NULL && throw(UndefRefError())\n+    alignment = unsafe_load(convert(Ptr{DataTypeLayout}, layout)).alignment\n     return Int(alignment)\n end\n \n@@ -664,8 +665,9 @@ Return the number of pointers in the layout of a datatype.\n \"\"\"\n function datatype_npointers(dt::DataType)\n     @_foldable_meta\n-    dt.layout == C_NULL && throw(UndefRefError())\n-    return unsafe_load(convert(Ptr{DataTypeLayout}, dt.layout)).npointers\n+    layout = dt.layout::Ptr{Cvoid}\n+    layout == C_NULL && throw(UndefRefError())\n+    return unsafe_load(convert(Ptr{DataTypeLayout}, layout)).npointers\n end\n \n \"\"\""
+    }
+  ]
 }

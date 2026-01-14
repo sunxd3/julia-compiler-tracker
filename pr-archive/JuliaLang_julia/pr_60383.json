@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60383/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0227d9532a49c6f18fa33284a454ab5c682226bd",
+      "filename": "stdlib/Artifacts/src/Artifacts.jl",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 1,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/83ebf22b019af3be3efb2d1862e81f73629f8b92/stdlib%2FArtifacts%2Fsrc%2FArtifacts.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/83ebf22b019af3be3efb2d1862e81f73629f8b92/stdlib%2FArtifacts%2Fsrc%2FArtifacts.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FArtifacts%2Fsrc%2FArtifacts.jl?ref=83ebf22b019af3be3efb2d1862e81f73629f8b92",
+      "patch": "@@ -16,6 +16,13 @@ using Base.TOML: TOML\n export artifact_exists, artifact_path, artifact_meta, artifact_hash,\n        select_downloadable_artifacts, find_artifacts_toml, @artifact_str\n \n+const _artifacts_world_age = Ref{UInt}(typemax(UInt))\n+\n+function __init__()\n+    _artifacts_world_age[] = Base.get_world_counter()\n+    nothing\n+end\n+\n \"\"\"\n     parse_toml(path::String)\n \n@@ -543,7 +550,7 @@ function jointail(dir, tail)\n end\n \n function _artifact_str(__module__, artifacts_toml, name, path_tail, artifact_dict, hash, platform, ::Val{LazyArtifacts}) where LazyArtifacts\n-    world = Base._require_world_age[]\n+    world = _artifacts_world_age[]\n     if world == typemax(UInt)\n         world = Base.get_world_counter()\n     end"
+    }
+  ]
 }

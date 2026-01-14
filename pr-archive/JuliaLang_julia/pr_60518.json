@@ -67,5 +67,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60518/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "8b667daf717e9411b8ef1c0763c256bea22fe0a7",
+      "filename": "base/file.jl",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 18,
+      "changes": 29,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/f6a0257c2eef9fefbb2f1158aafad314365270a8/base%2Ffile.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/f6a0257c2eef9fefbb2f1158aafad314365270a8/base%2Ffile.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Ffile.jl?ref=f6a0257c2eef9fefbb2f1158aafad314365270a8",
+      "patch": "@@ -1057,27 +1057,20 @@ struct DirEntry\n     name::String\n     rawtype::Cint\n end\n-function Base.getproperty(obj::DirEntry, p::Symbol)\n-    if p === :path\n-        return joinpath(getfield(obj, :dir), getfield(obj, :name))\n-    else\n-        return getfield(obj, p)\n-    end\n-end\n-Base.propertynames(::DirEntry) = (:dir, :name, :path, :rawtype)\n+path(obj::DirEntry) = joinpath(getfield(obj, :dir), getfield(obj, :name))\n Base.isless(a::DirEntry, b::DirEntry) = a.dir == b.dir ? isless(a.name, b.name) : isless(a.dir, b.dir)\n Base.hash(o::DirEntry, h::UInt) = hash(o.dir, hash(o.name, hash(o.rawtype, h)))\n Base.:(==)(a::DirEntry, b::DirEntry) = a.name == b.name && a.dir == b.dir && a.rawtype == b.rawtype\n-joinpath(obj::DirEntry, args...) = joinpath(obj.path, args...)\n+joinpath(obj::DirEntry, args...) = joinpath(path(obj), args...)\n isunknown(obj::DirEntry) =  obj.rawtype == UV_DIRENT_UNKNOWN\n-islink(obj::DirEntry) =     isunknown(obj) ? islink(obj.path) : obj.rawtype == UV_DIRENT_LINK\n-isfile(obj::DirEntry) =     (isunknown(obj) || islink(obj)) ? isfile(obj.path)      : obj.rawtype == UV_DIRENT_FILE\n-isdir(obj::DirEntry) =      (isunknown(obj) || islink(obj)) ? isdir(obj.path)       : obj.rawtype == UV_DIRENT_DIR\n-isfifo(obj::DirEntry) =     (isunknown(obj) || islink(obj)) ? isfifo(obj.path)      : obj.rawtype == UV_DIRENT_FIFO\n-issocket(obj::DirEntry) =   (isunknown(obj) || islink(obj)) ? issocket(obj.path)    : obj.rawtype == UV_DIRENT_SOCKET\n-ischardev(obj::DirEntry) =  (isunknown(obj) || islink(obj)) ? ischardev(obj.path)   : obj.rawtype == UV_DIRENT_CHAR\n-isblockdev(obj::DirEntry) = (isunknown(obj) || islink(obj)) ? isblockdev(obj.path)  : obj.rawtype == UV_DIRENT_BLOCK\n-realpath(obj::DirEntry) = realpath(obj.path)\n+islink(obj::DirEntry) =     isunknown(obj) ? islink(path(obj)) : obj.rawtype == UV_DIRENT_LINK\n+isfile(obj::DirEntry) =     (isunknown(obj) || islink(obj)) ? isfile(path(obj))      : obj.rawtype == UV_DIRENT_FILE\n+isdir(obj::DirEntry) =      (isunknown(obj) || islink(obj)) ? isdir(path(obj))       : obj.rawtype == UV_DIRENT_DIR\n+isfifo(obj::DirEntry) =     (isunknown(obj) || islink(obj)) ? isfifo(path(obj))      : obj.rawtype == UV_DIRENT_FIFO\n+issocket(obj::DirEntry) =   (isunknown(obj) || islink(obj)) ? issocket(path(obj))    : obj.rawtype == UV_DIRENT_SOCKET\n+ischardev(obj::DirEntry) =  (isunknown(obj) || islink(obj)) ? ischardev(path(obj))   : obj.rawtype == UV_DIRENT_CHAR\n+isblockdev(obj::DirEntry) = (isunknown(obj) || islink(obj)) ? isblockdev(path(obj))  : obj.rawtype == UV_DIRENT_BLOCK\n+realpath(obj::DirEntry) = realpath(path(obj))\n \n \"\"\"\n     _readdirx(dir::AbstractString=pwd(); sort::Bool = true)::Vector{DirEntry}\n@@ -1096,7 +1089,7 @@ object will be 0 (`UV_DIRENT_UNKNOWN`) and [`isfile`](@ref) etc. will fall back\n \n ```julia\n for obj in _readdirx()\n-    isfile(obj) && println(\"\\$(obj.name) is a file with path \\$(obj.path)\")\n+    isfile(obj) && println(\"\\$(obj.name) is a file with path \\$(path(obj))\")\n end\n ```\n \"\"\""
+    },
+    {
+      "sha": "df66a3bd7e2932cf1e6373de63c338245f637c6c",
+      "filename": "stdlib/REPL/src/docview.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/f6a0257c2eef9fefbb2f1158aafad314365270a8/stdlib%2FREPL%2Fsrc%2Fdocview.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/f6a0257c2eef9fefbb2f1158aafad314365270a8/stdlib%2FREPL%2Fsrc%2Fdocview.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2Fdocview.jl?ref=f6a0257c2eef9fefbb2f1158aafad314365270a8",
+      "patch": "@@ -397,7 +397,7 @@ function find_readme(m::Module)::Union{String, Nothing}\n     while true\n         for entry in _readdirx(path; sort=true)\n             isfile(entry) && (lowercase(entry.name) in [\"readme.md\", \"readme\"]) || continue\n-            return entry.path\n+            return joinpath(entry)\n         end\n         path == top_path && break # go no further than pkgdir\n         path = dirname(path) # work up through nested modules"
+    },
+    {
+      "sha": "b3cb78d95fc9aa2611edbf79967b28970cad60bf",
+      "filename": "test/file.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/f6a0257c2eef9fefbb2f1158aafad314365270a8/test%2Ffile.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/f6a0257c2eef9fefbb2f1158aafad314365270a8/test%2Ffile.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Ffile.jl?ref=f6a0257c2eef9fefbb2f1158aafad314365270a8",
+      "patch": "@@ -1782,7 +1782,7 @@ rm(dirwalk, recursive=true)\n             @test issorted(readdir())\n             @test issorted(Base.Filesystem._readdirx())\n             @test map(o->o.name, Base.Filesystem._readdirx()) == readdir()\n-            @test map(o->o.path, Base.Filesystem._readdirx()) == readdir(join=true)\n+            @test map(joinpath, Base.Filesystem._readdirx()) == readdir(join=true)\n             @test count(isfile, readdir(join=true)) == count(isfile, Base.Filesystem._readdirx())\n         end\n     end"
+    }
+  ]
 }

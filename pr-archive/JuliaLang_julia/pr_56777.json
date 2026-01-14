@@ -128,5 +128,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/56777/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "a451bf56cce9711b7486aad62bda4dff2922566f",
+      "filename": "base/abstractarray.jl",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 2,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/99bcbce890675bda827259446ba0890001da49d6/base%2Fabstractarray.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/99bcbce890675bda827259446ba0890001da49d6/base%2Fabstractarray.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fabstractarray.jl?ref=99bcbce890675bda827259446ba0890001da49d6",
+      "patch": "@@ -2939,8 +2939,6 @@ _iterator_axes(x, ::IteratorSize) = axes(x)\n # For some dims values, stack(A; dims) == stack(vec(A)), and the : path will be faster\n _typed_stack(dims::Integer, ::Type{T}, ::Type{S}, A) where {T,S} =\n     _typed_stack(dims, T, S, IteratorSize(S), A)\n-_typed_stack(dims::Integer, ::Type{T}, ::Type{S}, ::HasLength, A) where {T,S} =\n-    _typed_stack(dims, T, S, HasShape{1}(), A)\n function _typed_stack(dims::Integer, ::Type{T}, ::Type{S}, ::HasShape{N}, A) where {T,S,N}\n     if dims == N+1\n         _typed_stack(:, T, S, A, (_vec_axis(A),))"
+    },
+    {
+      "sha": "25a2fa97110e10b9f1fbfbe5061b158a12bb9eca",
+      "filename": "test/abstractarray.jl",
+      "status": "modified",
+      "additions": 27,
+      "deletions": 0,
+      "changes": 27,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/99bcbce890675bda827259446ba0890001da49d6/test%2Fabstractarray.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/99bcbce890675bda827259446ba0890001da49d6/test%2Fabstractarray.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fabstractarray.jl?ref=99bcbce890675bda827259446ba0890001da49d6",
+      "patch": "@@ -1880,6 +1880,33 @@ end\n     end\n end\n \n+@testset \"issue 56771, stack(; dims) on containers with HasLength eltype & HasShape elements\" begin\n+    for T in (Matrix, Array, Any)\n+        xs = T[rand(2,3) for _ in 1:4]\n+        @test size(stack(xs; dims=1)) == (4,2,3)\n+        @test size(stack(xs; dims=2)) == (2,4,3)  # this was the problem case, for T=Array\n+        @test size(stack(xs; dims=3)) == (2,3,4)\n+        @test size(stack(identity, xs; dims=2)) == (2,4,3)\n+        @test size(stack(x for x in xs if true; dims=2)) == (2,4,3)\n+\n+        xmat = T[rand(2,3) for _ in 1:4, _ in 1:5]\n+        @test size(stack(xmat; dims=1)) == (20,2,3)\n+        @test size(stack(xmat; dims=2)) == (2,20,3)\n+        @test size(stack(xmat; dims=3)) == (2,3,20)\n+    end\n+\n+    it = Iterators.product(1:2, 3:5)\n+    @test size(it) == (2,3)\n+    @test Base.IteratorSize(typeof(it)) == Base.HasShape{2}()\n+    @test Base.IteratorSize(Iterators.ProductIterator) == Base.HasLength()\n+    for T in (typeof(it), Iterators.ProductIterator, Any)\n+        ys = T[it for _ in 1:4]\n+        @test size(stack(ys; dims=2)) == (2,4,3)\n+        @test size(stack(identity, ys; dims=2)) == (2,4,3)\n+        @test size(stack(y for y in ys if true; dims=2)) == (2,4,3)\n+    end\n+end\n+\n @testset \"keepat!\" begin\n     a = [1:6;]\n     @test a === keepat!(a, 1:5)"
+    }
+  ]
 }

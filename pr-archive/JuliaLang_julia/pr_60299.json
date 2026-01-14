@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60299/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "2eeb0eb03ee351bf272297a5af7a200b4f4d66f7",
+      "filename": "src/jloptions.c",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 1,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e38d8abbbe0a105fd584c7b48d9ceec1b21c49fe/src%2Fjloptions.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e38d8abbbe0a105fd584c7b48d9ceec1b21c49fe/src%2Fjloptions.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fjloptions.c?ref=e38d8abbbe0a105fd584c7b48d9ceec1b21c49fe",
+      "patch": "@@ -725,9 +725,11 @@ JL_DLLEXPORT void jl_parse_opts(int *argcp, char ***argvp)\n                 }\n                 jl_options.nthreads = nthreads + nthreadsi;\n             }\n+            assert(jl_options.nthreadpools == 1 || jl_options.nthreadpools == 2);\n             int16_t *ntpp = (int16_t *)malloc_s(jl_options.nthreadpools * sizeof(int16_t));\n             ntpp[0] = (int16_t)nthreads;\n-            ntpp[1] = (int16_t)nthreadsi;\n+            if (jl_options.nthreadpools == 2)\n+                ntpp[1] = (int16_t)nthreadsi;\n             jl_options.nthreads_per_pool = ntpp;\n             break;\n         }"
+    }
+  ]
 }

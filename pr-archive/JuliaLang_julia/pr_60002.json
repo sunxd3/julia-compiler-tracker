@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60002/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "8817d82a6add67800de529e081262b4f39599d4b",
+      "filename": "base/docs/Docs.jl",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 0,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/de71c36bce9aa5ee7517f1d3e3193d1b9888db61/base%2Fdocs%2FDocs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/de71c36bce9aa5ee7517f1d3e3193d1b9888db61/base%2Fdocs%2FDocs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fdocs%2FDocs.jl?ref=de71c36bce9aa5ee7517f1d3e3193d1b9888db61",
+      "patch": "@@ -406,6 +406,10 @@ function objectdoc(__source__, __module__, str, def, expr, sig = :(Union{}))\n             # Special case: `global x` should return nothing to avoid syntax errors with assigning to a value\n             val = nothing\n         else\n+            if isexpr(def, :(=), 2) && isexpr(def.args[1], :curly)\n+                # workaround for lowering bug #60001\n+                exdef = Expr(:block, exdef)\n+            end\n             val = :val\n             exdef = Expr(:(=), val, exdef)\n         end"
+    },
+    {
+      "sha": "148c0cf8ca649d9a4d1500cc2ab29f8b941423b2",
+      "filename": "test/docs.jl",
+      "status": "modified",
+      "additions": 9,
+      "deletions": 0,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/de71c36bce9aa5ee7517f1d3e3193d1b9888db61/test%2Fdocs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/de71c36bce9aa5ee7517f1d3e3193d1b9888db61/test%2Fdocs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fdocs.jl?ref=de71c36bce9aa5ee7517f1d3e3193d1b9888db61",
+      "patch": "@@ -1659,3 +1659,12 @@ module DocReturnValue\n     end\n     @test result11 isa Base.Docs.Binding\n end\n+\n+# https://github.com/JuliaLang/julia/issues/59949\n+struct Foo59949{T} end\n+\n+\"\"\"\n+Bar59949{T}\n+\"\"\"\n+Bar59949{T} = Foo59949{T}\n+@test docstrings_equal(@doc(Bar59949), doc\"Bar59949{T}\")"
+    }
+  ]
 }

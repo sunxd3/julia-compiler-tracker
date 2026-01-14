@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59850/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "bbf94b4ba3dff471a18138d4f20a2a0b3791bb59",
+      "filename": "stdlib/REPL/src/precompile.jl",
+      "status": "modified",
+      "additions": 12,
+      "deletions": 8,
+      "changes": 20,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2762f28ad190b2387899316ae237c548d67ed0a6/stdlib%2FREPL%2Fsrc%2Fprecompile.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2762f28ad190b2387899316ae237c548d67ed0a6/stdlib%2FREPL%2Fsrc%2Fprecompile.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2Fprecompile.jl?ref=2762f28ad190b2387899316ae237c548d67ed0a6",
+      "patch": "@@ -202,14 +202,18 @@ end\n \n let\n     if Base.generating_output() && Base.JLOptions().use_pkgimages != 0\n-        repl_workload()\n-        precompile(Tuple{typeof(Base.setindex!), Base.Dict{Any, Any}, Any, Char})\n-        precompile(Tuple{typeof(Base.setindex!), Base.Dict{Any, Any}, Any, Int})\n-        precompile(Tuple{typeof(Base.delete!), Base.Set{Any}, String})\n-        precompile(Tuple{typeof(Base.:(==)), Char, String})\n-        #for child in copy(Base.newly_inferred)\n-        #    precompile((child::Base.CodeInstance).def)\n-        #end\n+        # Bare-bones PrecompileTools.jl\n+        # Do we need latestworld-if-toplevel here\n+        ccall(:jl_tag_newly_inferred_enable, Cvoid, ())\n+        try\n+            repl_workload()\n+            precompile(Tuple{typeof(Base.setindex!), Base.Dict{Any, Any}, Any, Char})\n+            precompile(Tuple{typeof(Base.setindex!), Base.Dict{Any, Any}, Any, Int})\n+            precompile(Tuple{typeof(Base.delete!), Base.Set{Any}, String})\n+            precompile(Tuple{typeof(Base.:(==)), Char, String})\n+        finally\n+            ccall(:jl_tag_newly_inferred_disable, Cvoid, ())\n+        end\n     end\n end\n "
+    }
+  ]
 }

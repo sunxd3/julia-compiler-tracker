@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59926/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "ff354a923610c4a8c611b3ac3d18b251a11a044f",
+      "filename": "doc/src/manual/constructors.md",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 23,
+      "changes": 25,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/614d655e03831dd6ceeeaefc048e6bd54006c67c/doc%2Fsrc%2Fmanual%2Fconstructors.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/614d655e03831dd6ceeeaefc048e6bd54006c67c/doc%2Fsrc%2Fmanual%2Fconstructors.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fsrc%2Fmanual%2Fconstructors.md?ref=614d655e03831dd6ceeeaefc048e6bd54006c67c",
+      "patch": "@@ -583,29 +583,8 @@ method. This includes types, i.e., objects of type [`Type`](@ref); and construct\n in fact, be viewed as just callable type objects. For example, there are many methods\n defined on `Bool` and various supertypes of it:\n \n-```julia-repl\n-julia> methods(Bool)\n-# 10 methods for type constructor:\n-  [1] Bool(x::BigFloat)\n-     @ Base.MPFR mpfr.jl:393\n-  [2] Bool(x::Float16)\n-     @ Base float.jl:338\n-  [3] Bool(x::Rational)\n-     @ Base rational.jl:138\n-  [4] Bool(x::Real)\n-     @ Base float.jl:233\n-  [5] (dt::Type{<:Integer})(ip::Sockets.IPAddr)\n-     @ Sockets ~/tmp/jl/jl/julia-nightly-assert/share/julia/stdlib/v1.11/Sockets/src/IPAddr.jl:11\n-  [6] (::Type{T})(x::Enum{T2}) where {T<:Integer, T2<:Integer}\n-     @ Base.Enums Enums.jl:19\n-  [7] (::Type{T})(z::Complex) where T<:Real\n-     @ Base complex.jl:44\n-  [8] (::Type{T})(x::Base.TwicePrecision) where T<:Number\n-     @ Base twiceprecision.jl:265\n-  [9] (::Type{T})(x::T) where T<:Number\n-     @ boot.jl:894\n- [10] (::Type{T})(x::AbstractChar) where T<:Union{AbstractChar, Number}\n-     @ char.jl:50\n+```@repl\n+methods(Bool)\n ```\n \n The usual constructor syntax is exactly equivalent to the function-like object"
+    }
+  ]
 }

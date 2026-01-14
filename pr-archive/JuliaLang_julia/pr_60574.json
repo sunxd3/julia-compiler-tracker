@@ -77,5 +77,55 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60574/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "0cfc2f92edf25d33ec32791a20eacba01ade8f15",
+      "filename": "stdlib/Markdown/src/Common/block.jl",
+      "status": "modified",
+      "additions": 19,
+      "deletions": 16,
+      "changes": 35,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2600c32d917121842047f259786081bf1b91f2be/stdlib%2FMarkdown%2Fsrc%2FCommon%2Fblock.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2600c32d917121842047f259786081bf1b91f2be/stdlib%2FMarkdown%2Fsrc%2FCommon%2Fblock.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FCommon%2Fblock.jl?ref=2600c32d917121842047f259786081bf1b91f2be",
+      "patch": "@@ -56,7 +56,7 @@ function hashheader(stream::IO, md::MD)\n \n         c = ' '\n         # Allow empty headers, but require a space\n-        !eof(stream) && (c = read(stream, Char); !(c in \" \\n\")) &&\n+        !eof(stream) && (c = read(stream, Char); !(c in \" \\t\\n\")) &&\n             return false\n \n         if c != '\\n' # Empty header\n@@ -132,11 +132,11 @@ end\n function footnote(stream::IO, block::MD)\n     withstream(stream) do\n         regex = r\"^\\[\\^(\\w+)\\]:\"\n-        str = startswith(stream, regex)\n-        if isempty(str)\n+        m = matchstart(stream, regex)\n+        if m === nothing\n             return false\n         else\n-            ref = (match(regex, str)::AbstractMatch).captures[1]\n+            ref = m.captures[1]\n             buffer = IOBuffer()\n             write(buffer, readline(stream, keep=true))\n             while !eof(stream)\n@@ -248,7 +248,7 @@ end\n \n mutable struct List <: MarkdownElement\n     items::Vector{Any}\n-    ordered::Int # `-1` is unordered, `>= 0` is ordered.\n+    ordered::Int # `-1` is unordered, `>= 0` is ordered and indicates the start index.\n     loose::Bool # TODO: Renderers should use this field\n end\n List(x::AbstractVector, b::Integer) = List(x, b, false)\n@@ -259,22 +259,25 @@ List(xs...) = List(vcat(xs...))\n isordered(list::List) = list.ordered >= 0\n \n const BULLETS = r\"^ {0,3}(\\*|\\+|-)( |$)\"\n-const NUM_OR_BULLETS = r\"^ {0,3}(\\*|\\+|-|\\d+(\\.|\\)))( |$)\"\n+const NUM_OR_BULLETS = r\"^ {0,3}(\\*|\\+|-|(\\d+)(\\.|\\)))( |$)\"\n \n @breaking true ->\n function list(stream::IO, block::MD)\n     withstream(stream) do\n-        bullet = startswith(stream, NUM_OR_BULLETS; eat = false)\n-        indent = isempty(bullet) ? (return false) : length(bullet)\n+        m = matchstart(stream, NUM_OR_BULLETS; eat = false)\n+        isnothing(m) && return false\n+        indent = length(m.match)\n         # Calculate the starting number and regex to use for bullet matching.\n         initial, regex =\n-            if occursin(BULLETS, bullet)\n+            if m.captures[3] == nothing\n                 # An unordered list. Use `-1` to flag the list as unordered.\n                 -1, BULLETS\n-            elseif occursin(r\"^ {0,3}\\d+(\\.|\\))( |$)\", bullet)\n-                # An ordered list. Either with `1. ` or `1) ` style numbering.\n-                r = occursin(\".\", bullet) ? r\"^ {0,3}(\\d+)\\.( |$)\" : r\"^ {0,3}(\\d+)\\)( |$)\"\n-                Base.parse(Int, (match(r, bullet)::AbstractMatch).captures[1]), r\n+            elseif m.captures[3] == \".\"\n+                # An ordered list with `1. ` style numbering.\n+                Base.parse(Int, m.captures[2]), r\"^ {0,3}(\\d+)\\.( |$)\"\n+            elseif m.captures[3] == \")\"\n+                # An ordered list with `1) ` style numbering.\n+                Base.parse(Int, m.captures[2]), r\"^ {0,3}(\\d+)\\)( |$)\"\n             else\n                 # Failed to match any bullets. This branch shouldn't actually be needed\n                 # since the `NUM_OR_BULLETS` regex should cover this, but we include it\n@@ -299,7 +302,7 @@ function list(stream::IO, block::MD)\n                     # Skip any additional blank lines and check indentation\n                     still_indented = false\n                     while !eof(stream)\n-                        if startswith(stream, \"\\n\";eat = true)\n+                        if startswith(stream, \"\\n\"; eat = true)\n                             continue\n                         elseif startswith(stream, \" \"^indent; eat = false)\n                             still_indented = true\n@@ -328,8 +331,8 @@ function list(stream::IO, block::MD)\n                     # Indented text that is part of the current list item.\n                     print(buffer, readline(stream, keep=true))\n                 else\n-                    matched = startswith(stream, regex)\n-                    if isempty(matched)\n+                    matched = matchstart(stream, regex)\n+                    if matched === nothing\n                         # Unindented text meaning we have left the current list.\n                         pushitem!(list, buffer)\n                         break"
+    },
+    {
+      "sha": "217f2a61925db798a2a3230202b6a759d374f04e",
+      "filename": "stdlib/Markdown/src/Common/inline.jl",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 4,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2600c32d917121842047f259786081bf1b91f2be/stdlib%2FMarkdown%2Fsrc%2FCommon%2Finline.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2600c32d917121842047f259786081bf1b91f2be/stdlib%2FMarkdown%2Fsrc%2FCommon%2Finline.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FCommon%2Finline.jl?ref=2600c32d917121842047f259786081bf1b91f2be",
+      "patch": "@@ -59,7 +59,7 @@ end\n @trigger '`' ->\n function inline_code(stream::IO, md::MD)\n     withstream(stream) do\n-        ticks = startswith(stream, r\"^(`+)\")\n+        ticks = matchstart(stream, r\"^(`+)\").match\n         result = readuntil(stream, ticks)\n         if result === nothing\n             nothing\n@@ -123,11 +123,11 @@ end\n function footnote_link(stream::IO, md::MD)\n     withstream(stream) do\n         regex = r\"^\\[\\^(\\w+)\\]\"\n-        str = startswith(stream, regex)\n-        if isempty(str)\n+        m = matchstart(stream, regex)\n+        if m === nothing\n             return\n         else\n-            ref = (match(regex, str)::AbstractMatch).captures[1]\n+            ref = m.captures[1]\n             return Footnote(ref, nothing)\n         end\n     end"
+    },
+    {
+      "sha": "f3cf625de30f18a3a31615196592adecb3cd84c1",
+      "filename": "stdlib/Markdown/src/parse/util.jl",
+      "status": "modified",
+      "additions": 7,
+      "deletions": 12,
+      "changes": 19,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2600c32d917121842047f259786081bf1b91f2be/stdlib%2FMarkdown%2Fsrc%2Fparse%2Futil.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2600c32d917121842047f259786081bf1b91f2be/stdlib%2FMarkdown%2Fsrc%2Fparse%2Futil.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2Fparse%2Futil.jl?ref=2600c32d917121842047f259786081bf1b91f2be",
+      "patch": "@@ -1,13 +1,5 @@\n # This file is a part of Julia. License is MIT: https://julialang.org/license\n \n-macro dotimes(n, body)\n-    quote\n-        for i = 1:$(esc(n))\n-            $(esc(body))\n-        end\n-    end\n-end\n-\n const whitespace = \" \\t\\r\"\n \n \"\"\"\n@@ -92,16 +84,19 @@ function startswith(stream::IO, ss::Vector{<:AbstractString}; kws...)\n     any(s->startswith(stream, s; kws...), ss)\n end\n \n-function startswith(stream::IO, r::Regex; eat = true, padding = false)\n+function matchstart(stream::IO, r::Regex; eat = true, padding = false)\n     @assert Base.startswith(r.pattern, \"^\")\n     start = position(stream)\n     padding && skipwhitespace(stream)\n     line = readline(stream)\n     seek(stream, start)\n     m = match(r, line)\n-    m === nothing && return \"\"\n-    eat && @dotimes length(m.match) read(stream, Char)\n-    return m.match\n+    if eat && m !== nothing\n+        for i in 1:length(m.match)\n+            read(stream, Char)\n+        end\n+    end\n+    return m\n end\n \n \"\"\""
+    },
+    {
+      "sha": "4debf17e4f77d0f8db5cfb87d9573637f6f11513",
+      "filename": "stdlib/Markdown/test/test_spec.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2600c32d917121842047f259786081bf1b91f2be/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2600c32d917121842047f259786081bf1b91f2be/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Ftest_spec.jl?ref=2600c32d917121842047f259786081bf1b91f2be",
+      "patch": "@@ -69,7 +69,7 @@ using Markdown\n     input = \"#\\tFoo\\n\"\n     expected = \"<h1>Foo</h1>\\n\"\n     actual = Markdown.html(Markdown.parse(input))\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 11\n     input = \"*\\t*\\t*\\t\\n\""
+    }
+  ]
 }

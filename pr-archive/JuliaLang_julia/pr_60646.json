@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60646/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "46e375325882eb409e40a25a26303bbfc83388f2",
+      "filename": "JuliaLowering/src/binding_analysis.jl",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 6,
+      "changes": 10,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/53afa0ef64ea472c78ab98449fb1fe6d79e7e440/JuliaLowering%2Fsrc%2Fbinding_analysis.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/53afa0ef64ea472c78ab98449fb1fe6d79e7e440/JuliaLowering%2Fsrc%2Fbinding_analysis.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fbinding_analysis.jl?ref=53afa0ef64ea472c78ab98449fb1fe6d79e7e440",
+      "patch": "@@ -66,14 +66,12 @@ function _analyze_lambda_vars!(ctx, ex)\n     lambda_bindings = ex.lambda_bindings\n \n     # Collect candidate variables: captured and single-assigned\n-    # We check binfo.is_captured instead of lbinfo (is_capt) because for variables\n-    # defined in this lambda and captured by inner lambdas, lbinfo may be false\n-    # but binfo.is_captured will be true.\n     candidates = Set{IdTag}()\n-    for (id, _) in lambda_bindings.locals_capt\n+    for (id, from_outer_lambda) in lambda_bindings.locals_capt\n         binfo = get_binding(ctx, id)\n-        if (binfo.is_captured && binfo.is_assigned_once &&\n-            (binfo.kind == :local || binfo.kind == :argument))\n+        maybe_boxed = binfo.is_captured && binfo.kind in (:local, :argument)\n+        safe_to_analyze = binfo.is_assigned_once\n+        if !from_outer_lambda && maybe_boxed && safe_to_analyze\n             push!(candidates, id)\n             # For arguments, reset is_always_defined so we can determine if the\n             # outer-scope assignment dominates the capture. Arguments start with"
+    },
+    {
+      "sha": "16dbba1dc80d817ea7b41f6f911fdfa77a3e9ea0",
+      "filename": "JuliaLowering/test/closures.jl",
+      "status": "modified",
+      "additions": 16,
+      "deletions": 0,
+      "changes": 16,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/53afa0ef64ea472c78ab98449fb1fe6d79e7e440/JuliaLowering%2Ftest%2Fclosures.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/53afa0ef64ea472c78ab98449fb1fe6d79e7e440/JuliaLowering%2Ftest%2Fclosures.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fclosures.jl?ref=53afa0ef64ea472c78ab98449fb1fe6d79e7e440",
+      "patch": "@@ -472,4 +472,20 @@ end\n @test_throws UndefVarError test_mod.f_undef_static_param(nothing)()\n @test test_mod.f_undef_static_param(42)() == Int\n \n+# https://github.com/JuliaLang/JuliaLowering.jl/issues/134#issuecomment-3739626003\n+JuliaLowering.include_string(test_mod, \"\"\"\n+function f_update_outer_capture()\n+    local response # declare outside closure\n+    f = ()->begin\n+        response = 1\n+    end\n+    f()\n+    return (f, response)\n+end\n+\"\"\")\n+let (f, response) = test_mod.f_update_outer_capture()\n+    @test f.response isa Core.Box\n+    @test response == 1\n+end\n+\n end"
+    }
+  ]
 }

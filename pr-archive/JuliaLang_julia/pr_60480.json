@@ -128,5 +128,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60480/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "8be035332a10bc4f4c1c0a851765e063b3a2e0cb",
+      "filename": "base/sysinfo.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 12,
+      "changes": 17,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/aba638b2eb31e6aeac8314727108e28748bf9f3f/base%2Fsysinfo.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/aba638b2eb31e6aeac8314727108e28748bf9f3f/base%2Fsysinfo.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fsysinfo.jl?ref=aba638b2eb31e6aeac8314727108e28748bf9f3f",
+      "patch": "@@ -128,8 +128,6 @@ const WORD_SIZE = Core.sizeof(Int) * 8\n \n The number of system \"clock ticks\" per second, corresponding to `sysconf(_SC_CLK_TCK)` on\n POSIX systems, or `0` if it is unknown.\n-\n-CPU times, e.g. as returned by `Sys.cpu_info()`, are in units of ticks, i.e. units of `1 / Sys.SC_CLK_TCK` seconds if `Sys.SC_CLK_TCK > 0`.\n \"\"\"\n global SC_CLK_TCK::Clong\n \n@@ -224,8 +222,7 @@ The `CPUinfo` type is a mutable struct with the following fields:\n - `cpu_times!idle::UInt64`: Time spent in idle mode. CPU state shows the CPU time that's not actively being used.\n - `cpu_times!irq::UInt64`: Time spent handling interrupts. CPU state shows the amount of time the CPU has been servicing hardware interrupts.\n \n-The times are in units of `1/Sys.SC_CLK_TCK` seconds if `Sys.SC_CLK_TCK > 0`; otherwise they are in\n-unknown units.\n+The times are in units of milliseconds.\n \n Note: Included in the detailed system information via `versioninfo(verbose=true)`.\n \"\"\"\n@@ -246,24 +243,20 @@ CPUinfo(info::UV_cpu_info_t) = CPUinfo(unsafe_string(info.model), info.speed,\n public CPUinfo\n \n function _show_cpuinfo(io::IO, info::Sys.CPUinfo, header::Bool=true, prefix::AbstractString=\"    \")\n-    tck = SC_CLK_TCK\n     if header\n         println(io, info.model, \": \")\n         print(io, \" \"^length(prefix))\n         println(io, \"    \", lpad(\"speed\", 5), \"    \", lpad(\"user\", 9), \"    \", lpad(\"nice\", 9), \"    \",\n                 lpad(\"sys\", 9), \"    \", lpad(\"idle\", 9), \"    \", lpad(\"irq\", 9))\n     end\n     print(io, prefix)\n-    unit = tck > 0 ? \" s  \" : \"    \"\n-    tc = max(tck, 1)\n+    ms_per_s = 1000\n+    unit = \" s  \"\n     d(i, unit=unit) = lpad(string(round(Int64,i)), 9) * unit\n     print(io,\n           lpad(string(info.speed), 5), \" MHz  \",\n-          d(info.cpu_times!user / tc), d(info.cpu_times!nice / tc), d(info.cpu_times!sys / tc),\n-          d(info.cpu_times!idle / tc), d(info.cpu_times!irq / tc, tck > 0 ? \" s\" : \"  \"))\n-    if tck <= 0\n-        print(io, \"ticks\")\n-    end\n+          d(info.cpu_times!user / ms_per_s), d(info.cpu_times!nice / ms_per_s), d(info.cpu_times!sys / ms_per_s),\n+          d(info.cpu_times!idle / ms_per_s), d(info.cpu_times!irq / ms_per_s))\n end\n \n show(io::IO, ::MIME\"text/plain\", info::CPUinfo) = _show_cpuinfo(io, info, true, \"    \")"
+    },
+    {
+      "sha": "91a5f77fac5d9e85dea1ec2ccf8c9620dcc9ceff",
+      "filename": "test/sysinfo.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 4,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/aba638b2eb31e6aeac8314727108e28748bf9f3f/test%2Fsysinfo.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/aba638b2eb31e6aeac8314727108e28748bf9f3f/test%2Fsysinfo.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fsysinfo.jl?ref=aba638b2eb31e6aeac8314727108e28748bf9f3f",
+      "patch": "@@ -70,9 +70,7 @@ end\n     Base.Sys.CPUinfo(\"Apple M1 Pro\", 2400, 0x00000000026784da, 0x0000000000000000, 0x0000000000fda30e, 0x0000000046a731ea, 0x0000000000000000)\n     Base.Sys.CPUinfo(\"Apple M1 Pro\", 2400, 0x00000000017726c0, 0x0000000000000000, 0x00000000009491de, 0x0000000048134f1e, 0x0000000000000000)]\n \n-    Sys.SC_CLK_TCK, save_SC_CLK_TCK = 100, Sys.SC_CLK_TCK # use platform-independent tick units\n     @test repr(example_cpus[1]) == \"Base.Sys.CPUinfo(\\\"Apple M1 Pro\\\", 2400, 0x000000000d913b08, 0x0000000000000000, 0x0000000005f4243c, 0x00000000352a550a, 0x0000000000000000)\"\n-    @test repr(\"text/plain\", example_cpus[1]) == \"Apple M1 Pro: \\n        speed         user         nice          sys         idle          irq\\n     2400 MHz    2276216 s          0 s     998861 s    8919667 s          0 s\"\n-    @test sprint(Sys.cpu_summary, example_cpus) == \"Apple M1 Pro: \\n       speed         user         nice          sys         idle          irq\\n#1  2400 MHz    2276216 s          0 s     998861 s    8919667 s          0 s\\n#2  2400 MHz    2275576 s          0 s     978101 s    8962204 s          0 s\\n#3  2400 MHz     403386 s          0 s     166224 s   11853624 s          0 s\\n#4  2400 MHz     245859 s          0 s      97367 s   12092250 s          0 s\\n\"\n-    Sys.SC_CLK_TCK = save_SC_CLK_TCK\n+    @test repr(\"text/plain\", example_cpus[1]) == \"Apple M1 Pro: \\n        speed         user         nice          sys         idle          irq\\n     2400 MHz     227622 s          0 s      99886 s     891967 s          0 s  \"\n+    @test sprint(Sys.cpu_summary, example_cpus) == \"Apple M1 Pro: \\n       speed         user         nice          sys         idle          irq\\n#1  2400 MHz     227622 s          0 s      99886 s     891967 s          0 s  \\n#2  2400 MHz     227558 s          0 s      97810 s     896220 s          0 s  \\n#3  2400 MHz      40339 s          0 s      16622 s    1185362 s          0 s  \\n#4  2400 MHz      24586 s          0 s       9737 s    1209225 s          0 s  \\n\"\n end"
+    }
+  ]
 }

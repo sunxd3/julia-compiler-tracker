@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60357/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "09798d36c95188ea7e4352b466b390bbf2c879d4",
+      "filename": "JuliaLowering/src/desugaring.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 4,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7b4b6622ae1931efa446548201eda75d5e7952ad/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7b4b6622ae1931efa446548201eda75d5e7952ad/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fdesugaring.jl?ref=7b4b6622ae1931efa446548201eda75d5e7952ad",
+      "patch": "@@ -611,10 +611,11 @@ function replace_beginend(ctx, ex, arr, n, splats, is_last)\n             replace_beginend(ctx, ex[1], arr, n, splats, is_last)\n             ex[2:end]...\n         ]\n-    # elseif k == K\"kw\" - keyword args - what does this mean here?\n-    #   # note from flisp\n-    #   # TODO: this probably should not be allowed since keyword args aren't\n-    #   # positional, but in this context we have just used their positions anyway\n+    elseif k == K\"kw\"\n+        # note from flisp\n+        # TODO: this probably should not be allowed since keyword args aren't\n+        # positional, but in this context we have just used their positions anyway\n+        @ast ctx ex [K\"kw\" ex[1] replace_beginend(ctx, ex[2], arr, n, splats, is_last)]\n     else\n         mapchildren(e->replace_beginend(ctx, e, arr, n, splats, is_last), ctx, ex)\n     end"
+    },
+    {
+      "sha": "f54ddb293d35c0f1b6156f3a67c752c95765b81c",
+      "filename": "JuliaLowering/test/arrays.jl",
+      "status": "modified",
+      "additions": 14,
+      "deletions": 0,
+      "changes": 14,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7b4b6622ae1931efa446548201eda75d5e7952ad/JuliaLowering%2Ftest%2Farrays.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7b4b6622ae1931efa446548201eda75d5e7952ad/JuliaLowering%2Ftest%2Farrays.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Farrays.jl?ref=7b4b6622ae1931efa446548201eda75d5e7952ad",
+      "patch": "@@ -145,4 +145,18 @@ let\n end\n \"\"\") == (3, 7, 2, 5)\n \n+# begin/end not replaced in some cases\n+JuliaLowering.include_string(test_mod, \"f(args...;kws...) = 2\")\n+@test JuliaLowering.include_string(test_mod, \"\"\"\n+    [7,8,9][f(;var\"end\"=123, var\"begin\"=456)]\n+\"\"\") === 8\n+@test JuliaLowering.include_string(test_mod, \"\"\"\n+    [7,8,9][f(quote var\"end\" end)]\n+\"\"\") === 8\n+@test JuliaLowering.include_string(test_mod, \"\"\"\n+let var\"end\" = [1,2,3], y = [7,8,9]\n+    y[var\"end\"[var\"end\"]]\n+end\n+\"\"\") === 9\n+\n end # @testset \"Array syntax\" begin"
+    }
+  ]
 }

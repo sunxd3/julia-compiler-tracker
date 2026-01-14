@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60198/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "3ad198364f1821fca2048dbcfd5f3eb1f9ead429",
+      "filename": "JuliaSyntax/src/julia/tokenize.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/9b7f64d6d0b73560d253745dd218a557aa901727/JuliaSyntax%2Fsrc%2Fjulia%2Ftokenize.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/9b7f64d6d0b73560d253745dd218a557aa901727/JuliaSyntax%2Fsrc%2Fjulia%2Ftokenize.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaSyntax%2Fsrc%2Fjulia%2Ftokenize.jl?ref=9b7f64d6d0b73560d253745dd218a557aa901727",
+      "patch": "@@ -173,7 +173,7 @@ function optakessuffix(k)\n         k == K\"!\"   ||\n         k == K\".'\"  ||\n         k == K\"->\"  ||\n-        K\"\u00ac\" <= k <= K\"\u221c\"\n+        K\"BEGIN_UNICODE_OPS\" <= k <= K\"END_UNICODE_OPS\"\n     )\n end\n "
+    }
+  ]
 }

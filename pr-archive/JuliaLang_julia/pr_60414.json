@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60414/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "73d017451305ac46e2554ce7a6a377591617e584",
+      "filename": "Compiler/src/abstractinterpretation.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/becb0e2adb394b1a21a53c7f11668ba18f28ae4d/Compiler%2Fsrc%2Fabstractinterpretation.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/becb0e2adb394b1a21a53c7f11668ba18f28ae4d/Compiler%2Fsrc%2Fabstractinterpretation.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Compiler%2Fsrc%2Fabstractinterpretation.jl?ref=becb0e2adb394b1a21a53c7f11668ba18f28ae4d",
+      "patch": "@@ -2237,7 +2237,7 @@ function abstract_invoke(interp::AbstractInterpreter, arginfo::ArgInfo, si::Stmt\n                 return Future(CallMeta(Bottom, ErrorException, EFFECTS_THROWS, NoCallInfo()))\n             end\n             # TODO: When we add curing, we may want to assume this is nothrow\n-            if (method_or_ci.owner === Nothing && method_ir_ci.def.def isa Method)\n+            if (method_or_ci.owner === Nothing && method_or_ci.def.def isa Method)\n                 exct = Union{exct, ErrorException}\n             end\n             update_valid_age!(sv, our_world, callee_valid_range)"
+    }
+  ]
 }

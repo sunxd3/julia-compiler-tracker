@@ -77,5 +77,55 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59980/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "7ae414637cddad018e98e09bccd55637a8435257",
+      "filename": "Makefile",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a5e6e5bafa10e9578a1465f54ae7e1654dcf39de/Makefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a5e6e5bafa10e9578a1465f54ae7e1654dcf39de/Makefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Makefile?ref=a5e6e5bafa10e9578a1465f54ae7e1654dcf39de",
+      "patch": "@@ -712,7 +712,7 @@ distcleanall: cleanall\n \n # Generate compilation database (leverages existing clang tooling setup)\n compile-database:\n-\t@$(MAKE) $(QUIET_MAKE) -C $(BUILDROOT)/src compile-database-src\n+\t@$(MAKE) $(QUIET_MAKE) -C $(BUILDROOT)/src compile-database\n \n test: check-whitespace $(JULIA_BUILD_MODE)\n \t@$(MAKE) $(QUIET_MAKE) -C $(BUILDROOT)/test default JULIA_BUILD_MODE=$(JULIA_BUILD_MODE)"
+    },
+    {
+      "sha": "f8c69b75b4d1b0148ad83ce028ee5f098573fee4",
+      "filename": "src/Makefile",
+      "status": "modified",
+      "additions": 13,
+      "deletions": 11,
+      "changes": 24,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a5e6e5bafa10e9578a1465f54ae7e1654dcf39de/src%2FMakefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a5e6e5bafa10e9578a1465f54ae7e1654dcf39de/src%2FMakefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2FMakefile?ref=a5e6e5bafa10e9578a1465f54ae7e1654dcf39de",
+      "patch": "@@ -259,7 +259,7 @@ endif\n default: $(JULIA_BUILD_MODE) # contains either \"debug\" or \"release\"\n all: debug release\n \n-release debug: %: libjulia-internal-% libjulia-codegen-% $(BUILDDIR)/compile_commands.json\n+release debug: %: libjulia-internal-% libjulia-codegen-% regenerate-compile_commands\n \n $(BUILDDIR):\n \tmkdir -p $(BUILDDIR)\n@@ -558,6 +558,7 @@ clean:\n \t-rm -f $(BUILDDIR)/*.dbg.obj $(BUILDDIR)/*.o $(BUILDDIR)/*.dwo $(BUILDDIR)/*.$(SHLIB_EXT) $(BUILDDIR)/*.a $(BUILDDIR)/*.h.gen\n \t-rm -f $(BUILDDIR)/julia.expmap\n \t-rm -f $(BUILDDIR)/julia_version.h\n+\t-rm -f $(BUILDDIR)/compile_commands.json\n \n clean-flisp:\n \t-$(MAKE) -C $(SRCDIR)/flisp clean BUILDDIR='$(abspath $(BUILDDIR)/flisp)'\n@@ -654,8 +655,10 @@ clean-analyzegc:\n \trm -f $(build_shlibdir)/libImplicitAtomicsPlugin.$(SHLIB_EXT)\n \n # Compilation database generation using existing clang infrastructure\n-$(BUILDDIR)/compile_commands.json:\n-\t@{ \\\n+.PHONY: regenerate-compile_commands\n+regenerate-compile_commands:\n+\tTMPFILE=$$(mktemp -p $(BUILDDIR) compile_commands.json.XXXXXX); \\\n+\t{ \\\n \t\tCLANG_TOOLING_C_FLAGS=\"$$($(JULIAHOME)/contrib/escape_json.sh clang $(CLANG_TOOLING_C_FLAGS))\"; \\\n \t\tCLANG_TOOLING_CXX_FLAGS=\"$$($(JULIAHOME)/contrib/escape_json.sh clang $(CLANG_TOOLING_CXX_FLAGS))\"; \\\n \t\techo \"[\"; \\\n@@ -711,18 +714,17 @@ $(BUILDDIR)/compile_commands.json:\n \t\t\tprintf '{\\n  \"directory\": \"%s\",\\n  \"file\": \"%s\",\\n  \"arguments\": [%s]\\n}' \"$(abspath $(SRCDIR))\" \"$$included_file\" \"$$cmd\"; \\\n \t\tdone; \\\n \t\techo \"]\"; \\\n-\t} > $@.tmp\n-\t@# This ensures we replace the file atomically, and avoid spurious rewrites\n-\t@if ! cmp -s $@.tmp $@; then \\\n-\t\tmv $@.tmp $@; \\\n+\t} > $$TMPFILE; \\\n+\tif ! cmp -s $$TMPFILE $(BUILDDIR)/compile_commands.json; then \\\n+\t\tmv $$TMPFILE $(BUILDDIR)/compile_commands.json; \\\n \telse \\\n-\t\trm -f $@.tmp; \\\n+\t\trm -f $$TMPFILE; \\\n \tfi\n \n-compile-database: $(BUILDDIR)/compile_commands.json\n+compile-database: regenerate-compile_commands\n \t$(MAKE) -C $(SRCDIR)/flisp compile-database BUILDDIR='$(abspath $(BUILDDIR)/flisp)'\n \t$(MAKE) -C $(SRCDIR)/support compile-database BUILDDIR='$(abspath $(BUILDDIR)/support)'\n-\t@echo \"Compilation database created: $<\"\n+\t@echo \"Compilation database created for src\"\n \n .FORCE:\n-.PHONY: default all debug release clean cleanall clean-* libccalltest libllvmcalltest julia_flisp.boot.inc.phony analyzegc analyzesrc compile-database $(BUILDDIR)/compile_commands.json .FORCE\n+.PHONY: default all debug release clean cleanall clean-* libccalltest libllvmcalltest julia_flisp.boot.inc.phony analyzegc analyzesrc compile-database .FORCE"
+    },
+    {
+      "sha": "3c24dab77d89f28e28ed2426533386a354c07090",
+      "filename": "src/flisp/Makefile",
+      "status": "modified",
+      "additions": 13,
+      "deletions": 12,
+      "changes": 25,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a5e6e5bafa10e9578a1465f54ae7e1654dcf39de/src%2Fflisp%2FMakefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a5e6e5bafa10e9578a1465f54ae7e1654dcf39de/src%2Fflisp%2FMakefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fflisp%2FMakefile?ref=a5e6e5bafa10e9578a1465f54ae7e1654dcf39de",
+      "patch": "@@ -61,9 +61,9 @@ DEBUGFLAGS_COMMON += $(FLAGS_COMMON)\n \n default: release\n \n-release: $(BUILDDIR)/$(EXENAME)$(EXE) $(BUILDDIR)/compile_commands.json\n+release: $(BUILDDIR)/$(EXENAME)$(EXE) regenerate-compile_commands\n \n-debug: $(BUILDDIR)/$(EXENAME)-debug$(EXE) $(BUILDDIR)/compile_commands.json\n+debug: $(BUILDDIR)/$(EXENAME)-debug$(EXE) regenerate-compile_commands\n \n $(BUILDDIR):\n \tmkdir -p $(BUILDDIR)\n@@ -140,8 +140,10 @@ CLANG_TOOLING_C_FLAGS = $(CLANGSA_FLAGS) $(DEBUGFLAGS_CLANG) $(JCPPFLAGS_CLANG)\n INCLUDED_FLISP_FILES := flisp.c:cvalues.c flisp.c:types.c flisp.c:print.c flisp.c:read.c flisp.c:equal.c\n \n # Compilation database generation\n-$(BUILDDIR)/compile_commands.json:\n-\t@{ \\\n+.PHONY: regenerate-compile_commands\n+regenerate-compile_commands:\n+\tTMPFILE=$$(mktemp -p $(BUILDDIR) compile_commands.json.XXXXXX); \\\n+\t{ \\\n \t\tCLANG_TOOLING_C_FLAGS=\"$$($(JULIAHOME)/contrib/escape_json.sh clang $(CLANG_TOOLING_C_FLAGS))\"; \\\n \t\techo \"[\"; \\\n \t\tfirst=true; \\\n@@ -158,16 +160,15 @@ $(BUILDDIR)/compile_commands.json:\n \t\t\tprintf '{\\n  \"directory\": \"%s\",\\n  \"file\": \"%s\",\\n  \"arguments\": [%s]\\n}' \"$(abspath $(SRCDIR))\" \"$$included_file\" \"$$cmd\"; \\\n \t\tdone; \\\n \t\techo \"]\"; \\\n-\t} > $@.tmp\n-\t@# This ensures we replace the file atomically, and avoid spurious rewrites\n-\t@if ! cmp -s $@.tmp $@; then \\\n-\t\tmv $@.tmp $@; \\\n+\t} > $$TMPFILE; \\\n+\tif ! cmp -s $$TMPFILE $(BUILDDIR)/compile_commands.json; then \\\n+\t\tmv $$TMPFILE $(BUILDDIR)/compile_commands.json; \\\n \telse \\\n-\t\trm -f $@.tmp; \\\n+\t\trm -f $$TMPFILE; \\\n \tfi\n \n-compile-database: $(BUILDDIR)/compile_commands.json\n-\t@echo \"Compilation database created for flisp: $<\"\n+compile-database: regenerate-compile_commands\n+\t@echo \"Compilation database created for src/flisp\"\n \n clean:\n \trm -f $(BUILDDIR)/*.o\n@@ -178,4 +179,4 @@ clean:\n \trm -f $(BUILDDIR)/compile_commands.json\n \trm -f $(BUILDDIR)/host/*\n \n-.PHONY: flisp-deps compile-database $(BUILDDIR)/compile_commands.json\n+.PHONY: flisp-deps compile-database"
+    },
+    {
+      "sha": "69e97a1f65cc77e45bd84f8026eb6028d9bba554",
+      "filename": "src/support/Makefile",
+      "status": "modified",
+      "additions": 13,
+      "deletions": 12,
+      "changes": 25,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a5e6e5bafa10e9578a1465f54ae7e1654dcf39de/src%2Fsupport%2FMakefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a5e6e5bafa10e9578a1465f54ae7e1654dcf39de/src%2Fsupport%2FMakefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fsupport%2FMakefile?ref=a5e6e5bafa10e9578a1465f54ae7e1654dcf39de",
+      "patch": "@@ -53,8 +53,8 @@ $(BUILDDIR)/host/Makefile:\n \t@printf \"%s\\n\" 'BUILDING_HOST_TOOLS=1' >> $@\n \t@printf \"%s\\n\" 'include $(SRCDIR)/Makefile' >> $@\n \n-release: $(BUILDDIR)/libsupport.a $(BUILDDIR)/compile_commands.json\n-debug: $(BUILDDIR)/libsupport-debug.a $(BUILDDIR)/compile_commands.json\n+release: $(BUILDDIR)/libsupport.a regenerate-compile_commands\n+debug: $(BUILDDIR)/libsupport-debug.a regenerate-compile_commands\n \n $(BUILDDIR)/libsupport.a: $(OBJS) | $(BUILDIR)\n \trm -rf $@\n@@ -78,8 +78,10 @@ CLANG_TOOLING_C_FLAGS = $(CLANGSA_FLAGS) $(DEBUGFLAGS_CLANG) $(JCPPFLAGS_CLANG)\n INCLUDED_SUPPORT_FILES := hashing.c:MurmurHash3.c\n \n # Compilation database generation\n-$(BUILDDIR)/compile_commands.json:\n-\t@{ \\\n+.PHONY: regenerate-compile_commands\n+regenerate-compile_commands:\n+\tTMPFILE=$$(mktemp -p $(BUILDDIR) compile_commands.json.XXXXXX); \\\n+\t{ \\\n \t\tCLANG_TOOLING_S_FLAGS=\"$$($(JULIAHOME)/contrib/escape_json.sh clang $(JCPPFLAGS) $(DEBUGFLAGS))\"; \\\n \t\tCLANG_TOOLING_C_FLAGS=\"$$($(JULIAHOME)/contrib/escape_json.sh clang $(JCPPFLAGS) $(JCFLAGS) $(DEBUGFLAGS))\"; \\\n \t\techo \"[\"; \\\n@@ -103,16 +105,15 @@ $(BUILDDIR)/compile_commands.json:\n \t\t\tprintf '{\\n  \"directory\": \"%s\",\\n  \"file\": \"%s\",\\n  \"arguments\": [%s]\\n}' \"$(abspath $(SRCDIR))\" \"$$included_file\" \"$$cmd\"; \\\n \t\tdone; \\\n \t\techo \"]\"; \\\n-\t} > $@.tmp\n-\t@# This ensures we replace the file atomically, and avoid spurious rewrites\n-\t@if ! cmp -s $@.tmp $@; then \\\n-\t\tmv $@.tmp $@; \\\n+\t} > $$TMPFILE; \\\n+\tif ! cmp -s $$TMPFILE $(BUILDDIR)/compile_commands.json; then \\\n+\t\tmv $$TMPFILE $(BUILDDIR)/compile_commands.json; \\\n \telse \\\n-\t\trm -f $@.tmp; \\\n+\t\trm -f $$TMPFILE; \\\n \tfi\n \n-compile-database: $(BUILDDIR)/compile_commands.json\n-\t@echo \"Compilation database created in support: $<\"\n+compile-database: regenerate-compile_commands\n+\t@echo \"Compilation database created for src/support\"\n \n clean:\n \trm -f $(BUILDDIR)/*.o\n@@ -125,4 +126,4 @@ clean:\n \trm -f $(BUILDDIR)/compile_commands.json\n \trm -f $(BUILDDIR)/host/*\n \n-.PHONY: compile-database $(BUILDDIR)/compile_commands.json\n+.PHONY: compile-database"
+    }
+  ]
 }

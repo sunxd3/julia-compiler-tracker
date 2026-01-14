@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59823/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "4a30e16535774ea59ee5fcee1e9655765cdab822",
+      "filename": "NEWS.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7db9242c3aced7c1c3fe5f37a8f39e60779d23b1/NEWS.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7db9242c3aced7c1c3fe5f37a8f39e60779d23b1/NEWS.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/NEWS.md?ref=7db9242c3aced7c1c3fe5f37a8f39e60779d23b1",
+      "patch": "@@ -59,7 +59,7 @@ New library functions\n * Exporting function `fieldindex` to get the index of a struct's field ([#58119]).\n * `Base.donotdelete` is now public. It prevents deadcode elimination of its arguments ([#55774]).\n * `Sys.sysimage_target()` returns the CPU target string used to build the current system image ([#58970]).\n-* `Iterators.findeach` is a lazy version of `findall` ([#54124])\n+* `Iterators.findeach` is a lazy version of `findall` ([#54124]).\n \n New library features\n --------------------"
+    }
+  ]
 }

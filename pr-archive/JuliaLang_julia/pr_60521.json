@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60521/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "8300029abaafbf44e3bd7d2ade708b7537cd40ba",
+      "filename": "stdlib/Markdown/src/Julia/interp.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/0cd3be77621372d910a6f18bd69a5c60824f13e4/stdlib%2FMarkdown%2Fsrc%2FJulia%2Finterp.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/0cd3be77621372d910a6f18bd69a5c60824f13e4/stdlib%2FMarkdown%2Fsrc%2FJulia%2Finterp.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2FJulia%2Finterp.jl?ref=0cd3be77621372d910a6f18bd69a5c60824f13e4",
+      "patch": "@@ -46,7 +46,7 @@ toexpr(x) = x\n toexpr(xs::Union{Vector{Any},Vector{Vector{Any}}}) =\n     Expr(:call, GlobalRef(Base,:getindex), Any, mapany(toexpr, xs)...)\n \n-for T in Any[MD, Paragraph, Header, Link, Bold, Italic, Footnote, Admonition]\n+for T in Any[MD, Paragraph, Header, Link, Bold, Italic, Footnote, Admonition, BlockQuote]\n     @eval function toexpr(md::$T)\n         Expr(:call, typeof(md), $(map(x->:(toexpr(md.$x)), fieldnames(Base.unwrap_unionall(T)))...))\n     end"
+    },
+    {
+      "sha": "650525c75b701182d8d52bc53321c5b77bc3e2cb",
+      "filename": "stdlib/Markdown/test/runtests.jl",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 3,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/0cd3be77621372d910a6f18bd69a5c60824f13e4/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/0cd3be77621372d910a6f18bd69a5c60824f13e4/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Fruntests.jl?ref=0cd3be77621372d910a6f18bd69a5c60824f13e4",
+      "patch": "@@ -502,16 +502,18 @@ sum_ref = md\"Behaves like $(ref(sum))\"\n @test plain(sum_ref) == \"Behaves like sum (see Julia docs)\\n\"\n @test html(sum_ref) == \"<p>Behaves like sum &#40;see Julia docs&#41;</p>\\n\"\n \n-# JuliaLang/julia#59783\n-let x = 1,\n+@testset \"JuliaLang/julia#59783 and #53362\" begin\n+    x = 1\n     result = md\"\"\"\n     $x\n \n     [^1]: $x\n \n     !!! note\n     $x\n-    \"\"\",\n+\n+    > $x\n+    \"\"\"\n     expected = \"\"\"\n     1\n \n@@ -522,6 +524,9 @@ let x = 1,\n \n \n     1\n+\n+    > 1\n+\n     \"\"\"\n     @test plain(result) == expected\n end"
+    }
+  ]
 }

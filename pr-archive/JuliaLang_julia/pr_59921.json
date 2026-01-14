@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59921/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "c80b04ccca2a0ed8e4b7489992c7412c21ccdd7d",
+      "filename": "Compiler/src/abstractinterpretation.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3aea6638141da3169d9384ba1c20997bcd774486/Compiler%2Fsrc%2Fabstractinterpretation.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3aea6638141da3169d9384ba1c20997bcd774486/Compiler%2Fsrc%2Fabstractinterpretation.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Compiler%2Fsrc%2Fabstractinterpretation.jl?ref=3aea6638141da3169d9384ba1c20997bcd774486",
+      "patch": "@@ -3457,7 +3457,7 @@ function abstract_eval_nonlinearized_foreigncall_name(\n         callresult = Future{CallMeta}()\n         i::Int = 1\n         nextstate::UInt8 = 0x0\n-        local ai, res\n+        local ai::Future, res::Future\n         function evalargs(interp, sv)\n             if nextstate === 0x1\n                 @goto state1"
+    }
+  ]
 }

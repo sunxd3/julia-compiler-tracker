@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59736/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "2d9a3b85b6513dd931106fd5b40c4740b8e2a73d",
+      "filename": "src/aotcompile.cpp",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 8,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/a3fd78431b4a51e389192d40ef6ca98d3ae7ba2a/src%2Faotcompile.cpp",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/a3fd78431b4a51e389192d40ef6ca98d3ae7ba2a/src%2Faotcompile.cpp",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Faotcompile.cpp?ref=a3fd78431b4a51e389192d40ef6ca98d3ae7ba2a",
+      "patch": "@@ -1196,7 +1196,6 @@ static FunctionInfo getFunctionWeight(const Function &F)\n }\n \n struct ModuleInfo {\n-    Triple triple;\n     size_t globals;\n     size_t funcs;\n     size_t bbs;\n@@ -1207,7 +1206,6 @@ struct ModuleInfo {\n \n ModuleInfo compute_module_info(Module &M) {\n     ModuleInfo info;\n-    info.triple = Triple(M.getTargetTriple());\n     info.globals = 0;\n     info.funcs = 0;\n     info.bbs = 0;\n@@ -2005,12 +2003,6 @@ static unsigned compute_image_thread_count(const ModuleInfo &info) {\n #endif\n     if (jl_is_timing_passes) // LLVM isn't thread safe when timing the passes https://github.com/llvm/llvm-project/issues/44417\n         return 1;\n-    // COFF has limits on external symbols (even hidden) up to 65536. We reserve the last few\n-    // for any of our other symbols that we insert during compilation.\n-    if (info.triple.isOSBinFormatCOFF() && info.globals > 64000) {\n-        LLVM_DEBUG(dbgs() << \"COFF is restricted to a single thread for large images\\n\");\n-        return 1;\n-    }\n     // This is not overridable because empty modules do occasionally appear, but they'll be very small and thus exit early to\n     // known easy behavior. Plus they really don't warrant multiple threads\n     if (info.weight < 1000) {"
+    }
+  ]
 }

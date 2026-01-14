@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59971/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "9a7d6a3c8a6929656618fc0636802f5c63624564",
+      "filename": "src/codegen.cpp",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/073bb01fda200feef917ef03d651f3642392f735/src%2Fcodegen.cpp",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/073bb01fda200feef917ef03d651f3642392f735/src%2Fcodegen.cpp",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fcodegen.cpp?ref=073bb01fda200feef917ef03d651f3642392f735",
+      "patch": "@@ -4141,7 +4141,7 @@ static bool emit_builtin_call(jl_codectx_t &ctx, jl_cgval_t *ret, jl_value_t *f,\n         if (argv[2].constant) {\n             if (!jl_is_long(argv[2].constant))\n                 return false;\n-            size_t nel = jl_unbox_long(argv[2].constant);\n+            auto nel = jl_unbox_long(argv[2].constant);\n             if (nel < 0)\n                 return false;\n             *ret = emit_const_len_memorynew(ctx, typ, nel, inst);\n@@ -8939,7 +8939,7 @@ static jl_llvm_functions_t\n                 if (!jl_is_symbol(debuginfo->def)) // this is a path\n                     func = debuginfo->def; // this is inlined\n                 struct jl_codeloc_t lineidx = jl_uncompress1_codeloc(debuginfo->codelocs, pc);\n-                size_t i = lineidx.line;\n+                ssize_t i = lineidx.line;\n                 if (i < 0) // pc out of range: broken debuginfo?\n                     return false;\n                 if (i == 0 && lineidx.to == 0) // no update"
+    }
+  ]
 }

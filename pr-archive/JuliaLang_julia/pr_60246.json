@@ -95,5 +95,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60246/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "fd7c93dfda3f9e5d7729a49b6a71b9d336158e7b",
+      "filename": "JuliaSyntax/src/integration/expr.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 1,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71/JuliaSyntax%2Fsrc%2Fintegration%2Fexpr.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71/JuliaSyntax%2Fsrc%2Fintegration%2Fexpr.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaSyntax%2Fsrc%2Fintegration%2Fexpr.jl?ref=2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71",
+      "patch": "@@ -528,8 +528,9 @@ end\n     elseif k == K\"function\"\n         if length(args) > 1\n             if has_flags(nodehead, SHORT_FORM_FUNCTION_FLAG)\n+                a1 = args[1]\n                 a2 = args[2]\n-                if !@isexpr(a2, :block)\n+                if !@isexpr(a2, :block) && !@isexpr(a1, Symbol(\"'\"))\n                     args[2] = Expr(:block, a2)\n                 end\n                 retexpr.head = :(=)"
+    },
+    {
+      "sha": "828d0a92e8b89730deb14a24650fa1191a877aa6",
+      "filename": "JuliaSyntax/test/expr.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 0,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71/JuliaSyntax%2Ftest%2Fexpr.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71/JuliaSyntax%2Ftest%2Fexpr.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaSyntax%2Ftest%2Fexpr.jl?ref=2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71",
+      "patch": "@@ -269,6 +269,12 @@\n                  Expr(:block,\n                       LineNumberNode(3)))\n \n+        # short-form postfix function shouldn't introduce a block\n+        @test parsestmt(\"x' = 1\") ==\n+            Expr(:(=),\n+                 Expr(Symbol(\"'\"), :x),\n+                 1)\n+\n         # `.=` doesn't introduce short form functions\n         @test parsestmt(\"f() .= xs\") ==\n             Expr(:(.=), Expr(:call, :f), :xs)"
+    }
+  ]
 }

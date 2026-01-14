@@ -95,5 +95,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/58438/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "227e2d6b082840b8c62a9d2d39dde94eb2e53ff1",
+      "filename": "base/reinterpretarray.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 0,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/733eb6664e472eeb682f6c71e680fcb8f2994704/base%2Freinterpretarray.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/733eb6664e472eeb682f6c71e680fcb8f2994704/base%2Freinterpretarray.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Freinterpretarray.jl?ref=733eb6664e472eeb682f6c71e680fcb8f2994704",
+      "patch": "@@ -918,6 +918,12 @@ function _reinterpret_padding(::Type{Out}, x::In) where {Out, In}\n     return out[]\n end\n \n+function String(v::ReinterpretArray{UInt8,1,S,<:Union{Vector{S},Memory{S}},IsReshaped}) where {S,IsReshaped}\n+    len = length(v)\n+    len == 0 && return \"\"\n+    check_readable(v) # stringifying empty arrays is always allowed\n+    return ccall(:jl_pchar_to_string, Ref{String}, (Ptr{UInt8}, Int), v, len)\n+end\n \n # Reductions with IndexSCartesian2\n "
+    },
+    {
+      "sha": "33eb0e13389488a84425cf38830a62a86ec2fb98",
+      "filename": "test/strings/basic.jl",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 0,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/733eb6664e472eeb682f6c71e680fcb8f2994704/test%2Fstrings%2Fbasic.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/733eb6664e472eeb682f6c71e680fcb8f2994704/test%2Fstrings%2Fbasic.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fstrings%2Fbasic.jl?ref=733eb6664e472eeb682f6c71e680fcb8f2994704",
+      "patch": "@@ -8,6 +8,17 @@ using Random\n     @test String(\"abc!\") == \"abc!\"\n     @test String(0x61:0x63) == \"abc\"\n \n+    # reinterpret arrays\n+    v = [0x61,0x62,0x63,0x21]\n+    v32 = copy(reinterpret(UInt32, v))\n+    @test String(reinterpret(UInt8, v32)) == \"abc!\" && !isempty(v32)\n+    @test 1 == @allocations String(reinterpret(UInt8, v32))\n+    m32 = v32.ref.mem\n+    @test String(reinterpret(UInt8, m32)) == \"abc!\" && !isempty(m32)\n+    @test 1 == @allocations String(reinterpret(UInt8, m32))\n+    @test String(reinterpret(UInt8, Tuple{UInt8, UInt64}[])) == \"\"\n+    @test_throws Base.PaddingError String(reinterpret(UInt8, [(0x41, 0x4141414141414141)]))\n+\n     # Check that resizing empty source vector does not corrupt string\n     b = IOBuffer()\n     @inferred write(b, \"ab\")"
+    }
+  ]
 }

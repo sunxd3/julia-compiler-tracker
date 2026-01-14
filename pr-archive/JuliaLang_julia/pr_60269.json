@@ -67,5 +67,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60269/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "903725979bb91e2d4c1a82ce1484392f4df21c4d",
+      "filename": "base/boot.jl",
+      "status": "modified",
+      "additions": 24,
+      "deletions": 0,
+      "changes": 24,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3e68422eb7732ece516de02e1278804c7ea57396/base%2Fboot.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3e68422eb7732ece516de02e1278804c7ea57396/base%2Fboot.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fboot.jl?ref=3e68422eb7732ece516de02e1278804c7ea57396",
+      "patch": "@@ -516,6 +516,30 @@ struct VecElement{T}\n end\n VecElement(arg::T) where {T} = VecElement{T}(arg)\n \n+# inference lattice element types (moved from jltypes.c)\n+struct Const\n+    val\n+end\n+\n+struct PartialStruct\n+    typ\n+    undefs\n+    fields::Array{Any, 1}\n+end\n+\n+struct InterConditional\n+    slot::Int\n+    thentype\n+    elsetype\n+end\n+\n+struct PartialOpaque\n+    typ::Type\n+    env\n+    parent::MethodInstance\n+    source\n+end\n+\n eval(Core, quote\n     GotoNode(label::Int) = $(Expr(:new, :GotoNode, :label))\n     NewvarNode(slot::SlotNumber) = $(Expr(:new, :NewvarNode, :slot))"
+    },
+    {
+      "sha": "7b29580c7608639185514d47502209f4b1c2ccdd",
+      "filename": "src/builtins.c",
+      "status": "modified",
+      "additions": 0,
+      "deletions": 4,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3e68422eb7732ece516de02e1278804c7ea57396/src%2Fbuiltins.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3e68422eb7732ece516de02e1278804c7ea57396/src%2Fbuiltins.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fbuiltins.c?ref=3e68422eb7732ece516de02e1278804c7ea57396",
+      "patch": "@@ -2611,10 +2611,6 @@ void jl_init_primitives(void) JL_GC_DISABLED\n     add_builtin(\"SSAValue\", (jl_value_t*)jl_ssavalue_type);\n     add_builtin(\"SlotNumber\", (jl_value_t*)jl_slotnumber_type);\n     add_builtin(\"Argument\", (jl_value_t*)jl_argument_type);\n-    add_builtin(\"Const\", (jl_value_t*)jl_const_type);\n-    add_builtin(\"PartialStruct\", (jl_value_t*)jl_partial_struct_type);\n-    add_builtin(\"PartialOpaque\", (jl_value_t*)jl_partial_opaque_type);\n-    add_builtin(\"InterConditional\", (jl_value_t*)jl_interconditional_type);\n     add_builtin(\"MethodMatch\", (jl_value_t*)jl_method_match_type);\n     add_builtin(\"Function\", (jl_value_t*)jl_function_type);\n     add_builtin(\"Builtin\", (jl_value_t*)jl_builtin_type);"
+    },
+    {
+      "sha": "db75be1c9db0a9ac681a54f2d5c114b08990ce7a",
+      "filename": "src/jltypes.c",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 20,
+      "changes": 25,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3e68422eb7732ece516de02e1278804c7ea57396/src%2Fjltypes.c",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3e68422eb7732ece516de02e1278804c7ea57396/src%2Fjltypes.c",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fjltypes.c?ref=3e68422eb7732ece516de02e1278804c7ea57396",
+      "patch": "@@ -3727,21 +3727,6 @@ void jl_init_types(void) JL_GC_DISABLED\n     jl_code_instance_type->name->constfields = code_instance_constfields;\n     jl_code_instance_type->name->atomicfields = code_instance_atomicfields;\n \n-    jl_const_type = jl_new_datatype(jl_symbol(\"Const\"), core, jl_any_type, jl_emptysvec,\n-                                       jl_perm_symsvec(1, \"val\"),\n-                                       jl_svec1(jl_any_type),\n-                                       jl_emptysvec, 0, 0, 1);\n-\n-    jl_partial_struct_type = jl_new_datatype(jl_symbol(\"PartialStruct\"), core, jl_any_type, jl_emptysvec,\n-                                       jl_perm_symsvec(3, \"typ\", \"undefs\", \"fields\"),\n-                                       jl_svec(3, jl_any_type, jl_any_type, jl_array_any_type),\n-                                       jl_emptysvec, 0, 0, 3);\n-\n-    jl_interconditional_type = jl_new_datatype(jl_symbol(\"InterConditional\"), core, jl_any_type, jl_emptysvec,\n-                                          jl_perm_symsvec(3, \"slot\", \"thentype\", \"elsetype\"),\n-                                          jl_svec(3, jl_long_type, jl_any_type, jl_any_type),\n-                                          jl_emptysvec, 0, 0, 3);\n-\n     jl_method_match_type = jl_new_datatype(jl_symbol(\"MethodMatch\"), core, jl_any_type, jl_emptysvec,\n                                        jl_perm_symsvec(4, \"spec_types\", \"sparams\", \"method\", \"fully_covers\"),\n                                        jl_svec(4, jl_type_type, jl_simplevector_type, jl_method_type, jl_bool_type),\n@@ -3860,11 +3845,6 @@ void jl_init_types(void) JL_GC_DISABLED\n     jl_opaque_closure_typename = ((jl_datatype_t*)jl_unwrap_unionall((jl_value_t*)jl_opaque_closure_type))->name;\n     jl_compute_field_offsets((jl_datatype_t*)jl_unwrap_unionall((jl_value_t*)jl_opaque_closure_type));\n \n-    jl_partial_opaque_type = jl_new_datatype(jl_symbol(\"PartialOpaque\"), core, jl_any_type, jl_emptysvec,\n-        jl_perm_symsvec(4, \"typ\", \"env\", \"parent\", \"source\"),\n-        jl_svec(4, jl_type_type, jl_any_type, jl_method_instance_type, jl_any_type),\n-        jl_emptysvec, 0, 0, 4);\n-\n     // complete builtin type metadata\n     jl_uint8pointer_type = (jl_datatype_t*)jl_apply_type1((jl_value_t*)jl_pointer_type, (jl_value_t*)jl_uint8_type);\n     jl_svecset(jl_datatype_type->types, 5, jl_voidpointer_type);\n@@ -3994,6 +3974,11 @@ void post_boot_hooks(void)\n     jl_vecelement_typename = ((jl_datatype_t*)jl_unwrap_unionall(core(\"VecElement\")))->name;\n     jl_abioverride_type = (jl_datatype_t*)core(\"ABIOverride\");\n \n+    jl_const_type = (jl_datatype_t*)core(\"Const\");\n+    jl_partial_struct_type = (jl_datatype_t*)core(\"PartialStruct\");\n+    jl_interconditional_type = (jl_datatype_t*)core(\"InterConditional\");\n+    jl_partial_opaque_type = (jl_datatype_t*)core(\"PartialOpaque\");\n+\n     export_jl_small_typeof();\n     export_jl_sysimg_globals();\n }"
+    }
+  ]
 }

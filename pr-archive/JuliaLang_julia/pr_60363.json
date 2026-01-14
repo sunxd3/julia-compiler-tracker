@@ -86,5 +86,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60363/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "f39b5e89b994bea7a402f054386f33494283a0e2",
+      "filename": "base/show.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/6f4c24188f0c6b6ffe205be8627d81a260aa4e9a/base%2Fshow.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/6f4c24188f0c6b6ffe205be8627d81a260aa4e9a/base%2Fshow.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fshow.jl?ref=6f4c24188f0c6b6ffe205be8627d81a260aa4e9a",
+      "patch": "@@ -1210,7 +1210,7 @@ function show_datatype(io::IO, x::DataType, wheres::Vector{TypeVar}=TypeVar[])\n         return\n     elseif isnamedtuple\n         syms, types = parameters\n-        if syms isa Tuple && types isa DataType\n+        if syms isa Tuple && types isa DataType && length(types.parameters) == length(syms) && !isvatuple(types)\n             print(io, \"@NamedTuple{\")\n             show_at_namedtuple(io, syms, types)\n             print(io, \"}\")"
+    },
+    {
+      "sha": "f5cb840533361d0e9b7930e3f069220b57eb01df",
+      "filename": "test/show.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 0,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/6f4c24188f0c6b6ffe205be8627d81a260aa4e9a/test%2Fshow.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/6f4c24188f0c6b6ffe205be8627d81a260aa4e9a/test%2Fshow.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fshow.jl?ref=6f4c24188f0c6b6ffe205be8627d81a260aa4e9a",
+      "patch": "@@ -1452,6 +1452,8 @@ test_repr(\"(:).a\")\n @test repr(@NamedTuple{kw::NTuple{7, Int64}}) == \"@NamedTuple{kw::NTuple{7, Int64}}\"\n @test repr(@NamedTuple{a::Float64, b}) == \"@NamedTuple{a::Float64, b}\"\n @test repr(@NamedTuple{var\"#\"::Int64}) == \"@NamedTuple{var\\\"#\\\"::Int64}\"\n+# issue #60252. some abstract namedtuples cannot use this format\n+@test repr(NamedTuple{(:a, :b), NTuple{N, Int64}} where N) == \"NamedTuple{(:a, :b), NTuple{N, Int64}} where N\"\n \n # Test general printing of `Base.Pairs` (it should not use the `@Kwargs` macro syntax)\n @test repr(@Kwargs{init::Int}) == \"Base.Pairs{Symbol, $Int, Nothing, @NamedTuple{init::$Int}}\""
+    }
+  ]
 }

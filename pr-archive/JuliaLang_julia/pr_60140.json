@@ -67,5 +67,139 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60140/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "6331271478abeb0760029210061931c5d99cbb8d",
+      "filename": "JuliaLowering/src/desugaring.jl",
+      "status": "modified",
+      "additions": 32,
+      "deletions": 12,
+      "changes": 44,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fdesugaring.jl?ref=24c604c77868396792d41387efa15970773a43d0",
+      "patch": "@@ -1357,8 +1357,10 @@ function expand_assignment(ctx, ex, is_const=false)\n             # Identifier in lhs[1] is a variable type declaration, eg\n             # x::T = rhs\n             @ast ctx ex [K\"block\"\n-                [K\"decl\" lhs[1] lhs[2]]\n-                is_const ? [K\"const\" [K\"=\" lhs[1] rhs]] : [K\"=\" lhs[1] rhs]\n+                if kind(x) !== K\"Placeholder\"\n+                     [K\"decl\" x T]\n+                end\n+                is_const ? [K\"const\" [K\"=\" x rhs]] : [K\"=\" x rhs]\n             ]\n         else\n             # Otherwise just a type assertion, eg\n@@ -2171,8 +2173,17 @@ function make_lhs_decls(ctx, stmts, declkind, declmeta, ex, type_decls=true)\n         if type_decls\n             @chk numchildren(ex) == 2\n             name = ex[1]\n-            @chk kind(name) == K\"Identifier\"\n-            push!(stmts, makenode(ctx, ex, K\"decl\", name, ex[2]))\n+            if kind(name) == K\"Identifier\"\n+                push!(stmts, makenode(ctx, ex, K\"decl\", name, ex[2]))\n+            else\n+                # TODO: Currently, this ignores the LHS in `_::T = val`.\n+                # We should probably do one of the following:\n+                # - Throw a LoweringError if that's not too breaking\n+                # - `convert(T, rhs)::T` and discard the result which is what\n+                #   `x::T = rhs` would do if x is never used again.\n+                @chk kind(name) == K\"Placeholder\"\n+                return\n+            end\n         end\n         make_lhs_decls(ctx, stmts, declkind, declmeta, ex[1], type_decls)\n     elseif k == K\"tuple\" || k == K\"parameters\"\n@@ -2198,7 +2209,7 @@ function expand_decls(ctx, ex)\n             # expand_assignment will create the type decls\n             make_lhs_decls(ctx, stmts, declkind, declmeta, binding[1], false)\n             push!(stmts, expand_assignment(ctx, binding))\n-        elseif is_sym_decl(binding) || kind(binding) == K\"Value\"\n+        elseif is_sym_decl(binding) || kind(binding) in (K\"Value\", K\"Placeholder\")\n             make_lhs_decls(ctx, stmts, declkind, declmeta, binding, true)\n         elseif kind(binding) == K\"function\"\n             make_lhs_decls(ctx, stmts, declkind, declmeta, binding[1], false)\n@@ -2260,7 +2271,7 @@ end\n #-------------------------------------------------------------------------------\n # Expansion of function definitions\n \n-function expand_function_arg(ctx, body_stmts, arg, is_last_arg, is_kw)\n+function expand_function_arg(ctx, body_stmts, arg, is_last_arg, is_kw, arg_id)\n     ex = arg\n \n     if kind(ex) == K\"=\"\n@@ -2311,7 +2322,16 @@ function expand_function_arg(ctx, body_stmts, arg, is_last_arg, is_kw)\n             K\"local\"(meta=CompileHints(:is_destructured_arg, true))\n             [K\"=\" ex name]\n         ])\n-    elseif k == K\"Identifier\" || k == K\"Placeholder\"\n+    elseif k == K\"Placeholder\"\n+        # Lowering should be able to use placeholder args as rvalues internally,\n+        # e.g. for kw method dispatch.  Duplicate positional placeholder names\n+        # should be allowed.\n+        name = if is_kw\n+            @ast ctx ex ex=>K\"Identifier\"\n+        else\n+            new_local_binding(ctx, ex, \"#arg$(string(arg_id))#\"; kind=:argument)\n+        end\n+    elseif k == K\"Identifier\"\n         name = ex\n     else\n         throw(LoweringError(ex, is_kw ? \"Invalid keyword name\" : \"Invalid function argument\"))\n@@ -2649,7 +2669,7 @@ function keyword_function_defs(ctx, srcref, callex_srcref, name_str, typevar_nam\n     kwtmp = new_local_binding(ctx, keywords, \"kwtmp\")\n     for (i,arg) in enumerate(children(keywords))\n         (aname, atype, default, is_slurp) =\n-            expand_function_arg(ctx, nothing, arg, i == numchildren(keywords), true)\n+            expand_function_arg(ctx, nothing, arg, i == numchildren(keywords), true, i)\n         push!(kw_names, aname)\n         name_sym = @ast ctx aname aname=>K\"Symbol\"\n         push!(body_arg_names, aname)\n@@ -3034,8 +3054,8 @@ function expand_function_def(ctx, ex, docs, rewrite_call=identity, rewrite_body=\n     first_default = 0 # index into arg_names/arg_types\n     arg_defaults = SyntaxList(ctx)\n     for (i,arg) in enumerate(args)\n-        (aname, atype, default, is_slurp) = expand_function_arg(ctx, body_stmts, arg,\n-                                                                i == length(args), false)\n+        (aname, atype, default, is_slurp) =\n+            expand_function_arg(ctx, body_stmts, arg, i == length(args), false, i)\n         has_slurp |= is_slurp\n         push!(arg_names, aname)\n \n@@ -3256,8 +3276,8 @@ function expand_opaque_closure(ctx, ex)\n     body_stmts = SyntaxList(ctx)\n     is_va = false\n     for (i, arg) in enumerate(children(args))\n-        (aname, atype, default, is_slurp) = expand_function_arg(ctx, body_stmts, arg,\n-                                                                i == numchildren(args), false)\n+        (aname, atype, default, is_slurp) =\n+            expand_function_arg(ctx, body_stmts, arg, i == numchildren(args), false, i)\n         is_va |= is_slurp\n         push!(arg_names, aname)\n         push!(arg_types, atype)"
+    },
+    {
+      "sha": "2a4ef150daaa3b23eee6ace526daad7b79f2a2d9",
+      "filename": "JuliaLowering/src/macro_expansion.jl",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 6,
+      "changes": 17,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Fsrc%2Fmacro_expansion.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Fsrc%2Fmacro_expansion.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fmacro_expansion.jl?ref=24c604c77868396792d41387efa15970773a43d0",
+      "patch": "@@ -270,7 +270,13 @@ function expand_macro(ctx, ex)\n     # age changes concurrently.\n     #\n     # TODO: Allow this to be passed in\n-    if hasmethod(macfunc, Tuple{typeof(mctx), typeof.(raw_args)...}; world=ctx.macro_world)\n+    # TODO: hasmethod always returns false for our `typemax(UInt)` meaning\n+    # \"latest world,\" which we shouldn't be using.\n+    has_new_macro = ctx.macro_world === typemax(UInt) ?\n+        hasmethod(macfunc, Tuple{typeof(mctx), typeof.(raw_args)...}) :\n+        hasmethod(macfunc, Tuple{typeof(mctx), typeof.(raw_args)...}; world=ctx.macro_world)\n+\n+    if has_new_macro\n         macro_args = prepare_macro_args(ctx, mctx, raw_args)\n         expanded = try\n             Base.invoke_in_world(ctx.macro_world, macfunc, macro_args...)\n@@ -385,16 +391,15 @@ function expand_forms_1(ctx::MacroExpansionContext, ex::SyntaxTree)\n     k = kind(ex)\n     if k == K\"Identifier\"\n         name_str = ex.name_val\n-        if all(==('_'), name_str)\n-            @ast ctx ex ex=>K\"Placeholder\"\n-        elseif is_ccall_or_cglobal(name_str)\n+        if is_ccall_or_cglobal(name_str)\n             # Lower special identifiers `cglobal` and `ccall` to `K\"core\"`\n             # pseudo-refs very early so that cglobal and ccall can never be\n             # turned into normal bindings (eg, assigned to)\n             @ast ctx ex name_str::K\"core\"\n         else\n-            layerid = get(ex, :scope_layer, current_layer_id(ctx))\n-            makeleaf(ctx, ex, ex, kind=K\"Identifier\", scope_layer=layerid)\n+            k = all(==('_'), name_str) ? K\"Placeholder\" : K\"Identifier\"\n+            scope_layer = get(ex, :scope_layer, current_layer_id(ctx))\n+            makeleaf(ctx, ex, ex; kind=k, scope_layer)\n         end\n     elseif k == K\"StrMacroName\" || k == K\"CmdMacroName\" || k == K\"macro_name\"\n         # These can appear outside of a macrocall, e.g. in `import`"
+    },
+    {
+      "sha": "12000100025bd61bc7e17c5baa3aa8648d52362e",
+      "filename": "JuliaLowering/src/runtime.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 4,
+      "changes": 7,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Fsrc%2Fruntime.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Fsrc%2Fruntime.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fruntime.jl?ref=24c604c77868396792d41387efa15970773a43d0",
+      "patch": "@@ -320,10 +320,9 @@ function (g::GeneratedFunctionStub)(world::UInt, source::Method, @nospecialize a\n \n     __module__ = source.module\n \n-    # Macro expansion. Looking at Core.GeneratedFunctionStub, it seems that\n-    # macros emitted by the generator are currently expanded in the latest\n-    # world, so do that for compatibility.\n-    macro_world = typemax(UInt)\n+    # Macro expansion. Note that we expand in `tls_world_age()` (see\n+    # Core.GeneratedFunctionStub)\n+    macro_world = Base.tls_world_age()\n     ctx1 = MacroExpansionContext(graph, __module__, false, macro_world)\n \n     layer = only(ctx1.scope_layers)"
+    },
+    {
+      "sha": "0621c528191ef08fa1cf43343639f62432b9d10b",
+      "filename": "JuliaLowering/src/syntax_macros.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 4,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Fsrc%2Fsyntax_macros.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Fsrc%2Fsyntax_macros.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fsyntax_macros.jl?ref=24c604c77868396792d41387efa15970773a43d0",
+      "patch": "@@ -34,10 +34,11 @@ function Base.var\"@nospecialize\"(__context__::MacroContext, ex, exs...)\n     _apply_nospecialize(__context__, ex)\n end\n \n-function Base.var\"@atomic\"(__context__::MacroContext, ex)\n-    @chk kind(ex) == K\"Identifier\" || kind(ex) == K\"::\" (ex, \"Expected identifier or declaration\")\n-    @ast __context__ __context__.macrocall [K\"atomic\" ex]\n-end\n+# TODO: support all forms that the original supports\n+# function Base.var\"@atomic\"(__context__::MacroContext, ex)\n+#     @chk kind(ex) == K\"Identifier\" || kind(ex) == K\"::\" (ex, \"Expected identifier or declaration\")\n+#     @ast __context__ __context__.macrocall [K\"atomic\" ex]\n+# end\n \n function Base.var\"@label\"(__context__::MacroContext, ex)\n     @chk kind(ex) == K\"Identifier\""
+    },
+    {
+      "sha": "d1173d5273ca20458e86373a1cb40d89edc63dec",
+      "filename": "JuliaLowering/test/closures_ir.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Fclosures_ir.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Fclosures_ir.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fclosures_ir.jl?ref=24c604c77868396792d41387efa15970773a43d0",
+      "patch": "@@ -237,7 +237,7 @@ end\n 21  SourceLocation::1:10\n 22  (call core.svec %\u2081\u2088 %\u2082\u2080 %\u2082\u2081)\n 23  --- method core.nothing %\u2082\u2082\n-    slots: [slot\u2081/#self#(!read) slot\u2082/_(!read) slot\u2083/g]\n+    slots: [slot\u2081/#self#(!read) slot\u2082/#arg1#(!read) slot\u2083/g]\n     1   TestMod.#f#g##2\n     2   static_parameter\u2081\n     3   (new %\u2081 %\u2082)"
+    },
+    {
+      "sha": "a0e3aaf3e2fa6a7f7ce5ef654e6bf79673472496",
+      "filename": "JuliaLowering/test/decls.jl",
+      "status": "modified",
+      "additions": 9,
+      "deletions": 1,
+      "changes": 10,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Fdecls.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Fdecls.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fdecls.jl?ref=24c604c77868396792d41387efa15970773a43d0",
+      "patch": "@@ -92,9 +92,17 @@ end\n \n # Tuple/destructuring assignments\n @test JuliaLowering.include_string(test_mod, \"(a0, a1, a2) = [1,2,3]\") == [1,2,3]\n-\n @test JuliaLowering.include_string(test_mod, \"const a,b,c = 1,2,3\") === (1, 2, 3)\n \n+@testset \"Placeholder decls\" begin\n+    @test JuliaLowering.include_string(test_mod, \"global _ = 1\") === 1\n+    @test JuliaLowering.include_string(test_mod, \"global _::Int = 1\") === 1\n+    @test JuliaLowering.include_string(test_mod, \"let; local _; _ = 1; end\") === 1\n+    @test JuliaLowering.include_string(test_mod, \"let; local _::Int = 1; end\") === 1\n+    @test JuliaLowering.include_string(test_mod, \"let; local (a0, _, a2) = [1,2,3]; end\") == [1,2,3]\n+    @test JuliaLowering.include_string(test_mod, \"let; local (a0, _::Int, a2) = [1,2,3]; end\") == [1,2,3]\n+end\n+\n test_mod_2 = Module()\n @testset \"toplevel-preserving syntax\" begin\n     JuliaLowering.include_string(test_mod_2, \"if true; global v1::Bool; else const v1 = 1; end\")"
+    },
+    {
+      "sha": "d25f5f0913672da3e772ab0b6083d7af347558b8",
+      "filename": "JuliaLowering/test/functions.jl",
+      "status": "modified",
+      "additions": 29,
+      "deletions": 0,
+      "changes": 29,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Ffunctions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Ffunctions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Ffunctions.jl?ref=24c604c77868396792d41387efa15970773a43d0",
+      "patch": "@@ -471,6 +471,35 @@ end\n     @test cl(x = 20) == 21\n end\n \n+@testset \"Write-only placeholder function arguments\" begin\n+    # positional arguments may be duplicate placeholders.  keyword arguments can\n+    # contain placeholders, but they must be unique\n+    params_req = [\"\"\n+                  \"_\"\n+                  \"::Int\"\n+                  \"_, _\"]\n+    params_opt = [\"\"\n+                  \"::Int=2\"\n+                  \"_=2\"]\n+    params_va  = [\"\", \"_...\"]\n+    params_kw  = [\"\"\n+                  \"; _\"\n+                  \"; _::Int\"\n+                  \"; _::Int=1\"\n+                  \"; _=1, __=2\"\n+                  \"; _...\"\n+                  \"; _=1, __...\"]\n+    local i = 0\n+    for req in params_req, opt in params_opt, va in params_va, kw in params_kw\n+        arg_str = join(filter(!isempty, (req, opt, va, kw)), \", \")\n+        f_str = \"function f_placeholders$i($arg_str); end\"\n+        i += 1\n+        @testset \"$f_str\" begin\n+            @test JuliaLowering.include_string(test_mod, f_str) isa Function\n+        end\n+    end\n+end\n+\n @testset \"Generated functions\" begin\n     @test JuliaLowering.include_string(test_mod, raw\"\"\"\n     begin"
+    },
+    {
+      "sha": "cb9345a4cf7810048cb5c8c693f68494010a709b",
+      "filename": "JuliaLowering/test/functions_ir.jl",
+      "status": "modified",
+      "additions": 40,
+      "deletions": 13,
+      "changes": 53,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Ffunctions_ir.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Ffunctions_ir.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Ffunctions_ir.jl?ref=24c604c77868396792d41387efa15970773a43d0",
+      "patch": "@@ -23,7 +23,7 @@ end\n 7   SourceLocation::1:10\n 8   (call core.svec %\u2085 %\u2086 %\u2087)\n 9   --- method core.nothing %\u2088\n-    slots: [slot\u2081/#self#(!read) slot\u2082/x slot\u2083/_(!read) slot\u2084/y]\n+    slots: [slot\u2081/#self#(!read) slot\u2082/x slot\u2083/#arg2#(!read) slot\u2084/y]\n     1   TestMod.+\n     2   (call %\u2081 slot\u2082/x slot\u2084/y)\n     3   (return %\u2082)\n@@ -47,7 +47,7 @@ end\n 8   SourceLocation::1:10\n 9   (call core.svec %\u2086 %\u2087 %\u2088)\n 10  --- method core.nothing %\u2089\n-    slots: [slot\u2081/#self#(!read) slot\u2082/_(!read) slot\u2083/x]\n+    slots: [slot\u2081/#self#(!read) slot\u2082/#arg1#(!read) slot\u2083/x]\n     1   slot\u2083/x\n     2   (return %\u2081)\n 11  latestworld\n@@ -160,7 +160,7 @@ end\n 16  SourceLocation::1:10\n 17  (call core.svec %\u2081\u2081 %\u2081\u2085 %\u2081\u2086)\n 18  --- method core.nothing %\u2081\u2087\n-    slots: [slot\u2081/#self#(!read) slot\u2082/_(!read) slot\u2083/_(!read) slot\u2084/_(!read)]\n+    slots: [slot\u2081/#self#(!read) slot\u2082/#arg1#(!read) slot\u2083/#arg2#(!read) slot\u2084/#arg3#(!read)]\n     1   static_parameter\u2083\n     2   static_parameter\u2081\n     3   static_parameter\u2082\n@@ -192,7 +192,7 @@ end\n 14  SourceLocation::1:10\n 15  (call core.svec %\u2081\u2081 %\u2081\u2083 %\u2081\u2084)\n 16  --- method core.nothing %\u2081\u2085\n-    slots: [slot\u2081/#self#(!read) slot\u2082/_(!read)]\n+    slots: [slot\u2081/#self#(!read) slot\u2082/#arg1#(!read)]\n     1   static_parameter\u2081\n     2   (return %\u2081)\n 17  latestworld\n@@ -220,7 +220,7 @@ end\n 13  SourceLocation::1:10\n 14  (call core.svec %\u2081\u2080 %\u2081\u2082 %\u2081\u2083)\n 15  --- method core.nothing %\u2081\u2084\n-    slots: [slot\u2081/#self#(!read) slot\u2082/_(!read)]\n+    slots: [slot\u2081/#self#(!read) slot\u2082/#arg1#(!read)]\n     1   static_parameter\u2081\n     2   (return %\u2081)\n 16  latestworld\n@@ -513,8 +513,8 @@ end\n 8   SourceLocation::1:10\n 9   (call core.svec %\u2086 %\u2087 %\u2088)\n 10  --- method core.nothing %\u2089\n-    slots: [slot\u2081/#self#(called) slot\u2082/_]\n-    1   (call slot\u2081/#self# slot\u2082/_ 1 2)\n+    slots: [slot\u2081/#self#(called) slot\u2082/#arg1#]\n+    1   (call slot\u2081/#self# slot\u2082/#arg1# 1 2)\n     2   (return %\u2081)\n 11  latestworld\n 12  TestMod.f\n@@ -525,8 +525,8 @@ end\n 17  SourceLocation::1:10\n 18  (call core.svec %\u2081\u2085 %\u2081\u2086 %\u2081\u2087)\n 19  --- method core.nothing %\u2081\u2088\n-    slots: [slot\u2081/#self#(called) slot\u2082/_ slot\u2083/y]\n-    1   (call slot\u2081/#self# slot\u2082/_ slot\u2083/y 2)\n+    slots: [slot\u2081/#self#(called) slot\u2082/#arg1# slot\u2083/y]\n+    1   (call slot\u2081/#self# slot\u2082/#arg1# slot\u2083/y 2)\n     2   (return %\u2081)\n 20  latestworld\n 21  TestMod.f\n@@ -537,7 +537,7 @@ end\n 26  SourceLocation::1:10\n 27  (call core.svec %\u2082\u2084 %\u2082\u2085 %\u2082\u2086)\n 28  --- method core.nothing %\u2082\u2087\n-    slots: [slot\u2081/#self#(!read) slot\u2082/_(!read) slot\u2083/y slot\u2084/z]\n+    slots: [slot\u2081/#self#(!read) slot\u2082/#arg1#(!read) slot\u2083/y slot\u2084/z]\n     1   (call core.tuple slot\u2083/y slot\u2084/z)\n     2   (return %\u2081)\n 29  latestworld\n@@ -560,8 +560,8 @@ end\n 8   SourceLocation::1:10\n 9   (call core.svec %\u2086 %\u2087 %\u2088)\n 10  --- method core.nothing %\u2089\n-    slots: [slot\u2081/#self#(called) slot\u2082/_]\n-    1   (call slot\u2081/#self# slot\u2082/_ 1)\n+    slots: [slot\u2081/#self#(called) slot\u2082/#arg1#]\n+    1   (call slot\u2081/#self# slot\u2082/#arg1# 1)\n     2   (return %\u2081)\n 11  latestworld\n 12  TestMod.f\n@@ -572,7 +572,7 @@ end\n 17  SourceLocation::1:10\n 18  (call core.svec %\u2081\u2085 %\u2081\u2086 %\u2081\u2087)\n 19  --- method core.nothing %\u2081\u2088\n-    slots: [slot\u2081/#self#(!read) slot\u2082/_(!read) slot\u2083/x]\n+    slots: [slot\u2081/#self#(!read) slot\u2082/#arg1#(!read) slot\u2083/x]\n     1   slot\u2083/x\n     2   (return %\u2081)\n 20  latestworld\n@@ -923,6 +923,25 @@ end\n 19  TestMod.f\n 20  (return %\u2081\u2089)\n \n+########################################\n+# Duplicate positional placeholders ok\n+function f(_, _); end\n+#---------------------\n+1   (method TestMod.f)\n+2   latestworld\n+3   TestMod.f\n+4   (call core.Typeof %\u2083)\n+5   (call core.svec %\u2084 core.Any core.Any)\n+6   (call core.svec)\n+7   SourceLocation::1:10\n+8   (call core.svec %\u2085 %\u2086 %\u2087)\n+9   --- method core.nothing %\u2088\n+    slots: [slot\u2081/#self#(!read) slot\u2082/#arg1#(!read) slot\u2083/#arg2#(!read)]\n+    1   (return core.nothing)\n+10  latestworld\n+11  TestMod.f\n+12  (return %\u2081\u2081)\n+\n ########################################\n # Duplicate destructured placeholders ok\n function f((_,), (_,))\n@@ -1216,6 +1235,14 @@ end\n 76  TestMod.f_kw_simple\n 77  (return %\u2087\u2086)\n \n+########################################\n+# Error: Duplicate keyword placeholder name\n+function f_kw_placeholders(; _=1, _=2); end\n+#---------------------\n+LoweringError:\n+function f_kw_placeholders(; _=1, _=2); end\n+#                                 \u2559 \u2500\u2500 function argument name not unique\n+\n ########################################\n # Keyword slurping - simple forwarding of all kws\n function f_kw_slurp_simple(; all_kws...)"
+    },
+    {
+      "sha": "2ff78581522a3bbdb5cfd236436d4938a4e531a5",
+      "filename": "JuliaLowering/test/generators_ir.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Fgenerators_ir.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Fgenerators_ir.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fgenerators_ir.jl?ref=24c604c77868396792d41387efa15970773a43d0",
+      "patch": "@@ -105,7 +105,7 @@\n 8   SourceLocation::1:2\n 9   (call core.svec %\u2086 %\u2087 %\u2088)\n 10  --- method core.nothing %\u2089\n-    slots: [slot\u2081/#self#(!read) slot\u2082/_(!read)]\n+    slots: [slot\u2081/#self#(!read) slot\u2082/#arg1#(!read)]\n     1   (return 1)\n 11  latestworld\n 12  TestMod.#->##3\n@@ -170,7 +170,7 @@ LoweringError:\n 8   SourceLocation::1:4\n 9   (call core.svec %\u2086 %\u2087 %\u2088)\n 10  --- method core.nothing %\u2089\n-    slots: [slot\u2081/#self#(!read) slot\u2082/_(!read)]\n+    slots: [slot\u2081/#self#(!read) slot\u2082/#arg1#(!read)]\n     1   (call JuliaLowering.interpolate_ast SyntaxTree (inert (return x)))\n     2   (return %\u2081)\n 11  latestworld"
+    },
+    {
+      "sha": "6dd2b6218c6b72f8eda7e5157c0bd79e7d58cdb4",
+      "filename": "JuliaLowering/test/hooks.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 0,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Fhooks.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Fhooks.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fhooks.jl?ref=24c604c77868396792d41387efa15970773a43d0",
+      "patch": "@@ -45,6 +45,8 @@ const JL = JuliaLowering\n             @test isdefined(test_mod, :M)\n             @test isdefined(test_mod.M, :x)\n \n+            @test jeval(\"@ccall jl_value_ptr(nothing::Any)::Ptr{Cvoid}\") isa Ptr{Cvoid}\n+\n             # Tricky cases with symbols\n             out = jeval(\"\"\"module M2\n                 Base.@constprop :aggressive function f(x); x; end"
+    },
+    {
+      "sha": "912e10ed27d50e8bc1ebd64f64cea5b0ff616d69",
+      "filename": "JuliaLowering/test/misc_ir.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 4,
+      "changes": 5,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Fmisc_ir.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/24c604c77868396792d41387efa15970773a43d0/JuliaLowering%2Ftest%2Fmisc_ir.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Fmisc_ir.jl?ref=24c604c77868396792d41387efa15970773a43d0",
+      "patch": "@@ -260,10 +260,7 @@ let\n end\n #---------------------\n LoweringError:\n-let\n-    @atomic x\n-#   \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518 \u2500\u2500 unimplemented or unsupported atomic declaration\n-end\n+#= none:2 =# - unimplemented or unsupported atomic declaration\n \n ########################################\n # GC.@preserve support"
+    }
+  ]
 }

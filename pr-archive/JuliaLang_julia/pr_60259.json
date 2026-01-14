@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60259/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "1b339d5514e25b537ab7df4d498f81417038e464",
+      "filename": "Compiler/src/typeinfer.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 0,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/706eedf7ac8a76cb7de271e2a7147adfec6106a9/Compiler%2Fsrc%2Ftypeinfer.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/706eedf7ac8a76cb7de271e2a7147adfec6106a9/Compiler%2Fsrc%2Ftypeinfer.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Compiler%2Fsrc%2Ftypeinfer.jl?ref=706eedf7ac8a76cb7de271e2a7147adfec6106a9",
+      "patch": "@@ -1642,6 +1642,12 @@ function collectinvokes!(workqueue::CompilationQueue, ci::CodeInfo, sptypes::Vec\n                 push!(argtypes, sp_type_rewrap(at[i], linfo, #= isreturn =# false))\n             end\n             atype = argtypes_to_type(argtypes)\n+        elseif isexpr(stmt, :new)\n+            # When creating a struct of Function type, check to see if we should\n+            # proactively compile the lambda\n+            t, _, _, _ = instanceof_tfunc(argextype(stmt.args[1], ci, sptypes))\n+            t <: Function || continue\n+            atype = Tuple{t, Vararg}\n         else\n             # TODO: handle other StmtInfo like OpaqueClosure?\n             continue"
+    }
+  ]
 }

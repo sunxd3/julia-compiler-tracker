@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60215/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "751c1033e4923b63986f73d9f2d1d8019731bd1a",
+      "filename": "deps/jlutilities/documenter/Manifest.toml",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 5,
+      "changes": 10,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/005bb75e64792dd41276e6319908b6a511c41c17/deps%2Fjlutilities%2Fdocumenter%2FManifest.toml",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/005bb75e64792dd41276e6319908b6a511c41c17/deps%2Fjlutilities%2Fdocumenter%2FManifest.toml",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fjlutilities%2Fdocumenter%2FManifest.toml?ref=005bb75e64792dd41276e6319908b6a511c41c17",
+      "patch": "@@ -53,10 +53,10 @@ version = \"0.9.5\"\n \n [[deps.Documenter]]\n deps = [\"ANSIColoredPrinters\", \"AbstractTrees\", \"Base64\", \"CodecZlib\", \"Dates\", \"DocStringExtensions\", \"Downloads\", \"Git\", \"IOCapture\", \"InteractiveUtils\", \"JSON\", \"Logging\", \"Markdown\", \"MarkdownAST\", \"Pkg\", \"PrecompileTools\", \"REPL\", \"RegistryInstances\", \"SHA\", \"TOML\", \"Test\", \"Unicode\"]\n-git-tree-sha1 = \"70c521ca3a23c576e12655d15963977c9766c26b\"\n+git-tree-sha1 = \"b37458ae37d8bdb643d763451585cd8d0e5b4a9e\"\n registries = \"General\"\n uuid = \"e30172f5-a6a5-5a46-863b-614d45cd2de4\"\n-version = \"1.16.0\"\n+version = \"1.16.1\"\n \n [[deps.Downloads]]\n deps = [\"ArgTools\", \"FileWatching\", \"LibCURL\", \"NetworkOptions\"]\n@@ -116,10 +116,10 @@ version = \"1.7.1\"\n \n [[deps.JSON]]\n deps = [\"Dates\", \"Logging\", \"Parsers\", \"PrecompileTools\", \"StructUtils\", \"UUIDs\", \"Unicode\"]\n-git-tree-sha1 = \"eb04df293213df64ddd720c86de3c431f5f8ccf1\"\n+git-tree-sha1 = \"5b6bb73f555bc753a6153deec3717b8904f5551c\"\n registries = \"General\"\n uuid = \"682c06a0-de6a-54ab-a142-c8b1cf79cde6\"\n-version = \"1.2.1\"\n+version = \"1.3.0\"\n \n     [deps.JSON.extensions]\n     JSONArrowExt = [\"ArrowTypes\"]\n@@ -146,7 +146,7 @@ version = \"1.0.0\"\n [[deps.LibCURL_jll]]\n deps = [\"Artifacts\", \"CompilerSupportLibraries_jll\", \"LibSSH2_jll\", \"Libdl\", \"OpenSSL_jll\", \"Zlib_jll\", \"Zstd_jll\", \"nghttp2_jll\"]\n uuid = \"deac9b47-8bc7-5906-a0fe-35ac56dc84c0\"\n-version = \"8.16.0+0\"\n+version = \"8.17.0+0\"\n \n [[deps.LibGit2]]\n deps = [\"LibGit2_jll\", \"NetworkOptions\", \"Printf\", \"SHA\"]"
+    }
+  ]
 }

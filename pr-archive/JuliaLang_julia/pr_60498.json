@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60498/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "c0427faac39bf27331caf9f1ac341b7175f8cc09",
+      "filename": "README.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/9d4de4ca0401b9fcd85d8c2df3d1a92c26e368c8/README.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/9d4de4ca0401b9fcd85d8c2df3d1a92c26e368c8/README.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/README.md?ref=9d4de4ca0401b9fcd85d8c2df3d1a92c26e368c8",
+      "patch": "@@ -20,6 +20,7 @@\n         <td>Continuous integration</td>\n         <td>\n             <a href=\"https://buildkite.com/julialang/julia-master\"><img src='https://badge.buildkite.com/f28e0d28b345f9fad5856ce6a8d64fffc7c70df8f4f2685cd8.svg?branch=master'/></a>\n+            <a href=\"https://juliaci.github.io/julia-ci-timing/\"><img src='https://img.shields.io/badge/CI-timing_tracking-blue'/></a>\n         </td>\n     </tr>\n     <!-- Coverage -->"
+    }
+  ]
 }

@@ -95,5 +95,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59961/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "4dcaa3eac8e30412e05d22b2a647ef799b14c543",
+      "filename": "base/arraymath.jl",
+      "status": "modified",
+      "additions": 23,
+      "deletions": 4,
+      "changes": 27,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/6cd702b1ffc821a44bd7204544f0243c78b65f4a/base%2Farraymath.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/6cd702b1ffc821a44bd7204544f0243c78b65f4a/base%2Farraymath.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Farraymath.jl?ref=6cd702b1ffc821a44bd7204544f0243c78b65f4a",
+      "patch": "@@ -2,26 +2,45 @@\n \n ## Binary arithmetic operators ##\n \n+function _broadcast_preserving_zero_d(f, A, B)\n+    broadcast_preserving_zero_d(f, A, B)\n+end\n+\n+# Using map over broadcast enables vectorization for wide matrices with few rows.\n+# This is because we use linear indexing in `map` as opposed to Cartesian indexing in broadcasting.\n+# https://github.com/JuliaLang/julia/issues/47873#issuecomment-1352472461\n+function _broadcast_preserving_zero_d(f, A::Array, B::Array)\n+    map(f, A, B)\n+end\n+\n+function _broadcast_preserving_zero_d(f, A::Array, B::Number)\n+    map(Fix2(f, B), A)\n+end\n+\n+function _broadcast_preserving_zero_d(f, A::Number, B::Array)\n+    map(Fix1(f, A), B)\n+end\n+\n for f in (:+, :-)\n     @eval function ($f)(A::AbstractArray, B::AbstractArray)\n         promote_shape(A, B) # check size compatibility\n-        broadcast_preserving_zero_d($f, A, B)\n+        _broadcast_preserving_zero_d($f, A, B)\n     end\n end\n \n function +(A::Array, Bs::Array...)\n     for B in Bs\n         promote_shape(A, B) # check size compatibility\n     end\n-    broadcast_preserving_zero_d(+, A, Bs...)\n+    map(+, A, Bs...)\n end\n \n for f in (:/, :\\, :*)\n     if f !== :/\n-        @eval ($f)(A::Number, B::AbstractArray) = broadcast_preserving_zero_d($f, A, B)\n+        @eval ($f)(A::Number, B::AbstractArray) = _broadcast_preserving_zero_d($f, A, B)\n     end\n     if f !== :\\\n-        @eval ($f)(A::AbstractArray, B::Number) = broadcast_preserving_zero_d($f, A, B)\n+        @eval ($f)(A::AbstractArray, B::Number) = _broadcast_preserving_zero_d($f, A, B)\n     end\n end\n "
+    }
+  ]
 }

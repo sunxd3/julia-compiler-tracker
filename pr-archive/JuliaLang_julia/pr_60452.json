@@ -67,5 +67,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60452/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "141a7615b599b97748b4084aedb90cba54e83bf1",
+      "filename": "base/process.jl",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 5,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c3c772e536ce9e55d247b1d85cdf7a31bcceb5a5/base%2Fprocess.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c3c772e536ce9e55d247b1d85cdf7a31bcceb5a5/base%2Fprocess.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fprocess.jl?ref=c3c772e536ce9e55d247b1d85cdf7a31bcceb5a5",
+      "patch": "@@ -140,15 +140,14 @@ end\n         if err == 0\n             pp = Process(cmd, handle, syncd)\n             associate_julia_struct(handle, pp)\n+            iolock_end()\n+            return pp\n         else\n             ccall(:jl_forceclose_uv, Cvoid, (Ptr{Cvoid},), handle) # will call free on handle eventually\n+            iolock_end()\n+            throw(_UVError(\"could not spawn \" * repr(cmd), err))\n         end\n-        iolock_end()\n     end\n-    if err != 0\n-        throw(_UVError(\"could not spawn \" * repr(cmd), err))\n-    end\n-    return pp\n end\n \n _spawn(cmds::AbstractCmd) = _spawn(cmds, SpawnIOs())"
+    }
+  ]
 }

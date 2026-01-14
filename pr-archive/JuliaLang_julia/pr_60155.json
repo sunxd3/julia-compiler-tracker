@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60155/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "ef9548c22a1edb458ec5574bdef23c7d744d9fba",
+      "filename": "doc/make.jl",
+      "status": "modified",
+      "additions": 9,
+      "deletions": 0,
+      "changes": 9,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/25a92e30b66587af3917dc6ea5ff735b7d168663/doc%2Fmake.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/25a92e30b66587af3917dc6ea5ff735b7d168663/doc%2Fmake.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fmake.jl?ref=25a92e30b66587af3917dc6ea5ff735b7d168663",
+      "patch": "@@ -228,6 +228,15 @@ BaseDocs = [\n \n StdlibDocs = [stdlib.targetfile for stdlib in STDLIB_DOCS]\n \n+# HACK: get nicer sorting here, even though we don't have the header\n+# of the .md files at hand.\n+sort!(StdlibDocs, by=function(x)\n+    x = replace(x, \"stdlib/\" => \"\")\n+    startswith(x, \"Libdl\") && return lowercase(\"Dynamic Linker\")\n+    startswith(x, \"Test\") && return lowercase(\"Unit Testing\")\n+    return lowercase(x)\n+end)\n+\n DevDocs = [\n     \"Documentation of Julia's Internals\" => [\n         \"devdocs/init.md\","
+    }
+  ]
 }

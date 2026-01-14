@@ -77,5 +77,67 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60606/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "15c8b2f459aee80df5e778d075eabf731ad859a0",
+      "filename": "stdlib/Markdown/src/render/plain.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2db5c1a1458bd52fd0265bb69654485fe44e34d5/stdlib%2FMarkdown%2Fsrc%2Frender%2Fplain.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2db5c1a1458bd52fd0265bb69654485fe44e34d5/stdlib%2FMarkdown%2Fsrc%2Frender%2Fplain.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2Frender%2Fplain.jl?ref=2db5c1a1458bd52fd0265bb69654485fe44e34d5",
+      "patch": "@@ -133,7 +133,7 @@ function plaininline(io::IO, md::Code)\n     end\n end\n \n-plaininline(io::IO, br::LineBreak) = println(io)\n+plaininline(io::IO, br::LineBreak) = println(io, \"\\\\\")\n \n plaininline(io::IO, x) = show(io, MIME\"text/plain\"(), x)\n "
+    },
+    {
+      "sha": "21b798b46d103fcef6134ce6944826571113fd1a",
+      "filename": "stdlib/Markdown/test/runtests.jl",
+      "status": "modified",
+      "additions": 13,
+      "deletions": 13,
+      "changes": 26,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2db5c1a1458bd52fd0265bb69654485fe44e34d5/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2db5c1a1458bd52fd0265bb69654485fe44e34d5/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Fruntests.jl?ref=2db5c1a1458bd52fd0265bb69654485fe44e34d5",
+      "patch": "@@ -1384,10 +1384,10 @@ end\n             \"\"\" |> chomp\n     @test Markdown.plain(s) ==\n             raw\"\"\"\n-            Misc:\n+            Misc:\\\n             stuff\n \n-              * line\n+              * line\\\n                 break\n             \"\"\"\n     @test Markdown.html(s) ==\n@@ -1576,19 +1576,19 @@ end\n     expected = \"\"\"\n     An unordered list:\n \n-      * top level\n+      * top level\\\\\n         with an extra line\n \n-          * second level\n+          * second level\\\\\n             again with an extra line\n \n-              * third level\n+              * third level\\\\\n                 yet again with an extra line\n \n-                  * fourth level\n+                  * fourth level\\\\\n                     and another extra line\n \n-                      * fifth level\n+                      * fifth level\\\\\n                         final extra line\n       * back to top level\n     \"\"\"\n@@ -1646,21 +1646,21 @@ end\n     expected = \"\"\"\n     An ordered list:\n \n-    1. top level\n+    1. top level\\\\\n        with an extra line\n \n-       1. second level\n+       1. second level\\\\\n           again with an extra line\n \n-          999. third level\n+          999. third level\\\\\n                yet again with an extra line\n \n-               1. fourth level\n+               1. fourth level\\\\\n                   and another extra line\n \n-                  1. fifth level\n+                  1. fifth level\\\\\n                      final extra line\n-          1000. more third level\n+          1000. more third level\\\\\n                 with an extra line\n     2. back to top level\n     \"\"\""
+    },
+    {
+      "sha": "6e30daabb9ef7f8b12ee7b069d92b78a8a9cf330",
+      "filename": "stdlib/Markdown/test/test_spec_roundtrip_common.jl",
+      "status": "modified",
+      "additions": 7,
+      "deletions": 7,
+      "changes": 14,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2db5c1a1458bd52fd0265bb69654485fe44e34d5/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_common.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2db5c1a1458bd52fd0265bb69654485fe44e34d5/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_common.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_common.jl?ref=2db5c1a1458bd52fd0265bb69654485fe44e34d5",
+      "patch": "@@ -128,7 +128,7 @@ end\n     expected = Markdown.parse(input; flavor=:common)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:common)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 17\n     input = \"`` \\\\[\\\\` ``\\n\"\n@@ -681,7 +681,7 @@ end\n     expected = Markdown.parse(input; flavor=:common)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:common)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 91\n     input = \"`Foo\\n----\\n`\\n\\n<a title=\\\"a lot\\n---\\nof dashes\\\"/>\\n\"\n@@ -4608,7 +4608,7 @@ end\n     expected = Markdown.parse(input; flavor=:common)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:common)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 635\n     input = \"foo       \\nbaz\\n\"\n@@ -4629,7 +4629,7 @@ end\n     expected = Markdown.parse(input; flavor=:common)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:common)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 638\n     input = \"*foo  \\nbar*\\n\"\n@@ -4643,7 +4643,7 @@ end\n     expected = Markdown.parse(input; flavor=:common)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:common)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 640\n     input = \"`code  \\nspan`\\n\"\n@@ -4671,14 +4671,14 @@ end\n     expected = Markdown.parse(input; flavor=:common)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:common)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 644\n     input = \"foo\\\\\\n\"\n     expected = Markdown.parse(input; flavor=:common)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:common)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 645\n     input = \"foo  \\n\""
+    },
+    {
+      "sha": "5d933fbf977bd965839910b321d4142d5a6c2854",
+      "filename": "stdlib/Markdown/test/test_spec_roundtrip_github.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 5,
+      "changes": 10,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2db5c1a1458bd52fd0265bb69654485fe44e34d5/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_github.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2db5c1a1458bd52fd0265bb69654485fe44e34d5/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_github.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_github.jl?ref=2db5c1a1458bd52fd0265bb69654485fe44e34d5",
+      "patch": "@@ -128,7 +128,7 @@ end\n     expected = Markdown.parse(input; flavor=:github)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:github)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 17\n     input = \"`` \\\\[\\\\` ``\\n\"\n@@ -4608,7 +4608,7 @@ end\n     expected = Markdown.parse(input; flavor=:github)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:github)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 635\n     input = \"foo       \\nbaz\\n\"\n@@ -4629,7 +4629,7 @@ end\n     expected = Markdown.parse(input; flavor=:github)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:github)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 638\n     input = \"*foo  \\nbar*\\n\"\n@@ -4643,7 +4643,7 @@ end\n     expected = Markdown.parse(input; flavor=:github)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:github)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 640\n     input = \"`code  \\nspan`\\n\"\n@@ -4671,7 +4671,7 @@ end\n     expected = Markdown.parse(input; flavor=:github)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:github)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 644\n     input = \"foo\\\\\\n\""
+    },
+    {
+      "sha": "e48f50a7ee77aebd62f0c1efe6803980064aa179",
+      "filename": "stdlib/Markdown/test/test_spec_roundtrip_julia.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 6,
+      "changes": 12,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/2db5c1a1458bd52fd0265bb69654485fe44e34d5/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_julia.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/2db5c1a1458bd52fd0265bb69654485fe44e34d5/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_julia.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Ftest_spec_roundtrip_julia.jl?ref=2db5c1a1458bd52fd0265bb69654485fe44e34d5",
+      "patch": "@@ -128,7 +128,7 @@ end\n     expected = Markdown.parse(input; flavor=:julia)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:julia)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 17\n     input = \"`` \\\\[\\\\` ``\\n\"\n@@ -4608,7 +4608,7 @@ end\n     expected = Markdown.parse(input; flavor=:julia)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:julia)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 635\n     input = \"foo       \\nbaz\\n\"\n@@ -4629,7 +4629,7 @@ end\n     expected = Markdown.parse(input; flavor=:julia)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:julia)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 638\n     input = \"*foo  \\nbar*\\n\"\n@@ -4643,7 +4643,7 @@ end\n     expected = Markdown.parse(input; flavor=:julia)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:julia)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 640\n     input = \"`code  \\nspan`\\n\"\n@@ -4671,14 +4671,14 @@ end\n     expected = Markdown.parse(input; flavor=:julia)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:julia)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 644\n     input = \"foo\\\\\\n\"\n     expected = Markdown.parse(input; flavor=:julia)\n     new_input = Markdown.Markdown.plain(expected)\n     actual = Markdown.parse(new_input; flavor=:julia)\n-    @test_broken expected == actual\n+    @test expected == actual\n \n     # Example 645\n     input = \"foo  \\n\""
+    }
+  ]
 }

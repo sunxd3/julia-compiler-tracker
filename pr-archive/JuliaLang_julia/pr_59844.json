@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59844/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "80eb1d4c567ccffe942c45ebc586e3d4bf249c1a",
+      "filename": "NEWS.md",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 0,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/3e50bf59147dbf38d511c6c79e55f3f820d19844/NEWS.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/3e50bf59147dbf38d511c6c79e55f3f820d19844/NEWS.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/NEWS.md?ref=3e50bf59147dbf38d511c6c79e55f3f820d19844",
+      "patch": "@@ -113,6 +113,10 @@ Standard library changes\n * Introspection utilities such as `@code_typed`, `@which` and `@edit` now accept type annotations as substitutes for values, recognizing forms such as `f(1, ::Float64, 3)` or even `sum(::Vector{T}; init = ::T) where {T<:Real}`. Type-annotated variables as in `f(val::Int; kw::Float64)` are not evaluated if the type annotation provides the necessary information, making this syntax compatible with signatures found in stacktraces ([#57909], [#58222]).\n * Code introspection macros such as `@code_lowered` and `@code_typed` now have a much better support for broadcasting expressions, including broadcasting assignments of the form `x .+= f(y)` ([#58349]).\n \n+#### Dates\n+\n+* `isoweekdate`, `isoyear`, `weeksinyear` are now implemented and exported for week based calendars, following [ISO week date](https://en.wikipedia.org/wiki/ISO_week_date) ([#48507]).\n+\n External dependencies\n ---------------------\n "
+    }
+  ]
 }

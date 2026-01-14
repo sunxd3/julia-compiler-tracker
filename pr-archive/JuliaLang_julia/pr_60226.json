@@ -77,5 +77,43 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60226/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "18c3b96c0fe3c9012ddfe2230412edf71c1cdaac",
+      "filename": "JuliaLowering/src/desugaring.jl",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 1,
+      "changes": 12,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/47c627152131e11562fef655d4d329c3fb001300/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/47c627152131e11562fef655d4d329c3fb001300/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fdesugaring.jl?ref=47c627152131e11562fef655d4d329c3fb001300",
+      "patch": "@@ -2534,6 +2534,16 @@ function expand_function_generator(ctx, srcref, callex_srcref, func_name, func_n\n         ]\n     ]\n \n+    function stub_argname(n::SyntaxTree, i)\n+        if kind(n) == K\"Identifier\"\n+            return n.name_val::String\n+        elseif kind(n) == K\"BindingId\"\n+            # flisp lowering calls these unnamed arguments \"#unused#\", but JL does\n+            # not accept that as a repeated argument name\n+            return \"#arg\" * string(i) * \"#\"\n+        else @assert false \"Unexpected argument kind: $(kind(n))\" end\n+    end\n+\n     # Extract non-generated body\n     nongen_body = @ast ctx body [K\"block\"\n         # The Julia runtime associates the code generator with the\n@@ -2562,7 +2572,7 @@ function expand_function_generator(ctx, srcref, callex_srcref, func_name, func_n\n                 [K\"call\"\n                     \"svec\"::K\"core\"\n                     \"#self#\"::K\"Symbol\"\n-                    (n.name_val::K\"Symbol\"(n) for n in arg_names[2:end])...\n+                    (stub_argname(n,i)::K\"Symbol\"(n) for (i,n) in enumerate(arg_names[2:end]))...\n                 ]\n                 [K\"call\"\n                     \"svec\"::K\"core\""
+    },
+    {
+      "sha": "cc6c4af64a2554b6c86cb2db793d9db3d73ecd04",
+      "filename": "JuliaLowering/src/runtime.jl",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/47c627152131e11562fef655d4d329c3fb001300/JuliaLowering%2Fsrc%2Fruntime.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/47c627152131e11562fef655d4d329c3fb001300/JuliaLowering%2Fsrc%2Fruntime.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fruntime.jl?ref=47c627152131e11562fef655d4d329c3fb001300",
+      "patch": "@@ -339,7 +339,7 @@ function (g::GeneratedFunctionStub)(world::UInt, source::Method, @nospecialize a\n             ex0 = copy_ast(ctx1, ex0)\n         end\n     else\n-        ex0 = @ast ctx ex expanded::K\"Value\"\n+        ex0 = @ast ctx1 g.srcref ex0::K\"Value\"\n     end\n     # Expand any macros emitted by the generator\n     ex1 = expand_forms_1(ctx1, reparent(ctx1, ex0))"
+    },
+    {
+      "sha": "ede161fbdcddd0c8f8251870d0485520f058b5ab",
+      "filename": "JuliaLowering/test/functions.jl",
+      "status": "modified",
+      "additions": 10,
+      "deletions": 0,
+      "changes": 10,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/47c627152131e11562fef655d4d329c3fb001300/JuliaLowering%2Ftest%2Ffunctions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/47c627152131e11562fef655d4d329c3fb001300/JuliaLowering%2Ftest%2Ffunctions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Ftest%2Ffunctions.jl?ref=47c627152131e11562fef655d4d329c3fb001300",
+      "patch": "@@ -513,6 +513,16 @@ end\n     end\n     \"\"\") == (NTuple{5,Int}, 5, Int)\n \n+    @test JuliaLowering.include_string(test_mod, \"\"\"\n+    begin\n+        @generated function f_gen_unnamed_args(::Type{T}, y, ::Type{U}) where {T, U}\n+            return (T, y, U)\n+        end\n+\n+        f_gen_unnamed_args(Int, UInt8(3), Float64)\n+    end\n+    \"\"\") == (Int, UInt8, Float64)\n+\n     @test JuliaLowering.include_string(test_mod, raw\"\"\"\n     begin\n         function f_partially_gen(x::NTuple{N,T}) where {N,T}"
+    }
+  ]
 }

@@ -77,5 +77,67 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59898/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "ef6edc13c3a2c1828c82f4883bce068abf8d88f6",
+      "filename": "deps/checksums/SHA-169a3369026ee767c454e5b1ca70c62c4db5a933.tar.gz/md5",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8073f1c1bf95bed04b73d8ddf74c829fae212832/deps%2Fchecksums%2FSHA-169a3369026ee767c454e5b1ca70c62c4db5a933.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8073f1c1bf95bed04b73d8ddf74c829fae212832/deps%2Fchecksums%2FSHA-169a3369026ee767c454e5b1ca70c62c4db5a933.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FSHA-169a3369026ee767c454e5b1ca70c62c4db5a933.tar.gz%2Fmd5?ref=8073f1c1bf95bed04b73d8ddf74c829fae212832",
+      "patch": "@@ -1 +0,0 @@\n-ab91b3b95af44071020c564f6cb2b83f"
+    },
+    {
+      "sha": "26889e062b48d0c8d720d5f6c15e66d11b034ac1",
+      "filename": "deps/checksums/SHA-169a3369026ee767c454e5b1ca70c62c4db5a933.tar.gz/sha512",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 1,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/8073f1c1bf95bed04b73d8ddf74c829fae212832/deps%2Fchecksums%2FSHA-169a3369026ee767c454e5b1ca70c62c4db5a933.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/8073f1c1bf95bed04b73d8ddf74c829fae212832/deps%2Fchecksums%2FSHA-169a3369026ee767c454e5b1ca70c62c4db5a933.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FSHA-169a3369026ee767c454e5b1ca70c62c4db5a933.tar.gz%2Fsha512?ref=8073f1c1bf95bed04b73d8ddf74c829fae212832",
+      "patch": "@@ -1 +0,0 @@\n-ea90fdf05a0c345ff697b91bea45ab5458123cb7d7bad53cebeea2304822545ec422012f116090d2c9491c185a9de61ad44b2eb71237a69e959737a140d8cf71"
+    },
+    {
+      "sha": "9c330db6498c9172bd9512c063760abc15695bb1",
+      "filename": "deps/checksums/SHA-876bc0400f9a457eb2736388fc3d0fbe9460fc7d.tar.gz/md5",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/5ad1477d1a5aec962a727817721204a3090b527c/deps%2Fchecksums%2FSHA-876bc0400f9a457eb2736388fc3d0fbe9460fc7d.tar.gz%2Fmd5",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/5ad1477d1a5aec962a727817721204a3090b527c/deps%2Fchecksums%2FSHA-876bc0400f9a457eb2736388fc3d0fbe9460fc7d.tar.gz%2Fmd5",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FSHA-876bc0400f9a457eb2736388fc3d0fbe9460fc7d.tar.gz%2Fmd5?ref=5ad1477d1a5aec962a727817721204a3090b527c",
+      "patch": "@@ -0,0 +1 @@\n+1f944d6be3d247bc266e850c67a827ab"
+    },
+    {
+      "sha": "67b9127af483a5435a98263eb9bd754eab7d6655",
+      "filename": "deps/checksums/SHA-876bc0400f9a457eb2736388fc3d0fbe9460fc7d.tar.gz/sha512",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/5ad1477d1a5aec962a727817721204a3090b527c/deps%2Fchecksums%2FSHA-876bc0400f9a457eb2736388fc3d0fbe9460fc7d.tar.gz%2Fsha512",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/5ad1477d1a5aec962a727817721204a3090b527c/deps%2Fchecksums%2FSHA-876bc0400f9a457eb2736388fc3d0fbe9460fc7d.tar.gz%2Fsha512",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/deps%2Fchecksums%2FSHA-876bc0400f9a457eb2736388fc3d0fbe9460fc7d.tar.gz%2Fsha512?ref=5ad1477d1a5aec962a727817721204a3090b527c",
+      "patch": "@@ -0,0 +1 @@\n+3d2d2f48a7d25cc32cd720843fb19edb143c0fbf63b14aba1e4c4394a48cd0ff4d7ff2c25a580b7cdbe0becc05cad5b7701daec625470e8555530ed24fb6e2f0"
+    },
+    {
+      "sha": "63a7ce3a0a4a16afb4a6d52c1e91f7cc9d2106b9",
+      "filename": "stdlib/SHA.version",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/5ad1477d1a5aec962a727817721204a3090b527c/stdlib%2FSHA.version",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/5ad1477d1a5aec962a727817721204a3090b527c/stdlib%2FSHA.version",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FSHA.version?ref=5ad1477d1a5aec962a727817721204a3090b527c",
+      "patch": "@@ -1,4 +1,4 @@\n SHA_BRANCH = master\n-SHA_SHA1 = 169a3369026ee767c454e5b1ca70c62c4db5a933\n+SHA_SHA1 = 876bc0400f9a457eb2736388fc3d0fbe9460fc7d\n SHA_GIT_URL := https://github.com/JuliaCrypto/SHA.jl.git\n SHA_TAR_URL = https://api.github.com/repos/JuliaCrypto/SHA.jl/tarball/$1"
+    }
+  ]
 }

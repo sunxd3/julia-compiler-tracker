@@ -109,5 +109,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60007/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "54e0e4c354de3a2637388de34d5e4018e1c3a053",
+      "filename": "stdlib/REPL/src/latex_symbols.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 0,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/92d882354362d87199fe980c108e45dbf126fbcf/stdlib%2FREPL%2Fsrc%2Flatex_symbols.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/92d882354362d87199fe980c108e45dbf126fbcf/stdlib%2FREPL%2Fsrc%2Flatex_symbols.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Fsrc%2Flatex_symbols.jl?ref=92d882354362d87199fe980c108e45dbf126fbcf",
+      "patch": "@@ -203,8 +203,10 @@ const latex_symbols = Dict(\n     \"\\\\^z\" => \"\u1dbb\",\n     \"\\\\^A\" => \"\u1d2c\",\n     \"\\\\^B\" => \"\u1d2e\",\n+    \"\\\\^C\" => \"\ua7f2\",\n     \"\\\\^D\" => \"\u1d30\",\n     \"\\\\^E\" => \"\u1d31\",\n+    \"\\\\^F\" => \"\ua7f3\",\n     \"\\\\^G\" => \"\u1d33\",\n     \"\\\\^H\" => \"\u1d34\",\n     \"\\\\^I\" => \"\u1d35\",\n@@ -215,6 +217,7 @@ const latex_symbols = Dict(\n     \"\\\\^N\" => \"\u1d3a\",\n     \"\\\\^O\" => \"\u1d3c\",\n     \"\\\\^P\" => \"\u1d3e\",\n+    \"\\\\^Q\" => \"\ua7f4\",\n     \"\\\\^R\" => \"\u1d3f\",\n     \"\\\\^T\" => \"\u1d40\",\n     \"\\\\^U\" => \"\u1d41\","
+    },
+    {
+      "sha": "fedcff7e56d3263dbd43d289103d48fdf653daf3",
+      "filename": "stdlib/REPL/test/replcompletions.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 1,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/92d882354362d87199fe980c108e45dbf126fbcf/stdlib%2FREPL%2Ftest%2Freplcompletions.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/92d882354362d87199fe980c108e45dbf126fbcf/stdlib%2FREPL%2Ftest%2Freplcompletions.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FREPL%2Ftest%2Freplcompletions.jl?ref=92d882354362d87199fe980c108e45dbf126fbcf",
+      "patch": "@@ -1523,7 +1523,8 @@ end\n     @test \"\u207f\" in test_complete(\"\\\\^n\")[1]\n     @test \"\u1d5e\" in test_complete(\"\\\\^gamma\")[1]\n     @test \"\u207d\u00b9\u00b2\u00b3\u207e\u207f\ud801\udfa5\" in test_complete(\"\\\\^(123)nq\")[1]\n-    @test isempty(test_complete(\"\\\\^(123)nQ\")[1])\n+    @test \"\u207d\u00b9\u00b2\u00b3\u207e\u207f\ua7f4\" in test_complete(\"\\\\^(123)nQ\")[1]\n+    @test isempty(test_complete(\"\\\\^(123)nX\")[1])\n     @test \"\u208d\u2081\u2082\u2083\u208e\u2099\" in test_complete(\"\\\\_(123)n\")[1]\n     @test \"\u2099\" in test_complete(\"\\\\_n\")[1]\n     @test \"\u1d67\" in test_complete(\"\\\\_gamma\")[1]"
+    }
+  ]
 }

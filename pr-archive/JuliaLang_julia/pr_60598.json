@@ -109,5 +109,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60598/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "22056facf4242d84fe5d0b17d367a1f6a8a31b62",
+      "filename": "test/syntax.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 1,
+      "changes": 3,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/834f1362f662a5ec2d828a914d557c5d928dfbbc/test%2Fsyntax.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/834f1362f662a5ec2d828a914d557c5d928dfbbc/test%2Fsyntax.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Fsyntax.jl?ref=834f1362f662a5ec2d828a914d557c5d928dfbbc",
+      "patch": "@@ -19,11 +19,12 @@ macro test_parseerror(str, msg)\n end\n \n macro test_loweringerror(ex, msg, opt=nothing)\n-    code = :(@test Meta.lower(@__MODULE__, $(esc(ex))) == Expr(:error, $msg))\n+    code = :(@test Meta.lower(@__MODULE__, $(esc(ex))) == Expr(:error, $(esc(msg))))\n     code.args[2] = __source__\n     if opt === :broken\n         code.args[1] = :var\"@test_broken\"\n     end\n+    return code\n end\n \n macro test_parseerror(str)"
+    }
+  ]
 }

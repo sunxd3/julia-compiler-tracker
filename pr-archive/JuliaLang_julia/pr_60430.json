@@ -77,5 +77,103 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60430/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "72b54a262701f6e4a7abcff96a12a3b6c0da03a0",
+      "filename": "JuliaLowering/src/ast.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Fast.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Fast.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fast.jl?ref=c24f91c50229d6cc2fbdb097e523f96b8d44bbf1",
+      "patch": "@@ -562,9 +562,9 @@ end\n # Context wrapper which helps to construct a list of statements to be executed\n # prior to some expression. Useful when we need to use subexpressions multiple\n # times.\n-struct StatementListCtx{Ctx, GraphType} <: AbstractLoweringContext\n+struct StatementListCtx{Ctx, Attrs} <: AbstractLoweringContext\n     ctx::Ctx\n-    stmts::SyntaxList{GraphType}\n+    stmts::SyntaxList{Attrs, Vector{NodeId}}\n end\n \n function Base.getproperty(ctx::StatementListCtx, field::Symbol)"
+    },
+    {
+      "sha": "c613f3dec6685a9e91cbd288f25b5547f47f8018",
+      "filename": "JuliaLowering/src/closure_conversion.jl",
+      "status": "modified",
+      "additions": 13,
+      "deletions": 12,
+      "changes": 25,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Fclosure_conversion.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Fclosure_conversion.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fclosure_conversion.jl?ref=c24f91c50229d6cc2fbdb097e523f96b8d44bbf1",
+      "patch": "@@ -1,19 +1,20 @@\n-struct ClosureInfo{GraphType}\n+struct ClosureInfo{Attrs}\n     # Global name of the type of the closure\n-    type_name::SyntaxTree{GraphType}\n+    type_name::SyntaxTree{Attrs}\n     # Names of fields for use with getfield, in order\n-    field_names::SyntaxList{GraphType}\n+    field_names::SyntaxList{Attrs, Vector{NodeId}}\n     # Map from the original BindingId of closed-over vars to the index of the\n     # associated field in the closure type.\n     field_inds::Dict{IdTag,Int}\n end\n \n-struct ClosureConversionCtx{GraphType} <: AbstractLoweringContext\n-    graph::GraphType\n+struct ClosureConversionCtx{Attrs} <: AbstractLoweringContext\n+    graph::SyntaxGraph{Attrs}\n     bindings::Bindings\n     mod::Module\n     closure_bindings::Dict{IdTag,ClosureBindings}\n-    capture_rewriting::Union{Nothing,ClosureInfo{GraphType},SyntaxList{GraphType}}\n+    capture_rewriting::Union{Nothing,ClosureInfo{Attrs},\n+                             SyntaxList{Attrs, Vector{NodeId}}}\n     lambda_bindings::LambdaBindings\n     # True if we're in a section of code which preserves top-level sequencing\n     # such that closure types can be emitted inline with other code.\n@@ -23,17 +24,17 @@ struct ClosureConversionCtx{GraphType} <: AbstractLoweringContext\n     # functions to refer to globals that have already been declared, without\n     # triggering the \"function body AST not pure\" error.\n     toplevel_pure::Bool\n-    toplevel_stmts::SyntaxList{GraphType}\n-    closure_infos::Dict{IdTag,ClosureInfo{GraphType}}\n+    toplevel_stmts::SyntaxList{Attrs, Vector{NodeId}}\n+    closure_infos::Dict{IdTag,ClosureInfo{Attrs}}\n end\n \n-function ClosureConversionCtx(graph::GraphType, bindings::Bindings,\n+function ClosureConversionCtx(graph::SyntaxGraph{Attrs}, bindings::Bindings,\n                               mod::Module, closure_bindings::Dict{IdTag,ClosureBindings},\n-                              lambda_bindings::LambdaBindings) where {GraphType}\n-    ClosureConversionCtx{GraphType}(\n+                              lambda_bindings::LambdaBindings) where {Attrs}\n+    ClosureConversionCtx{Attrs}(\n         graph, bindings, mod, closure_bindings, nothing,\n         lambda_bindings, false, true, SyntaxList(graph),\n-        Dict{IdTag,ClosureInfo{GraphType}}())\n+        Dict{IdTag,ClosureInfo{Attrs}}())\n end\n \n function current_lambda_bindings(ctx::ClosureConversionCtx)"
+    },
+    {
+      "sha": "5d1a75abb2761daa3973e29ee68192b42ce05b94",
+      "filename": "JuliaLowering/src/desugaring.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Fdesugaring.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fdesugaring.jl?ref=c24f91c50229d6cc2fbdb097e523f96b8d44bbf1",
+      "patch": "@@ -1,7 +1,7 @@\n # Lowering Pass 2 - syntax desugaring\n \n-struct DesugaringContext{GraphType} <: AbstractLoweringContext\n-    graph::GraphType\n+struct DesugaringContext{Attrs} <: AbstractLoweringContext\n+    graph::SyntaxGraph{Attrs}\n     bindings::Bindings\n     scope_layers::Vector{ScopeLayer}\n     mod::Module"
+    },
+    {
+      "sha": "a022d48185fd66517945b0792ab3eff891469a40",
+      "filename": "JuliaLowering/src/eval.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Feval.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Feval.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Feval.jl?ref=c24f91c50229d6cc2fbdb097e523f96b8d44bbf1",
+      "patch": "@@ -32,9 +32,9 @@ end\n # We might consider changing at least the second of these choices, depending on\n # how we end up putting this into Base.\n \n-struct LoweringIterator{GraphType}\n+struct LoweringIterator{Attrs}\n     expr_compat_mode::Bool # later stored in module?\n-    todo::Vector{Tuple{SyntaxTree{GraphType}, Bool, Int}}\n+    todo::Vector{Tuple{SyntaxTree{Attrs}, Bool, Int}}\n end\n \n function lower_init(ex::SyntaxTree{T};"
+    },
+    {
+      "sha": "02cf639e504b3352729a2d388e37b27ab4ab16cc",
+      "filename": "JuliaLowering/src/linear_ir.jl",
+      "status": "modified",
+      "additions": 38,
+      "deletions": 38,
+      "changes": 76,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Flinear_ir.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Flinear_ir.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Flinear_ir.jl?ref=c24f91c50229d6cc2fbdb097e523f96b8d44bbf1",
+      "patch": "@@ -25,36 +25,36 @@ end\n \n # Target to jump to, including info on try handler nesting and catch block\n # nesting\n-struct JumpTarget{GraphType}\n-    label::SyntaxTree{GraphType}\n-    handler_token_stack::SyntaxList{GraphType, Vector{NodeId}}\n-    catch_token_stack::SyntaxList{GraphType, Vector{NodeId}}\n+struct JumpTarget{Attrs}\n+    label::SyntaxTree{Attrs}\n+    handler_token_stack::SyntaxList{Attrs, Vector{NodeId}}\n+    catch_token_stack::SyntaxList{Attrs, Vector{NodeId}}\n end\n \n-function JumpTarget(label::SyntaxTree{GraphType}, ctx) where {GraphType}\n-    JumpTarget{GraphType}(label, copy(ctx.handler_token_stack), copy(ctx.catch_token_stack))\n+function JumpTarget(label::SyntaxTree{Attrs}, ctx) where {Attrs}\n+    JumpTarget{Attrs}(label, copy(ctx.handler_token_stack), copy(ctx.catch_token_stack))\n end\n \n-struct JumpOrigin{GraphType}\n-    goto::SyntaxTree{GraphType}\n+struct JumpOrigin{Attrs}\n+    goto::SyntaxTree{Attrs}\n     index::Int\n-    handler_token_stack::SyntaxList{GraphType, Vector{NodeId}}\n-    catch_token_stack::SyntaxList{GraphType, Vector{NodeId}}\n+    handler_token_stack::SyntaxList{Attrs, Vector{NodeId}}\n+    catch_token_stack::SyntaxList{Attrs, Vector{NodeId}}\n end\n \n-function JumpOrigin(goto::SyntaxTree{GraphType}, index, ctx) where {GraphType}\n-    JumpOrigin{GraphType}(goto, index, copy(ctx.handler_token_stack), copy(ctx.catch_token_stack))\n+function JumpOrigin(goto::SyntaxTree{Attrs}, index, ctx) where {Attrs}\n+    JumpOrigin{Attrs}(goto, index, copy(ctx.handler_token_stack), copy(ctx.catch_token_stack))\n end\n \n-struct FinallyHandler{GraphType}\n-    tagvar::SyntaxTree{GraphType}\n-    target::JumpTarget{GraphType}\n-    exit_actions::Vector{Tuple{Symbol,Union{Nothing,SyntaxTree{GraphType}}}}\n+struct FinallyHandler{Attrs}\n+    tagvar::SyntaxTree{Attrs}\n+    target::JumpTarget{Attrs}\n+    exit_actions::Vector{Tuple{Symbol,Union{Nothing,SyntaxTree{Attrs}}}}\n end\n \n-function FinallyHandler(tagvar::SyntaxTree{GraphType}, target::JumpTarget) where {GraphType}\n-    FinallyHandler{GraphType}(tagvar, target,\n-        Vector{Tuple{Symbol, Union{Nothing,SyntaxTree{GraphType}}}}())\n+function FinallyHandler(tagvar::SyntaxTree{Attrs}, target::JumpTarget) where {Attrs}\n+    FinallyHandler{Attrs}(tagvar, target,\n+        Vector{Tuple{Symbol, Union{Nothing,SyntaxTree{Attrs}}}}())\n end\n \n \n@@ -64,33 +64,33 @@ Context for creating linear IR.\n One of these is created per lambda expression to flatten the body down to\n a sequence of statements (linear IR), which eventually becomes one CodeInfo.\n \"\"\"\n-struct LinearIRContext{GraphType} <: AbstractLoweringContext\n-    graph::GraphType\n-    code::SyntaxList{GraphType, Vector{NodeId}}\n+struct LinearIRContext{Attrs} <: AbstractLoweringContext\n+    graph::SyntaxGraph{Attrs}\n+    code::SyntaxList{Attrs, Vector{NodeId}}\n     bindings::Bindings\n     next_label_id::Ref{Int}\n     is_toplevel_thunk::Bool\n     lambda_bindings::LambdaBindings\n-    return_type::Union{Nothing, SyntaxTree{GraphType}}\n-    break_targets::Dict{String, JumpTarget{GraphType}}\n-    handler_token_stack::SyntaxList{GraphType, Vector{NodeId}}\n-    catch_token_stack::SyntaxList{GraphType, Vector{NodeId}}\n-    finally_handlers::Vector{FinallyHandler{GraphType}}\n-    symbolic_jump_targets::Dict{String,JumpTarget{GraphType}}\n-    symbolic_jump_origins::Vector{JumpOrigin{GraphType}}\n+    return_type::Union{Nothing, SyntaxTree{Attrs}}\n+    break_targets::Dict{String, JumpTarget{Attrs}}\n+    handler_token_stack::SyntaxList{Attrs, Vector{NodeId}}\n+    catch_token_stack::SyntaxList{Attrs, Vector{NodeId}}\n+    finally_handlers::Vector{FinallyHandler{Attrs}}\n+    symbolic_jump_targets::Dict{String,JumpTarget{Attrs}}\n+    symbolic_jump_origins::Vector{JumpOrigin{Attrs}}\n     meta::Dict{Symbol, Any}\n     mod::Module\n end\n \n function LinearIRContext(ctx, is_toplevel_thunk, lambda_bindings, return_type)\n     graph = syntax_graph(ctx)\n     rett = isnothing(return_type) ? nothing : reparent(graph, return_type)\n-    GraphType = typeof(graph)\n+    Attrs = typeof(graph.attributes)\n     LinearIRContext(graph, SyntaxList(ctx), ctx.bindings, Ref(0),\n                     is_toplevel_thunk, lambda_bindings, rett,\n-                    Dict{String,JumpTarget{GraphType}}(), SyntaxList(ctx), SyntaxList(ctx),\n-                    Vector{FinallyHandler{GraphType}}(), Dict{String,JumpTarget{GraphType}}(),\n-                    Vector{JumpOrigin{GraphType}}(), Dict{Symbol, Any}(), ctx.mod)\n+                    Dict{String,JumpTarget{Attrs}}(), SyntaxList(ctx), SyntaxList(ctx),\n+                    Vector{FinallyHandler{Attrs}}(), Dict{String,JumpTarget{Attrs}}(),\n+                    Vector{JumpOrigin{Attrs}}(), Dict{Symbol, Any}(), ctx.mod)\n end\n \n function current_lambda_bindings(ctx::LinearIRContext)\n@@ -1125,14 +1125,14 @@ loops, etc) to gotos and exception handling to enter/leave. We also convert\n                               id=Int)\n     # TODO: Cleanup needed - `_ctx` is just a dummy context here. But currently\n     # required to call reparent() ...\n-    GraphType = typeof(graph)\n+    Attrs = typeof(graph.attributes)\n     _ctx = LinearIRContext(graph, SyntaxList(graph), ctx.bindings,\n                            Ref(0), false, LambdaBindings(), nothing,\n-                           Dict{String,JumpTarget{typeof(graph)}}(),\n+                           Dict{String,JumpTarget{Attrs}}(),\n                            SyntaxList(graph), SyntaxList(graph),\n-                           Vector{FinallyHandler{GraphType}}(),\n-                           Dict{String, JumpTarget{GraphType}}(),\n-                           Vector{JumpOrigin{GraphType}}(),\n+                           Vector{FinallyHandler{Attrs}}(),\n+                           Dict{String, JumpTarget{Attrs}}(),\n+                           Vector{JumpOrigin{Attrs}}(),\n                            Dict{Symbol, Any}(), ctx.mod)\n     res = compile_lambda(_ctx, reparent(_ctx, ex))\n     _ctx, res"
+    },
+    {
+      "sha": "0b860897683e5e632de26f8271a5d4cae1b6b6c2",
+      "filename": "JuliaLowering/src/macro_expansion.jl",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Fmacro_expansion.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Fmacro_expansion.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fmacro_expansion.jl?ref=c24f91c50229d6cc2fbdb097e523f96b8d44bbf1",
+      "patch": "@@ -1,7 +1,7 @@\n # Lowering pass 1: Macro expansion, simple normalizations and quote expansion\n \n-struct MacroExpansionContext{GraphType} <: AbstractLoweringContext\n-    graph::GraphType\n+struct MacroExpansionContext{Attrs} <: AbstractLoweringContext\n+    graph::SyntaxGraph{Attrs}\n     bindings::Bindings\n     scope_layers::Vector{ScopeLayer}\n     scope_layer_stack::Vector{LayerId}"
+    },
+    {
+      "sha": "896fced7977da1a9264eb0f5d1419a38f5e8f9a1",
+      "filename": "JuliaLowering/src/scope_analysis.jl",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 5,
+      "changes": 10,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Fscope_analysis.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaLowering%2Fsrc%2Fscope_analysis.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaLowering%2Fsrc%2Fscope_analysis.jl?ref=c24f91c50229d6cc2fbdb097e523f96b8d44bbf1",
+      "patch": "@@ -52,8 +52,8 @@ function ScopeInfo(ctx, parent_id, node_id, is_lambda, is_permeable)\n     return s\n end\n \n-struct ScopeResolutionContext{GraphType} <: AbstractLoweringContext\n-    graph::GraphType\n+struct ScopeResolutionContext{Attrs} <: AbstractLoweringContext\n+    graph::SyntaxGraph{Attrs}\n     bindings::Bindings\n     mod::Module\n     # Every lexical scope, indexed by ScopeId\n@@ -529,14 +529,14 @@ end\n \n ClosureBindings(name_stack) = ClosureBindings(name_stack, Vector{LambdaBindings}())\n \n-struct VariableAnalysisContext{GraphType} <: AbstractLoweringContext\n-    graph::GraphType\n+struct VariableAnalysisContext{Attrs} <: AbstractLoweringContext\n+    graph::SyntaxGraph{Attrs}\n     bindings::Bindings\n     mod::Module\n     scopes::Vector{ScopeInfo}\n     lambda_bindings::LambdaBindings\n     # Stack of method definitions for closure naming\n-    method_def_stack::SyntaxList{GraphType}\n+    method_def_stack::SyntaxList{Attrs, Vector{NodeId}}\n     # Collection of information about each closure, principally which methods\n     # are part of the closure (and hence captures).\n     closure_bindings::Dict{IdTag,ClosureBindings}"
+    },
+    {
+      "sha": "6c5f769078c367df0ff253bfbd8d80cab9bdd585",
+      "filename": "JuliaSyntax/src/porcelain/syntax_graph.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 8,
+      "changes": 14,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaSyntax%2Fsrc%2Fporcelain%2Fsyntax_graph.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/c24f91c50229d6cc2fbdb097e523f96b8d44bbf1/JuliaSyntax%2Fsrc%2Fporcelain%2Fsyntax_graph.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/JuliaSyntax%2Fsrc%2Fporcelain%2Fsyntax_graph.jl?ref=c24f91c50229d6cc2fbdb097e523f96b8d44bbf1",
+      "patch": "@@ -192,8 +192,8 @@ end\n An ECS-style AST used in JuliaLowering.  Unstable, but may eventually replace\n SyntaxNode.\n \"\"\"\n-struct SyntaxTree{GraphType}\n-    _graph::GraphType\n+struct SyntaxTree{Attrs}\n+    _graph::SyntaxGraph{Attrs}\n     _id::NodeId\n end\n \n@@ -448,19 +448,17 @@ byte_range(ex::SyntaxTree) = byte_range(sourceref(ex))\n \n #-------------------------------------------------------------------------------\n # Lightweight vector of nodes ids with associated pointer to graph stored separately.\n-mutable struct SyntaxList{GraphType, NodeIdVecType} <: AbstractVector{SyntaxTree}\n-    graph::GraphType\n+mutable struct SyntaxList{Attrs, NodeIdVecType} <: AbstractVector{SyntaxTree}\n+    graph::SyntaxGraph{Attrs}\n     ids::NodeIdVecType\n end\n \n-function SyntaxList(graph::SyntaxGraph, ids::AbstractVector{NodeId})\n-    SyntaxList{typeof(graph), typeof(ids)}(graph, ids)\n+function SyntaxList(graph::SyntaxGraph{T}, ids::AbstractVector{NodeId}) where {T}\n+    SyntaxList{T, typeof(ids)}(graph, ids)\n end\n \n SyntaxList(graph::SyntaxGraph) = SyntaxList(graph, Vector{NodeId}())\n SyntaxList(ctx) = SyntaxList(syntax_graph(ctx))\n-SyntaxList(ctx, v::Vector{SyntaxTree}) =\n-    SyntaxList(syntax_graph(ctx), NodeId[x._id for x in v])\n \n syntax_graph(lst::SyntaxList) = lst.graph\n "
+    }
+  ]
 }

@@ -86,5 +86,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60552/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "f3f6690aa42a1a572eafe27754d270e035740e7f",
+      "filename": "stdlib/Markdown/src/render/plain.jl",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 2,
+      "changes": 5,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e478d8f39387f2058d14f133755afff262cb52ff/stdlib%2FMarkdown%2Fsrc%2Frender%2Fplain.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e478d8f39387f2058d14f133755afff262cb52ff/stdlib%2FMarkdown%2Fsrc%2Frender%2Fplain.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Fsrc%2Frender%2Fplain.jl?ref=e478d8f39387f2058d14f133755afff262cb52ff",
+      "patch": "@@ -35,10 +35,11 @@ end\n \n function plain(io::IO, list::List)\n     for (i, item) in enumerate(list.items)\n-        print(io, isordered(list) ? \"$(i + list.ordered - 1). \" : \"  * \")\n+        bullet = isordered(list) ? \"$(i + list.ordered - 1). \" : \"  * \"\n+        print(io, bullet)\n         lines = split(rstrip(sprint(plain, item)), \"\\n\")\n         for (n, line) in enumerate(lines)\n-            print(io, (n == 1 || isempty(line)) ? \"\" : \"    \", line)\n+            print(io, (n == 1 || isempty(line)) ? \"\" : (\" \"^length(bullet)), line)\n             n < length(lines) && println(io)\n         end\n         println(io)"
+    },
+    {
+      "sha": "237b68d29a005b1750f2ee0d8482fde09e403371",
+      "filename": "stdlib/Markdown/test/runtests.jl",
+      "status": "modified",
+      "additions": 75,
+      "deletions": 10,
+      "changes": 85,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e478d8f39387f2058d14f133755afff262cb52ff/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e478d8f39387f2058d14f133755afff262cb52ff/stdlib%2FMarkdown%2Ftest%2Fruntests.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMarkdown%2Ftest%2Fruntests.jl?ref=e478d8f39387f2058d14f133755afff262cb52ff",
+      "patch": "@@ -244,7 +244,16 @@ World\"\"\" |> Markdown.plain == \"Hello\\n\\n---\\n\\nWorld\\n\"\n >\n > ```\n > baz\n-> ```\"\"\" |> Markdown.plain == \"\"\"> foo\\n>\\n>   * bar\\n>\\n> ```\\n> baz\\n> ```\\n\\n\"\"\"\n+> ```\"\"\" |> Markdown.plain == \"\"\"\n+> foo\n+>\n+>   * bar\n+>\n+> ```\n+> baz\n+> ```\n+\n+\"\"\"\n \n # Terminal (markdown) output\n \n@@ -1062,11 +1071,11 @@ end\n             \"\"\"\n             1. A paragraph with two lines.\n \n-                ```\n-                indented code\n-                ```\n+               ```\n+               indented code\n+               ```\n \n-                > A block quote.\n+               > A block quote.\n \n               * one\n \n@@ -1353,14 +1362,14 @@ end\n        - line\\\\\n          break\n        \"\"\"\n-    @test sprint(show, MIME(\"text/plain\"), s) * \"\\n\" ==\n+    @test sprint(show, MIME(\"text/plain\"), s) ==\n             raw\"\"\"\n               Misc:\n               stuff\n \n               \u2022 line\n                 break\n-            \"\"\"\n+            \"\"\" |> chomp\n     @test Markdown.plain(s) ==\n             raw\"\"\"\n             Misc:\n@@ -1506,7 +1515,7 @@ end\n     @test Markdown.parse(lazy\"foo\") == Markdown.parse(\"foo\")\n end\n \n-@testset \"#40508: terminal rendering of nested lists, with hard breaks\" begin\n+@testset \"rendering of nested lists, with hard breaks\" begin\n     #\n     # Test an unordered list.\n     #\n@@ -1525,6 +1534,7 @@ end\n     - back to top level\n     \"\"\"\n \n+    # test HTML rendering\n     expected = \"\"\"\n       An unordered list:\n \n@@ -1544,13 +1554,39 @@ end\n     actual = sprint(show, MIME(\"text/plain\"), m)\n     @test expected == actual\n \n+    # test Markdown rendering\n+    # FIXME: actually the hard breaks are *not* correctly round tripped,\n+    # but at least the indentation is correct now\n+    expected = \"\"\"\n+    An unordered list:\n+\n+      * top level\n+        with an extra line\n+\n+          * second level\n+            again with an extra line\n+\n+              * third level\n+                yet again with an extra line\n+\n+                  * fourth level\n+                    and another extra line\n+\n+                      * fifth level\n+                        final extra line\n+      * back to top level\n+    \"\"\"\n+\n+    actual = Markdown.plain(m)\n+    @test expected == actual\n+\n     #\n     # Test an ordered list. These behave differently if the number of list\n     # entries increases to another power of ten. For example, when going from\n     # 9 to 10 list entries. We test this here.\n     #\n     m = md\"\"\"\n-    An unordered list:\n+    An ordered list:\n     1. top level\\\n        with an extra line\n        1. second level\\\n@@ -1566,8 +1602,9 @@ end\n     1. back to top level\n     \"\"\"\n \n+    # test HTML rendering\n     expected = \"\"\"\n-      An unordered list:\n+      An ordered list:\n \n       1. top level\n          with an extra line\n@@ -1586,6 +1623,34 @@ end\n \n     actual = sprint(show, MIME(\"text/plain\"), m)\n     @test expected == actual\n+\n+    # test Markdown rendering\n+    # FIXME: actually the hard breaks are *not* correctly round tripped,\n+    # but at least the indentation is correct now\n+    expected = \"\"\"\n+    An ordered list:\n+\n+    1. top level\n+       with an extra line\n+\n+       1. second level\n+          again with an extra line\n+\n+          999. third level\n+               yet again with an extra line\n+\n+               1. fourth level\n+                  and another extra line\n+\n+                  1. fifth level\n+                     final extra line\n+          1000. more third level\n+                with an extra line\n+    2. back to top level\n+    \"\"\"\n+\n+    actual = Markdown.plain(m)\n+    @test expected == actual\n end\n \n include(\"test_spec.jl\")"
+    }
+  ]
 }

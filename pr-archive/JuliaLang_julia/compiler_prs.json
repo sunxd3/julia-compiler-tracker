@@ -1,0 +1,698 @@
+{
+  "total_prs": 479,
+  "compiler_prs": 78,
+  "pr_numbers": [
+    55601,
+    56201,
+    59165,
+    59413,
+    59705,
+    59766,
+    59775,
+    59841,
+    59870,
+    59878,
+    59908,
+    59920,
+    59921,
+    59974,
+    59996,
+    60011,
+    60018,
+    60048,
+    60140,
+    60153,
+    60154,
+    60162,
+    60163,
+    60168,
+    60169,
+    60170,
+    60174,
+    60191,
+    60192,
+    60195,
+    60198,
+    60199,
+    60214,
+    60221,
+    60226,
+    60232,
+    60233,
+    60246,
+    60255,
+    60257,
+    60259,
+    60276,
+    60285,
+    60297,
+    60311,
+    60312,
+    60316,
+    60327,
+    60353,
+    60357,
+    60370,
+    60373,
+    60393,
+    60397,
+    60403,
+    60410,
+    60411,
+    60414,
+    60416,
+    60430,
+    60431,
+    60432,
+    60474,
+    60475,
+    60476,
+    60501,
+    60547,
+    60551,
+    60561,
+    60567,
+    60577,
+    60587,
+    60599,
+    60600,
+    60602,
+    60604,
+    60619,
+    60646
+  ],
+  "pr_files": {
+    "60646": [
+      "JuliaLowering/src/binding_analysis.jl",
+      "JuliaLowering/test/closures.jl"
+    ],
+    "60619": [
+      "JuliaLowering/src/eval.jl",
+      "JuliaLowering/test/exceptions.jl"
+    ],
+    "60604": [
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/test/misc.jl"
+    ],
+    "60602": [
+      "JuliaLowering/src/linear_ir.jl",
+      "JuliaLowering/test/assignments_ir.jl",
+      "JuliaLowering/test/closures_ir.jl",
+      "JuliaLowering/test/decls_ir.jl",
+      "JuliaLowering/test/destructuring_ir.jl",
+      "JuliaLowering/test/functions_ir.jl",
+      "JuliaLowering/test/generators_ir.jl",
+      "JuliaLowering/test/quoting_ir.jl",
+      "JuliaLowering/test/scopes_ir.jl",
+      "JuliaLowering/test/typedefs_ir.jl"
+    ],
+    "60600": [
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/test/functions.jl",
+      "JuliaLowering/test/functions_ir.jl"
+    ],
+    "60599": [
+      "Compiler/src/abstractinterpretation.jl"
+    ],
+    "60587": [
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/scope_analysis.jl"
+    ],
+    "60577": [
+      "JuliaLowering/src/closure_conversion.jl",
+      "JuliaLowering/test/closures.jl",
+      "JuliaLowering/test/closures_ir.jl",
+      "JuliaLowering/test/functions.jl"
+    ],
+    "60567": [
+      "JuliaLowering/src/JuliaLowering.jl",
+      "JuliaLowering/src/binding_analysis.jl",
+      "JuliaLowering/src/closure_conversion.jl",
+      "JuliaLowering/src/scope_analysis.jl",
+      "JuliaLowering/test/closures.jl",
+      "JuliaLowering/test/closures_ir.jl",
+      "JuliaLowering/test/scopes_ir.jl"
+    ],
+    "60561": [
+      "JuliaLowering/src/desugaring.jl"
+    ],
+    "60551": [
+      "JuliaLowering/src/linear_ir.jl",
+      "JuliaLowering/test/closures_ir.jl",
+      "JuliaLowering/test/decls_ir.jl",
+      "JuliaLowering/test/functions.jl"
+    ],
+    "60547": [
+      "Compiler/src/ssair/passes.jl",
+      "Compiler/src/ssair/show.jl",
+      "Compiler/src/typeinfer.jl"
+    ],
+    "60501": [
+      "Compiler/test/inference.jl",
+      "Compiler/test/inline.jl"
+    ],
+    "60476": [
+      "JuliaSyntax/src/julia/parser.jl"
+    ],
+    "60475": [
+      "JuliaSyntax/src/porcelain/syntax_graph.jl",
+      "JuliaSyntax/test/syntax_graph.jl"
+    ],
+    "60474": [
+      "JuliaLowering/src/compat.jl",
+      "JuliaLowering/src/kinds.jl",
+      "JuliaLowering/test/compat.jl",
+      "JuliaSyntax/src/integration/expr.jl",
+      "JuliaSyntax/src/julia/kinds.jl",
+      "JuliaSyntax/src/porcelain/syntax_graph.jl"
+    ],
+    "60432": [
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/linear_ir.jl",
+      "JuliaLowering/test/functions.jl"
+    ],
+    "60431": [
+      "JuliaLowering/src/JuliaLowering.jl",
+      "JuliaLowering/src/ast.jl",
+      "JuliaLowering/src/bindings.jl",
+      "JuliaLowering/src/closure_conversion.jl",
+      "JuliaLowering/src/compat.jl",
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/linear_ir.jl",
+      "JuliaLowering/src/macro_expansion.jl",
+      "JuliaLowering/src/runtime.jl",
+      "JuliaLowering/src/scope_analysis.jl",
+      "JuliaLowering/test/compat.jl",
+      "JuliaLowering/test/macros.jl",
+      "JuliaLowering/test/scopes.jl",
+      "JuliaLowering/test/utils.jl",
+      "JuliaSyntax/src/porcelain/syntax_graph.jl"
+    ],
+    "60430": [
+      "JuliaLowering/src/ast.jl",
+      "JuliaLowering/src/closure_conversion.jl",
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/eval.jl",
+      "JuliaLowering/src/linear_ir.jl",
+      "JuliaLowering/src/macro_expansion.jl",
+      "JuliaLowering/src/scope_analysis.jl",
+      "JuliaSyntax/src/porcelain/syntax_graph.jl"
+    ],
+    "60416": [
+      "Compiler/test/inline.jl"
+    ],
+    "60414": [
+      "Compiler/src/abstractinterpretation.jl"
+    ],
+    "60411": [
+      "JuliaLowering/src/compat.jl",
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/eval.jl",
+      "JuliaLowering/test/compat.jl",
+      "JuliaLowering/test/macros.jl",
+      "JuliaLowering/test/typedefs.jl"
+    ],
+    "60410": [
+      "JuliaLowering/src/eval.jl",
+      "JuliaLowering/src/linear_ir.jl",
+      "JuliaLowering/test/macros.jl"
+    ],
+    "60403": [
+      "JuliaSyntax/src/julia/parser.jl"
+    ],
+    "60397": [
+      "Compiler/src/abstractinterpretation.jl"
+    ],
+    "60393": [
+      "Compiler/src/typeinfer.jl"
+    ],
+    "60373": [
+      "JuliaLowering/src/compat.jl",
+      "JuliaLowering/src/kinds.jl",
+      "JuliaLowering/test/compat.jl"
+    ],
+    "60370": [
+      "JuliaLowering/src/JuliaLowering.jl",
+      "JuliaLowering/src/ast.jl",
+      "JuliaLowering/src/compat.jl",
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/macro_expansion.jl",
+      "JuliaLowering/src/utils.jl",
+      "JuliaLowering/test/ast.jl",
+      "JuliaLowering/test/compat.jl",
+      "JuliaLowering/test/macros.jl",
+      "JuliaLowering/test/runtests.jl",
+      "JuliaLowering/test/utils.jl",
+      "JuliaSyntax/src/JuliaSyntax.jl",
+      "JuliaSyntax/src/porcelain/syntax_graph.jl",
+      "JuliaSyntax/src/porcelain/syntax_node.jl",
+      "JuliaSyntax/test/runtests.jl",
+      "JuliaSyntax/test/syntax_graph.jl",
+      "JuliaSyntax/test/syntax_node.jl"
+    ],
+    "60357": [
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/test/arrays.jl"
+    ],
+    "60353": [
+      "Compiler/test/codegen.jl"
+    ],
+    "60327": [
+      "JuliaLowering/src/syntax_graph.jl",
+      "JuliaLowering/test/syntax_graph.jl"
+    ],
+    "60316": [
+      "JuliaLowering/src/ast.jl",
+      "JuliaLowering/src/bindings.jl",
+      "JuliaLowering/src/closure_conversion.jl",
+      "JuliaLowering/src/compat.jl",
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/kinds.jl",
+      "JuliaLowering/src/linear_ir.jl",
+      "JuliaLowering/src/scope_analysis.jl",
+      "JuliaLowering/test/assignments_ir.jl",
+      "JuliaLowering/test/closures_ir.jl",
+      "JuliaLowering/test/compat.jl",
+      "JuliaLowering/test/decls_ir.jl",
+      "JuliaLowering/test/demo.jl",
+      "JuliaLowering/test/functions_ir.jl",
+      "JuliaLowering/test/generators_ir.jl",
+      "JuliaLowering/test/macros_ir.jl",
+      "JuliaLowering/test/scopes.jl",
+      "JuliaLowering/test/scopes_ir.jl",
+      "JuliaLowering/test/typedefs_ir.jl"
+    ],
+    "60312": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/typeinfer.jl"
+    ],
+    "60311": [
+      "Compiler/src/tfuncs.jl"
+    ],
+    "60297": [
+      "Compiler/src/effects.jl"
+    ],
+    "60285": [
+      "JuliaSyntax/src/julia/tokenize.jl"
+    ],
+    "60276": [
+      "Compiler/extras/CompilerDevTools/test/testpkg.jl",
+      "JuliaLowering/Manifest.toml"
+    ],
+    "60259": [
+      "Compiler/src/typeinfer.jl"
+    ],
+    "60257": [
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/eval.jl",
+      "JuliaLowering/src/syntax_macros.jl",
+      "JuliaLowering/test/function_calls_ir.jl",
+      "JuliaLowering/test/misc.jl",
+      "JuliaLowering/test/misc_ir.jl"
+    ],
+    "60255": [
+      "JuliaLowering/src/compat.jl",
+      "JuliaLowering/src/macro_expansion.jl",
+      "JuliaLowering/test/macros.jl"
+    ],
+    "60246": [
+      "JuliaSyntax/src/integration/expr.jl",
+      "JuliaSyntax/test/expr.jl"
+    ],
+    "60233": [
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/eval.jl",
+      "JuliaLowering/src/runtime.jl",
+      "JuliaLowering/src/syntax_graph.jl",
+      "JuliaLowering/src/utils.jl",
+      "JuliaLowering/test/functions.jl",
+      "JuliaLowering/test/functions_ir.jl"
+    ],
+    "60232": [
+      "Compiler/extras/CompilerDevTools/test/testpkg.jl",
+      "JuliaLowering/.gitignore",
+      "JuliaLowering/Manifest.toml",
+      "JuliaLowering/test/runtests_vendored.jl"
+    ],
+    "60226": [
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/runtime.jl",
+      "JuliaLowering/test/functions.jl"
+    ],
+    "60221": [
+      "JuliaSyntax/src/julia/parser.jl",
+      "JuliaSyntax/test/parser.jl"
+    ],
+    "60214": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/tfuncs.jl",
+      "Compiler/test/effects.jl"
+    ],
+    "60199": [
+      "JuliaSyntax/src/julia/tokenize.jl",
+      "JuliaSyntax/test/tokenize.jl"
+    ],
+    "60198": [
+      "JuliaSyntax/src/julia/tokenize.jl"
+    ],
+    "60195": [
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/test/assignments.jl"
+    ],
+    "60192": [
+      "JuliaLowering/src/syntax_macros.jl",
+      "JuliaLowering/test/misc_ir.jl"
+    ],
+    "60191": [
+      "JuliaLowering/src/ast.jl",
+      "JuliaLowering/src/bindings.jl",
+      "JuliaLowering/src/closure_conversion.jl",
+      "JuliaLowering/src/compat.jl",
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/eval.jl",
+      "JuliaLowering/src/linear_ir.jl",
+      "JuliaLowering/src/macro_expansion.jl",
+      "JuliaLowering/src/runtime.jl",
+      "JuliaLowering/src/syntax_graph.jl",
+      "JuliaLowering/src/syntax_macros.jl",
+      "JuliaLowering/test/compat.jl",
+      "JuliaLowering/test/scopes.jl",
+      "JuliaLowering/test/utils.jl"
+    ],
+    "60174": [
+      "JuliaLowering/src/macro_expansion.jl",
+      "JuliaLowering/test/macros.jl"
+    ],
+    "60170": [
+      "JuliaLowering/src/ast.jl",
+      "JuliaLowering/src/compat.jl",
+      "JuliaLowering/src/macro_expansion.jl",
+      "JuliaLowering/src/syntax_graph.jl",
+      "JuliaLowering/test/compat.jl",
+      "JuliaLowering/test/macros.jl",
+      "JuliaLowering/test/macros_ir.jl",
+      "JuliaLowering/test/utils.jl"
+    ],
+    "60169": [
+      "JuliaLowering/src/macro_expansion.jl",
+      "JuliaLowering/test/macros.jl"
+    ],
+    "60168": [
+      "JuliaLowering/src/eval.jl",
+      "JuliaLowering/src/macro_expansion.jl",
+      "JuliaLowering/test/macros.jl",
+      "JuliaLowering/test/macros_ir.jl"
+    ],
+    "60163": [
+      "JuliaLowering/src/ast.jl",
+      "JuliaLowering/src/kinds.jl",
+      "JuliaLowering/src/linear_ir.jl",
+      "JuliaLowering/test/hooks.jl",
+      "JuliaSyntax/src/integration/expr.jl",
+      "JuliaSyntax/src/julia/kinds.jl"
+    ],
+    "60162": [
+      "JuliaLowering/src/compat.jl",
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/hooks.jl",
+      "JuliaLowering/src/macro_expansion.jl",
+      "JuliaLowering/src/syntax_graph.jl",
+      "JuliaLowering/src/syntax_macros.jl",
+      "JuliaLowering/test/compat.jl",
+      "JuliaLowering/test/functions.jl",
+      "JuliaLowering/test/quoting.jl",
+      "JuliaLowering/test/typedefs_ir.jl",
+      "JuliaSyntax/src/integration/expr.jl",
+      "JuliaSyntax/src/julia/kinds.jl"
+    ],
+    "60154": [
+      "Compiler/src/typeutils.jl",
+      "Compiler/src/utilities.jl",
+      "Compiler/test/inference.jl"
+    ],
+    "60153": [
+      "Compiler/src/abstractlattice.jl",
+      "Compiler/src/ssair/EscapeAnalysis.jl",
+      "Compiler/src/ssair/domtree.jl"
+    ],
+    "60140": [
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/macro_expansion.jl",
+      "JuliaLowering/src/runtime.jl",
+      "JuliaLowering/src/syntax_macros.jl",
+      "JuliaLowering/test/closures_ir.jl",
+      "JuliaLowering/test/decls.jl",
+      "JuliaLowering/test/functions.jl",
+      "JuliaLowering/test/functions_ir.jl",
+      "JuliaLowering/test/generators_ir.jl",
+      "JuliaLowering/test/hooks.jl",
+      "JuliaLowering/test/misc_ir.jl"
+    ],
+    "60048": [
+      "Compiler/src/tfuncs.jl",
+      "Compiler/test/effects.jl"
+    ],
+    "60018": [
+      "Compiler/test/inference.jl",
+      "JuliaLowering/src/ast.jl",
+      "JuliaLowering/src/compat.jl",
+      "JuliaLowering/src/eval.jl",
+      "JuliaLowering/test/macros.jl",
+      "JuliaSyntax/src/integration/expr.jl",
+      "JuliaSyntax/src/integration/hooks.jl",
+      "JuliaSyntax/src/julia/kinds.jl",
+      "JuliaSyntax/src/julia/literal_parsing.jl",
+      "JuliaSyntax/src/julia/parser.jl",
+      "JuliaSyntax/src/julia/tokenize.jl",
+      "JuliaSyntax/test/expr.jl",
+      "JuliaSyntax/test/parser.jl",
+      "JuliaSyntax/test/test_utils.jl",
+      "JuliaSyntax/test/tokenize.jl"
+    ],
+    "60011": [
+      "Compiler/src/tfuncs.jl",
+      "Compiler/test/effects.jl"
+    ],
+    "59996": [
+      "src/interpreter.c"
+    ],
+    "59974": [
+      "Compiler/src/typeinfer.jl"
+    ],
+    "59921": [
+      "Compiler/src/abstractinterpretation.jl"
+    ],
+    "59920": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/tfuncs.jl",
+      "Compiler/src/typeinfer.jl",
+      "Compiler/test/effects.jl",
+      "src/interpreter.c"
+    ],
+    "59908": [
+      "Compiler/src/abstractinterpretation.jl"
+    ],
+    "59878": [
+      "src/interpreter.c"
+    ],
+    "59870": [
+      "JuliaLowering/.gitignore",
+      "JuliaLowering/LICENSE",
+      "JuliaLowering/Project.toml",
+      "JuliaLowering/README.md",
+      "JuliaLowering/src/JuliaLowering.jl",
+      "JuliaLowering/src/ast.jl",
+      "JuliaLowering/src/bindings.jl",
+      "JuliaLowering/src/closure_conversion.jl",
+      "JuliaLowering/src/compat.jl",
+      "JuliaLowering/src/desugaring.jl",
+      "JuliaLowering/src/eval.jl",
+      "JuliaLowering/src/hooks.jl",
+      "JuliaLowering/src/kinds.jl",
+      "JuliaLowering/src/linear_ir.jl",
+      "JuliaLowering/src/macro_expansion.jl",
+      "JuliaLowering/src/precompile.jl",
+      "JuliaLowering/src/runtime.jl",
+      "JuliaLowering/src/scope_analysis.jl",
+      "JuliaLowering/src/syntax_graph.jl",
+      "JuliaLowering/src/syntax_macros.jl",
+      "JuliaLowering/src/utils.jl",
+      "JuliaLowering/test/arrays.jl",
+      "JuliaLowering/test/arrays_ir.jl",
+      "JuliaLowering/test/assignments.jl",
+      "JuliaLowering/test/assignments_ir.jl",
+      "JuliaLowering/test/branching.jl",
+      "JuliaLowering/test/branching_ir.jl",
+      "JuliaLowering/test/closures.jl",
+      "JuliaLowering/test/closures_ir.jl",
+      "JuliaLowering/test/compat.jl",
+      "JuliaLowering/test/decls.jl",
+      "JuliaLowering/test/decls_ir.jl",
+      "JuliaLowering/test/demo.jl",
+      "JuliaLowering/test/destructuring.jl",
+      "JuliaLowering/test/destructuring_ir.jl",
+      "JuliaLowering/test/desugaring.jl",
+      "JuliaLowering/test/exceptions.jl",
+      "JuliaLowering/test/exceptions_ir.jl",
+      "JuliaLowering/test/function_calls_ir.jl",
+      "JuliaLowering/test/functions.jl",
+      "JuliaLowering/test/functions_ir.jl",
+      "JuliaLowering/test/generators.jl",
+      "JuliaLowering/test/generators_ir.jl",
+      "JuliaLowering/test/hooks.jl",
+      "JuliaLowering/test/import.jl",
+      "JuliaLowering/test/import_ir.jl",
+      "JuliaLowering/test/ir_tests.jl",
+      "JuliaLowering/test/loops.jl",
+      "JuliaLowering/test/loops_ir.jl",
+      "JuliaLowering/test/macros.jl",
+      "JuliaLowering/test/macros_ir.jl",
+      "JuliaLowering/test/misc.jl",
+      "JuliaLowering/test/misc_ir.jl",
+      "JuliaLowering/test/modules.jl",
+      "JuliaLowering/test/quoting.jl",
+      "JuliaLowering/test/quoting_ir.jl",
+      "JuliaLowering/test/repl_mode.jl",
+      "JuliaLowering/test/runtests.jl",
+      "JuliaLowering/test/runtests_vendored.jl",
+      "JuliaLowering/test/scopes.jl",
+      "JuliaLowering/test/scopes_ir.jl",
+      "JuliaLowering/test/syntax_graph.jl",
+      "JuliaLowering/test/typedefs.jl",
+      "JuliaLowering/test/typedefs_ir.jl",
+      "JuliaLowering/test/utils.jl",
+      "JuliaSyntax/.gitignore",
+      "JuliaSyntax/.mailmap",
+      "JuliaSyntax/LICENSE.md",
+      "JuliaSyntax/Project.toml",
+      "JuliaSyntax/README.md",
+      "JuliaSyntax/docs/Manifest.toml",
+      "JuliaSyntax/docs/Project.toml",
+      "JuliaSyntax/docs/make.jl",
+      "JuliaSyntax/docs/src/api.md",
+      "JuliaSyntax/docs/src/design.md",
+      "JuliaSyntax/docs/src/howto.md",
+      "JuliaSyntax/docs/src/index.md",
+      "JuliaSyntax/docs/src/reference.md",
+      "JuliaSyntax/prototypes/simple_parser.jl",
+      "JuliaSyntax/prototypes/syntax_interpolation.jl",
+      "JuliaSyntax/src/JuliaSyntax.jl",
+      "JuliaSyntax/src/core/diagnostics.jl",
+      "JuliaSyntax/src/core/parse_stream.jl",
+      "JuliaSyntax/src/core/source_files.jl",
+      "JuliaSyntax/src/core/tree_cursors.jl",
+      "JuliaSyntax/src/integration/expr.jl",
+      "JuliaSyntax/src/integration/hooks.jl",
+      "JuliaSyntax/src/julia/julia_parse_stream.jl",
+      "JuliaSyntax/src/julia/kinds.jl",
+      "JuliaSyntax/src/julia/literal_parsing.jl",
+      "JuliaSyntax/src/julia/parser.jl",
+      "JuliaSyntax/src/julia/parser_api.jl",
+      "JuliaSyntax/src/julia/tokenize.jl",
+      "JuliaSyntax/src/porcelain/green_node.jl",
+      "JuliaSyntax/src/porcelain/syntax_tree.jl",
+      "JuliaSyntax/src/precompile.jl",
+      "JuliaSyntax/src/utils.jl",
+      "JuliaSyntax/sysimage/.gitignore",
+      "JuliaSyntax/sysimage/JuliaSyntaxCore/Project.toml",
+      "JuliaSyntax/sysimage/JuliaSyntaxCore/src/JuliaSyntaxCore.jl",
+      "JuliaSyntax/sysimage/compile.jl",
+      "JuliaSyntax/sysimage/precompile.jl",
+      "JuliaSyntax/sysimage/precompile_exec.jl",
+      "JuliaSyntax/test/benchmark.jl",
+      "JuliaSyntax/test/diagnostics.jl",
+      "JuliaSyntax/test/expr.jl",
+      "JuliaSyntax/test/fuzz_test.jl",
+      "JuliaSyntax/test/green_node.jl",
+      "JuliaSyntax/test/hooks.jl",
+      "JuliaSyntax/test/kinds.jl",
+      "JuliaSyntax/test/literal_parsing.jl",
+      "JuliaSyntax/test/parse_packages.jl",
+      "JuliaSyntax/test/parse_stream.jl",
+      "JuliaSyntax/test/parser.jl",
+      "JuliaSyntax/test/parser_api.jl",
+      "JuliaSyntax/test/runtests.jl",
+      "JuliaSyntax/test/runtests_vendored.jl",
+      "JuliaSyntax/test/serialization.jl",
+      "JuliaSyntax/test/source_files.jl",
+      "JuliaSyntax/test/syntax_tree.jl",
+      "JuliaSyntax/test/test_utils.jl",
+      "JuliaSyntax/test/test_utils_tests.jl",
+      "JuliaSyntax/test/tokenize.jl",
+      "JuliaSyntax/test/utils.jl",
+      "JuliaSyntax/tools/bump_in_Base.jl",
+      "JuliaSyntax/tools/check_all_packages.jl",
+      "JuliaSyntax/tools/registry_download.jl",
+      "JuliaSyntax/tools/untar_packages.jl"
+    ],
+    "59841": [
+      "Compiler/src/abstractinterpretation.jl"
+    ],
+    "59775": [
+      "Compiler/test/inference.jl"
+    ],
+    "59766": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/test/inference.jl"
+    ],
+    "59705": [
+      "Compiler/src/Compiler.jl",
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/opaque_closure.jl",
+      "Compiler/src/tfuncs.jl",
+      "Compiler/test/effects.jl",
+      "Compiler/test/inference.jl",
+      "Compiler/test/special_loading.jl",
+      "Compiler/test/validation.jl"
+    ],
+    "59413": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/cicache.jl",
+      "Compiler/src/inferenceresult.jl",
+      "Compiler/src/inferencestate.jl",
+      "Compiler/src/optimize.jl",
+      "Compiler/src/ssair/inlining.jl",
+      "Compiler/src/ssair/irinterp.jl",
+      "Compiler/src/ssair/legacy.jl",
+      "Compiler/src/ssair/passes.jl",
+      "Compiler/src/ssair/show.jl",
+      "Compiler/src/stmtinfo.jl",
+      "Compiler/src/tfuncs.jl",
+      "Compiler/src/typeinfer.jl",
+      "Compiler/src/types.jl",
+      "Compiler/test/AbstractInterpreter.jl",
+      "Compiler/test/EAUtils.jl",
+      "Compiler/test/inline.jl",
+      "Compiler/test/newinterp.jl"
+    ],
+    "59165": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/optimize.jl",
+      "Compiler/src/ssair/EscapeAnalysis.jl",
+      "Compiler/src/ssair/inlining.jl",
+      "Compiler/src/ssair/verify.jl",
+      "Compiler/src/verifytrim.jl",
+      "Compiler/test/inference.jl",
+      "Compiler/test/irpasses.jl"
+    ],
+    "56201": [
+      "Compiler/src/optimize.jl",
+      "Compiler/src/ssair/irinterp.jl"
+    ],
+    "55601": [
+      "Compiler/src/abstractinterpretation.jl",
+      "Compiler/src/inferencestate.jl",
+      "Compiler/src/optimize.jl",
+      "Compiler/src/reflection_interface.jl",
+      "Compiler/src/ssair/irinterp.jl",
+      "Compiler/src/tfuncs.jl",
+      "Compiler/src/typeinfer.jl",
+      "Compiler/src/typelattice.jl",
+      "Compiler/src/typelimits.jl",
+      "Compiler/src/types.jl",
+      "Compiler/test/AbstractInterpreter.jl",
+      "Compiler/test/inference.jl",
+      "Compiler/test/irpasses.jl"
+    ]
+  }
+}

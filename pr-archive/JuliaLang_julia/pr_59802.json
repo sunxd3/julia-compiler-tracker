@@ -95,5 +95,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59802/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "4b2981a4a78ed5a6920e62b0225610421bdbdf5e",
+      "filename": "base/threadingconstructs.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 0,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/f35407f97528d2f61b4dcc8ff47a05b649504c0f/base%2Fthreadingconstructs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/f35407f97528d2f61b4dcc8ff47a05b649504c0f/base%2Fthreadingconstructs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fthreadingconstructs.jl?ref=f35407f97528d2f61b4dcc8ff47a05b649504c0f",
+      "patch": "@@ -287,8 +287,14 @@ A macro to execute a `for` loop in parallel. The iteration space is distributed\n coarse-grained tasks. This policy can be specified by the `schedule` argument. The\n execution of the loop waits for the evaluation of all iterations.\n \n+Tasks spawned by `@threads` are scheduled on the `:default` threadpool. This means that\n+`@threads` will not use threads from the `:interactive` threadpool, even if called from\n+the main thread or from a task in the interactive pool. The `:default` threadpool is\n+intended for compute-intensive parallel workloads.\n+\n See also: [`@spawn`](@ref Threads.@spawn) and\n `pmap` in [`Distributed`](@ref man-distributed).\n+For more information on threadpools, see the chapter on [threadpools](@ref man-threadpools).\n \n # Extended help\n "
+    }
+  ]
 }

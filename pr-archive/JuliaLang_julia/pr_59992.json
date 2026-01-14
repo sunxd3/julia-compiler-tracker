@@ -119,5 +119,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59992/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "8918d4435457e7761422ddda62331233faf98fb0",
+      "filename": "src/codegen.cpp",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 3,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e02e4532659a69ef1871caf487432c6da9678a41/src%2Fcodegen.cpp",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e02e4532659a69ef1871caf487432c6da9678a41/src%2Fcodegen.cpp",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fcodegen.cpp?ref=e02e4532659a69ef1871caf487432c6da9678a41",
+      "patch": "@@ -4137,9 +4137,9 @@ static bool emit_builtin_call(jl_codectx_t &ctx, jl_cgval_t *ret, jl_value_t *f,\n         if (argv[2].constant) {\n             if (!jl_is_long(argv[2].constant))\n                 return false;\n-            size_t nel = jl_unbox_long(argv[2].constant);\n-            if (nel < 0)\n-                return false;\n+            // Cast to a unsigned size and let `emit_const_len_memorynew`\n+            // make sure that `nel` fits in a positive signed integer.\n+            size_t nel = (size_t)jl_unbox_long(argv[2].constant);\n             *ret = emit_const_len_memorynew(ctx, typ, nel, inst);\n         }\n         else {"
+    }
+  ]
 }

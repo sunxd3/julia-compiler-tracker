@@ -140,5 +140,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59965/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "acfd0fedd8c96dfa4b6cab3572cba41fd17ea641",
+      "filename": "src/aotcompile.cpp",
+      "status": "modified",
+      "additions": 12,
+      "deletions": 8,
+      "changes": 20,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/33907852b80d5a16eb5f95c13f93c053b9e3d0c7/src%2Faotcompile.cpp",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/33907852b80d5a16eb5f95c13f93c053b9e3d0c7/src%2Faotcompile.cpp",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Faotcompile.cpp?ref=33907852b80d5a16eb5f95c13f93c053b9e3d0c7",
+      "patch": "@@ -1827,10 +1827,16 @@ static void construct_vars(Module &M, Partition &partition, StringRef suffix) {\n     gidxs_var->setDSOLocal(true);\n }\n \n-extern \"C\" void lambda_trampoline(void* arg) {\n-    std::function<void()>* func = static_cast<std::function<void()>*>(arg);\n-    (*func)();\n-    delete func;\n+template<typename CB>\n+static inline void schedule_uv_thread(uv_thread_t *worker, CB &&cb)\n+{\n+    auto func = new CB(std::move(cb));\n+    // Use libuv thread to avoid issues with stack sizes\n+    uv_thread_create(worker, [] (void *arg) {\n+        auto func = static_cast<CB*>(arg);\n+        (*func)();\n+        delete func;\n+    }, func);\n }\n \n // Entrypoint to optionally-multithreaded image compilation. This handles global coordination of the threading,\n@@ -1930,7 +1936,7 @@ static SmallVector<AOTOutputs, 16> add_output(Module &M, TargetMachine &TM, Stri\n         JL_TIMING(NATIVE_AOT, NATIVE_Opt);\n         std::vector<uv_thread_t> workers(threads);\n         for (unsigned i = 0; i < threads; i++) {\n-            std::function<void()> func = [&, i]() {\n+            schedule_uv_thread(&workers[i], [&, i]() {\n                 LLVMContext ctx;\n                 ctx.setDiscardValueNames(true);\n                 // Lazily deserialize the entire module\n@@ -1961,9 +1967,7 @@ static SmallVector<AOTOutputs, 16> add_output(Module &M, TargetMachine &TM, Stri\n                 timers[i].construct.stopTimer();\n \n                 outputs[i] = add_output_impl(*M, TM, timers[i], unopt_out, opt_out, obj_out, asm_out);\n-            };\n-            auto arg = new std::function<void()>(func);\n-            uv_thread_create(&workers[i], lambda_trampoline, arg); // Use libuv thread to avoid issues with stack sizes\n+            });\n         }\n \n         // Wait for all of the worker threads to finish"
+    }
+  ]
 }

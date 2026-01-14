@@ -95,5 +95,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60399/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "3f6eec33d170b6500daeb13a2f9dd78e744b05f3",
+      "filename": "base/locks-mt.jl",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 4,
+      "changes": 8,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/7e7f9613c2fc2a954b7fff53d0ae6ac8104177e1/base%2Flocks-mt.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/7e7f9613c2fc2a954b7fff53d0ae6ac8104177e1/base%2Flocks-mt.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Flocks-mt.jl?ref=7e7f9613c2fc2a954b7fff53d0ae6ac8104177e1",
+      "patch": "@@ -85,9 +85,9 @@ function lock(l::AbstractSpinLock)\n end\n \n function trylock(l::AbstractSpinLock)\n-    if l.owned == 0\n+    if l.owned::Int == 0\n         GC.disable_finalizers()\n-        p = @atomicswap :acquire l.owned = 1\n+        p = (@atomicswap :acquire l.owned = 1)::Int\n         if p == 0\n             return true\n         end\n@@ -97,7 +97,7 @@ function trylock(l::AbstractSpinLock)\n end\n \n function unlock(l::AbstractSpinLock)\n-    if (@atomicswap :release l.owned = 0) == 0\n+    if (@atomicswap :release l.owned = 0)::Int == 0\n         error(\"unlock count must match lock count\")\n     end\n     GC.enable_finalizers()\n@@ -106,5 +106,5 @@ function unlock(l::AbstractSpinLock)\n end\n \n function islocked(l::AbstractSpinLock)\n-    return (@atomic :monotonic l.owned) != 0\n+    return (@atomic :monotonic l.owned)::Int != 0\n end"
+    }
+  ]
 }

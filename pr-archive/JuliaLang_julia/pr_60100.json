@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60100/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "2ab2d7953652912628d50178cb8d42409e09dc64",
+      "filename": "stdlib/Makefile",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 6,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/bc389e30005bc1517d78feead868cf83f3fc3bd0/stdlib%2FMakefile",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/bc389e30005bc1517d78feead868cf83f3fc3bd0/stdlib%2FMakefile",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/stdlib%2FMakefile?ref=bc389e30005bc1517d78feead868cf83f3fc3bd0",
+      "patch": "@@ -15,7 +15,6 @@ include $(JULIAHOME)/deps/*.version\n \n VERSDIR := v$(shell cut -d. -f1-2 < $(JULIAHOME)/VERSION)\n DIRS := $(build_datarootdir)/julia/stdlib/$(VERSDIR) $(build_prefix)/manifest/$(VERSDIR)\n-LIBDIR := $(build_datarootdir)/lib/julia\n \n $(foreach dir,$(DIRS),$(eval $(call dir_target,$(dir))))\n \n@@ -65,11 +64,11 @@ STDLIBS_LINK_TARGETS := $(addprefix $(build_datarootdir)/julia/stdlib/$(VERSDIR)\n remove-gpl-libs:\n ifeq ($(USE_GPL_LIBS),0)\n \t@echo Removing GPL libs...\n-\t-rm -f $(LIBDIR)/libcholmod*\n-\t-rm -f $(LIBDIR)/libklu_cholmod*\n-\t-rm -f $(LIBDIR)/librbio*\n-\t-rm -f $(LIBDIR)/libspqr*\n-\t-rm -f $(LIBDIR)/libumfpack*\n+\t-rm -f $(build_private_libdir)/libcholmod*\n+\t-rm -f $(build_private_libdir)/libklu_cholmod*\n+\t-rm -f $(build_private_libdir)/librbio*\n+\t-rm -f $(build_private_libdir)/libspqr*\n+\t-rm -f $(build_private_libdir)/libumfpack*\n endif\n \n getall get: $(addprefix get-, $(STDLIBS_EXT) $(JLL_NAMES))"
+    }
+  ]
 }

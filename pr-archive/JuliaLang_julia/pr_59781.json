@@ -86,5 +86,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59781/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "260e9e505498081582292a5e73206445be4d3ffa",
+      "filename": "base/hashing.jl",
+      "status": "modified",
+      "additions": 6,
+      "deletions": 0,
+      "changes": 6,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/db9bef17c261bbf3247d7a78f5ae011ca3a42372/base%2Fhashing.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/db9bef17c261bbf3247d7a78f5ae011ca3a42372/base%2Fhashing.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fhashing.jl?ref=db9bef17c261bbf3247d7a78f5ae011ca3a42372",
+      "patch": "@@ -21,6 +21,12 @@ Typically, any type that implements `hash` should also implement its own [`==`](\n \n The hash value may change when a new Julia process is started.\n \n+!!! warning\n+    When implementing the 2-argument form, the second argument `h` should _not_ be given a\n+    default value such `h = UInt(0)` as this will implicitly create a 1-argument method that\n+    is more specific than the fallback (see [Note on Optional and keyword Arguments](@ref)),\n+    but potentially with the wrong seed, causing hash inconsistencies.\n+\n ```jldoctest; filter = r\"0x[0-9a-f]{16}\"\n julia> a = hash(10)\n 0x759d18cc5346a65f"
+    }
+  ]
 }

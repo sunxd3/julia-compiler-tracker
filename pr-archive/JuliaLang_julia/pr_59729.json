@@ -128,5 +128,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59729/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "b756de3c3e86ed64c8bf4ddef0525773c8354e70",
+      "filename": "base/docs/basedocs.jl",
+      "status": "modified",
+      "additions": 14,
+      "deletions": 0,
+      "changes": 14,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/65253b529e6086731485cb0c15a0a7aecce22cd0/base%2Fdocs%2Fbasedocs.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/65253b529e6086731485cb0c15a0a7aecce22cd0/base%2Fdocs%2Fbasedocs.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Fdocs%2Fbasedocs.jl?ref=65253b529e6086731485cb0c15a0a7aecce22cd0",
+      "patch": "@@ -1063,6 +1063,20 @@ end\n The syntax `catch e` (where `e` is any variable) assigns the thrown\n exception object to the given variable within the `catch` block.\n \n+```julia\n+try\n+    a_dangerous_operation()\n+catch e\n+    if isa(e, EOFError)\n+        @warn \"The operation failed - EOF.\"\n+    elseif isa(e, OutOfMemoryError)\n+        @warn \"The operation failed - OOM.\"\n+    else\n+        rethrow() # ensure other exceptions can bubble up the call stack\n+    end\n+end\n+```\n+\n The power of the `try`/`catch` construct lies in the ability to unwind a deeply\n nested computation immediately to a much higher level in the stack of calling functions.\n "
+    },
+    {
+      "sha": "04bb1ea621f334f89656a4cdae404fd305e3d941",
+      "filename": "doc/src/manual/control-flow.md",
+      "status": "modified",
+      "additions": 13,
+      "deletions": 1,
+      "changes": 14,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/65253b529e6086731485cb0c15a0a7aecce22cd0/doc%2Fsrc%2Fmanual%2Fcontrol-flow.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/65253b529e6086731485cb0c15a0a7aecce22cd0/doc%2Fsrc%2Fmanual%2Fcontrol-flow.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fsrc%2Fmanual%2Fcontrol-flow.md?ref=65253b529e6086731485cb0c15a0a7aecce22cd0",
+      "patch": "@@ -785,6 +785,8 @@ julia> sqrt_second(x) = try\n                sqrt(complex(x[2], 0))\n            elseif isa(y, BoundsError)\n                sqrt(x)\n+           else\n+               rethrow() # ensure other exceptions can bubble up the call stack\n            end\n        end\n sqrt_second (generic function with 1 method)\n@@ -803,8 +805,18 @@ ERROR: DomainError with -9.0:\n sqrt was called with a negative real argument but will only return a complex result if called with a complex argument. Try sqrt(Complex(x)).\n Stacktrace:\n [...]\n+\n+julia> sqrt_second([1 nothing])\n+ERROR: MethodError: no method matching sqrt(::Nothing)\n+The function `sqrt` exists, but no method is defined for this combination of argument types.\n+[...]\n ```\n \n+Use [`rethrow`](@ref) as above to continue unwinding the stack with the original exception so that\n+higher-level exception handlers can deal with the exception. When filtering by exception type\n+as above, it is often important to include `else rethrow()` so that other types of exceptions\n+are not hidden from the caller.\n+\n Note that the symbol following `catch` will always be interpreted as a name for the exception,\n so care is needed when writing `try/catch` expressions on a single line. The following code will\n *not* work to return the value of `x` in case of an error:\n@@ -827,7 +839,7 @@ end\n The power of the `try/catch` construct lies in the ability to unwind a deeply nested computation\n immediately to a much higher level in the stack of calling functions. There are situations where\n no error has occurred, but the ability to unwind the stack and pass a value to a higher level\n-is desirable. Julia provides the [`rethrow`](@ref), [`backtrace`](@ref), [`catch_backtrace`](@ref)\n+is desirable. Julia provides the [`backtrace`](@ref), [`catch_backtrace`](@ref)\n and [`current_exceptions`](@ref) functions for more advanced error handling.\n \n ### `else` Clauses"
+    }
+  ]
 }

@@ -95,5 +95,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60337/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "8f42ac5839483f4b28307baf42be512c0c82f6f7",
+      "filename": "base/range.jl",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 0,
+      "changes": 11,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/519e5d41185d4b4cadbceb8ebc461fec04dbaafc/base%2Frange.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/519e5d41185d4b4cadbceb8ebc461fec04dbaafc/base%2Frange.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/base%2Frange.jl?ref=519e5d41185d4b4cadbceb8ebc461fec04dbaafc",
+      "patch": "@@ -1168,6 +1168,17 @@ function ==(r::AbstractRange, s::AbstractRange)\n     return true\n end\n \n+function cmp(r1::T, r2::T) where {T <: AbstractRange}\n+    firstindex(r1) == firstindex(r2) || return cmp(firstindex(r1), firstindex(r2))\n+    (isempty(r1) || isempty(r2)) && return cmp(isempty(r2), isempty(r1))\n+    first(r1) != first(r2) && return cmp(first(r1), first(r2))\n+    # Assume that ranges are monotonic and use the last shared element as a high precision proxy for step.\n+    n = min(lastindex(r1), lastindex(r2))\n+    x1, x2 = r1[n], r2[n]\n+    x1 != x2 && return cmp(x1, x2)\n+    cmp(length(r1), length(r2))\n+end\n+\n intersect(r::OneTo, s::OneTo) = OneTo(min(r.stop,s.stop))\n union(r::OneTo, s::OneTo) = OneTo(max(r.stop,s.stop))\n "
+    },
+    {
+      "sha": "7bb33e783928200c183cf62887cd7d75700d87a4",
+      "filename": "test/ranges.jl",
+      "status": "modified",
+      "additions": 29,
+      "deletions": 0,
+      "changes": 29,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/519e5d41185d4b4cadbceb8ebc461fec04dbaafc/test%2Franges.jl",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/519e5d41185d4b4cadbceb8ebc461fec04dbaafc/test%2Franges.jl",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/test%2Franges.jl?ref=519e5d41185d4b4cadbceb8ebc461fec04dbaafc",
+      "patch": "@@ -2831,3 +2831,32 @@ end\n     @test StepRange(r) == r\n     @test StepRange(r) isa StepRange{Date,Day}\n end\n+\n+const EXAMPLE_RANGES = AbstractRange[\n+    1:10,\n+    1:5,\n+    1:0,\n+    1:1,\n+    3:2,\n+    3:0,\n+    10:-1:1,\n+    1:2:10,\n+    10:-2:1,\n+    LinRange(1.0, 10.0, 10),\n+    LinRange(10.0, 1.0, 10),\n+    1e10:1.99:(1e10 + 2),\n+    1e10:(1.99+eps()):(1e10 + 2),\n+    StepRangeLen(1, 2, 5),\n+    StepRangeLen(10, -2, 5),\n+    UInt8(1):UInt8(10),\n+    UInt8(10):-UInt8(1):UInt8(1),\n+    'a':'z',\n+    LinRange(0.3376448676263234, 1.509664528429199, 3),\n+    range(0.3376448676263234, step=0.5860098304014378, length=3),\n+]\n+\n+@testset \"cmp(::AbstractRange, ::AbstractRange)\" begin\n+    for a in EXAMPLE_RANGES, b in EXAMPLE_RANGES\n+        @test try cmp(a, b) catch e; e end == try cmp(collect(a), collect(b)) catch e; e end\n+    end\n+end"
+    }
+  ]
 }

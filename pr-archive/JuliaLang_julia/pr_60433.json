@@ -77,5 +77,31 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/60433/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "c3e6d5f76730f29e7bbdc6b49a2c0e840a2f975b",
+      "filename": "Make.inc",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/f4c3b86ba6b5df00b3a365856d3189d1c6aca2f4/Make.inc",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/f4c3b86ba6b5df00b3a365856d3189d1c6aca2f4/Make.inc",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/Make.inc?ref=f4c3b86ba6b5df00b3a365856d3189d1c6aca2f4",
+      "patch": "@@ -1566,6 +1566,7 @@ endif\n ifeq ($(OS), FreeBSD)\n JLDFLAGS += -Wl,-Bdynamic\n OSLIBS += -lelf -lkvm -lrt -lpthread -latomic\n+HAVE_SSP := 1\n \n # Tweak order of libgcc_s in DT_NEEDED,\n # make it loaded first to"
+    },
+    {
+      "sha": "05f2574906d88def999391daef9da2426ffc56f5",
+      "filename": "src/julia_internal.h",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 2,
+      "changes": 4,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/f4c3b86ba6b5df00b3a365856d3189d1c6aca2f4/src%2Fjulia_internal.h",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/f4c3b86ba6b5df00b3a365856d3189d1c6aca2f4/src%2Fjulia_internal.h",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/src%2Fjulia_internal.h?ref=f4c3b86ba6b5df00b3a365856d3189d1c6aca2f4",
+      "patch": "@@ -176,8 +176,8 @@ static inline void msan_unpoison_string(const volatile char *a) JL_NOTSAFEPOINT\n #endif\n #endif\n \n-#if defined(HAVE_SSP) && defined(_OS_DARWIN_)\n-// On Darwin, this is provided by libSystem and imported\n+#if defined(HAVE_SSP) && (defined(_OS_DARWIN_) || defined(_OS_FREEBSD_))\n+// This is provided by libSystem on Darwin and libc on FreeBSD, and imported\n extern JL_DLLIMPORT uintptr_t __stack_chk_guard;\n #elif defined(HAVE_SSP)\n // Added by compiler runtime in final link - not DLLIMPORT"
+    }
+  ]
 }

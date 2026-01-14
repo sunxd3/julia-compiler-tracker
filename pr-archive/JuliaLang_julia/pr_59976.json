@@ -77,5 +77,19 @@
   "timeline_url": "https://api.github.com/repos/JuliaLang/julia/issues/59976/timeline",
   "performed_via_github_app": null,
   "state_reason": null,
-  "score": 1.0
+  "score": 1.0,
+  "files": [
+    {
+      "sha": "fb1123f9b19aeabe338aa5f4475a430845975028",
+      "filename": "doc/src/devdocs/functions.md",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2,
+      "blob_url": "https://github.com/JuliaLang/julia/blob/e49ec7713c2886d43c089cbaa95f0f3f946aa3fb/doc%2Fsrc%2Fdevdocs%2Ffunctions.md",
+      "raw_url": "https://github.com/JuliaLang/julia/raw/e49ec7713c2886d43c089cbaa95f0f3f946aa3fb/doc%2Fsrc%2Fdevdocs%2Ffunctions.md",
+      "contents_url": "https://api.github.com/repos/JuliaLang/julia/contents/doc%2Fsrc%2Fdevdocs%2Ffunctions.md?ref=e49ec7713c2886d43c089cbaa95f0f3f946aa3fb",
+      "patch": "@@ -7,7 +7,7 @@ This document will explain how functions, method definitions, and method tables\n \n Every function in Julia is a generic function. A generic function is conceptually a single function,\n but consists of many definitions, or methods. The methods of a generic function are stored in a\n-method table. There is one global method table (type `MethodTable`) named `Core.GlobalMethods`. Any\n+method table. There is one global method table (type `MethodTable`) named `Core.methodtable`. Any\n default operation on methods (such as calls) uses that table.\n \n ## [Function calls](@id Function-calls)"
+    }
+  ]
 }
