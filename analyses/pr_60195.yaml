@@ -1,0 +1,158 @@
+schema_version: "1.0"
+pr:
+  number: 60195
+  title: "Fix `remove-argument-side-effects` with keyword call"
+  url: "https://github.com/JuliaLang/julia/pull/60195"
+  author: "mlechu"
+  labels:
+    - "compiler:lowering"
+    - "bugfix"
+    - "backport 1.13"
+  merged_at: "2025-11-22T04:18:32Z"
+  merge_commit_sha: "e49a23d429f7d2bba0edf4973f568735ef50d3a2"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60195.diff"
+scope:
+  files_touched:
+    - "JuliaLowering/src/desugaring.jl"
+    - "JuliaLowering/test/assignments.jl"
+    - "src/julia-syntax.scm"
+    - "test/syntax.jl"
+  components:
+    - "JuliaLowering"
+    - "JuliaSyntax"
+  pipeline_stages:
+    - "Lowering"
+    - "Parsing"
+analysis:
+  intent:
+    summary: "Fix keyword-call handling in remove-argument-side-effects so keyword arguments inside a parameters block are made single-evaluation-safe, aligning the Scheme and JuliaLowering implementations and addressing LHS broadcast/update bugs."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60152"
+  direct_changes:
+    - summary: "JuliaLowering: _arg_to_temp now recurses into K\"parameters\" so keyword arguments in parameters blocks are processed for single-evaluation, and kw '=' arguments route through _arg_to_temp to avoid duplicating side effects."
+      component: "JuliaLowering"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "535-546"
+          url: "https://github.com/JuliaLang/julia/blob/e49a23d429f7d2bba0edf4973f568735ef50d3a2/JuliaLowering/src/desugaring.jl#L535-L546"
+          snippet: |
+            function _arg_to_temp(ctx, stmts, ex, eq_is_kw=false)
+                k = kind(ex)
+                if is_effect_free(ex)
+                    ex
+                elseif k == K"..."
+                    @ast ctx ex [k _arg_to_temp(ctx, stmts, ex[1])]
+                elseif k == K"=" && eq_is_kw
+                    @ast ctx ex [K"=" ex[1] _arg_to_temp(ctx, stmts, ex[2], false)]
+                elseif k == K"parameters"
+                    mapchildren(ctx, ex) do e
+                        _arg_to_temp(ctx, stmts, e, true)
+                    end
+                else
+                    emit_assign_tmp(stmts, ctx, ex)
+                end
+            end
+    - summary: "Scheme lowering: remove-argument-side-effects now treats 'parameters' lists explicitly and continues to transform kw values via arg-to-temp, ensuring kwcall arguments are single-evaluation-safe in the legacy lowering path."
+      component: "JuliaSyntax"
+      evidence:
+        - source: "code"
+          path: "src/julia-syntax.scm"
+          loc: "1807-1826"
+          url: "https://github.com/JuliaLang/julia/blob/e49a23d429f7d2bba0edf4973f568735ef50d3a2/src/julia-syntax.scm#L1807-L1826"
+          snippet: |
+            (define (remove-argument-side-effects e)
+              (if (not (pair? e))
+                  (cons e '())
+                  (let ((a '()))
+                    (define (arg-to-temp x)
+                      (cond ((effect-free? x) x)
+                            ((eq? (car x) '...)
+                             `(... ,(arg-to-temp (cadr x))))
+                            ((eq? (car x) 'kw)
+                             `(kw ,(cadr x) ,(arg-to-temp (caddr x))))
+                            ((eq? (car x) 'parameters)
+                             `(parameters ,@(map arg-to-temp (cdr x))))
+                            (else
+                             (let ((g (make-ssavalue)))
+                               (begin (set! a (cons `(= ,g ,x) a))
+                                      g)))))
+                    (if (eq? (car e) 'let)
+                      (cons (arg-to-temp e) (reverse a))
+                      (cons (cons (car e) (map arg-to-temp (cdr e)))
+                            (reverse a))))))
+  secondary_effects:
+    - effect: "Broadcast/update assignment LHS kwcall arguments are now evaluated exactly once, preventing repeated side effects in both lowering implementations."
+      mechanism: |
+        remove_argument_side_effects(ctx, stmts, ex)  [JuliaLowering/src/desugaring.jl:559-573]
+          -> _arg_to_temp(ctx, stmts, e, eq_is_kw)  [JuliaLowering/src/desugaring.jl:535-546]
+             - handles K"parameters" by mapping _arg_to_temp(..., true) over children
+          -> expand_update_operator uses remove_argument_side_effects on lhs  [JuliaLowering/src/desugaring.jl:1400-1427]
+      downstream_surfaces:
+        - "broadcasted update lowering (.op=)"
+        - "kwcall LHS in assignments"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "Legacy syntax lowering for keyword calls avoids duplicating side-effectful kw arguments inside parameters blocks."
+      mechanism: |
+        lower-kw-call f args  [src/julia-syntax.scm:1828-1834]
+          -> remove-argument-side-effects  [src/julia-syntax.scm:1807-1826]
+             -> arg-to-temp handles (parameters ...) and (kw name value)
+      downstream_surfaces:
+        - "syntax-lowered kw calls used before JuliaLowering is enabled"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - "Keyword-call LHS side effects inside parameters/kw blocks are no longer duplicated during lowering; code relying on multiple evaluations will now run once."
+  performance:
+    compile_time:
+      - "ESTIMATED: adds a mapchildren traversal over parameters nodes when present; O(n) in number of kw arguments."
+    runtime: []
+  risk:
+    level: "low"
+    rationale:
+      - "Change is localized to lowering of argument side effects and backed by new tests for kwcall LHS behavior."
+  open_questions: []
+  recommendations:
+    - "Downstream tooling that inspects lowered LHS kwcalls (e.g., macro-based broadcast transformations) should add coverage for parameters blocks to ensure single-evaluation semantics align with this fix."
+  evidence_callers:
+    - summary: "Callers of remove_argument_side_effects in JuliaLowering"
+      snippet: |
+        JuliaLowering/src/desugaring.jl
+        559:function remove_argument_side_effects(ctx, stmts, ex)
+        1374:            l1 = remove_argument_side_effects(ctx, stmts, lhs[1])
+        1426:    lhs = remove_argument_side_effects(ctx, stmts, lhs)
+  tests:
+    - summary: "JuliaLowering test exercises kwcall LHS broadcast update and verifies single evaluation."
+      path: "JuliaLowering/test/assignments.jl"
+      loc: "98-110"
+      url: "https://github.com/JuliaLang/julia/blob/e49a23d429f7d2bba0edf4973f568735ef50d3a2/JuliaLowering/test/assignments.jl#L98-L110"
+      snippet: |
+        # removing argument side effect in kwcall lhs
+        @eval test_mod f60152(v, pa; kw) = copy(v)
+        @test JuliaLowering.include_string(test_mod, """
+            f60152([1, 2, 3], 0; kw=0) .*= 2
+        """) == [2,4,6]
+        @test JuliaLowering.include_string(test_mod, """
+        let
+            pa_execs = 0
+            kw_execs = 0
+            out = f60152([1, 2, 3], (pa_execs+=1); kw=(kw_execs+=1)) .*= 2
+            (out, pa_execs, kw_execs)
+        end
+        """) == ([2,4,6], 1, 1)
+    - summary: "Core syntax test mirrors kwcall LHS side-effect expectations in the legacy lowering path."
+      path: "test/syntax.jl"
+      loc: "3750-3757"
+      url: "https://github.com/JuliaLang/julia/blob/e49a23d429f7d2bba0edf4973f568735ef50d3a2/test/syntax.jl#L3750-L3757"
+      snippet: |
+        # remove argument side effects on lhs kwcall
+        pa_execs = 0
+        kw_execs = 0
+        f60152(v, pa; kw) = copy(v)
+        @test (f60152([1, 2, 3], 0; kw=0) .*= 2) == [2,4,6]
+        @test (f60152([1, 2, 3], (pa_execs+=1); kw=(kw_execs+=1)) .*= 2) == [2,4,6]
+        @test pa_execs === 1
+        @test kw_execs === 1

@@ -1,0 +1,198 @@
+schema_version: "1.0"
+pr:
+  number: 60192
+  title: "[JuliaLowering] Remove use of `@SyntaxTree` in ccall"
+  url: "https://github.com/JuliaLang/julia/pull/60192"
+  author: "mlechu"
+  labels:
+    - "compiler:lowering"
+  merged_at: "2025-11-24T18:52:50Z"
+  merge_commit_sha: "8652e0d7438aef4be322b6c14699ad2832ea30e6"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60192.diff"
+scope:
+  files_touched:
+    - "JuliaLowering/src/syntax_macros.jl"
+    - "JuliaLowering/test/misc_ir.jl"
+  components:
+    - "JuliaLowering"
+  pipeline_stages:
+    - "Lowering"
+    - "MacroExpansion"
+analysis:
+  intent:
+    summary: "Replace `@SyntaxTree` usage in @ccall lowering with explicit `@ast` construction to avoid reparsing, improve precompile robustness, and reduce inference cost."
+    issue_links: []
+  direct_changes:
+    - summary: "Rebuilt interpolated-function-pointer checks in @ccall lowering using `@ast` nodes rather than `@SyntaxTree` reparse logic."
+      component: "JuliaLowering/src/syntax_macros.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/syntax_macros.jl"
+          loc: "179-239"
+          url: "https://github.com/JuliaLang/julia/blob/8652e0d7438aef4be322b6c14699ad2832ea30e6/JuliaLowering/src/syntax_macros.jl#L179-L239"
+          snippet: |
+            function ccall_macro_lower(ctx, ex, convention, func, rettype, types, args, gc_safe, num_required_args)
+                statements = SyntaxTree[]
+                kf = kind(func)
+                if kf == K"Identifier"
+                    lowered_func = @ast ctx func func=>K"Symbol"
+                elseif kf == K"."
+                    lowered_func = @ast ctx func [K"tuple"
+                        func[2]=>K"Symbol"
+                        [K"static_eval"(meta=name_hint("@ccall library name"))
+                            func[1]
+                        ]
+                    ]
+                elseif kf == K"$"
+                    fid = @ast ctx func[1] "func"::K"Identifier"
+                    check = @ast ctx func [K"block"
+                        [K"=" fid func[1]]
+                        [K"if"
+                            [K"call" (!isa)::K"Value" fid [K"curly" Ptr::K"Value" Cvoid::K"Value"]]
+                            [K"block"
+                                [K"=" "name"::K"Identifier" [K"quote" func[1]]]
+                                [K"call" throw::K"Value"
+                                    [K"call" ArgumentError::K"Value"
+                                        [K"string"
+                                            "interpolated function `"::K"String"
+                                            "name"::K"Identifier"
+                                            "` was not a `Ptr{Cvoid}`, but "::K"String"
+                                            [K"call" typeof::K"Value" fid]]]]]]]
+                    push!(statements, check)
+                    lowered_func = check[1][1]
+                else
+                    throw(MacroExpansionError(func,
+                        "Function name must be a symbol like `foo`, a library and function name like `libc.printf` or an interpolated function pointer like `\$ptr`"))
+                end
+
+                roots = SyntaxTree[]
+                cargs = SyntaxTree[]
+                for (i, (type, arg)) in enumerate(zip(types, args))
+                    argi = @ast ctx arg "arg$i"::K"Identifier"
+                    # TODO: Does it help to emit ssavar() here for the `argi`?
+                    push!(statements,
+                          @ast ctx arg [K"local"
+                              [K"=" argi [K"call" Base.cconvert::K"Value" type arg]]])
+                    push!(roots, argi)
+                    push!(cargs, @ast ctx ex [K"call" Base.unsafe_convert::K"Value" type argi])
+                end
+                effect_flags = UInt16(0)
+                push!(statements, @ast ctx ex [K"foreigncall"
+                    lowered_func
+                    [K"static_eval"(meta=name_hint("@ccall return type"))
+                        rettype
+                    ]
+                    [K"static_eval"(meta=name_hint("@ccall argument type"))
+                        [K"call"
+                            "svec"::K"core"
+                            types...
+                        ]
+                    ]
+                    num_required_args::K"Integer"
+                    QuoteNode((convention, effect_flags, gc_safe))::K"Value"
+                    cargs...
+                    roots...
+                ])
+    - summary: "Updated expected lowered IR for @ccall to show direct `Base.cconvert`/`Base.unsafe_convert` calls instead of `top.getproperty` lookups."
+      component: "JuliaLowering/test/misc_ir.jl"
+      evidence:
+        - source: "test"
+          path: "JuliaLowering/test/misc_ir.jl"
+          loc: "402-440"
+          url: "https://github.com/JuliaLang/julia/blob/8652e0d7438aef4be322b6c14699ad2832ea30e6/JuliaLowering/test/misc_ir.jl#L402-L440"
+          snippet: |
+            # Basic @ccall lowering
+            @ccall foo(x::X, y::Y)::R
+            #---------------------
+            1   TestMod.X
+            2   TestMod.x
+            3   (= slot₁/arg1 (call Base.cconvert %₁ %₂))
+            4   TestMod.Y
+            5   TestMod.y
+            6   (= slot₂/arg2 (call Base.cconvert %₄ %₅))
+            7   TestMod.X
+            8   slot₁/arg1
+            9   (call Base.unsafe_convert %₇ %₈)
+            10  TestMod.Y
+            11  slot₂/arg2
+            12  (call Base.unsafe_convert %₁₀ %₁₁)
+            13  slot₁/arg1
+            14  slot₂/arg2
+            15  (foreigncall :foo (static_eval TestMod.R) (static_eval (call core.svec TestMod.X TestMod.Y)) 0 :($(QuoteNode((:ccall, 0x0000, false)))) %₉ %₁₂ %₁₃ %₁₄)
+            16  (return %₁₅)
+
+            ########################################
+            # @ccall lowering with gc_safe
+            @ccall foo(x::X; y::Y)::R gc_safe=true
+            #---------------------
+            1   TestMod.X
+            2   TestMod.x
+            3   (= slot₁/arg1 (call Base.cconvert %₁ %₂))
+            4   TestMod.Y
+            5   TestMod.y
+            6   (= slot₂/arg2 (call Base.cconvert %₄ %₅))
+            7   TestMod.X
+            8   slot₁/arg1
+            9   (call Base.unsafe_convert %₇ %₈)
+            10  TestMod.Y
+            11  slot₂/arg2
+            12  (call Base.unsafe_convert %₁₀ %₁₁)
+            13  slot₁/arg1
+            14  slot₂/arg2
+            15  (foreigncall :foo (static_eval TestMod.R) (static_eval (call core.svec TestMod.X TestMod.Y)) 1 :($(QuoteNode((:ccall, 0x0000, true)))) %₉ %₁₂ %₁₃ %₁₄)
+            16  (return %₁₅)
+  secondary_effects:
+    - effect: "Eliminates reparsing of @ccall interpolated function pointer checks, reducing dependence on source location and REPL history at precompile time."
+      mechanism: |
+        ccall_macro_lower(ctx, ex, ...)  [JuliaLowering/src/syntax_macros.jl:179]
+          builds check = @ast ctx func [K"block" ...]  [JuliaLowering/src/syntax_macros.jl:192-205]
+          instead of @SyntaxTree quote (reparse) for interpolated pointer validation
+        -> macro expansion yields fully-formed SyntaxTree without reparsing
+        -> lowering proceeds with explicit Base.cconvert/Base.unsafe_convert nodes
+      downstream_surfaces:
+        - "@ccall macro expansion for interpolated function pointers"
+        - "Precompile-time lowering of SyntaxTree macros"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "Lowered IR now references Base.cconvert/Base.unsafe_convert symbols directly, which may affect IR pattern matchers that expected getproperty-based dispatch." 
+      mechanism: |
+        ccall_macro_lower(ctx, ex, ...)  [JuliaLowering/src/syntax_macros.jl:215-222]
+          emits [K"call" Base.cconvert::K"Value" type arg]
+          and [K"call" Base.unsafe_convert::K"Value" type argi]
+        -> IR printed in misc_ir.jl shows direct Base.cconvert/Base.unsafe_convert calls
+      downstream_surfaces:
+        - "IRTools/Cassette/Jet-like tools that pattern match lowered IR"
+        - "Custom macro-based tooling that inspects @ccall lowering"
+      likelihood: "medium"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "@ccall lowered IR symbol resolution"
+        change: "Direct calls to Base.cconvert/Base.unsafe_convert appear in IR instead of top.getproperty lookups (as reflected in misc_ir.jl expectations)."
+        affected_tools:
+          - tool: "IRTools"
+            usage: "May match lowered IR for foreigncall argument conversions."
+          - tool: "JET"
+            usage: "May parse or display lowered IR when reporting @ccall-related diagnostics."
+    behavioral:
+      - field: "@ccall interpolated pointer validation"
+        change: "Validation is constructed via `@ast` instead of `@SyntaxTree` reparse, avoiding source-text dependency in macro expansion."
+        affected_tools:
+          - tool: "PackageCompiler"
+            usage: "Precompile-time macro expansion no longer relies on source lookup for @SyntaxTree." 
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: Removes SyntaxTree reparsing for interpolated @ccall function pointers, reducing inference work in ccall_macro_lower." 
+        evidence: "JuliaLowering/src/syntax_macros.jl uses @ast construction for checks and conversions."
+    runtime:
+      - impact: "No expected runtime change; lowered IR still performs cconvert/unsafe_convert and foreigncall with equivalent semantics."
+        evidence: "IR expectations in misc_ir.jl show unchanged foreigncall structure aside from symbol resolution." 
+  risk:
+    level: "low"
+    rationale:
+      - "Changes confined to JuliaLowering @ccall macro construction and associated tests."
+      - "IR expectations updated; semantics of foreigncall sequence remain consistent." 
+  open_questions:
+    - "Do any downstream tools rely specifically on top.getproperty-based lookup in @ccall lowering IR?"
+  recommendations:
+    - "Downstream IR consumers should accept both Base.cconvert/Base.unsafe_convert direct calls and getproperty-based patterns if matching older Julia versions."

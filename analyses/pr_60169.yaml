@@ -1,0 +1,140 @@
+schema_version: "1.0"
+pr:
+  number: 60169
+  title: "[JuliaLowering] only hygienic-scope-wrap `toplevel` if unescaped"
+  url: "https://github.com/JuliaLang/julia/pull/60169"
+  author: "mlechu"
+  labels:
+    - "compiler:lowering"
+  merged_at: "2025-11-19T17:56:51Z"
+  merge_commit_sha: "2315530f71b358b06c646d4f4124393da33719e8"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60169.diff"
+scope:
+  files_touched:
+    - "JuliaLowering/src/macro_expansion.jl"
+    - "JuliaLowering/test/macros.jl"
+  components:
+    - "JuliaLowering"
+  pipeline_stages:
+    - "Lowering"
+    - "MacroExpansion"
+analysis:
+  intent:
+    summary: "Limit hygienic-scope wrapping for macro-expanded :toplevel forms to cases where the expansion occurs under a non-default scope layer, preserving escaped toplevel behavior while avoiding extra wrapping at the outer layer."
+    issue_links: []
+  direct_changes:
+    - summary: "Move :toplevel hygienic-scope wrapping to the general lowering pass, gating it on nested scope layers so only macro expansions in non-default layers are wrapped."
+      component: "JuliaLowering/src/macro_expansion.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/macro_expansion.jl"
+          loc: "247-255"
+          url: "https://github.com/JuliaLang/julia/blob/2315530f71b358b06c646d4f4124393da33719e8/JuliaLowering/src/macro_expansion.jl#L247-L255"
+          snippet: |
+            function fix_toplevel_expansion(ctx, ex::SyntaxTree, mod::Module, lnn::LineNumberNode)
+                if kind(ex) === K"toplevel"
+                    mapchildren(ctx, ex) do e
+                        @ast ctx ex [K"hygienic_scope" e mod::K"Value" lnn::K"Value"]
+                    end
+                else
+                    mapchildren(e->fix_toplevel_expansion(ctx, e, mod, lnn), ctx, ex)
+                end
+            end
+        - source: "code"
+          path: "JuliaLowering/src/macro_expansion.jl"
+          loc: "454-459"
+          url: "https://github.com/JuliaLang/julia/blob/2315530f71b358b06c646d4f4124393da33719e8/JuliaLowering/src/macro_expansion.jl#L454-L459"
+          snippet: |
+            elseif k == K"macrocall"
+                expand_macro(ctx, ex)
+            elseif k == K"toplevel" && length(ctx.scope_layer_stack) > 1
+                fix_toplevel_expansion(ctx, ex, current_layer(ctx).mod,
+                                       source_location(LineNumberNode, ex))
+            elseif k == K"module" || k == K"toplevel" || k == K"inert"
+                # Remove scope layer information from any inert syntax which survives
+                # macro expansion so that it doesn't contaminate lowering passes which
+                # are later run against the quoted code. TODO: This works as a first
+                # approximation but is incorrect in general. We need to revisit such
+                # "deferred hygiene" situations (see https://github.com/c42f/JuliaLowering.jl/issues/111)
+                remove_scope_layer(ctx, ex)
+    - summary: "Add tests covering escaped vs unescaped :toplevel macro expansions to assert module resolution behavior."
+      component: "JuliaLowering/test/macros.jl"
+      evidence:
+        - source: "test"
+          path: "JuliaLowering/test/macros.jl"
+          loc: "486-502"
+          url: "https://github.com/JuliaLang/julia/blob/2315530f71b358b06c646d4f4124393da33719e8/JuliaLowering/test/macros.jl#L486-L502"
+          snippet: |
+            @testset "toplevel macro hygiene" begin
+                @eval test_mod global mod = $test_mod
+                @eval test_mod module MacroMod
+                global mod = MacroMod
+                macro escaped_toplevel()
+                    esc(Expr(:toplevel, :(mod)))
+                end
+                macro inner_escaped_toplevel()
+                    Expr(:toplevel, esc(:(mod)))
+                end
+                macro unescaped_toplevel()
+                    Expr(:toplevel, :(mod))
+                end
+                end
+                @test JuliaLowering.include_string(test_mod, "MacroMod.@escaped_toplevel") === test_mod
+                @test JuliaLowering.include_string(test_mod, "MacroMod.@inner_escaped_toplevel") === test_mod
+                @test JuliaLowering.include_string(test_mod, "MacroMod.@unescaped_toplevel") === test_mod.MacroMod
+            end
+  secondary_effects:
+    - effect: "Escaped :toplevel macro expansions continue to resolve identifiers in the caller's module, while unescaped :toplevel forms now resolve to the macro's module only when a non-default scope layer is active."
+      mechanism: |
+        expand_forms_1(ctx, ex)  [macro_expansion.jl:389]
+          -> for k == K"toplevel" and length(ctx.scope_layer_stack) > 1  [macro_expansion.jl:456-458]
+             calls fix_toplevel_expansion(ctx, ex, current_layer(ctx).mod, source_location(...))
+          -> fix_toplevel_expansion(...)  [macro_expansion.jl:247-255]
+             wraps each toplevel child in K"hygienic_scope" with mod, lnn
+      downstream_surfaces:
+        - "Macro expansion hygiene for Expr(:toplevel)"
+        - "Module resolution of names emitted from macros"
+      likelihood: "high"
+      impact: "medium"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "Macro expansions returning Expr(:toplevel) are only wrapped in hygienic_scope when expansion happens under nested scope layers, which can change module resolution for unescaped toplevel content compared with prior always-wrap behavior."
+        affected_tools:
+          - tool: "Macro authors relying on Expr(:toplevel)"
+            usage: "Macros that emit Expr(:toplevel, ...) without esc now see module resolution tied to the macro's module only when expanded under a nested scope layer (as tested)."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/macros.jl"
+            loc: "486-502"
+            url: "https://github.com/JuliaLang/julia/blob/2315530f71b358b06c646d4f4124393da33719e8/JuliaLowering/test/macros.jl#L486-L502"
+            snippet: |
+              @testset "toplevel macro hygiene" begin
+                  @eval test_mod global mod = $test_mod
+                  @eval test_mod module MacroMod
+                  global mod = MacroMod
+                  macro escaped_toplevel()
+                      esc(Expr(:toplevel, :(mod)))
+                  end
+                  macro inner_escaped_toplevel()
+                      Expr(:toplevel, esc(:(mod)))
+                  end
+                  macro unescaped_toplevel()
+                      Expr(:toplevel, :(mod))
+                  end
+                  end
+                  @test JuliaLowering.include_string(test_mod, "MacroMod.@escaped_toplevel") === test_mod
+                  @test JuliaLowering.include_string(test_mod, "MacroMod.@inner_escaped_toplevel") === test_mod
+                  @test JuliaLowering.include_string(test_mod, "MacroMod.@unescaped_toplevel") === test_mod.MacroMod
+              end
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: negligible; adds a conditional check on scope layer depth before wrapping toplevel forms in macro expansion."
+    runtime: []
+  risk:
+    level: "low"
+    rationale:
+      - "Change is localized to macro expansion hygiene for Expr(:toplevel) and guarded by scope-layer depth, with explicit tests covering escaped vs unescaped behavior."
+  open_questions: []
+  recommendations:
+    - "Downstream macro authors emitting Expr(:toplevel) should verify whether they rely on implicit hygienic_scope wrapping at the outermost scope and adjust escaping if needed."

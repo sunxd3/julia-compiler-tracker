@@ -1,0 +1,94 @@
+schema_version: "1.0"
+pr:
+  number: 60174
+  title: "[JuliaLowering] Fix-up `__module__` in macro expansion"
+  url: "https://github.com/JuliaLang/julia/pull/60174"
+  author: "topolarity"
+  labels:
+    - "compiler:lowering"
+  merged_at: "2025-11-19T21:05:50Z"
+  merge_commit_sha: "6baf8f78eafdca137f1e39b128f540fd88f8a06e"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60174.diff"
+scope:
+  files_touched:
+    - "JuliaLowering/src/macro_expansion.jl"
+    - "JuliaLowering/test/macros.jl"
+  components:
+    - "JuliaLowering"
+  pipeline_stages:
+    - "Lowering"
+analysis:
+  intent:
+    summary: "Ensure old-style macro expansion passes the lexical module as `__module__`, fixing cases like `@static` that eval into `__module__`."
+    issue_links:
+      - "https://github.com/c42f/JuliaLowering.jl/issues/120"
+  direct_changes:
+    - summary: "Old-style macro invocation now passes the root lexical scope module (layer 1) as the `__module__` argument instead of the current hygienic scope module."
+      component: "JuliaLowering/src/macro_expansion.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/macro_expansion.jl"
+          loc: "300-317"
+          url: "https://github.com/JuliaLang/julia/blob/6baf8f78eafdca137f1e39b128f540fd88f8a06e/JuliaLowering/src/macro_expansion.jl#L300-L317"
+          snippet: |
+            else
+                # Compat: attempt to invoke an old-style macro if there's no applicable
+                # method for new-style macro arguments.
+                macro_args = Any[macro_loc, ctx.scope_layers[1].mod]
+                for arg in raw_args
+                    # For hygiene in old-style macros, we omit any additional scope
+                    # layer information from macro arguments. Old-style macros will
+                    # handle that using manual escaping in the macro itself.
+                    push!(macro_args, Expr(arg))
+                end
+                expanded = try
+                    Base.invoke_in_world(ctx.macro_world, macfunc, macro_args...)
+    - summary: "Added regression test ensuring `@__MODULE__` expands to the lexical module rather than the current hygienic scope module."
+      component: "JuliaLowering/test/macros.jl"
+      evidence:
+        - source: "test"
+          path: "JuliaLowering/test/macros.jl"
+          loc: "505-517"
+          url: "https://github.com/JuliaLang/julia/blob/6baf8f78eafdca137f1e39b128f540fd88f8a06e/JuliaLowering/test/macros.jl#L505-L517"
+          snippet: |
+            # JuliaLang/JuliaLowering.jl#120
+            #
+            # `__module__` should be expanded as the lexical module containing the expanded
+            # code, not the module corresponding to the current hygienic scope
+            JuliaLowering.include_string(test_mod, raw"""
+            module Mod1
+            macro indirect_MODULE()
+                return :(@__MODULE__())
+            end
+            end
+            """)
+            code = JuliaLowering.include_string(test_mod, """Mod1.@indirect_MODULE()""")
+            @test JuliaLowering.eval(test_mod, code) === test_mod # !== test_mod.Mod1
+  secondary_effects:
+    - effect: "Macros implemented in old style that call `eval` or rely on `__module__` now see the lexical caller module rather than the current hygienic scope module."
+      mechanism: |
+        expand_macro(ctx, ex)  [macro_expansion.jl:300-329]
+          -> macro_args = Any[macro_loc, ctx.scope_layers[1].mod]
+          -> Base.invoke_in_world(ctx.macro_world, macfunc, macro_args...)
+          -> old-style macro receives (__source__, __module__, ...) from macro_args
+      downstream_surfaces:
+        - "Old-style macros using `__module__` for `eval` or module-relative lookups"
+        - "Packages depending on JuliaLowering old-style macro compat behavior (e.g. macro hygiene tooling)"
+      likelihood: "medium"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "`__module__` passed to old-style macros is now the lexical module (scope layer 1), not the current hygienic scope module."
+        affected_tools:
+          - "Macros that `eval` into `__module__` (e.g. `@static`-style patterns)"
+  performance:
+    compile_time: []
+    runtime: []
+  risk:
+    level: "low"
+    rationale:
+      - "Change is localized to old-style macro argument construction and backed by a regression test."
+  open_questions: []
+  recommendations:
+    - "If downstream tools relied on hygienic-scope `__module__` for old-style macros, update expectations to match lexical module semantics."

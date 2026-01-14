@@ -1,0 +1,186 @@
+schema_version: "1.0"
+pr:
+  number: 60154
+  title: "Replace some uses of `Array` by `Vector` or `Matrix`"
+  url: "https://github.com/JuliaLang/julia/pull/60154"
+  author: "fingolfin"
+  labels: []
+  merged_at: "2025-11-23T15:47:33Z"
+  merge_commit_sha: "21f3b37a1a0fd65718d8da863e8802337d03265f"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60154.diff"
+scope:
+  files_touched:
+    - "Compiler/src/typeutils.jl"
+    - "Compiler/src/utilities.jl"
+    - "Compiler/test/inference.jl"
+    - "base/array.jl"
+    - "base/iostream.jl"
+    - "base/libdl.jl"
+    - "doc/src/manual/interfaces.md"
+    - "doc/src/manual/performance-tips.md"
+    - "test/core.jl"
+    - "test/offsetarray.jl"
+    - "test/specificity.jl"
+  components:
+    - "Compiler/typeutils"
+    - "Compiler/utilities"
+    - "Base/arrays"
+    - "Base/iostream"
+    - "Base/libdl"
+    - "Docs"
+    - "Tests"
+  pipeline_stages:
+    - "TypeInference"
+    - "Inlining"
+    - "Runtime"
+    - "Documentation"
+analysis:
+  intent:
+    summary: "Modernize documentation, tests, and internal signatures to prefer Vector/Matrix aliases over explicit Array{T,1}/Array{T,2} forms, aligning with issue #56922."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/56922"
+  direct_changes:
+    - summary: "Compiler helpers now type their vector inputs with Vector{Any} (aliases of Array{Any,1}), including argtypes_to_type and anymap used in inference/inlining." 
+      component: "Compiler"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/typeutils.jl"
+          loc: "51-55"
+          url: "https://github.com/JuliaLang/julia/blob/21f3b37a1a0fd65718d8da863e8802337d03265f/Compiler/src/typeutils.jl#L51-L55"
+          snippet: |
+            function argtypes_to_type(argtypes::Vector{Any})
+                argtypes = anymap(@nospecialize(a) -> isvarargtype(a) ? a : widenconst(a), argtypes)
+                filter!(@nospecialize(x) -> !isvarargtype(x) || valid_as_lattice(unwrapva(x), true), argtypes)
+                all(@nospecialize(x) -> isvarargtype(x) || valid_as_lattice(x, true), argtypes) || return Bottom
+                return Tuple{argtypes...}
+            end
+        - source: "code"
+          path: "Compiler/src/utilities.jl"
+          loc: "15-25"
+          url: "https://github.com/JuliaLang/julia/blob/21f3b37a1a0fd65718d8da863e8802337d03265f/Compiler/src/utilities.jl#L15-L25"
+          snippet: |
+            function contains_is(itr, @nospecialize(x))
+                for y in itr
+                    if y === x
+                        return true
+                    end
+                end
+                return false
+            end
+
+            anymap(f::Function, a::Vector{Any}) = Any[ f(a[i]) for i in 1:length(a) ]
+    - summary: "Base APIs and internals switched Array{T,1}/Array{T,2} signatures to Vector/Matrix for constructors, IOStream buffers, and libdl callbacks." 
+      component: "Base"
+      evidence:
+        - source: "code"
+          path: "base/array.jl"
+          loc: "400-408"
+          url: "https://github.com/JuliaLang/julia/blob/21f3b37a1a0fd65718d8da863e8802337d03265f/base/array.jl#L400-L408"
+          snippet: |
+            ## Constructors ##
+
+            similar(a::Vector{T}) where {T}                    = Vector{T}(undef, size(a,1))
+            similar(a::Matrix{T}) where {T}                    = Matrix{T}(undef, size(a,1), size(a,2))
+            similar(a::Vector{T}, S::Type) where {T}           = Vector{S}(undef, size(a,1))
+            similar(a::Matrix{T}, S::Type) where {T}           = Matrix{S}(undef, size(a,1), size(a,2))
+            similar(a::Array{T}, m::Int) where {T}              = Vector{T}(undef, m)
+            similar(a::Array, T::Type, dims::Dims{N}) where {N} = Array{T,N}(undef, dims)
+            similar(a::Array{T}, dims::Dims{N}) where {T,N}     = Array{T,N}(undef, dims)
+        - source: "code"
+          path: "base/iostream.jl"
+          loc: "13-22"
+          url: "https://github.com/JuliaLang/julia/blob/21f3b37a1a0fd65718d8da863e8802337d03265f/base/iostream.jl#L13-L22"
+          snippet: |
+            mutable struct IOStream <: IO
+                handle::Ptr{Cvoid}
+                ios::Vector{UInt8}
+                name::String
+                mark::Int64
+                lock::ReentrantLock
+                _dolock::Bool
+
+                IOStream(name::AbstractString, buf::Vector{UInt8}) = new(pointer(buf), buf, name, -1, ReentrantLock(), true)
+            end
+        - source: "code"
+          path: "base/libdl.jl"
+          loc: "280-286"
+          url: "https://github.com/JuliaLang/julia/blob/21f3b37a1a0fd65718d8da863e8802337d03265f/base/libdl.jl#L280-L286"
+          snippet: |
+            # This callback function called by dl_iterate_phdr() on Linux and BSD's
+            # DL_ITERATE_PHDR(3) on freebsd
+            function dl_phdr_info_callback(di::dl_phdr_info, size::Csize_t, dynamic_libraries::Vector{String})
+                name = unsafe_string(di.name)
+                push!(dynamic_libraries, name)
+                return Cint(0)
+            end
+    - summary: "Tests updated to assert Vector/Matrix aliases in compiler and core type-related behavior." 
+      component: "Tests"
+      evidence:
+        - source: "test"
+          path: "Compiler/test/inference.jl"
+          loc: "106-114"
+          url: "https://github.com/JuliaLang/julia/blob/21f3b37a1a0fd65718d8da863e8802337d03265f/Compiler/test/inference.jl#L106-L114"
+          snippet: |
+            # issue #51694
+            @test Compiler.type_more_complex(
+                   Base.Generator{Base.Iterators.Flatten{Vector{Bool}}, typeof(identity)},
+                   Base.Generator{Vector{Bool}, typeof(identity)},
+                   Core.svec(), 0, 0, 0)
+            @test Compiler.type_more_complex(
+                   Base.Generator{Base.Iterators.Flatten{Base.Generator{Vector{Bool}, typeof(identity)}}, typeof(identity)},
+                   Base.Generator{Vector{Bool}, typeof(identity)},
+                   Core.svec(), 0, 0, 0)
+        - source: "test"
+          path: "test/core.jl"
+          loc: "461-470"
+          url: "https://github.com/JuliaLang/julia/blob/21f3b37a1a0fd65718d8da863e8802337d03265f/test/core.jl#L461-L470"
+          snippet: |
+            # issue #3890
+            mutable struct A3890{T1}
+                x::Matrix{Complex{T1}}
+            end
+            @test A3890{Float64}.types[1] === Matrix{ComplexF64}
+            # make sure the field type Matrix{Complex{T1}} isn't cached
+            mutable struct B3890{T2}
+                x::Matrix{Complex{T2}}
+            end
+            @test B3890{Float64}.types[1] === Matrix{ComplexF64}
+  secondary_effects:
+    - effect: "No semantic change in method dispatch or data layout; signatures now use aliases for Array{T,1}/Array{T,2}, so call sites still resolve identically but surface Vector/Matrix in introspection and error messages."
+      mechanism: |
+        Vector{T} and Matrix{T} are defined as aliases of Array{T,1}/Array{T,2} in Base. The updated signatures in Compiler and Base now spell these aliases explicitly, so any reflection on method signatures or printed types will show Vector/Matrix while still referring to the same underlying types.
+      downstream_surfaces:
+        - "Core.Compiler users that inspect method signatures or pretty-printed types"
+        - "Docs/tests that compare printed types"
+      likelihood: "low"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "Compiler.argtypes_to_type(argtypes::Vector{Any})"
+        change: "Signature now uses Vector alias instead of Array{Any,1}; no semantic change because Vector{Any} == Array{Any,1}."
+        affected_tools:
+          - tool: "JET"
+            usage: "Calls Core.Compiler utilities when analyzing method matches; relies on argtypes_to_type for constructing call signatures."
+          - tool: "GPUCompiler"
+            usage: "Uses Core.Compiler inference utilities where argtypes_to_type is invoked to build call signatures."
+      - field: "Compiler.anymap(f::Function, a::Vector{Any})"
+        change: "Signature now uses Vector alias instead of Array{Any,1}; call sites continue passing Any[] vectors."
+        affected_tools:
+          - tool: "IRTools"
+            usage: "May exercise Core.Compiler utilities during inference pipelines; anymap is a helper for argument lists."
+    behavioral:
+      - change: "IOStream.ios field and libdl callback signatures now show Vector{UInt8}/Vector{String} in reflection output."
+        impact: "Low; runtime behavior unchanged because Vector is an alias for Array{T,1}."
+  performance:
+    compile_time:
+      - impact: "No measurable change expected; alias-only signature edits do not add work. ESTIMATED: 0% change."
+    runtime:
+      - impact: "No measurable change expected; underlying types and generated code remain the same. ESTIMATED: 0% change."
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are limited to type alias spelling (Vector/Matrix) with identical underlying types."
+      - "Tests updated to match alias spelling in type comparisons, indicating no behavioral shift."
+  open_questions: []
+  recommendations:
+    - "No downstream action required; monitor only if tools parse printed type strings that changed to Vector/Matrix."

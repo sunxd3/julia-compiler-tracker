@@ -1,0 +1,689 @@
+schema_version: "1.0"
+pr:
+  number: 60191
+  title: "[JuliaLowering] Tidy up node creation functions"
+  url: "https://github.com/JuliaLang/julia/pull/60191"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60191.diff"
+  author: "mlechu"
+  labels:
+    - "compiler:lowering"
+  merged_at: "2025-12-03T21:45:48Z"
+  merge_commit_sha: "6c75e91cf4fc8bc7972131a778482e3e8279e9c6"
+scope:
+  files_touched:
+    - "JuliaLowering/src/ast.jl"
+    - "JuliaLowering/src/bindings.jl"
+    - "JuliaLowering/src/closure_conversion.jl"
+    - "JuliaLowering/src/compat.jl"
+    - "JuliaLowering/src/linear_ir.jl"
+    - "JuliaLowering/src/macro_expansion.jl"
+    - "JuliaLowering/src/runtime.jl"
+    - "JuliaLowering/src/syntax_graph.jl"
+    - "JuliaLowering/src/syntax_macros.jl"
+    - "JuliaLowering/test/compat.jl"
+    - "JuliaLowering/test/scopes.jl"
+    - "JuliaLowering/test/utils.jl"
+  components:
+    - "JuliaLowering"
+  pipeline_stages:
+    - "Parsing"
+    - "Lowering"
+    - "MacroExpansion"
+    - "LinearIR"
+analysis:
+  intent:
+    summary: >
+      Replace keyword-argument attribute passing in JuliaLowering AST/node
+      construction with explicit Vector{Pair} attribute lists and explicit
+      setattr! calls, reducing JuliaLowering image size while keeping lowering
+      behavior unchanged.
+    issue_links: []
+  direct_changes:
+    - summary: "Node creation APIs now build leaves/nodes first, then attach attributes via explicit Pair lists and setattr!; a new newleaf helper handles value/name/var_id/id storage."
+      component: "JuliaLowering AST construction"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/ast.jl"
+          loc: "133-187"
+          url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/ast.jl#L133-L187"
+          snippet: |
+            function makeleaf(graph::SyntaxGraph, srcref, proto::Union{Kind, SyntaxTree})
+                id = newnode!(graph)
+                ex = SyntaxTree(graph, id)
+                copy_attrs!(ex, proto, true)
+                ex.source = _unpack_srcref(graph, srcref)
+                return ex
+            end
+
+            function makeleaf(ctx, srcref, proto, @nospecialize(attrs::AbstractVector))
+                graph = syntax_graph(ctx)
+                ex = makeleaf(graph, srcref, proto)
+                for (k, v) in attrs
+                    setattr!(graph, ex._id, k, v)
+                end
+                return ex
+            end
+
+            function newleaf(ctx, srcref, k::Kind, @nospecialize(value))
+                leaf = makeleaf(ctx, srcref, k)
+                if k == K"Identifier" || k == K"core" || k == K"top" || k == K"Symbol" ||
+                        k == K"globalref" || k == K"Placeholder" ||
+                        k == K"StrMacroName" || k == K"CmdMacroName"
+                    setattr!(leaf._graph, leaf._id, :name_val, value)
+                elseif k == K"BindingId"
+                    setattr!(leaf._graph, leaf._id, :var_id, value)
+                elseif k == K"label"
+                    setattr!(leaf._graph, leaf._id, :id, value)
+                elseif k == K"symbolic_label"
+                    setattr!(leaf._graph, leaf._id, :name_val, value)
+                elseif k in KSet"TOMBSTONE SourceLocation latestworld latestworld_if_toplevel"
+                    # no attributes
+                else
+                    val = k == K"Integer" ? convert(Int,     value) :
+                          k == K"Float"   ? convert(Float64, value) :
+                          k == K"String"  ? convert(String,  value) :
+                          k == K"Char"    ? convert(Char,    value) :
+                          k == K"Value"   ? value                   :
+                          k == K"Bool"    ? value                   :
+                          k == K"VERSION" ? value                   :
+                          error("Unexpected leaf kind `$k`")
+                    setattr!(leaf._graph, leaf._id, :value, val)
+                end
+                leaf
+            end
+        - source: "code"
+          path: "JuliaLowering/src/ast.jl"
+          loc: "234-317"
+          url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/ast.jl#L234-L317"
+          snippet: |
+            function _kw_to_pair(ex)
+                if ex isa Expr && ex.head === :kw && ex.args[1] isa Symbol
+                    (QuoteNode(ex.args[1]), esc(ex.args[2]))
+                elseif ex isa Symbol
+                    (QuoteNode(ex), esc(ex))
+                else
+                    @assert false "invalid keyword form in @ast $ex"
+                end
+            end
+
+            function _match_kind(srcref, ex)
+                kws = []
+                if Meta.isexpr(ex, :call)
+                    kind = esc(ex.args[1])
+                    args = ex.args[2:end]
+                    if Meta.isexpr(args[1], :parameters)
+                        kws = map(_kw_to_pair, args[1].args)
+                        popfirst!(args)
+                    end
+                    while length(args) >= 1 && Meta.isexpr(args[end], :kw)
+                        pushfirst!(kws, _kw_to_pair(pop!(args)))
+                    end
+                    if length(args) == 1
+                        srcref_tmp = gensym("srcref")
+                        return (kind, _match_srcref(args[1]), kws)
+                    elseif length(args) > 1
+                        error("Unexpected: extra srcref argument in `$ex`?")
+                    end
+                else
+                    kind = esc(ex)
+                end
+                return (kind, srcref, kws)
+            end
+
+            function _expand_ast_tree(ctx, srcref, tree)
+                if Meta.isexpr(tree, :(::))
+                    # Leaf node
+                    if length(tree.args) == 2
+                        val = esc(tree.args[1])
+                        kindspec = tree.args[2]
+                    else
+                        val = nothing
+                        kindspec = tree.args[1]
+                    end
+                    let (kind, srcref, kws) = _match_kind(srcref, kindspec)
+                        n = :(newleaf($ctx, $srcref, $kind, $val))
+                        for (attr, val) in kws
+                            n = :(setattr!($n, $attr, $val))
+                        end
+                        n
+                    end
+                elseif Meta.isexpr(tree, (:vcat, :hcat, :vect))
+                    # Interior node
+                    flatargs = []
+                    for a in tree.args
+                        if Meta.isexpr(a, :row)
+                            append!(flatargs, a.args)
+                        else
+                            push!(flatargs, a)
+                        end
+                    end
+                    children_ex = :(let child_ids = Vector{NodeId}(), graph = syntax_graph($ctx)
+                    end)
+                    child_stmts = children_ex.args[2].args
+                    for a in flatargs[2:end]
+                        child = _expand_ast_tree(ctx, srcref, a)
+                        if Meta.isexpr(child, :(...))
+                            push!(child_stmts, :(_append_nodeids!(graph, child_ids, $(child.args[1]))))
+                        else
+                            push!(child_stmts, :(_push_nodeid!(graph, child_ids, $child)))
+                        end
+                    end
+                    push!(child_stmts, :(child_ids))
+                    let (kind, srcref, kws) = _match_kind(srcref, flatargs[1])
+                        n = :(makenode($ctx, $srcref, $kind, $children_ex))
+                        for (attr, val) in kws
+                            n = :(setattr!($n, $attr, $val))
+                        end
+                        n
+                    end
+                elseif Meta.isexpr(tree, :(:=))
+                    lhs = tree.args[1]
+                    rhs = _expand_ast_tree(ctx, srcref, tree.args[2])
+                    ssadef = gensym("ssadef")
+                    quote
+                        ($(esc(lhs)), $ssadef) = assign_tmp($ctx, $rhs, $(string(lhs)))
+                        $ssadef
+                    end
+                elseif Meta.isexpr(tree, :macrocall)
+                    esc(tree)
+                elseif tree isa Expr
+                    Expr(tree.head, map(a->_expand_ast_tree(ctx, srcref, a), tree.args)...)
+                else
+                    esc(tree)
+                end
+            end
+    - summary: "SyntaxGraph attribute and child-setting helpers are now explicit (symbol/value) setters and vector-based children lists, with new SyntaxList helpers to pass children and SyntaxTree property setters using setattr!."
+      component: "JuliaLowering SyntaxGraph"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/syntax_graph.jl"
+          loc: "107-214"
+          url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/syntax_graph.jl#L107-L214"
+          snippet: |
+            function setchildren!(graph::SyntaxGraph, id::NodeId,
+                                  children::AbstractVector{NodeId})
+                n = length(graph.edges)
+                graph.edge_ranges[id] = n+1:(n+length(children))
+                # TODO: Reuse existing edges if possible
+                append!(graph.edges, children)
+            end
+
+            function setattr!(graph::SyntaxGraph, id::NodeId, k::Symbol, @nospecialize(v))
+                if !isnothing(v)
+                    getattr(graph, k)[id] = v
+                end
+                id
+            end
+
+            function Base.setproperty!(ex::SyntaxTree, name::Symbol, @nospecialize(val))
+                setattr!(ex._graph, ex._id, name, val)
+                val
+            end
+        - source: "code"
+          path: "JuliaLowering/src/syntax_graph.jl"
+          loc: "680-699"
+          url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/syntax_graph.jl#L680-L699"
+          snippet: |
+            mutable struct SyntaxList{GraphType, NodeIdVecType} <: AbstractVector{SyntaxTree}
+                graph::GraphType
+                ids::NodeIdVecType
+            end
+
+            function SyntaxList(graph::SyntaxGraph, ids::AbstractVector{NodeId})
+                SyntaxList{typeof(graph), typeof(ids)}(graph, ids)
+            end
+
+            SyntaxList(graph::SyntaxGraph) = SyntaxList(graph, Vector{NodeId}())
+            SyntaxList(ctx) = SyntaxList(syntax_graph(ctx))
+            SyntaxList(ctx, v::Vector{SyntaxTree}) =
+                SyntaxList(syntax_graph(ctx), NodeId[x._id for x in v])
+
+            syntax_graph(lst::SyntaxList) = lst.graph
+
+            setchildren!(graph::SyntaxGraph, id::NodeId, children::SyntaxList) =
+                setchildren!(graph, id, children.ids)
+        - source: "code"
+          path: "JuliaLowering/src/syntax_graph.jl"
+          loc: "838-858"
+          url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/syntax_graph.jl#L838-L858"
+          snippet: |
+            function _insert_green(graph::SyntaxGraph, sf::SourceFile,
+                                   txtbuf::Vector{UInt8}, offset::Int,
+                                   cursor::RedTreeCursor)
+                id = newnode!(graph)
+                setattr!(graph, id, :kind, kind(cursor))
+                setattr!(graph, id, :syntax_flags, flags(cursor))
+                setattr!(graph, id, :source, SourceRef(sf, first_byte(cursor), last_byte(cursor)))
+                if !is_leaf(cursor)
+                    cs = NodeId[]
+                    for c in reverse(cursor)
+                        push!(cs, _insert_green(graph, sf, txtbuf, offset, c))
+                    end
+                    setchildren!(graph, id, reverse(cs))
+                else
+                    v = parse_julia_literal(txtbuf, head(cursor), byte_range(cursor) .+ offset)
+                    if v isa Symbol
+                        # TODO: Fixes in JuliaSyntax to avoid ever converting to Symbol
+                        setattr!(graph, id, :name_val, string(v))
+                    elseif !isnothing(v)
+                        setattr!(graph, id, :value, v)
+                    end
+                end
+                return id
+            end
+    - summary: "Scope and macro hygiene transforms now apply attributes via explicit setattr! after mapping, instead of keyword-based extra_attrs in mapchildren/makeleaf."
+      component: "JuliaLowering MacroExpansion/AST hygiene"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/ast.jl"
+          loc: "510-526"
+          url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/ast.jl#L510-L526"
+          snippet: |
+            function set_scope_layer(ctx, ex, layer_id, force)
+                k = kind(ex)
+                new_layer = force ? layer_id : get(ex, :scope_layer, layer_id)
+
+                ex2 = if k == K"module" || k == K"toplevel" || k == K"inert"
+                    makenode(ctx, ex, ex, children(ex))
+                elseif k == K"."
+                    children = NodeId[set_scope_layer(ctx, ex[1], layer_id, force), ex[2]]
+                    makenode(ctx, ex, ex, children)
+                elseif !is_leaf(ex)
+                    mapchildren(e->set_scope_layer(ctx, e, layer_id, force), ctx, ex)
+                else
+                    makeleaf(ctx, ex, ex)
+                end
+                setattr!(ex2, :scope_layer, new_layer)
+            end
+        - source: "code"
+          path: "JuliaLowering/src/macro_expansion.jl"
+          loc: "210-236"
+          url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/macro_expansion.jl#L210-L236"
+          snippet: |
+            function set_macro_arg_hygiene(ctx, ex, layer_ids, layer_idx)
+                k = kind(ex)
+                scope_layer = get(ex, :scope_layer, layer_ids[layer_idx])
+                if is_leaf(ex)
+                    makeleaf(ctx, ex, ex, [:scope_layer=>scope_layer])
+                else
+                    inner_layer_idx = layer_idx
+                    if k == K"escape"
+                        inner_layer_idx = layer_idx - 1
+                        if inner_layer_idx < 1
+                            throw(MacroExpansionError(ex, "`escape` node in outer context"))
+                        end
+                    end
+                    node = mapchildren(e->set_macro_arg_hygiene(
+                        ctx, e, layer_ids, inner_layer_idx), ctx, ex)
+                    setattr!(node, :scope_layer, scope_layer)
+                end
+            end
+    - summary: "Metadata APIs now use explicit key/value parameters (setmeta/setmeta!), and @nospecialize uses the new signature."
+      component: "JuliaLowering meta attributes"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/ast.jl"
+          loc: "560-570"
+          url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/ast.jl#L560-L570"
+          snippet: |
+            function setmeta!(ex::SyntaxTree, key::Symbol, @nospecialize(val))
+                meta = begin
+                    m = get(ex, :meta, nothing)
+                    isnothing(m) ? CompileHints(key, val) : CompileHints(m, key, val)
+                end
+                setattr!(ex, :meta, meta)
+                ex
+            end
+
+            setmeta(ex::SyntaxTree, k::Symbol, @nospecialize(v)) =
+                setmeta!(copy_node(ex), k, v)
+        - source: "code"
+          path: "JuliaLowering/src/syntax_macros.jl"
+          loc: "18-31"
+          url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/syntax_macros.jl#L18-L31"
+          snippet: |
+            function _apply_nospecialize(ctx, ex)
+                k = kind(ex)
+                if k == K"Identifier" || k == K"Placeholder" || k == K"tuple"
+                    setmeta(ex, :nospecialize, true)
+                elseif k == K"..." || k == K"::" || k == K"=" || k == K"kw"
+                    # The @nospecialize macro is responsible for converting K"=" to K"kw".
+                    # Desugaring uses this helper internally, so we may see K"kw" too.
+                    if k == K"::" && numchildren(ex) == 1
+                        ex = @ast ctx ex [K"::" "_"::K"Placeholder" ex[1]]
+                    elseif k == K"=" && numchildren(ex) === 2
+                        ex = @ast ctx ex [K"kw" ex[1] ex[2]]
+                    end
+                    mapchildren(c->_apply_nospecialize(ctx, c), ctx, ex, 1:1)
+                else
+                    throw(LoweringError(ex, "Invalid function argument"))
+                end
+            end
+    - summary: "Lowering call sites updated to the new attribute-setting style, including label creation, bindings, and interpolation leaves."
+      component: "JuliaLowering call sites"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/linear_ir.jl"
+          loc: "347-350"
+          url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/linear_ir.jl#L347-L350"
+          snippet: |
+            function make_label(ctx, srcref)
+                id = ctx.next_label_id[]
+                ctx.next_label_id[] += 1
+                makeleaf(ctx, srcref, K"label", [:id=>id])
+            end
+        - source: "code"
+          path: "JuliaLowering/src/bindings.jl"
+          loc: "152-175"
+          url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/bindings.jl#L152-L175"
+          snippet: |
+            function ssavar(ctx::AbstractLoweringContext, srcref, name="tmp")
+                nameref = makeleaf(ctx, srcref, K"Identifier")
+                nameref.name_val = name
+                new_binding(ctx, nameref, name, :local; is_ssa=true, is_internal=true)
+            end
+
+            function new_local_binding(ctx::AbstractLoweringContext, srcref, name; kind=:local, kws...)
+                @assert kind === :local || kind === :argument
+                nameref = makeleaf(ctx, srcref, K"Identifier")
+                nameref.name_val = name
+                ex = new_binding(ctx, nameref, name, kind; is_internal=true, kws...)
+                lbindings = current_lambda_bindings(ctx)
+                if !isnothing(lbindings)
+                    init_lambda_binding(lbindings, ex.var_id)
+                end
+                ex
+            end
+
+            function new_global_binding(ctx::AbstractLoweringContext, srcref, name, mod; kws...)
+                nameref = makeleaf(ctx, srcref, K"Identifier")
+                nameref.name_val = name
+                new_binding(ctx, nameref, name, :global; is_internal=true, mod=mod, kws...)
+            end
+        - source: "code"
+          path: "JuliaLowering/src/runtime.jl"
+          loc: "55-69"
+          url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/runtime.jl#L55-L69"
+          snippet: |
+            function _interpolated_value(ctx::InterpolationContext, srcref, ex)
+                if ex isa SyntaxTree
+                    if !is_compatible_graph(ctx, ex)
+                        ex = copy_ast(ctx, ex)
+                    end
+                    append_sourceref(ctx, ex, srcref)
+                elseif ex isa Symbol
+                    # Plain symbols become identifiers. This is an accommodation for
+                    # compatibility to allow `:x` (a Symbol) and `:(x)` (a SyntaxTree) to
+                    # be used interchangeably in macros.
+                    newleaf(ctx, srcref, K"Identifier", string(ex))
+                else
+                    newleaf(ctx, srcref, K"Value", ex)
+                end
+            end
+  secondary_effects:
+    - effect: "AST attributes provided to @ast now flow through explicit Pair lists and setattr! calls rather than keyword splats."
+      mechanism: |
+        _expand_ast_tree() constructs nodes via newleaf/makenode (ast.jl:268-317)
+          -> for each attribute Pair from _kw_to_pair() (ast.jl:234-241)
+          -> setattr!(node, attr, val) applies attributes after node creation (ast.jl:279-316)
+      downstream_surfaces:
+        - "Macros or tooling that generate JuliaLowering SyntaxTree via @ast"
+        - "Custom passes expecting keyword-arg attr construction"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "Scope-layer hygiene updates now mutate/set attributes after child-mapping, which can reuse existing nodes when children are unchanged."
+      mechanism: |
+        set_scope_layer() maps children via mapchildren() (ast.jl:510-522)
+          -> mapchildren() returns original node if no child changes (ast.jl:418-443)
+          -> setattr!(ex2, :scope_layer, new_layer) writes attribute in place (ast.jl:525)
+        set_macro_arg_hygiene() similarly sets :scope_layer after mapchildren() (macro_expansion.jl:215-236)
+      downstream_surfaces:
+        - "Macro expansion hygiene (scope_layer propagation)"
+        - "Passes that rely on node identity changes when scope_layer updates"
+      likelihood: "medium"
+      impact: "low"
+    - effect: "Lambda nodes store :lambda_bindings via explicit attribute vectors, aligning closure conversion with the new API."
+      mechanism: |
+        closure_convert_lambda() builds lambda_children then calls
+          makenode(ctx, ex, ex, lambda_children, [:lambda_bindings=>lambda_bindings])
+          (closure_conversion.jl:552-596)
+      downstream_surfaces:
+        - "Closure conversion consumers reading :lambda_bindings"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "makeleaf/makenode keyword-attr forms"
+        change: "Replaced by makeleaf(ctx, srcref, proto, attrs::AbstractVector) and makenode(ctx, srcref, proto, children, attrs=nothing); attributes are attached via Pair vectors or setattr!."
+        affected_tools:
+          - tool: "JuliaLowering internal passes"
+            usage: "node construction in macro_expansion, linear_ir, bindings"
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/ast.jl"
+            loc: "133-159"
+            url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/ast.jl#L133-L159"
+            snippet: |
+              function makeleaf(ctx, srcref, proto, @nospecialize(attrs::AbstractVector))
+                  graph = syntax_graph(ctx)
+                  ex = makeleaf(graph, srcref, proto)
+                  for (k, v) in attrs
+                      setattr!(graph, ex._id, k, v)
+                  end
+                  return ex
+              end
+
+              function makenode(ctx, srcref, proto, children, attrs=nothing)
+                  graph = syntax_graph(ctx)
+                  ex = isnothing(attrs) ? makeleaf(graph, srcref, proto) :
+                      makeleaf(graph, srcref, proto, attrs)
+                  setchildren!(graph, ex._id, children isa SyntaxList ? children.ids : children)
+                  return ex
+              end
+      - field: "setattr!(graph, id; kw...)"
+        change: "Replaced with setattr!(graph, id, ::Symbol, value) and SyntaxTree property setters using setattr!."
+        affected_tools:
+          - tool: "JuliaLowering SyntaxGraph API users"
+            usage: "manual attribute mutation, tests, tooling"
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/syntax_graph.jl"
+            loc: "152-214"
+            url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/syntax_graph.jl#L152-L214"
+            snippet: |
+              function setattr!(graph::SyntaxGraph, id::NodeId, k::Symbol, @nospecialize(v))
+                  if !isnothing(v)
+                      getattr(graph, k)[id] = v
+                  end
+                  id
+              end
+
+              function Base.setproperty!(ex::SyntaxTree, name::Symbol, @nospecialize(val))
+                  setattr!(ex._graph, ex._id, name, val)
+                  val
+              end
+      - field: "setchildren!(graph, id, children...)"
+        change: "Now requires an AbstractVector{NodeId} or SyntaxList for children, rather than varargs."
+        affected_tools:
+          - tool: "JuliaLowering internal passes"
+            usage: "manual graph rewrites and test helpers"
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/syntax_graph.jl"
+            loc: "107-112"
+            url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/syntax_graph.jl#L107-L112"
+            snippet: |
+              function setchildren!(graph::SyntaxGraph, id::NodeId,
+                                    children::AbstractVector{NodeId})
+                  n = length(graph.edges)
+                  graph.edge_ranges[id] = n+1:(n+length(children))
+                  # TODO: Reuse existing edges if possible
+                  append!(graph.edges, children)
+              end
+      - field: "mapchildren extra_attrs keyword parameters"
+        change: "extra_attrs keyword support removed; attribute mutation now occurs via explicit setattr! after mapchildren." 
+        affected_tools:
+          - tool: "JuliaLowering pass authors"
+            usage: "tree transforms that previously relied on mapchildren(...; extra_attrs...)"
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/ast.jl"
+            loc: "418-444"
+            url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/ast.jl#L418-L444"
+            snippet: |
+              function mapchildren(f::Function, ctx, ex::SyntaxTree, do_map_child::Function)
+                  if is_leaf(ex)
+                      return ex
+                  end
+                  orig_children = children(ex)
+                  cs = nothing
+                  for (i,e) in enumerate(orig_children)
+                      newchild = do_map_child(i) ? f(e) : e
+                      if isnothing(cs)
+                          if newchild == e
+                              continue
+                          else
+                              cs = SyntaxList(ctx)
+                              append!(cs, orig_children[1:i-1])
+                          end
+                      end
+                      push!(cs::SyntaxList, newchild)
+                  end
+                  if isnothing(cs)
+                      # This function should be allocation-free if no children were changed
+                      # by the mapping and there's no extra_attrs
+                      return ex
+                  end
+                  cs::SyntaxList
+                  ex2 = makenode(ctx, ex, ex, cs)
+                  return ex2
+              end
+      - field: "setmeta/setmeta! signatures"
+        change: "Now require explicit (key::Symbol, value) arguments instead of keyword pairs."
+        affected_tools:
+          - tool: "JuliaLowering macro helpers"
+            usage: "@nospecialize and any code setting :meta attributes"
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/ast.jl"
+            loc: "560-570"
+            url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/ast.jl#L560-L570"
+            snippet: |
+              function setmeta!(ex::SyntaxTree, key::Symbol, @nospecialize(val))
+                  meta = begin
+                      m = get(ex, :meta, nothing)
+                      isnothing(m) ? CompileHints(key, val) : CompileHints(m, key, val)
+                  end
+                  setattr!(ex, :meta, meta)
+                  ex
+              end
+
+              setmeta(ex::SyntaxTree, k::Symbol, @nospecialize(v)) =
+                  setmeta!(copy_node(ex), k, v)
+    behavioral:
+      - item: "Lowering/macro expansion semantics"
+        change: "No intended semantic changes; updates are refactors to attribute handling and node construction APIs."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/compat.jl"
+            loc: "90-127"
+            url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/test/compat.jl#L90-L127"
+            snippet: |
+              if JS.is_infix_op_call(st) && (k === K"call" || k === K"dotcall")
+                  # Infix calls are not preserved in Expr; we need to re-order the children
+                  pre_st_args = JL.NodeId[st[2]._id, st[1]._id]
+                  for c in st[3:end]
+                      push!(pre_st_args, c._id)
+                  end
+                  pre_st_flags = (JS.flags(st) & ~JS.INFIX_FLAG) | JS.PREFIX_CALL_FLAG
+                  JL.setchildren!(st._graph, st._id, pre_st_args)
+                  JL.setattr!(st._graph, st._id, :syntax_flags, pre_st_flags)
+              elseif JS.is_postfix_op_call(st) && (k === K"call" || k === K"dotcall")
+                  pre_st_args = JL.NodeId[st[end]._id]
+                  for c in st[1:end-1]
+                      push!(pre_st_args, c._id)
+                  end
+                  pre_st_flags = (JS.flags(st) & ~JS.POSTFIX_OP_FLAG) | JS.PREFIX_CALL_FLAG
+                  JL.setchildren!(st._graph, st._id, pre_st_args)
+                  JL.setattr!(st._graph, st._id, :syntax_flags, pre_st_flags)
+              elseif k in JS.KSet"tuple block macrocall"
+                  JL.setattr!(st._graph, st._id, :syntax_flags, JS.flags(st) & ~JS.PARENS_FLAG)
+              elseif k === K"toplevel"
+                  JL.setattr!(st._graph, st._id, :syntax_flags, JS.flags(st) & ~JS.TOPLEVEL_SEMICOLONS_FLAG)
+              end
+  performance:
+    compile_time:
+      - item: "MEASURED (author report) JuliaLowering image size reduction"
+        detail: "~20% JuliaLowering package image size reduction (26.910 MiB -> 21.701 MiB) and sysbase.dylib size change (+55MB -> +45MB); precompile time unchanged."
+        evidence:
+          - source: "pr_description"
+            path: "pr-archive/JuliaLang_julia/pr_60191.json"
+            loc: "64-64"
+            url: "https://github.com/JuliaLang/julia/pull/60191"
+            snippet: |
+              We currently use keyword arguments as arbitrary key-value pairs in a number of
+                   places, which I've realized isn't really how they're intended to be used.
+                    This change fixes this and reduces the JuliaLowering package image size by
+                   about 20% on my machine from `26.910 MiB -> 21.701 MiB`, or when compiled
+                   into sysbase.dylib, `+55MB -> +45MB`.  Unfortunately no change to
+                   precompile time as I had hoped, but I figured this is worth doing anyway.
+                   Lowering performance looks unchanged.
+    runtime:
+      - item: "No runtime performance change claimed"
+        detail: "Author reports lowering performance unchanged."
+        evidence:
+          - source: "pr_description"
+            path: "pr-archive/JuliaLang_julia/pr_60191.json"
+            loc: "64-64"
+            url: "https://github.com/JuliaLang/julia/pull/60191"
+            snippet: |
+              Lowering performance looks unchanged.
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are primarily API refactors in JuliaLowering node construction and attribute setters."
+      - "Tests and internal call sites updated to the new attribute-setting style."
+  open_questions:
+    - "Should any remaining keyword-style setattr! call sites (e.g., build_tree wrapper setup) be updated or should a compatibility overload be kept?"
+  recommendations:
+    - "Update downstream JuliaLowering users to pass attribute vectors (Pair lists) and use explicit setattr! calls instead of keyword attributes."
+    - "Consider adding a short-lived deprecation layer for keyword-based setters if external packages consume JuliaLowering APIs."
+    - "Add targeted @ast tests that assert attribute creation order and scope_layer propagation under mapchildren-based updates."
+  callers_search:
+    - function: "makeleaf"
+      rg_output: |
+        JuliaLowering/src/linear_ir.jl:350:    makeleaf(ctx, srcref, K"label", [:id=>id])
+        JuliaLowering/src/linear_ir.jl:369:        emit(ctx, makeleaf(ctx, srcref, K"latestworld"))
+        JuliaLowering/src/linear_ir.jl:692:        emit(ctx, makeleaf(ctx, ex, K"TOMBSTONE")) # ? pop_exception
+        JuliaLowering/src/linear_ir.jl:693:        emit(ctx, makeleaf(ctx, ex, K"TOMBSTONE")) # ? leave
+        JuliaLowering/src/linear_ir.jl:694:        emit(ctx, makeleaf(ctx, ex, K"TOMBSTONE")) # ? goto
+        JuliaLowering/src/linear_ir.jl:969:            makeleaf(ctx, ex, K"SSAValue", [:var_id=>ssa_rewrites[id]])
+        JuliaLowering/src/linear_ir.jl:977:                makeleaf(ctx, ex, sk, [:var_id=>new_id])
+        JuliaLowering/src/linear_ir.jl:982:                makeleaf(ctx, ex, K"globalref",
+        JuliaLowering/src/macro_expansion.jl:146:        makeleaf(ctx, ex, ex, [:kind=>K"Identifier", :scope_layer=>layerid,
+        JuliaLowering/src/macro_expansion.jl:155:            makeleaf(ctx, ex[1], ex[1], [:kind=>kind(ex[1]), :name_val=>newname])
+        JuliaLowering/src/macro_expansion.jl:219:        makeleaf(ctx, ex, ex, [:scope_layer=>scope_layer])
+        JuliaLowering/src/macro_expansion.jl:391:        makeleaf(ctx, srcref, ex)
+        JuliaLowering/src/macro_expansion.jl:434:            makeleaf(ctx, ex, ex, [:kind=>k, :scope_layer=>scope_layer])
+        JuliaLowering/src/closure_conversion.jl:391:            makeleaf(ctx, ex, K"TOMBSTONE")
+        JuliaLowering/src/closure_conversion.jl:413:            makeleaf(ctx, ex, K"TOMBSTONE")
+        JuliaLowering/src/ast.jl:133:function makeleaf(graph::SyntaxGraph, srcref, proto::Union{Kind, SyntaxTree})
+        JuliaLowering/src/ast.jl:141:function makeleaf(ctx::AbstractLoweringContext, srcref, proto)
+        JuliaLowering/src/ast.jl:145:function makeleaf(ctx, srcref, proto, @nospecialize(attrs::AbstractVector))
+        JuliaLowering/src/ast.jl:147:    ex = makeleaf(graph, srcref, proto)
+        JuliaLowering/src/ast.jl:156:    ex = isnothing(attrs) ? makeleaf(graph, srcref, proto) :
+        JuliaLowering/src/ast.jl:157:        makeleaf(graph, srcref, proto, attrs)
+        JuliaLowering/src/ast.jl:163:    leaf = makeleaf(ctx, srcref, k)
+        JuliaLowering/src/ast.jl:192:    ex = makeleaf(syntax_graph(ctx), src, kind)
+        JuliaLowering/src/ast.jl:205:top_ref(ctx, ex, name) = makeleaf(ctx, ex, K"top", name)
+        JuliaLowering/src/ast.jl:523:        makeleaf(ctx, ex, ex)
+        JuliaLowering/src/bindings.jl:154:    nameref = makeleaf(ctx, srcref, K"Identifier")
+        JuliaLowering/src/bindings.jl:162:    nameref = makeleaf(ctx, srcref, K"Identifier")
+        JuliaLowering/src/bindings.jl:173:    nameref = makeleaf(ctx, srcref, K"Identifier")
+        JuliaLowering/src/scope_analysis.jl:452:        makeleaf(ctx, ex, K"TOMBSTONE")
+        JuliaLowering/src/scope_analysis.jl:565:        makeleaf(ctx, ex, K"TOMBSTONE")
+    - function: "setmeta"
+      rg_output: |
+        JuliaLowering/src/syntax_macros.jl:21:        setmeta(ex, :nospecialize, true)
+        JuliaLowering/src/desugaring.jl:2519:        gen_arg_names[i] = setmeta(gen_arg_names[i], :nospecialize, true)
+        JuliaLowering/src/ast.jl:569:setmeta(ex::SyntaxTree, k::Symbol, @nospecialize(v)) =

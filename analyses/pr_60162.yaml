@@ -1,0 +1,483 @@
+schema_version: "1.0"
+pr:
+  number: 60162
+  title: "Bypass `SyntaxNode` in JuliaLowering; fix `kw` bug"
+  url: "https://github.com/JuliaLang/julia/pull/60162"
+  author: "mlechu"
+  labels:
+    - "parser"
+    - "compiler:lowering"
+  merged_at: "2025-12-02T23:51:16Z"
+  merge_commit_sha: "296cca2365f3736af59def97564d3a244677282a"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60162.diff"
+scope:
+  files_touched:
+    - "JuliaLowering/src/compat.jl"
+    - "JuliaLowering/src/desugaring.jl"
+    - "JuliaLowering/src/syntax_graph.jl"
+    - "JuliaLowering/src/syntax_macros.jl"
+    - "JuliaLowering/test/compat.jl"
+    - "JuliaLowering/test/functions.jl"
+    - "JuliaLowering/test/quoting.jl"
+    - "JuliaLowering/test/typedefs_ir.jl"
+    - "JuliaSyntax/src/integration/expr.jl"
+    - "JuliaSyntax/src/julia/kinds.jl"
+  components:
+    - "JuliaSyntax"
+    - "JuliaLowering"
+  pipeline_stages:
+    - "Parsing"
+    - "Lowering"
+    - "MacroExpansion"
+analysis:
+  intent:
+    summary: >-
+      Move JuliaLowering’s SyntaxTree construction to bypass SyntaxNode,
+      add an AST-level "kw" kind that preserves keyword semantics earlier,
+      and fix keyword argument handling in arrow syntax and other lowering paths.
+    issue_links:
+      - "https://github.com/c42f/JuliaLowering.jl/issues/98"
+      - "https://github.com/c42f/JuliaLowering.jl/issues/77"
+      - "https://github.com/JuliaLang/JuliaSyntax.jl/pull/522"
+  direct_changes:
+    - summary: >-
+        SyntaxTree now builds directly from the raw green tree, storing
+        byte ranges in SourceRef and converting "=" to "kw" in keyword
+        positions before lowering.
+      component: "JuliaLowering.SyntaxGraph"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/syntax_graph.jl"
+          loc: "315-324"
+          url: "https://github.com/JuliaLang/julia/blob/296cca2365f3736af59def97564d3a244677282a/JuliaLowering/src/syntax_graph.jl#L315-L324"
+          snippet: |
+            struct SourceRef
+                file::SourceFile
+                first_byte::Int
+                last_byte::Int
+            end
+
+            JuliaSyntax.sourcefile(src::SourceRef) = src.file
+            JuliaSyntax.byte_range(src::SourceRef) = src.first_byte:src.last_byte
+        - source: "code"
+          path: "JuliaLowering/src/syntax_graph.jl"
+          loc: "818-848"
+          url: "https://github.com/JuliaLang/julia/blob/296cca2365f3736af59def97564d3a244677282a/JuliaLowering/src/syntax_graph.jl#L818-L848"
+          snippet: |
+            function JuliaSyntax.build_tree(::Type{SyntaxTree}, stream::ParseStream;
+                                            filename=nothing, first_line=1)
+                cursor = RedTreeCursor(stream)
+                graph = SyntaxGraph()
+                sf = SourceFile(stream; filename, first_line)
+                source = SourceRef(sf, first_byte(stream), last_byte(stream))
+                cs = SyntaxList(graph)
+                for c in reverse_toplevel_siblings(cursor)
+                    is_trivia(c) && !is_error(c) && continue
+                    push!(cs, SyntaxTree(graph, sf, c))
+                end
+                length(cs) === 1 && return only(cs)
+                id = newnode!(graph)
+                setchildren!(graph, id, reverse(cs).ids)
+                setattr!(graph, id; source, kind=K"wrapper")
+                return SyntaxTree(graph, id)
+            end
+
+            function SyntaxTree(graph::SyntaxGraph, sf::SourceFile, cursor::RedTreeCursor)
+                ensure_attributes!(graph, kind=Kind, syntax_flags=UInt16,
+                                   source=SourceAttrType, value=Any, name_val=String)
+                green_id = GC.@preserve sf begin
+                    raw_offset, txtbuf = _unsafe_wrap_substring(sf.code)
+                    offset = raw_offset - sf.byte_offset
+                    _insert_green(graph, sf, txtbuf, offset, cursor)
+                end
+                out = _green_to_ast(K"None", SyntaxTree(graph, green_id))
+                @assert !isnothing(out) "SyntaxTree requires >0 nontrivia nodes"
+                return out
+            end
+        - source: "code"
+          path: "JuliaLowering/src/syntax_graph.jl"
+          loc: "879-909"
+          url: "https://github.com/JuliaLang/julia/blob/296cca2365f3736af59def97564d3a244677282a/JuliaLowering/src/syntax_graph.jl#L879-L909"
+          snippet: |
+            function _green_to_ast(parent::Kind, ex::SyntaxTree; eq_to_kw=false)
+                is_trivia(ex) && !is_error(ex) && return nothing
+                graph = syntax_graph(ex)
+                k = kind(ex)
+                if k === K"ref" ||
+                    (k in KSet"call dotcall" && (
+                        is_prefix_call(ex) || is_prefix_op_call(ex) && numchildren(ex) > 2))
+                    cs = SyntaxList(ex)
+                    for c in children(ex)
+                        c2 = _green_to_ast(k, c; eq_to_kw=length(cs)>0)
+                        !isnothing(c2) && push!(cs, c2)
+                    end
+                    makenode(graph, ex, ex, cs)
+                elseif k === K"parameters"
+                    eq_to_kw = parent != K"vect"   && parent != K"curly" &&
+                               parent != K"braces" && parent != K"ref"
+                    makenode(graph, ex, ex, _map_green_to_ast(k, children(ex); eq_to_kw))
+                elseif k === K"parens"
+                    cs = _map_green_to_ast(parent, children(ex); eq_to_kw)
+                    @assert length(cs) === 1
+                    cs[1]
+                elseif k in KSet"var char"
+                    cs = _map_green_to_ast(parent, children(ex))
+                    @assert length(cs) === 1
+                    cs[1]
+                elseif k === K"=" && eq_to_kw
+                    makenode(graph, ex, ex, _map_green_to_ast(k, children(ex)); kind=K"kw")
+                elseif is_leaf(ex)
+                    return ex
+                else
+                    makenode(graph, ex, ex, _map_green_to_ast(k, children(ex)))
+                end
+            end
+    - summary: >-
+        Lowering now treats K"kw" as the canonical keyword node (including
+        in named tuple expansion and call argument extraction) and normalizes
+        arrow argument lists to emit K"kw" defaults.
+      component: "JuliaLowering.Desugaring"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "1615-1690"
+          url: "https://github.com/JuliaLang/julia/blob/296cca2365f3736af59def97564d3a244677282a/JuliaLowering/src/desugaring.jl#L1615-L1690"
+          snippet: |
+            function expand_named_tuple(ctx, ex, kws, eq_is_kw;
+                                        field_name="named tuple field",
+                                        element_name="named tuple element")
+                name_strs = Set{String}()
+                names = SyntaxList(ctx)
+                values = SyntaxList(ctx)
+                current_nt = nothing
+                for (i,kw) in enumerate(kws)
+                    k = kind(kw)
+                    appended_nt = nothing
+                    name = nothing
+                    if kind(k) == K"Identifier"
+                        name = to_symbol(ctx, kw)
+                        value = kw
+                    elseif k == K"kw" || (eq_is_kw && k == K"=")
+                        if kind(kw[1]) != K"Identifier" && kind(kw[1]) != K"Placeholder"
+                            throw(LoweringError(kw[1], "invalid $field_name name"))
+                        end
+                        if kind(kw[2]) == K"..."
+                            throw(LoweringError(kw[2], "`...` cannot be used in a value for a $field_name"))
+                        end
+                        name = to_symbol(ctx, kw[1])
+                        value = kw[2]
+                    elseif k == K"."
+                        if kind(kw[2]) != K"Symbol"
+                            throw(LoweringError(kw, "invalid $element_name"))
+                        end
+                        name = to_symbol(ctx, kw[2])
+                        value = kw
+                    elseif k == K"call" && is_infix_op_call(kw) && numchildren(kw) == 3 &&
+                            is_same_identifier_like(kw[1], "=>")
+                        appended_nt = _named_tuple_expr(ctx, kw, (kw[2],), (kw[3],))
+                        nothing, nothing
+                    elseif k == K"..."
+                        appended_nt = kw[1]
+                        if isnothing(current_nt) && isempty(names)
+                            current_nt = _named_tuple_expr(ctx, ex, (), ())
+                        end
+                        nothing, nothing
+                    else
+                        throw(LoweringError(kw, "Invalid $element_name"))
+                    end
+                    if !isnothing(name)
+                        if kind(name) == K"Symbol"
+                            name_str = name.name_val
+                            if name_str in name_strs
+                                throw(LoweringError(name, "Repeated $field_name name"))
+                            end
+                            push!(name_strs, name_str)
+                        end
+                        push!(names, name)
+                        push!(values, value)
+                    end
+                    if !isnothing(appended_nt)
+                        if !isempty(names)
+                            current_nt = _merge_named_tuple(ctx, ex, current_nt,
+                                                            _named_tuple_expr(ctx, ex, names, values))
+                            empty!(names)
+                            empty!(values)
+                        end
+                        current_nt = _merge_named_tuple(ctx, ex, current_nt, appended_nt)
+                    end
+                end
+                if !isempty(names) || isnothing(current_nt)
+                    current_nt = _merge_named_tuple(ctx, ex, current_nt,
+                                                    _named_tuple_expr(ctx, ex, names, values))
+                end
+                @assert !isnothing(current_nt)
+                current_nt
+            end
+        - source: "code"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "1865-1897"
+          url: "https://github.com/JuliaLang/julia/blob/296cca2365f3736af59def97564d3a244677282a/JuliaLowering/src/desugaring.jl#L1865-L1897"
+          snippet: |
+            function remove_kw_args!(ctx, args::SyntaxList)
+                kws = nothing
+                j = 0
+                num_parameter_blocks = 0
+                for i in 1:length(args)
+                    arg = args[i]
+                    k = kind(arg)
+                    if k == K"kw"
+                        if isnothing(kws)
+                            kws = SyntaxList(ctx)
+                        end
+                        push!(kws, arg)
+                    elseif k == K"parameters"
+                        num_parameter_blocks += 1
+                        if num_parameter_blocks > 1
+                            throw(LoweringError(arg, "Cannot have more than one group of keyword arguments separated with `;`"))
+                        end
+                        if numchildren(arg) == 0
+                            continue # ignore empty parameters (issue #18845)
+                        end
+                        if isnothing(kws)
+                            kws = SyntaxList(ctx)
+                        end
+                        append!(kws, children(arg))
+                    else
+                        j += 1
+                        if j < i
+                            args[j] = args[i]
+                        end
+                    end
+                end
+                resize!(args, j)
+                return kws
+            end
+        - source: "code"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "3238-3258"
+          url: "https://github.com/JuliaLang/julia/blob/296cca2365f3736af59def97564d3a244677282a/JuliaLowering/src/desugaring.jl#L3238-L3258"
+          snippet: |
+            function expand_arrow_args(ctx, arglist)
+                k = kind(arglist)
+                if k == K"block"
+                    @chk numchildren(arglist) == 2
+                    kw = arglist[2]
+                    if kind(kw) === K"="
+                        kw = @ast ctx kw [K"kw" children(kw)...]
+                    end
+                    arglist = @ast ctx arglist [K"tuple"
+                        arglist[1]
+                        [K"parameters" kw]
+                    ]
+                elseif k != K"tuple"
+                    arglist = @ast ctx arglist [K"tuple" arglist]
+                end
+                return mapchildren(ctx, arglist) do a
+                    kind(a) === K"=" ? @ast(ctx, a, [K"kw" children(a)...]) : a
+                end
+            end
+    - summary: >-
+        Expr conversion now distinguishes SyntaxTree-specific fixups by passing
+        the tree type through fixup_Expr_child, allowing SyntaxTree to preserve
+        dot/operator coalescing without reusing SyntaxNode semantics.
+      component: "JuliaSyntax.ExprIntegration"
+      evidence:
+        - source: "code"
+          path: "JuliaSyntax/src/integration/expr.jl"
+          loc: "146-176"
+          url: "https://github.com/JuliaLang/julia/blob/296cca2365f3736af59def97564d3a244677282a/JuliaSyntax/src/integration/expr.jl#L146-L176"
+          snippet: |
+            function fixup_Expr_child(::Type, head::SyntaxHead, @nospecialize(arg), first::Bool)
+                isa(arg, Expr) || return arg
+                k = kind(head)
+                eq_to_kw_in_call = ((k == K"call" || k == K"dotcall") &&
+                                    is_prefix_call(head)) || k == K"ref"
+                eq_to_kw_in_params = k != K"vect"   && k != K"curly" &&
+                                     k != K"braces" && k != K"ref"
+                coalesce_dot = k in KSet"call dotcall curly" ||
+                               (k == K"quote" && has_flags(head, COLON_QUOTE))
+                was_parens = @isexpr(arg, :parens)
+                arg = _strip_parens(arg)
+                if @isexpr(arg, :(=)) && eq_to_kw_in_call && !first
+                    arg = Expr(:kw, arg.args...)
+                elseif k != K"parens" && @isexpr(arg, :., 1) && arg.args[1] isa Tuple
+                    h, a = arg.args[1]::Tuple{SyntaxHead,Any}
+                    arg = ((!was_parens && coalesce_dot && first) ||
+                            is_syntactic_operator(h)) ?
+                        Symbol(".", a) : Expr(:., a)
+                elseif @isexpr(arg, :parameters) && eq_to_kw_in_params
+                    pargs = arg.args
+                    for j = 1:length(pargs)
+                        pj = pargs[j]
+                        if @isexpr(pj, :(=))
+                            pargs[j] = Expr(:kw, pj.args...)
+                        end
+                    end
+                end
+                return arg
+            end
+        - source: "code"
+          path: "JuliaLowering/src/syntax_graph.jl"
+          loc: "577-588"
+          url: "https://github.com/JuliaLang/julia/blob/296cca2365f3736af59def97564d3a244677282a/JuliaLowering/src/syntax_graph.jl#L577-L588"
+          snippet: |
+            function JuliaSyntax.fixup_Expr_child(::Type{<:SyntaxTree}, head::SyntaxHead,
+                                                  @nospecialize(arg), first::Bool)
+                isa(arg, Expr) || return arg
+                k = kind(head)
+                coalesce_dot = k in KSet"call dotcall curly" ||
+                               (k == K"quote" && has_flags(head, COLON_QUOTE))
+                if @isexpr(arg, :., 1) && arg.args[1] isa Tuple
+                    h, a = arg.args[1]::Tuple{SyntaxHead,Any}
+                    arg = ((coalesce_dot && first) || is_syntactic_operator(h)) ?
+                        Symbol(".", a) : Expr(:., a)
+                end
+                return arg
+            end
+    - summary: "Tests updated to lock in arrow/kw parsing and provenance shape changes."
+      component: "JuliaLowering.Tests"
+      evidence:
+        - source: "test"
+          path: "JuliaLowering/test/functions.jl"
+          loc: "106-127"
+          url: "https://github.com/JuliaLang/julia/blob/296cca2365f3736af59def97564d3a244677282a/JuliaLowering/test/functions.jl#L106-L127"
+          snippet: |
+            @test JuliaLowering.include_string(test_mod, """
+            let
+                f = ((x::T, y::T) where T) -> x + y
+                f(1, 2)
+            end
+            """) === 3
+
+            @test JuliaLowering.include_string(test_mod, """
+            let
+                f = ((x::T; y=2) where T) -> x + y
+                f(1)
+            end
+            """) === 3
+
+            @test JuliaLowering.include_string(test_mod, """
+            let
+                f = ((x::T) where T) -> x
+                f(1)
+            end
+            """) === 1
+        - source: "test"
+          path: "JuliaLowering/test/quoting.jl"
+          loc: "5-52"
+          url: "https://github.com/JuliaLang/julia/blob/296cca2365f3736af59def97564d3a244677282a/JuliaLowering/test/quoting.jl#L5-L52"
+          snippet: |
+            ex = JuliaLowering.include_string(test_mod, """
+            begin
+                x = 10
+                y = :(g(z))
+                quote
+                    f($(x+1), $y)
+                end
+            end
+            """)
+            @test ex ≈ @ast_ [K"block"
+                [K"call"
+                    "f"::K"Identifier"
+                    11::K"Value"
+                    [K"call"
+                        "g"::K"Identifier"
+                        "z"::K"Identifier"
+                    ]
+                ]
+            ]
+            @test sourcetext(ex[1]) == "f($(x+1), $y)"
+            @test sourcetext(ex[1][2]) == "$(x+1)"
+            @test sourcetext.(flattened_provenance(ex[1][3])) == ["$y", "g(z)"]
+            @test sprint(io->showprov(io, ex[1][3], tree=true)) == raw"""
+                (call g z)
+                ├─ (call g z)
+                │  └─ (call g z)
+                │     └─ (call g ✘ z ✘)
+                │        └─ @ string:3
+                └─ ($ y)
+                   └─ ($ $ y)
+                      └─ @ string:5
+                """
+  secondary_effects:
+    - effect: >-
+        Keyword arguments are now represented as K"kw" in SyntaxTree before
+        macro expansion, so downstream desugaring sees K"kw" consistently in
+        call/parameters contexts rather than K"=".
+      mechanism: |
+        JuliaSyntax.build_tree(::Type{SyntaxTree})  [syntax_graph.jl:818-835]
+          -> SyntaxTree(graph, sf, cursor)          [syntax_graph.jl:837-847]
+            -> _green_to_ast(parent, ex; eq_to_kw)  [syntax_graph.jl:879-906]
+              converts K"=" to K"kw" in call/parameters contexts
+          -> remove_kw_args!(ctx, args)             [desugaring.jl:1865-1897]
+             collects K"kw" into keyword list
+          -> expand_kw_call(...)                    [desugaring.jl:1696-1712]
+             builds kwcall path for lowered calls
+      downstream_surfaces:
+        - "Macro expansion pipelines expecting K"=" nodes in SyntaxTree"
+        - "Keyword argument lowering (kwcall)"
+        - "Expr-to-SyntaxTree compatibility paths"
+      likelihood: "high"
+      impact: "medium"
+    - effect: >-
+        Anonymous function and opaque-closure argument lists normalize defaults
+        to K"kw", so default detection uses the same K"kw" branch as regular
+        function arguments.
+      mechanism: |
+        expand_arrow_args(ctx, arglist)             [desugaring.jl:3238-3258]
+          rewrites K"=" into K"kw" in arrow args
+        -> expand_opaque_closure(ctx, ex)           [desugaring.jl:3286-3311]
+          args = expand_arrow_args(...)
+        -> expand_function_arg(ctx, ..., arg, ...)  [desugaring.jl:2277-2343]
+          if kind(ex) == K"kw" then default = ex[2]
+      downstream_surfaces:
+        - "Anonymous function desugaring"
+        - "OpaqueClosure lowering"
+      likelihood: "medium"
+      impact: "medium"
+    - effect: >-
+        Expr reconstruction from SyntaxTree/SyntaxNode now passes the tree type
+        into fixup_Expr_child, allowing SyntaxTree to skip eq-to-kw rewrites in
+        its own override while still performing dot coalescing.
+      mechanism: |
+        node_to_expr(...) calls fixup_Expr_child(typeof(cursor), ...)  [expr.jl:214-216]
+          -> SyntaxTree-specific fixup_Expr_child                    [syntax_graph.jl:577-588]
+             only coalesces dotted operators
+      downstream_surfaces:
+        - "Expr compatibility layer for macros"
+        - "SyntaxTree <-> Expr round-tripping"
+      likelihood: "medium"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "JuliaSyntax.Kind \"kw\""
+        change: "New syntax kind registered for keyword nodes; K\"kw\" may now appear in SyntaxTree trees."
+        affected_tools:
+          - tool: "Macros consuming SyntaxTree"
+            usage: "Assume K\"=\" for keywords; must accept K\"kw\" in keyword argument positions."
+      - field: "SourceRef.last_byte"
+        change: "SourceRef stores explicit byte range end instead of GreenNode; byte_range uses first/last bytes."
+        affected_tools:
+          - tool: "JuliaLowering provenance utilities"
+            usage: "showprov/flattened_provenance now read byte ranges from SourceRef for highlighting."
+    behavioral:
+      - change: "Keyword argument defaults in arrow syntax parse as K\"kw\" and no longer depend on SyntaxNode fixups."
+        user_visible: "Potentially affects macro-generated anonymous functions that emit K\"=\" in arglists."
+  performance:
+    compile_time:
+      - impact: >-
+          ESTIMATED: One additional green-tree walk to build SyntaxTree and
+          rewrite trivia/kw nodes (O(n) in AST size).
+    runtime:
+      - impact: "No direct runtime change expected; changes are in parsing/lowering stages."
+  risk:
+    level: "medium"
+    rationale:
+      - "Changes early in the parsing/lowering pipeline and adds a new syntax kind (K\"kw\")."
+      - "Alters SyntaxTree construction/provenance and Expr conversion behavior, which downstream tools may rely on."
+  open_questions:
+    - "Should K\"kw\" be extended to more contexts (ref/curly/vect/braces) to align with the ‘ideal’ table in the PR description?"
+    - "Is there remaining code that assumes K\"=\" for keyword defaults outside of arrow args?"
+  recommendations:
+    - "Audit downstream tooling that inspects SyntaxTree kinds or Expr conversion paths for assumptions about K\"=\" in keyword positions."
+    - "Consider adding regression tests for keyword arguments in ref/curly/vect/braces once syntax decisions are finalized."
