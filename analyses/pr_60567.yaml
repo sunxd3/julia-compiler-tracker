@@ -1,0 +1,193 @@
+schema_version: "1.0"
+pr:
+  number: 60567
+  title: "[JuliaLowering] Implement flisp-compatible Box optimization"
+  url: "https://github.com/JuliaLang/julia/pull/60567"
+  author: "aviatesk"
+  labels:
+    - "JuliaLowering"
+  created_at: "2026-01-06T18:44:10Z"
+  merged_at: "2026-01-10T01:21:52Z"
+scope:
+  files_touched:
+    - "JuliaLowering/src/JuliaLowering.jl"
+    - "JuliaLowering/src/binding_analysis.jl"
+    - "JuliaLowering/src/closure_conversion.jl"
+    - "JuliaLowering/src/scope_analysis.jl"
+    - "JuliaLowering/test/closures.jl"
+    - "JuliaLowering/test/closures_ir.jl"
+    - "JuliaLowering/test/scopes_ir.jl"
+  components:
+    - "JuliaLowering"
+  pipeline_stages:
+    - "ScopeAnalysis"
+    - "Lowering"
+    - "LinearIR"
+analysis:
+  intent:
+    summary: "Bring JuliaLowering's captured-variable Box optimization closer to flisp's lambda-optimize-vars!, reducing false positives for boxed captures while preserving soundness around control-flow and loop dominance."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/37690"
+    quoted_from_pr: "Implement flisp-compatible Box optimization to reduce false positives for captured boxed variables." 
+  direct_changes:
+    - summary: "Introduce a new binding_analysis pass that performs tree-based def/use analysis to mark certain captured single-assignment variables as always-defined, enabling Box elision in closure conversion."
+      component: "JuliaLowering"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/binding_analysis.jl"
+          loc: "1-340"
+          snippet: "analyze_def_and_use! ... mark them as is_always_defined=true to avoid unnecessary Core.Box allocations"
+    - summary: "Wire the new binding analysis into the lowering pipeline right after scope analysis, and include the new file in JuliaLowering initialization."
+      component: "JuliaLowering"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/JuliaLowering.jl"
+          loc: "33-40"
+          snippet: "_include(\"binding_analysis.jl\")"
+        - source: "diff"
+          path: "JuliaLowering/src/scope_analysis.jl"
+          loc: "714-718"
+          snippet: "analyze_def_and_use!(ctx3, ex2)"
+    - summary: "Refine is_boxed logic to treat single-assigned locals/arguments that dominate captures as unboxed, and only emit Core.Box for truly boxed bindings during closure conversion."
+      component: "JuliaLowering"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/closure_conversion.jl"
+          loc: "302-415"
+          snippet: "single_assigned_never_undef ... return binfo.is_captured && !defined_but_not_assigned && !single_assigned_never_undef"
+    - summary: "Expand closure tests and IR snapshots to codify new boxing behavior across conditionals, loops, labels, and opaque closures."
+      component: "JuliaLowering"
+      evidence:
+        - source: "test"
+          path: "JuliaLowering/test/closures.jl"
+          loc: "241-408"
+          snippet: "new tests covering if-branch reassignment, loops, label jumps, and guard patterns"
+        - source: "test"
+          path: "JuliaLowering/test/closures_ir.jl"
+          loc: "1-900"
+          snippet: "IR now shows unboxed captures for simple closures and opaque closures"
+        - source: "test"
+          path: "JuliaLowering/test/scopes_ir.jl"
+          loc: "129-132"
+          snippet: "comment notes y is single-assigned before capture, so no Box needed"
+  pipeline_impact:
+    - stage: "ScopeAnalysis"
+      effect: "Adds a new def/use dominance-like pass that refines binding flags prior to closure conversion."
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/scope_analysis.jl"
+          loc: "714-718"
+          snippet: "analyze_def_and_use!(ctx3, ex2)"
+    - stage: "LinearIR"
+      effect: "Closure conversion now consults the new single-assignment dominance marker to decide whether to allocate Core.Box for captured locals."
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/closure_conversion.jl"
+          loc: "302-409"
+          snippet: "single_assigned_never_undef ... is_boxed(binfo)"
+  secondary_effects:
+    - effect: "More captured locals and arguments remain unboxed, reducing Core.Box allocations and access indirections in lowered IR."
+      mechanism: "Binding analysis marks single-assigned, dominance-safe captures as always-defined; closure conversion skips boxing for these."
+      downstream_surfaces:
+        - "OpaqueClosure creation (Base.Experimental.@opaque)"
+        - "Lowered CodeInfo/IR consumers"
+        - "Packages relying on closure-heavy patterns (Turing.jl, JET, GPUCompiler)"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "test"
+          path: "JuliaLowering/test/closures_ir.jl"
+          loc: "1-520"
+          snippet: "simple closures and opaque closures no longer show Core.Box in IR"
+    - effect: "Arguments reassigned in outer scopes can now be unboxed if the assignment dominates capture, changing capture representation compared to pre-PR behavior."
+      mechanism: "Arguments start as always-defined but are reset and re-proved by analyze_def_and_use! to distinguish outer-scope reassignment from inner-closure-only reassignment."
+      downstream_surfaces:
+        - "OpaqueClosure"
+        - "Generated function thunks that capture arguments"
+        - "Static analysis tools (JET, IRTools)"
+      likelihood: "medium"
+      impact: "medium"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/binding_analysis.jl"
+          loc: "39-85"
+          snippet: "arguments reset is_always_defined=false until analysis proves dominance"
+        - source: "test"
+          path: "JuliaLowering/test/closures.jl"
+          loc: "241-325"
+          snippet: "f_arg_reassign and if-branch tests assert unboxed behavior"
+    - effect: "Loop/label cases continue to be boxed to preserve soundness; this limits unboxing in non-dominating control-flow, avoiding miscompilation risk."
+      mechanism: "Save/restore with kill!/restore! and symbolic label handling invalidates candidates across merge points or goto labels."
+      downstream_surfaces:
+        - "Lowered IR for control-flow heavy closures"
+        - "Debuggers/IR visualizers"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/binding_analysis.jl"
+          loc: "90-240"
+          snippet: "kill!/restore!/symbolic_label handling"
+        - source: "test"
+          path: "JuliaLowering/test/closures.jl"
+          loc: "330-408"
+          snippet: "loop, label, and break tests require Box"
+  compatibility:
+    internal_api:
+      - summary: "BindingInfo.is_always_defined is now updated by a new pass, which may affect tooling that assumes the old meaning of this flag."
+        evidence:
+          - source: "diff"
+            path: "JuliaLowering/src/binding_analysis.jl"
+            loc: "1-40"
+            snippet: "mark them as is_always_defined=true to avoid unnecessary Core.Box allocations"
+    behavioral:
+      - summary: "Lowered IR for closure captures changes (boxed vs unboxed), but semantics should remain the same; tools inspecting IR may observe different shapes."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/closures_ir.jl"
+            loc: "1-520"
+            snippet: "Core.Box removed from simple closure and opaque closure IR"
+      - summary: "OpaqueClosure captures for single-assigned locals/args may no longer allocate Core.Box, altering field layout and access patterns in lowered code."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/closures_ir.jl"
+            loc: "473-760"
+            snippet: "Opaque closure IR now passes captured value directly"
+  performance:
+    compile_time:
+      - summary: "Adds a new tree walk over lambda bodies; modest increase in lowering time for functions with many closures."
+        evidence:
+          - source: "diff"
+            path: "JuliaLowering/src/binding_analysis.jl"
+            loc: "1-340"
+            snippet: "tree-based def-use analysis"
+    runtime:
+      - summary: "Reduces allocations and indirections for eligible captured variables by avoiding Core.Box, which should improve closure-heavy workloads (e.g., Turing.jl model closures)."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/closures_ir.jl"
+            loc: "1-520"
+            snippet: "unboxed capture IR"
+  tests:
+    changed_files:
+      - "JuliaLowering/test/closures.jl"
+      - "JuliaLowering/test/closures_ir.jl"
+      - "JuliaLowering/test/scopes_ir.jl"
+    new_behavior_assertions:
+      - "Arguments reassigned in outer scope and then captured are unboxed."
+      - "Assignments after if/ternary/guard patterns do not require Box."
+      - "Loop/label/break patterns still require Box for soundness."
+    coverage_gaps:
+      - "No CFG-dominance-based analysis; multi-assign variables with full domination are still boxed (explicitly noted in PR motivation)."
+      - "No explicit tests for generated functions capturing unboxed locals or for downstream packages that inspect lowered IR."
+  risk:
+    level: "medium"
+    rationale:
+      - "Introduces a new analysis pass that reinterprets is_always_defined for unboxing; subtle control-flow mistakes could lead to miscompilation."
+      - "Alters closure and opaque-closure IR shapes, which can affect tools that pattern-match on Core.Box usage."
+  open_questions:
+    - "Should future CFG-based dominance analysis be added to handle multi-assign-but-dominating cases without boxing?"
+    - "Do any downstream packages assume Core.Box for captured args, and do they need updates?"
+  recommendations:
+    - "For Turing.jl and similar closure-heavy packages, run inference and allocation benchmarks to confirm reduced boxing and no regressions in captured variable semantics."
+    - "For tooling (JET/IRTools/GPUCompiler), consider adding tests that accept both boxed and unboxed capture patterns where semantically equivalent."
