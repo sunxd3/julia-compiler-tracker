@@ -1,0 +1,418 @@
+schema_version: "1.0"
+pr:
+  number: 60567
+  title: "[JuliaLowering] Implement flisp-compatible Box optimization"
+  url: "https://github.com/JuliaLang/julia/pull/60567"
+  author: "aviatesk"
+  labels:
+    - "JuliaLowering"
+  merged_at: "2026-01-10T01:21:52Z"
+  merge_commit_sha: "8ca9bc66edc471d265657eca9e5682e343e16d4d"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60567.diff"
+scope:
+  files_touched:
+    - "JuliaLowering/src/JuliaLowering.jl"
+    - "JuliaLowering/src/binding_analysis.jl"
+    - "JuliaLowering/src/scope_analysis.jl"
+    - "JuliaLowering/src/closure_conversion.jl"
+    - "JuliaLowering/test/closures.jl"
+    - "JuliaLowering/test/closures_ir.jl"
+    - "JuliaLowering/test/scopes_ir.jl"
+  components:
+    - "JuliaLowering"
+  pipeline_stages:
+    - "Lowering"
+    - "ClosureConversion"
+analysis:
+  intent:
+    summary: "Implement a JuliaLowering def-use pass that mirrors flisp's lambda-optimize-vars! so captured, single-assigned locals/arguments avoid Core.Box allocations and reduce false-positive boxed-variable diagnostics."
+    issue_links:
+      - "https://github.com/aviatesk/JETLS.jl/pull/452"
+      - "https://github.com/JuliaLang/julia/issues/37690"
+  direct_changes:
+    - summary: "Added a new tree-based def/use pass (analyze_def_and_use!) that tracks captured single-assigned locals/arguments and marks them is_always_defined when proven always-defined and not modified after capture."
+      component: "JuliaLowering/binding_analysis"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/binding_analysis.jl"
+          loc: "28-88"
+          url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/src/binding_analysis.jl#L28-L88"
+          snippet: |
+            """
+                analyze_def_and_use!(ctx, ex)
+
+            Perform tree-based def-use analysis to find captured variables that are
+            assigned before any closure captures them (never-undef) and not modified
+            afterward. For such variables, as an abuse of binding flags we can mark them
+            as `is_always_defined=true` to avoid unnecessary `Core.Box` allocations during
+            closure conversion.
+
+            This is called on the outermost lambda, and recursively processes nested lambdas.
+            """
+            function analyze_def_and_use!(ctx, ex)
+                k = kind(ex)
+                if k != K"lambda"
+                    return
+                end
+
+                # First, recursively analyze nested lambdas (depth-first)
+                if numchildren(ex) >= 3
+                    _analyze_nested_lambdas!(ctx, ex[3])
+                end
+
+                # Now analyze this lambda
+                _analyze_lambda_vars!(ctx, ex)
+            end
+
+            function _analyze_lambda_vars!(ctx, ex)
+                lambda_bindings = ex.lambda_bindings
+
+                # Collect candidate variables: captured and single-assigned
+                candidates = Set{IdTag}()
+                for (id, _) in lambda_bindings.locals_capt
+                    binfo = get_binding(ctx, id)
+                    if (binfo.is_captured && binfo.is_assigned_once &&
+                        (binfo.kind == :local || binfo.kind == :argument))
+                        push!(candidates, id)
+                        if binfo.kind == :argument
+                            binfo.is_always_defined = false
+                        end
+                    end
+                end
+                isempty(candidates) && return
+        - source: "code"
+          path: "JuliaLowering/src/binding_analysis.jl"
+          loc: "111-152"
+          url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/src/binding_analysis.jl#L111-L152"
+          snippet: |
+            # At CFG merge points, we lose certainty about which path was taken,
+            # so variables assigned in one branch may not have been assigned.
+            function kill!()
+                union!(unused, live)
+                empty!(live)
+            end
+
+            # Restore live to a previous state, moving new additions back to unused
+            function restore!(prev)
+                for id in decl_outside_loop
+                    if (id in prev) && !(id in unused)
+                        delete!(prev, id)
+                    end
+                end
+                for id in live
+                    if !(id in prev)
+                        push!(unused, id)
+                    end
+                end
+                empty!(live)
+                union!(live, prev)
+            end
+
+            # At the beginning of a loop, move all active decls into the "decl_outside_loop" set.
+            function enter_loop!()
+                prev_decl_outside_loop = decl_outside_loop
+                decl_outside_loop = decl
+                decl = copy(decl)
+                return prev_decl_outside_loop
+            end
+
+            # At the end of a loop, restore the previous set of "declared" variables.
+            function leave_loop!(prev_decl_outside_loop)
+                decl = decl_outside_loop
+                decl_outside_loop = prev_decl_outside_loop
+            end
+        - source: "code"
+          path: "JuliaLowering/src/binding_analysis.jl"
+          loc: "262-338"
+          url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/src/binding_analysis.jl#L262-L338"
+          snippet: |
+            elseif k in KSet"if elseif trycatchelse tryfinally"
+                prev = copy(live)
+                has_label = false
+                for child in children(e)
+                    has_label |= visit(child)
+                    kill!()
+                end
+                if has_label
+                    return true
+                else
+                    restore!(prev)
+                    return false
+                end
+
+            elseif k in KSet"_while _do_while"
+                prev = copy(live)
+                old_decl = enter_loop!()
+                has_label = false
+                for child in children(e)
+                    has_label |= visit(child)
+                end
+                leave_loop!(old_decl)
+                if has_label
+                    kill!()
+                    return true
+                else
+                    restore!(prev)
+                    return false
+                end
+            end
+
+            # Variables in live or unused (that were seen assigned) are never-undef
+            for id in union(live, unused)
+                if id in seen
+                    get_binding(ctx, id).is_always_defined = true
+                end
+            end
+    - summary: "Scope resolution now runs analyze_def_and_use! after analyze_variables!, and the new binding_analysis pass is included in JuliaLowering.jl."
+      component: "JuliaLowering/scope_analysis"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/JuliaLowering.jl"
+          loc: "26-38"
+          url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/src/JuliaLowering.jl#L26-L38"
+          snippet: |
+            _include("kinds.jl")
+            _register_kinds()
+
+            _include("ast.jl")
+            _include("bindings.jl")
+            _include("utils.jl")
+
+            _include("macro_expansion.jl")
+            _include("desugaring.jl")
+            _include("scope_analysis.jl")
+            _include("binding_analysis.jl")
+            _include("closure_conversion.jl")
+        - source: "code"
+          path: "JuliaLowering/src/scope_analysis.jl"
+          loc: "711-718"
+          url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/src/scope_analysis.jl#L711-L718"
+          snippet: |
+            @fzone "JL: resolve_scopes" function resolve_scopes(ctx::DesugaringContext, ex)
+                ctx2 = ScopeResolutionContext(ctx, ex)
+                ex2 = resolve_scopes(ctx2, reparent(ctx2, ex))
+                ctx3 = VariableAnalysisContext(
+                    ctx2.graph, ctx2.bindings, ctx2.mod, ctx2.scopes, ex2.lambda_bindings)
+                analyze_variables!(ctx3, ex2)
+                analyze_def_and_use!(ctx3, ex2)
+                ctx3, ex2
+            end
+        - source: "rg"
+          path: "rg output"
+          loc: "analyze_def_and_use"
+          url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/src/scope_analysis.jl#L717"
+          snippet: |
+            julia/JuliaLowering/src/scope_analysis.jl
+            717:    analyze_def_and_use!(ctx3, ex2)
+
+            julia/JuliaLowering/src/binding_analysis.jl
+            29:    analyze_def_and_use!(ctx, ex)
+            39:function analyze_def_and_use!(ctx, ex)
+            57:        analyze_def_and_use!(ctx, ex)
+    - summary: "Closure boxing decisions now treat captured single-assigned locals/arguments marked is_always_defined as unboxed, altering whether Core.Box is used in closure conversion."
+      component: "JuliaLowering/closure_conversion"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/closure_conversion.jl"
+          loc: "304-316"
+          url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/src/closure_conversion.jl#L304-L316"
+          snippet: |
+            function is_boxed(binfo::BindingInfo)
+                # No box needed for:
+                # * :argument when it's not reassigned
+                # * :static_parameter (these can't be reassigned)
+                defined_but_not_assigned = binfo.is_always_defined && !binfo.is_assigned
+                # * Single-assigned variables (local or argument) assigned before any closure captures them
+                #   (identified by liveness analysis in optimize_captured_vars!)
+                #   For arguments, the liveness analysis resets is_always_defined and only sets it back
+                #   if the outer-scope assignment dominates all captures. This distinguishes arguments
+                #   reassigned in outer scope (no box) from those reassigned only inside closures (needs box).
+                single_assigned_never_undef = binfo.kind in (:local, :argument) &&
+                                              binfo.is_always_defined && binfo.is_assigned_once
+                return binfo.is_captured && !defined_but_not_assigned && !single_assigned_never_undef
+            end
+    - summary: "New IR tests demonstrate unboxed captures for control-flow patterns (if, ternary, guard) and show labels still require boxing."
+      component: "JuliaLowering/tests"
+      evidence:
+        - source: "test"
+          path: "JuliaLowering/test/closures_ir.jl"
+          loc: "779-821"
+          url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/test/closures_ir.jl#L779-L821"
+          snippet: |
+            ########################################
+            # Assignment after if statement doesn't need Box (flisp-compatible save/restore)
+            function f_after_if(cond)
+                if cond
+                    println("hello")
+                end
+                y = 1
+                () -> y
+            end
+            #---------------------
+            20  --- method core.nothing %₁₉
+                slots: [slot₁/#self#(!read) slot₂/cond slot₃/y(single_assign)]
+                1   (gotoifnot slot₂/cond label₄)
+                2   TestMod.println
+                3   (call %₂ "hello")
+                4   (= slot₃/y 1)
+                5   TestMod.#f_after_if#->##0
+                6   (call core.typeof slot₃/y)
+                7   (call core.apply_type %₅ %₆)
+                8   (new %₇ slot₃/y)
+                9   (return %₈)
+        - source: "test"
+          path: "JuliaLowering/test/closures_ir.jl"
+          loc: "976-1008"
+          url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/test/closures_ir.jl#L976-L1008"
+          snippet: |
+            ########################################
+            # Label can be jumped to, bypassing assignment - needs Box
+            let
+                @goto L
+                y = 1
+                @label L
+                ()->y
+            end
+            #---------------------
+            1   (= slot₁/y (call core.Box))
+            2   (goto label₆)
+            3   1
+            4   slot₁/y
+            5   (call core.setfield! %₄ :contents %₃)
+            6   (call core.svec :y)
+            7   (call core.svec true)
+            8   (call JuliaLowering.eval_closure_type TestMod :#->##1 %₆ %₇)
+            9   latestworld
+            10  TestMod.#->##1
+            11  slot₁/y
+            12  (new %₁₀ %₁₁)
+            13  TestMod.#->##1
+            14  (call core.svec %₁₃)
+            15  (call core.svec)
+            16  SourceLocation::5:5
+            17  (call core.svec %₁₄ %₁₅ %₁₆)
+            18  --- method core.nothing %₁₇
+                slots: [slot₁/#self#(!read) slot₂/y(!read,maybe_undef)]
+                1   (call core.getfield slot₁/#self# :y)
+                2   (call core.isdefined %₁ :contents)
+                3   (gotoifnot %₂ label₅)
+                4   (goto label₇)
+                5   (newvar slot₂/y)
+                6   slot₂/y
+                7   (call core.getfield %₁ :contents)
+                8   (return %₇)
+  secondary_effects:
+    - effect: "Captured locals/arguments that are single-assigned can now become unboxed, changing closure field layout (boxed vs unboxed fields) and the IR for closure construction." 
+      mechanism: |
+        resolve_scopes(...) runs analyze_def_and_use!(ctx3, ex2)  [scope_analysis.jl:711-718]
+          -> analyze_def_and_use! marks get_binding(ctx, id).is_always_defined = true for seen single-assign captures  [binding_analysis.jl:334-338]
+          -> is_boxed(binfo) treats is_always_defined && is_assigned_once as unboxed  [closure_conversion.jl:304-316]
+          -> closure_type_fields(...) collects field_is_box = is_boxed(...) for closure layout  [closure_conversion.jl:275-282]
+          -> type_for_closure uses field_is_box to build the closure type  [closure_conversion.jl:288-300]
+      downstream_surfaces:
+        - "Closure field layout (boxed vs unboxed captured vars)"
+        - "OpaqueClosure type parameters and capture allocation"
+        - "Lowered IR in JuliaLowering/test/closures_ir.jl"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "isdefined checks and newvar emission for captured locals can change when variables become unboxed and always-defined, affecting diagnostics and IR shape for closure bodies." 
+      mechanism: |
+        is_boxed(binfo) uses is_always_defined to decide boxing  [closure_conversion.jl:304-316]
+          -> _convert_closures treats captured unboxed vars as always defined and returns `true` for isdefined  [closure_conversion.jl:363-377]
+          -> local declarations emit newvar only when !binfo.is_always_defined  [closure_conversion.jl:409-416]
+      downstream_surfaces:
+        - "IRTools/Lowering consumers that inspect isdefined/newvar patterns"
+        - "JET/diagnostic tooling that flags boxed captures"
+      likelihood: "medium"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "BindingInfo.is_always_defined"
+        change: "Now reset for captured arguments and recomputed by analyze_def_and_use! before closure conversion, widening the set of captured vars treated as always-defined."
+        affected_tools:
+          - tool: "JuliaLowering closure conversion"
+            usage: "is_boxed and isdefined lowering consult is_always_defined to decide boxing and newvar behavior."
+    behavioral:
+      - change: "Captured single-assigned locals/arguments are unboxed in more control-flow patterns, reducing Core.Box allocations and changing closure field layout."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/closures_ir.jl"
+            loc: "779-821"
+            url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/test/closures_ir.jl#L779-L821"
+            snippet: |
+              slots: [slot₁/#self#(!read) slot₂/cond slot₃/y(single_assign)]
+              4   (= slot₃/y 1)
+              8   (new %₇ slot₃/y)
+      - change: "Code paths containing symbolic labels still force boxing to preserve correctness when assignments can be bypassed."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/closures_ir.jl"
+            loc: "976-1008"
+            url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/test/closures_ir.jl#L976-L1008"
+            snippet: |
+              1   (= slot₁/y (call core.Box))
+              5   (call core.setfield! %₄ :contents %₃)
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: Adds an extra tree-walk per lambda (analyze_def_and_use!), O(n) in AST size."
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/binding_analysis.jl"
+            loc: "186-332"
+            url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/src/binding_analysis.jl#L186-L332"
+            snippet: |
+              # Returns whether e contained a symbolic_label
+              function visit(e)
+                  k = kind(e)
+
+                  if k == K"BindingId"
+                      mark_used!(e.var_id)
+                      return false
+                  elseif k == K"symbolic_label"
+                      kill!()
+                      return true
+                  elseif k == K"label"
+                      kill!()
+                      return false
+                  end
+
+                  has_label = false
+                  for child in children(e)
+                      has_label |= visit(child)
+                  end
+                  return has_label
+              end
+
+              # Visit the lambda body
+              if numchildren(ex) >= 3
+                  body = ex[3]
+                  if kind(body) == K"block"
+                      for stmt in children(body)
+                          visit(stmt)
+                      end
+                  else
+                      visit(body)
+                  end
+              end
+    runtime:
+      - impact: "Reduced Core.Box allocations for captured single-assigned locals/arguments in common control-flow patterns (e.g., if/ternary/guard), improving closure allocation behavior."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/closures_ir.jl"
+            loc: "779-821"
+            url: "https://github.com/JuliaLang/julia/blob/8ca9bc66edc471d265657eca9e5682e343e16d4d/JuliaLowering/test/closures_ir.jl#L779-L821"
+            snippet: |
+              slots: [slot₁/#self#(!read) slot₂/cond slot₃/y(single_assign)]
+              4   (= slot₃/y 1)
+              8   (new %₇ slot₃/y)
+  risk:
+    level: "medium"
+    rationale:
+      - "Changes when captured variables are boxed/unboxed; incorrect dominance handling could change semantics or produce invalid IR."
+      - "Adds control-flow-sensitive state (live/unused/decl_outside_loop) which must stay in sync with JuliaLowering AST kinds."
+  open_questions:
+    - "Do any JuliaSyntax/JuliaLowering AST kinds missing from visit(...) require kill!/restore! treatment to preserve soundness?"
+    - "Should arguments reassigned only in nested lambdas remain boxed in all CFG shapes (e.g., with try/catch and labels)?"
+  recommendations:
+    - "Downstream tooling that assumes captured locals are boxed should consult closure field metadata (field_is_box/is_boxed) rather than the presence of Core.Box in IR."
+    - "Consider adding regression tests for try/catch/label interactions to ensure kill!/restore! remains sound for new syntax kinds."
