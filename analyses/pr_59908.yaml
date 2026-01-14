@@ -1,0 +1,121 @@
+schema_version: "1.0"
+pr:
+  number: 59908
+  title: "absint: allow ad-hoc cancellation of concrete evaluation"
+  url: "https://github.com/JuliaLang/julia/pull/59908"
+  author: "aviatesk"
+  labels: []
+  merged_at: "2025-10-20T17:57:46Z"
+  merge_commit_sha: "c6091de0942ab75c9da18bbf1b49db1fb760e353"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59908.diff"
+scope:
+  files_touched:
+    - "Compiler/src/abstractinterpretation.jl"
+  components:
+    - "Compiler.AbstractInterpretation"
+  pipeline_stages:
+    - "TypeInference"
+    - "ConstProp"
+    - "AbstractInterpretation"
+analysis:
+  intent:
+    summary: "Allow external AbstractInterpreter implementations (notably JETAnalyzer) to cancel concrete evaluation ad-hoc and fall back to regular abstract interpretation when concrete evaluation throws, reducing false positives while keeping precision when concrete eval succeeds."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59884"
+  direct_changes:
+    - summary: "Guard the concrete-eval fast path so that a `nothing` result from `concrete_eval_call` is treated as an explicit cancellation instead of being returned, enabling fallback to const-prop / abstract interpretation."
+      component: "Compiler/src/abstractinterpretation.jl"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "865-881"
+          url: "https://github.com/JuliaLang/julia/blob/c6091de0942ab75c9da18bbf1b49db1fb760e353/Compiler/src/abstractinterpretation.jl#L865-L881"
+          snippet: |
+            function abstract_call_method_with_const_args(interp::AbstractInterpreter,
+                result::MethodCallResult, @nospecialize(f), arginfo::ArgInfo, si::StmtInfo,
+                match::MethodMatch, sv::AbsIntState, invokecall::Union{Nothing,InvokeCall}=nothing)
+                if bail_out_const_call(interp, result, si, match, sv)
+                    return nothing
+                end
+                eligibility = concrete_eval_eligible(interp, f, result, arginfo, sv)
+                concrete_eval_result = nothing
+                if eligibility === :concrete_eval
+                    concrete_eval_result = concrete_eval_call(interp, f, result, arginfo, sv, invokecall)
+                    if (concrete_eval_result !== nothing &&  # allow external abstract interpreters to disable concrete evaluation ad-hoc
+                        # if we don't inline the result of this concrete evaluation,
+                        # give const-prop' a chance to inline a better method body
+                        (!may_optimize(interp) ||
+                         may_inline_concrete_result(concrete_eval_result.const_result::ConcreteResult) ||
+                         concrete_eval_result.rt === Bottom)) # unless this call deterministically throws and thus is non-inlineable
+                        return concrete_eval_result
+                    end
+                    # TODO allow semi-concrete interp for this call?
+                end
+    - summary: "Existing regression tests show how custom AbstractInterpreter implementations override abstract-eval hooks, providing the baseline extension point that this PR expands (concrete-eval cancellation)."
+      component: "Compiler/test/AbstractInterpreter.jl"
+      evidence:
+        - source: "test"
+          path: "Compiler/test/AbstractInterpreter.jl"
+          loc: "171-190"
+          url: "https://github.com/JuliaLang/julia/blob/c6091de0942ab75c9da18bbf1b49db1fb760e353/Compiler/test/AbstractInterpreter.jl#L171-L190"
+          snippet: |
+            # GPUCompiler needs accurate inference through kwfunc with the overlay of `Core.throw_inexacterror`
+            # https://github.com/JuliaLang/julia/issues/48097
+            @newinterp Issue48097Interp
+            @MethodTable ISSUE_48097_MT
+            Compiler.method_table(interp::Issue48097Interp) = Compiler.OverlayMethodTable(Compiler.get_inference_world(interp), ISSUE_48097_MT)
+            function Compiler.concrete_eval_eligible(interp::Issue48097Interp,
+                @nospecialize(f), result::Compiler.MethodCallResult, arginfo::Compiler.ArgInfo, sv::Compiler.AbsIntState)
+                ret = @invoke Compiler.concrete_eval_eligible(interp::Compiler.AbstractInterpreter,
+                    f::Any, result::Compiler.MethodCallResult, arginfo::Compiler.ArgInfo, sv::Compiler.AbsIntState)
+                if ret === :semi_concrete_eval
+                    # disable semi-concrete interpretation
+                    return :none
+                end
+                return ret
+            end
+            @overlay ISSUE_48097_MT @noinline Core.throw_inexacterror(f::Symbol, ::Type{T}, val) where {T} = return
+            issue48097(; kwargs...) = return 42
+            @test fully_eliminated(; interp=Issue48097Interp(), retval=42) do
+                issue48097(; a=1f0, b=1.0)
+            end
+  secondary_effects:
+    - effect: "External interpreters can now cancel concrete evaluation per-call, forcing fallback to const-prop/abstract interpretation when concrete evaluation throws or is otherwise undesirable (e.g., JETAnalyzer error reporting)."
+      mechanism: |
+        abstract_call_method_with_const_args(...)  [abstractinterpretation.jl:865-899]
+          -> concrete_eval_call(...)  [abstractinterpretation.jl:997-1018]
+          -> if concrete_eval_result !== nothing then return it
+          -> else proceed to maybe_get_const_prop_profitable(...) and const_prop_call(...)
+        The new `concrete_eval_result !== nothing` guard makes `nothing` a cancellation signal.
+      downstream_surfaces:
+        - "AbstractInterpreter implementors that override concrete_eval_call (e.g., JETAnalyzer)"
+        - "Tools relying on const-prop fallback for diagnostics (JET, custom analyzers)"
+        - "Overlay-based inference stacks (GPUCompiler/CUDA-style overlays)"
+      likelihood: "medium"
+      impact: "medium"
+  compatibility:
+    internal_api:
+      - field: "Compiler.concrete_eval_call(::AbstractInterpreter, ...) return contract"
+        change: "Return value may now be `nothing` to signal cancellation; callers treat `nothing` as a request to skip concrete evaluation and continue with const-prop."
+        affected_tools:
+          - tool: "Custom AbstractInterpreter implementations"
+            usage: "Tests in Compiler/test/AbstractInterpreter.jl show downstream-style interpreters overriding abstract interpretation hooks; these can now override concrete_eval_call similarly."
+    behavioral:
+      - change: "Inference paths may skip concrete evaluation when external interpreters opt out, potentially widening return types or changing diagnostic output compared to always returning the concrete-eval result."
+        affected_surfaces:
+          - "JETAnalyzer error reporting"
+          - "Const-prop driven inlining decisions"
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: negligible (<1%); one extra branch and null-check in a hot abstract interpretation path when concrete eval is eligible."
+    runtime:
+      - impact: "No direct runtime codegen changes; behavior is limited to inference/analysis time." 
+  risk:
+    level: "low"
+    rationale:
+      - "Change is narrowly scoped to a guard around concrete evaluation results."
+      - "Default interpreter behavior unchanged because Base concrete_eval_call never returns nothing."
+  open_questions:
+    - "No Julia test explicitly exercises concrete_eval_call returning nothing; should a targeted regression test be added for the new cancellation hook?"
+  recommendations:
+    - "Add a small AbstractInterpreter test that overrides concrete_eval_call to return nothing on specific errors and asserts fallback to const-prop."

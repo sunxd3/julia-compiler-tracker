@@ -1,0 +1,427 @@
+schema_version: "1.0"
+pr:
+  number: 60018
+  title: "Provide mechanism for Julia syntax evolution"
+  url: "https://github.com/JuliaLang/julia/pull/60018"
+  author: "Keno"
+  labels: []
+  merged_at: "2025-11-25T23:14:24Z"
+  merge_commit_sha: "3484331c"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60018.diff"
+scope:
+  files_touched:
+    - "base/meta.jl"
+    - "base/experimental.jl"
+    - "base/loading.jl"
+    - "JuliaSyntax/src/julia/parser.jl"
+    - "JuliaSyntax/src/integration/expr.jl"
+    - "JuliaLowering/src/eval.jl"
+    - "src/ast.c"
+    - "src/toplevel.c"
+    - "test/loading.jl"
+  components:
+    - "JuliaSyntax"
+    - "JuliaLowering"
+    - "Compiler"
+    - "Interpreter"
+  pipeline_stages:
+    - "Parsing"
+    - "Lowering"
+    - "Code loading"
+    - "Runtime module setup"
+analysis:
+  intent:
+    summary: "Introduce syntax versioning for Julia code by routing parsing through a module-local parser hook, propagating parser version through module ASTs, and loading packages with syntax versions derived from Project/Manifest metadata."
+    issue_links: []
+  direct_changes:
+    - summary: "Parsing now consults a module-local parser binding (_internal_julia_parse) before falling back to Core._parse, enabling per-module syntax selection."
+      component: "base/meta.jl + src/ast.c"
+      evidence:
+        - source: "code"
+          path: "base/meta.jl"
+          loc: "307-313"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/base/meta.jl#L307-L313"
+          snippet: |
+            # N.B.: Should match definition in src/ast.c:jl_parse
+            function parser_for_module(mod::Union{Module, Nothing})
+                mod === nothing && return Core._parse
+                isdefined(mod, :_internal_julia_parse) ?
+                    getglobal(mod, :_internal_julia_parse) :
+                    Core._parse
+            end
+        - source: "code"
+          path: "src/ast.c"
+          loc: "1314-1323"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/src/ast.c#L1314-L1323"
+          snippet: |
+            jl_value_t *jl_parse(const char *text, size_t text_len, jl_value_t *filename,
+                                 size_t lineno, size_t offset, jl_value_t *options, jl_module_t *inmodule)
+            {
+                jl_value_t *parser = NULL;
+                if (inmodule) {
+                    parser = jl_get_global(inmodule, jl_symbol("_internal_julia_parse"));
+                }
+                if ((!parser || parser == jl_nothing) && jl_core_module) {
+                    parser = jl_get_global(jl_core_module, jl_symbol("_parse"));
+                }
+        - source: "rg"
+          path: "base/meta.jl, base/loading.jl, base/experimental.jl, src/ast.c"
+          loc: "rg -n \"_internal_julia_parse\" base src"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/"
+          snippet: |
+            base/meta.jl
+            310:    isdefined(mod, :_internal_julia_parse) ?
+            311:        getglobal(mod, :_internal_julia_parse) :
+
+            base/loading.jl
+            2733:global _internal_julia_parse = Core._parse
+            2907:    __toplevel__._internal_julia_parse = Experimental.VersionedParse(spec.julia_syntax_version)
+            2913:        __toplevel__._internal_julia_parse = Core._parse
+            3242:    __toplevel__._internal_julia_parse = Experimental.VersionedParse(syntax_version)
+
+            base/experimental.jl
+            780:    Core.declare_const(m, :_internal_julia_parse, parser)
+
+            src/ast.c
+            1319:        parser = jl_get_global(inmodule, jl_symbol("_internal_julia_parse"));
+    - summary: "Base.Experimental introduces VersionedParse and @set_syntax_version to bind _internal_julia_parse to a syntax-versioned parser hook."
+      component: "base/experimental.jl"
+      evidence:
+        - source: "code"
+          path: "base/experimental.jl"
+          loc: "749-781"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/base/experimental.jl#L749-L781"
+          snippet: |
+            struct VersionedParse
+                ver::VersionNumber
+            end
+
+            function (vp::VersionedParse)(code, filename::String, lineno::Int, offset::Int, options::Symbol)
+                if !isdefined(Base, :JuliaSyntax)
+                    if vp.ver === VERSION
+                        return Core._parse
+                    end
+                    error("JuliaSyntax module is required for syntax version $(vp.ver), but it is not loaded.")
+                end
+                Base.JuliaSyntax.core_parser_hook(code, filename, lineno, offset, options; syntax_version=vp.ver)
+            end
+
+            function Base.set_syntax_version(m::Module, ver::VersionNumber)
+                parser = VersionedParse(ver)
+                Core.declare_const(m, :_internal_julia_parse, parser)
+                #lowerer = VersionedLower(ver)
+                #Core.declare_const(m, :_internal_julia_lower, lowerer)
+                nothing
+            end
+    - summary: "Parser encodes syntax version into macrocall source locations and module nodes when parsing with JuliaSyntax >= 1.14."
+      component: "JuliaSyntax/src/julia/parser.jl + JuliaSyntax/src/integration/expr.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaSyntax/src/julia/parser.jl"
+          loc: "1499-1505"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/JuliaSyntax/src/julia/parser.jl#L1499-L1505"
+          snippet: |
+            function maybe_parsed_special_macro(ps, last_identifier_orig_kind)
+                is_syntax_version_macro = last_identifier_orig_kind == K"VERSION"
+                if is_syntax_version_macro && ps.stream.version >= (1, 14)
+                    # Encode the current parser version into an invisible token
+                    bump_invisible(ps, K"VERSION",
+                        set_numeric_flags(ps.stream.version[2] * 10))
+                end
+            end
+        - source: "code"
+          path: "JuliaSyntax/src/julia/parser.jl"
+          loc: "2079-2094"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/JuliaSyntax/src/julia/parser.jl#L2079-L2094"
+          snippet: |
+            if ps.stream.version >= (1, 14)
+                # Encode the parser version that parsed this module - the runtime
+                # will use this to set the same parser version for runtime `include`
+                # etc into this module.
+                bump_invisible(ps, K"VERSION",
+                    set_numeric_flags(ps.stream.version[2] * 10))
+            end
+            # module $A end  ==>  (module ($ A) (block))
+            parse_unary_prefix(ps)
+            parse_block(ps, parse_public)
+            bump_closing_token(ps, K"end")
+            emit(ps, mark, K"module",
+                 word == K"baremodule" ? BARE_MODULE_FLAG : EMPTY_FLAGS)
+        - source: "code"
+          path: "JuliaSyntax/src/integration/expr.jl"
+          loc: "239-242"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/JuliaSyntax/src/integration/expr.jl#L239-L242"
+          snippet: |
+            elseif k == K"VERSION"
+                nv = numeric_flags(flags(nodehead))
+                return VersionNumber(1, nv ÷ 10, nv % 10)
+        - source: "code"
+          path: "JuliaSyntax/src/integration/expr.jl"
+          loc: "363-367"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/JuliaSyntax/src/integration/expr.jl#L363-L367"
+          snippet: |
+            if kind(secondchildhead) == K"VERSION"
+                # Encode the syntax version into `loc` so that the argument order
+                # matches what ordinary macros expect.
+                loc = Core.MacroSource(loc, popat!(args, 2))
+            end
+    - summary: "Lowering recognizes module ASTs with an optional VERSION node, carries syntax version into begin_module, and runtime module setup receives it."
+      component: "JuliaLowering/src/eval.jl + src/toplevel.c"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/eval.jl"
+          loc: "72-92"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/JuliaLowering/src/eval.jl#L72-L92"
+          snippet: |
+            elseif k == K"module"
+                name_or_version = ex[1]
+                version = nothing
+                if kind(name_or_version) == K"VERSION"
+                    version = name_or_version.value
+                    name = ex[2]
+                else
+                    name = name_or_version
+                end
+                if kind(name) != K"Identifier"
+                    throw(LoweringError(name, "Expected module name"))
+                end
+                newmod_name = Symbol(name.name_val)
+                body = ex[end]
+                if kind(body) != K"block"
+                    throw(LoweringError(body, "Expected block in module body"))
+                end
+                std_defs = !has_flags(ex, JuliaSyntax.BARE_MODULE_FLAG)
+                loc = source_location(LineNumberNode, ex)
+                push!(iter.todo, (body, true, 1))
+                return Core.svec(:begin_module, version, newmod_name, std_defs, loc)
+        - source: "code"
+          path: "JuliaLowering/src/eval.jl"
+          loc: "476-480"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/JuliaLowering/src/eval.jl#L476-L480"
+          snippet: |
+            elseif type == :begin_module
+                filename = something(thunk[5].file, :none)
+                mod = @ccall jl_begin_new_module(
+                    modules[end]::Any, thunk[3]::Symbol, thunk[2]::Any, thunk[4]::Cint,
+                    filename::Cstring, thunk[5].line::Cint)::Module
+        - source: "code"
+          path: "src/toplevel.c"
+          loc: "114-155"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/src/toplevel.c#L114-L155"
+          snippet: |
+            JL_DLLEXPORT void jl_setup_new_module(jl_module_t *m, jl_value_t *syntax_version)
+            {
+                jl_task_t *ct = jl_current_task;
+                size_t last_age = ct->world_age;
+                ct->world_age = jl_atomic_load_acquire(&jl_world_counter);
+                jl_value_t *f = jl_get_global_value(jl_base_module, jl_symbol("_setup_module!"), ct->world_age);
+                if (f != NULL) {
+                    jl_value_t **fargs;
+                    JL_GC_PUSHARGS(fargs, 3);
+                    fargs[0] = f;
+                    fargs[1] = (jl_value_t*)m;
+                    fargs[2] = syntax_version;
+                    jl_apply(fargs, 3);
+                    JL_GC_POP();
+                }
+                ct->world_age = last_age;
+            }
+
+            JL_DLLEXPORT jl_module_t *jl_begin_new_module(jl_module_t *parent_module, jl_sym_t *name, jl_value_t *syntax_version,
+                                                          int std_imports, const char *filename, int lineno)
+            {
+                jl_task_t *ct = jl_current_task;
+                int is_parent__toplevel__ = jl_is__toplevel__mod(parent_module, ct);
+                jl_module_t *newm = jl_new_module_(name, is_parent__toplevel__ ? NULL : parent_module, std_imports && jl_base_module != NULL ? 0 : 1, 1);
+                jl_value_t *form = (jl_value_t*)newm;
+                JL_GC_PUSH1(&form);
+                JL_LOCK(&jl_modules_mutex);
+                ptrhash_put(&jl_current_modules, (void*)newm, (void*)((uintptr_t)HT_NOTFOUND + 1));
+                JL_UNLOCK(&jl_modules_mutex);
+                newm->uuid = parent_module->uuid;
+                newm->file = jl_symbol(filename);
+                jl_gc_wb_knownold(newm, newm->file);
+                newm->line = lineno;
+
+                // add standard imports unless baremodule
+                if (std_imports && jl_base_module != NULL) {
+                    jl_setup_new_module(newm, syntax_version);
+                }
+    - summary: "Package loading now derives a syntax version from Project.toml/Manifest metadata and uses VersionedParse during include; tests exercise implicit/explicit environments."
+      component: "base/loading.jl + test/loading.jl"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "908-916"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/base/loading.jl#L908-L916"
+          snippet: |
+            const NON_VERSIONED_SYNTAX = v"1.13"
+
+            function project_get_syntax_version(d::Dict)
+                # Syntax Evolution. First check syntax.julia_version entry
+                sv = nothing
+                ds = get(d, "syntax", nothing)
+                if ds !== nothing
+                    sv = VersionNumber(get(ds, "julia_version", nothing))
+                end
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "927-935"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/base/loading.jl#L927-L935"
+          snippet: |
+                # Finally, if neither of those are set, default to the current Julia version.
+                # N.B.: This choice is less "compatible" than defaulting to a fixed older version.
+                # However, it avoids surprises from moving over scripts and REPL code to packages
+                if sv === nothing
+                    sv = VERSION
+                elseif sv <= NON_VERSIONED_SYNTAX
+                    # Syntax versioning was first introduced in Julia 1.14 - we do not support
+                    # going back to versions before syntax version 1.13.
+                    sv = NON_VERSIONED_SYNTAX
+                end
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "2900-2914"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/base/loading.jl#L2900-L2914"
+          snippet: |
+            # just load the file normally via include
+            # for unknown dependencies
+            uuid = pkg.uuid
+            uuid = (uuid === nothing ? (UInt64(0), UInt64(0)) : convert(NTuple{2, UInt64}, uuid))
+            old_uuid = ccall(:jl_module_uuid, NTuple{2, UInt64}, (Any,), __toplevel__)
+            if uuid !== old_uuid
+                ccall(:jl_set_module_uuid, Cvoid, (Any, NTuple{2, UInt64}), __toplevel__, uuid)
+            end
+            __toplevel__._internal_julia_parse = Experimental.VersionedParse(spec.julia_syntax_version)
+            unlock(require_lock)
+            try
+                include(__toplevel__, path)
+                loaded = maybe_root_module(pkg)
+            finally
+                __toplevel__._internal_julia_parse = Core._parse
+        - source: "code"
+          path: "test/loading.jl"
+          loc: "1882-1912"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/test/loading.jl#L1882-L1912"
+          snippet: |
+            @testset "Syntax Versioning" begin
+                old_load_path = copy(LOAD_PATH)
+                try
+                    # Test implicit environments (packages loaded from directories)
+                    push!(LOAD_PATH, joinpath(@__DIR__, "project", "SyntaxVersioning", "implicit"))
+                    # Explicit syntax.julia_version = "1.13"
+                    @test invokelatest(getglobal, (@eval (using Versioned1; Versioned1)), :ver) == v"1.13"
+                    # Explicit syntax.julia_version = "1.14"
+                    @test invokelatest(getglobal, (@eval (using Versioned2; Versioned2)), :ver) == v"1.14"
+                    # Inherited from compat.julia = "1.13-2"
+                    @test invokelatest(getglobal, (@eval (using Versioned3; Versioned3)), :ver) == v"1.13"
+                    # No syntax.julia_version, falls back to current VERSION
+                    @test invokelatest(getglobal, (@eval (using Versioned4; Versioned4)), :ver) == VersionNumber(VERSION.major, VERSION.minor)
+                    # Inherited from compat.julia = "1.14-2"
+                    @test invokelatest(getglobal, (@eval (using Versioned5; Versioned5)), :ver) == v"1.14"
+                finally
+                    copy!(LOAD_PATH, old_load_path)
+                end
+
+                # Test explicit environments (packages loaded from Manifest.toml)
+                old_load_path = copy(LOAD_PATH)
+                old_active_project = Base.ACTIVE_PROJECT[]
+                try
+                    explicit_env = joinpath(@__DIR__, "project", "SyntaxVersioning", "explicit")
+                    Base.ACTIVE_PROJECT[] = joinpath(explicit_env, "Project.toml")
+                    empty!(LOAD_PATH)
+                    push!(LOAD_PATH, "@")
+                    # syntax.julia_version from Manifest = "1.13"
+                    @test invokelatest(getglobal, (@eval (using VersionedDep1; VersionedDep1)), :ver) == v"1.13"
+                    # syntax.julia_version from Manifest = "1.14"
+                    @test invokelatest(getglobal, (@eval (using VersionedDep2; VersionedDep2)), :ver) == v"1.14"
+                finally
+                    Base.ACTIVE_PROJECT[] = old_active_project
+                    copy!(LOAD_PATH, old_load_path)
+                end
+            end
+    - summary: "JuliaLowering tests confirm module ASTs now include a VERSION node when parsed with 1.14 syntax."
+      component: "JuliaLowering/test/macros.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/test/macros.jl"
+          loc: "426-438"
+          url: "https://github.com/JuliaLang/julia/blob/3484331c/JuliaLowering/test/macros.jl#L426-L438"
+          snippet: |
+            # module
+            @test JuliaLowering.include_string(test_mod, raw"""
+            let x = :(AA)
+                :(module $x
+                end
+                )
+            end
+            """) ≈ @ast_ [K"module"
+                v"1.14.0"::K"VERSION"
+                "AA"::K"Identifier"
+                [K"block"
+                ]
+            ]
+  secondary_effects:
+    - effect: "Macros named @VERSION receive a MacroSource with syntax version, enabling version-aware macro expansion while preserving ordinary macro argument order."
+      mechanism: |
+        maybe_parsed_special_macro() in JuliaSyntax/parser.jl emits an invisible K"VERSION" token for @VERSION calls when syntax >= 1.14 [parser.jl:1499-1505]
+        -> node_to_expr() converts K"VERSION" into a VersionNumber leaf [expr.jl:239-242]
+        -> _node_to_expr() sees secondchildhead == K"VERSION" and wraps loc in Core.MacroSource, inserting it into macrocall args [expr.jl:363-367]
+        -> Base.Experimental.@VERSION reads MacroSource.syntax_ver to surface syntax version [experimental.jl:834-840]
+      downstream_surfaces:
+        - "Macro authors relying on @VERSION to gate syntax-sensitive transformations"
+        - "Tooling that inspects MacroSource vs LineNumberNode"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "Module creation records a syntax version, allowing include/eval inside the module to use a matching parser version."
+      mechanism: |
+        parser emits invisible K"VERSION" before module name for syntax >= 1.14 [parser.jl:2079-2094]
+        -> JuliaLowering.lower_step recognizes optional VERSION and emits Core.svec(:begin_module, version, newmod_name, std_defs, loc) [eval.jl:72-92]
+        -> jl_begin_new_module receives syntax_version and passes it to jl_setup_new_module [toplevel.c:114-155]
+        -> jl_setup_new_module calls Base._setup_module!(m, syntax_version) [toplevel.c:114-127]
+      downstream_surfaces:
+        - "Code loading via include/require inside modules"
+        - "Packages that introspect module syntax settings"
+      likelihood: "medium"
+      impact: "medium"
+    - effect: "Package loading respects syntax.julia_version/compat.julia and sets module parser hook accordingly, which may change parsing of package source relative to REPL default."
+      mechanism: |
+        project_get_syntax_version() resolves syntax.julia_version or compat.julia minima, with fallback to VERSION [loading.jl:908-937]
+        -> _require_from_serialized / include path sets __toplevel__._internal_julia_parse = VersionedParse(spec.julia_syntax_version) for include [loading.jl:2900-2914]
+        -> jl_parse consults module-local _internal_julia_parse before Core._parse [ast.c:1314-1323]
+      downstream_surfaces:
+        - "Packages using previously ambiguous/buggy syntax that will be gated by syntax version"
+        - "Tools that parse package source outside of Base.require may need to set syntax version explicitly"
+      likelihood: "high"
+      impact: "medium"
+  compatibility:
+    internal_api:
+      - field: "Module._internal_julia_parse"
+        change: "New module-local parser hook consulted by Meta.parse and jl_parse; set via Base.Experimental.set_syntax_version and load pipeline."
+        affected_tools:
+          - tool: "Custom loaders / static analyzers"
+            usage: "Tools that call Meta.parse with a module may need to honor module-local parser version."
+      - field: "Expr(:module) argument order"
+        change: "Module expressions may include a leading VersionNumber (from K\"VERSION\") when parsed under syntax >= 1.14."
+        affected_tools:
+          - tool: "Macro tooling / IR transforms"
+            usage: "Code expecting Expr(:module, name, body) must handle Expr(:module, ver, name, body)."
+    behavioral:
+      - "Packages with syntax.julia_version set may parse differently than the REPL when loaded, by design."
+      - "@VERSION macro receives syntax info via Core.MacroSource only when parsed with syntax >= 1.14; older syntax returns a default v\"1.13\"."
+  performance:
+    compile_time:
+      - "ESTIMATED: Minimal overhead per parse from an extra module-global lookup and potential VersionedParse wrapper dispatch." 
+    runtime:
+      - "No direct runtime overhead expected for non-parsing code; module setup adds one extra argument flow to jl_begin_new_module/jl_setup_new_module." 
+  risk:
+    level: "medium"
+    rationale:
+      - "Syntax versioning affects how package source is parsed and could surface latent syntax ambiguities when packages opt into newer versions."
+      - "Internal AST shape change for :module may require downstream macro tooling adjustments."
+  open_questions:
+    - "How should non-JuliaSyntax parsers (e.g., flisp bootstrap parser) expose or ignore syntax versions beyond 1.13?"
+    - "When should VersionedLower be enabled alongside VersionedParse (currently commented out)?"
+  recommendations:
+    - "Downstream macro/AST tools should accept both (module name body) and (module version name body) forms when targeting Julia 1.14+."
+    - "Package loaders or analysis tools should call Base.set_syntax_version or respect syntax.julia_version when parsing sources out of band."

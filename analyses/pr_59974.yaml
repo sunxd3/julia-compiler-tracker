@@ -1,0 +1,154 @@
+schema_version: "1.0"
+pr:
+  number: 59974
+  title: "inference: revisit all methods in cycle"
+  url: "https://github.com/JuliaLang/julia/pull/59974"
+  author: "vtjnash"
+  labels:
+    - "compiler:inference"
+    - "backport 1.10"
+    - "backport 1.11"
+  merged_at: "2025-11-01T02:52:03Z"
+  merge_commit_sha: "f4847bf687ab0fa37fdcd237512d5ec6486ae788"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59974.diff"
+scope:
+  files_touched:
+    - "Compiler/src/typeinfer.jl"
+  components:
+    - "Compiler"
+  pipeline_stages:
+    - "TypeInference"
+analysis:
+  intent:
+    summary: "Ensure inference revisits all methods participating in recursive cycles so cached results do not get stuck at Union{}; keep cycle backedges lazy to avoid extra allocations."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59943"
+  direct_changes:
+    - summary: "Cycle merging now only normalizes cycle IDs; it no longer adds backedges during the merge walk."
+      component: "Compiler/src/typeinfer.jl"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/typeinfer.jl"
+          loc: "893-905"
+          url: "https://github.com/JuliaLang/julia/blob/f4847bf687ab0fa37fdcd237512d5ec6486ae788/Compiler/src/typeinfer.jl#L893-L905"
+          snippet: |
+            function merge_call_chain!(::AbstractInterpreter, parent::InferenceState, child::InferenceState)
+                # update all cycleid to be in the same group
+                frames = parent.callstack::Vector{AbsIntState}
+                @assert child.callstack === frames
+                ancestorid = child.cycleid
+                # ensure that walking the callstack has the same cycleid (DAG)
+                for frameid = reverse(ancestorid:length(frames))
+                    frame = frames[frameid]::InferenceState
+                    frame.cycleid == ancestorid && break
+                    @assert frame.cycleid > ancestorid
+                    frame.cycleid = ancestorid
+                end
+            end
+    - summary: "Adding a cycle backedge no longer updates caller world-age; it only records the (caller, pc) pair."
+      component: "Compiler/src/typeinfer.jl"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/typeinfer.jl"
+          loc: "907-910"
+          url: "https://github.com/JuliaLang/julia/blob/f4847bf687ab0fa37fdcd237512d5ec6486ae788/Compiler/src/typeinfer.jl#L907-L910"
+          snippet: |
+            function add_cycle_backedge!(caller::InferenceState, frame::InferenceState)
+                backedge = (caller, caller.currpc)
+                contains_is(frame.cycle_backedges, backedge) || push!(frame.cycle_backedges, backedge)
+                return frame
+            end
+    - summary: "Cycle backedges are now recorded when returning results from cyclic inference, including the deferred task path."
+      component: "Compiler/src/typeinfer.jl"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/typeinfer.jl"
+          loc: "1096-1130"
+          url: "https://github.com/JuliaLang/julia/blob/f4847bf687ab0fa37fdcd237512d5ec6486ae788/Compiler/src/typeinfer.jl#L1096-L1130"
+          snippet: |
+            let mresult = Future{MethodCallResult}()
+                push!(caller.tasks, function get_infer_result(interp, caller)
+                    update_valid_age!(caller, frame.world.valid_worlds)
+                    local isinferred = is_inferred(frame)
+                    local edge = isinferred ? edge_ci : nothing
+                    local effects = isinferred ? frame.result.ipo_effects : # effects are adjusted already within `finish` for ipo_effects
+                        adjust_effects(effects_for_cycle(frame.ipo_effects), method)
+                    local bestguess = frame.bestguess
+                    local exc_bestguess = refine_exception_type(frame.exc_bestguess, effects)
+                    local volatile_inf_result = if isinferred && edge_ci isa CodeInstance
+                        result.ci_as_edge = edge_ci # set the edge for the inliner usage
+                        VolatileInferenceResult(result)
+                    end
+                    isinferred || add_cycle_backedge!(caller, frame)
+                    mresult[] = MethodCallResult(interp, caller, method, bestguess, exc_bestguess, effects,
+                        edge, edgecycle, edgelimited, volatile_inf_result)
+                    return true
+                end)
+                return mresult
+            end
+            update_valid_age!(caller, frame.world.valid_worlds)
+            effects = adjust_effects(effects_for_cycle(frame.ipo_effects), method)
+            bestguess = frame.bestguess
+            exc_bestguess = refine_exception_type(frame.exc_bestguess, effects)
+            add_cycle_backedge!(caller, frame)
+            return Future(MethodCallResult(interp, caller, method, bestguess, exc_bestguess, effects, nothing, edgecycle, edgelimited))
+  secondary_effects:
+    - effect: "All call sites in a recursion cycle are re-visited when cycle effects are finalized, avoiding stale cached results (e.g., Union{})."
+      mechanism: |
+        resolve_call_cycle!(interp, mi, caller)  [typeinfer.jl:928-951]
+          -> merge_call_chain!(interp, parent, frame)  [typeinfer.jl:893-905]
+          -> typeinf_edge(...)
+             adds backedges for each cycle participant via add_cycle_backedge!  [typeinfer.jl:1096-1130]
+          -> adjust_cycle_frame!(sv, cycle_valid_worlds, cycle_valid_effects)
+             walks sv.cycle_backedges to update call-site flags  [typeinfer.jl:316-328]
+      downstream_surfaces:
+        - "Inference caching and cycle revalidation"
+        - "Effects propagation through recursive call graphs"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "World-age updates for cycle callers are now tied to explicit inference result usage rather than cycle-merge bookkeeping."
+      mechanism: |
+        add_cycle_backedge! no longer updates valid age (typeinfer.jl:907-910)
+          -> update_valid_age!(caller, frame.world.valid_worlds) remains in typeinf_edge
+             before recording backedges (typeinfer.jl:1096-1130)
+      downstream_surfaces:
+        - "Inference world-range tracking for recursive edges"
+      likelihood: "medium"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "Recursive inference cycles now guarantee call-site backedges are recorded when results are consumed, reducing chances of caching bottom (Union{}) without re-visitation."
+        affected_surfaces:
+          - "Core.Compiler inference cache"
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: negligible; backedges are still created lazily, but now only at result consumption sites."
+    runtime:
+      - impact: "ESTIMATED: indirect improvements when recursive inference no longer caches Union{} and forces re-inference on call sites."
+  risk:
+    level: "medium"
+    rationale:
+      - "Touches recursion-cycle handling in type inference; changes which call sites are revalidated in cycles."
+      - "Behavioral change is localized to recursive/cyclic call graphs, but could affect inference stability."
+  open_questions:
+    - "Do we have a minimal reproducer for the cycle-within-cycle case described in #59943 to add as a regression test?"
+  recommendations:
+    - "Consider adding a focused regression test alongside existing cycle tests in Compiler/test/inference.jl to lock in the multi-cycle revisit behavior."
+    - "Downstream tooling that inspects inference cache stability should re-run tests that involve recursive inference (e.g., analysis of code_typed for recursive functions)."
+  evidence_tests:
+    - summary: "Existing regression test for recursion cycles and cached Union{} return types."
+      path: "Compiler/test/inference.jl"
+      loc: "1124-1133"
+      url: "https://github.com/JuliaLang/julia/blob/f4847bf687ab0fa37fdcd237512d5ec6486ae788/Compiler/test/inference.jl#L1124-L1133"
+      snippet: |
+        # issue #21653
+        # ensure that we don't try to resolve cycles using uncached edges
+        # but which also means we should still be storing the inference result from inferring the cycle
+        f21653() = f21653()
+        @test code_typed(f21653, Tuple{}, optimize=false)[1] isa Pair{CodeInfo, typeof(Union{})}
+        let meth = which(f21653, ())
+            tt = Tuple{typeof(f21653)}
+            mi = ccall(:jl_specializations_lookup, Any, (Any, Any), meth, tt)::Core.MethodInstance
+            @test mi.cache.rettype === Union{}
+        end

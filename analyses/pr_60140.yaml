@@ -1,0 +1,399 @@
+schema_version: "1.0"
+pr:
+  number: 60140
+  title: "[JuliaLowering] Fix placeholders in parameters and decls, work around `hasmethod`"
+  url: "https://github.com/JuliaLang/julia/pull/60140"
+  author: "mlechu"
+  labels: []
+  merged_at: "2025-11-18T17:40:36Z"
+  merge_commit_sha: "625e8c7d268cdb7b3d8f7b077f9005db13a519b1"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60140.diff"
+scope:
+  files_touched:
+    - "JuliaLowering/src/desugaring.jl"
+    - "JuliaLowering/src/macro_expansion.jl"
+    - "JuliaLowering/src/runtime.jl"
+    - "JuliaLowering/src/syntax_macros.jl"
+    - "JuliaLowering/test/closures_ir.jl"
+    - "JuliaLowering/test/decls.jl"
+    - "JuliaLowering/test/functions.jl"
+    - "JuliaLowering/test/functions_ir.jl"
+    - "JuliaLowering/test/generators_ir.jl"
+    - "JuliaLowering/test/hooks.jl"
+    - "JuliaLowering/test/misc_ir.jl"
+  components:
+    - "JuliaLowering"
+  pipeline_stages:
+    - "MacroExpansion"
+    - "Lowering"
+analysis:
+  intent:
+    summary: "Fix placeholder handling in parameters/decls, allow placeholder decls from destructuring, avoid hasmethod(world=typemax(UInt)) in macro expansion, align generated-function macro expansion world, and temporarily disable the JuliaLowering @atomic macro shim."
+    issue_links:
+      - "https://github.com/c42f/JuliaLowering.jl/issue/55"
+      - "https://github.com/JuliaLang/julia/pull/58803"
+      - "https://github.com/c42f/JuliaLowering.jl/issue/49"
+      - "https://github.com/JuliaLang/julia/issues/57497"
+      - "https://github.com/JuliaLang/julia/pull/59808"
+  direct_changes:
+    - summary: "Allow placeholder identifiers in typed assignments and decls by skipping type decl emission for `_::T = rhs` and tolerating placeholder decls in local/global forms."
+      component: "JuliaLowering desugaring"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "1347-1364"
+          url: "https://github.com/JuliaLang/julia/blob/625e8c7d268cdb7b3d8f7b077f9005db13a519b1/JuliaLowering/src/desugaring.jl#L1347-L1364"
+          snippet: |
+            elseif kl == K"::" && numchildren(lhs) == 2
+                x = lhs[1]
+                T = lhs[2]
+                res = if is_const
+                    expand_forms_2(ctx, @ast ctx ex [K"const"
+                        [K"="
+                             lhs[1]
+                             convert_for_type_decl(ctx, ex, rhs, T, true)
+                         ]])
+                elseif is_identifier_like(x)
+                    # Identifier in lhs[1] is a variable type declaration, eg
+                    # x::T = rhs
+                    @ast ctx ex [K"block"
+                        if kind(x) !== K"Placeholder"
+                             [K"decl" x T]
+                        end
+                        is_const ? [K"const" [K"=" x rhs]] : [K"=" x rhs]
+                    ]
+        - source: "code"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "2171-2214"
+          url: "https://github.com/JuliaLang/julia/blob/625e8c7d268cdb7b3d8f7b077f9005db13a519b1/JuliaLowering/src/desugaring.jl#L2171-L2214"
+          snippet: |
+            elseif k == K"Placeholder"
+                nothing
+            elseif (k === K"::" && numchildren(ex) === 2) || k in KSet"call curly where"
+                if type_decls
+                    @chk numchildren(ex) == 2
+                    name = ex[1]
+                    if kind(name) == K"Identifier"
+                        push!(stmts, makenode(ctx, ex, K"decl", name, ex[2]))
+                    else
+                        # TODO: Currently, this ignores the LHS in `_::T = val`.
+                        # We should probably do one of the following:
+                        # - Throw a LoweringError if that's not too breaking
+                        # - `convert(T, rhs)::T` and discard the result which is what
+                        #   `x::T = rhs` would do if x is never used again.
+                        @chk kind(name) == K"Placeholder"
+                        return
+                    end
+                end
+                make_lhs_decls(ctx, stmts, declkind, declmeta, ex[1], type_decls)
+            elseif k == K"tuple" || k == K"parameters"
+                for e in children(ex)
+                    make_lhs_decls(ctx, stmts, declkind, declmeta, e, type_decls)
+                end
+            else
+                throw(LoweringError(ex, "invalid kind $k in $declkind declaration"))
+            end
+
+            # Separate decls and assignments (which require re-expansion)
+            # local x, (y=2), z ==> local x; local z; y = 2
+            function expand_decls(ctx, ex)
+                declkind = kind(ex)
+                @assert declkind in KSet"local global"
+                declmeta = get(ex, :meta, nothing)
+                bindings = children(ex)
+                stmts = SyntaxList(ctx)
+                for binding in bindings
+                    if is_prec_assignment(kind(binding))
+                        @chk numchildren(binding) == 2
+                        # expand_assignment will create the type decls
+                        make_lhs_decls(ctx, stmts, declkind, declmeta, binding[1], false)
+                        push!(stmts, expand_assignment(ctx, binding))
+                    elseif is_sym_decl(binding) || kind(binding) in (K"Value", K"Placeholder")
+                        make_lhs_decls(ctx, stmts, declkind, declmeta, binding, true)
+                    elseif kind(binding) == K"function"
+                        make_lhs_decls(ctx, stmts, declkind, declmeta, binding[1], false)
+                        push!(stmts, expand_forms_2(ctx, binding))
+                    else
+                        throw(LoweringError(ex, "invalid syntax in variable declaration"))
+                    end
+                end
+    - summary: "Give positional placeholder arguments unique internal bindings (#argN#) while allowing duplicate positional placeholders; keep keyword placeholders as identifiers for uniqueness checking."
+      component: "JuliaLowering desugaring"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "2274-2340"
+          url: "https://github.com/JuliaLang/julia/blob/625e8c7d268cdb7b3d8f7b077f9005db13a519b1/JuliaLowering/src/desugaring.jl#L2274-L2340"
+          snippet: |
+            function expand_function_arg(ctx, body_stmts, arg, is_last_arg, is_kw, arg_id)
+                ex = arg
+
+                if kind(ex) == K"="
+                    default = ex[2]
+                    ex = ex[1]
+                else
+                    default = nothing
+                end
+
+                if kind(ex) == K"..."
+                    if !is_last_arg
+                        typmsg = is_kw ? "keyword" : "positional"
+                        throw(LoweringError(arg, "`...` may only be used for the last $typmsg argument"))
+                    end
+                    @chk numchildren(ex) == 1
+                    slurp_ex = ex
+                    ex = ex[1]
+                else
+                    slurp_ex = nothing
+                end
+
+                if kind(ex) == K"::"
+                    @chk numchildren(ex) in (1,2)
+                    if numchildren(ex) == 1
+                        type = ex[1]
+                        ex = @ast ctx ex "_"::K"Placeholder"
+                    else
+                        type = ex[2]
+                        ex = ex[1]
+                    end
+                    if is_kw && !isnothing(slurp_ex)
+                        throw(LoweringError(slurp_ex, "keyword argument with `...` may not be given a type"))
+                    end
+                else
+                    type = @ast ctx ex "Any"::K"core"
+                end
+                if !isnothing(slurp_ex)
+                    type = @ast ctx slurp_ex [K"curly" "Vararg"::K"core" type]
+                end
+
+                k = kind(ex)
+                if k == K"tuple" && !is_kw
+                    # Argument destructuring
+                    is_nospecialize = getmeta(arg, :nospecialize, false)
+                    name = new_local_binding(ctx, ex, "destructured_arg";
+                                             kind=:argument, is_nospecialize=is_nospecialize)
+                    push!(body_stmts, @ast ctx ex [
+                        K"local"(meta=CompileHints(:is_destructured_arg, true))
+                        [K"=" ex name]
+                    ])
+                elseif k == K"Placeholder"
+                    # Lowering should be able to use placeholder args as rvalues internally,
+                    # e.g. for kw method dispatch.  Duplicate positional placeholder names
+                    # should be allowed.
+                    name = if is_kw
+                        @ast ctx ex ex=>K"Identifier"
+                    else
+                        new_local_binding(ctx, ex, "#arg$(string(arg_id))#"; kind=:argument)
+                    end
+                elseif k == K"Identifier"
+                    name = ex
+                else
+                    throw(LoweringError(ex, is_kw ? "Invalid keyword name" : "Invalid function argument"))
+                end
+
+                return (name, type, default, !isnothing(slurp_ex))
+            end
+        - source: "code"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "2664-2673"
+          url: "https://github.com/JuliaLang/julia/blob/625e8c7d268cdb7b3d8f7b077f9005db13a519b1/JuliaLowering/src/desugaring.jl#L2664-L2673"
+          snippet: |
+            kw_values = SyntaxList(ctx)
+            kw_defaults = SyntaxList(ctx)
+            kw_names = SyntaxList(ctx)
+            kw_name_syms = SyntaxList(ctx)
+            has_kw_slurp = false
+            kwtmp = new_local_binding(ctx, keywords, "kwtmp")
+            for (i,arg) in enumerate(children(keywords))
+                (aname, atype, default, is_slurp) =
+                    expand_function_arg(ctx, nothing, arg, i == numchildren(keywords), true, i)
+                push!(kw_names, aname)
+        - source: "code"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "3052-3059"
+          url: "https://github.com/JuliaLang/julia/blob/625e8c7d268cdb7b3d8f7b077f9005db13a519b1/JuliaLowering/src/desugaring.jl#L3052-L3059"
+          snippet: |
+            body_stmts = SyntaxList(ctx)
+            has_slurp = false
+            first_default = 0 # index into arg_names/arg_types
+            arg_defaults = SyntaxList(ctx)
+            for (i,arg) in enumerate(args)
+                (aname, atype, default, is_slurp) =
+                    expand_function_arg(ctx, body_stmts, arg, i == length(args), false, i)
+        - source: "test"
+          path: "JuliaLowering/test/functions_ir.jl"
+          loc: "926-940"
+          url: "https://github.com/JuliaLang/julia/blob/625e8c7d268cdb7b3d8f7b077f9005db13a519b1/JuliaLowering/test/functions_ir.jl#L926-L940"
+          snippet: |
+            ########################################
+            # Duplicate positional placeholders ok
+            function f(_, _); end
+            #---------------------
+            1   (method TestMod.f)
+            2   latestworld
+            3   TestMod.f
+            4   (call core.Typeof %₃)
+            5   (call core.svec %₄ core.Any core.Any)
+            6   (call core.svec)
+            7   SourceLocation::1:10
+            8   (call core.svec %₅ %₆ %₇)
+            9   --- method core.nothing %₈
+                slots: [slot₁/#self#(!read) slot₂/#arg1#(!read) slot₃/#arg2#(!read)]
+                1   (return core.nothing)
+    - summary: "Normalize placeholder identifiers during macro-expansion and avoid hasmethod(world=typemax(UInt)) by using a no-world fallback when macro_world is the 'latest' world."
+      component: "JuliaLowering macro expansion"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/macro_expansion.jl"
+          loc: "257-279"
+          url: "https://github.com/JuliaLang/julia/blob/625e8c7d268cdb7b3d8f7b077f9005db13a519b1/JuliaLowering/src/macro_expansion.jl#L257-L279"
+          snippet: |
+            function expand_macro(ctx, ex)
+                @assert kind(ex) == K"macrocall"
+
+                macname = ex[1]
+                mctx = MacroContext(ctx.graph, ex, current_layer(ctx), ctx.expr_compat_mode)
+                macfunc = eval_macro_name(ctx, mctx, macname)
+                raw_args = ex[2:end]
+                macro_loc = let loc = source_location(LineNumberNode, ex)
+                    # Some macros, e.g. @cmd, don't play nicely with file == nothing
+                    isnothing(loc.file) ? LineNumberNode(loc.line, :none) : loc
+                end
+                # We use a specific well defined world age for the next checks and macro
+                # expansion invocations. This avoids inconsistencies if the latest world
+                # age changes concurrently.
+                #
+                # TODO: Allow this to be passed in
+                # TODO: hasmethod always returns false for our `typemax(UInt)` meaning
+                # "latest world," which we shouldn't be using.
+                has_new_macro = ctx.macro_world === typemax(UInt) ?
+                    hasmethod(macfunc, Tuple{typeof(mctx), typeof.(raw_args)...}) :
+                    hasmethod(macfunc, Tuple{typeof(mctx), typeof.(raw_args)...}; world=ctx.macro_world)
+
+                if has_new_macro
+        - source: "code"
+          path: "JuliaLowering/src/macro_expansion.jl"
+          loc: "390-403"
+          url: "https://github.com/JuliaLang/julia/blob/625e8c7d268cdb7b3d8f7b077f9005db13a519b1/JuliaLowering/src/macro_expansion.jl#L390-L403"
+          snippet: |
+            function expand_forms_1(ctx::MacroExpansionContext, ex::SyntaxTree)
+                k = kind(ex)
+                if k == K"Identifier"
+                    name_str = ex.name_val
+                    if is_ccall_or_cglobal(name_str)
+                        # Lower special identifiers `cglobal` and `ccall` to `K"core"`
+                        # pseudo-refs very early so that cglobal and ccall can never be
+                        # turned into normal bindings (eg, assigned to)
+                        @ast ctx ex name_str::K"core"
+                    else
+                        k = all(==('_'), name_str) ? K"Placeholder" : K"Identifier"
+                        scope_layer = get(ex, :scope_layer, current_layer_id(ctx))
+                        makeleaf(ctx, ex, ex; kind=k, scope_layer)
+                    end
+    - summary: "Generated-function macro expansion now uses tls_world_age() instead of typemax(UInt), aligning with Core.GeneratedFunctionStub and affecting which macro methods are seen."
+      component: "JuliaLowering runtime"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/runtime.jl"
+          loc: "321-326"
+          url: "https://github.com/JuliaLang/julia/blob/625e8c7d268cdb7b3d8f7b077f9005db13a519b1/JuliaLowering/src/runtime.jl#L321-L326"
+          snippet: |
+            __module__ = source.module
+
+            # Macro expansion. Note that we expand in `tls_world_age()` (see
+            # Core.GeneratedFunctionStub)
+            macro_world = Base.tls_world_age()
+            ctx1 = MacroExpansionContext(graph, __module__, false, macro_world)
+    - summary: "Disable the JuliaLowering @atomic macro shim pending full feature parity with Base @atomic forms."
+      component: "JuliaLowering syntax macros"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/syntax_macros.jl"
+          loc: "32-41"
+          url: "https://github.com/JuliaLang/julia/blob/625e8c7d268cdb7b3d8f7b077f9005db13a519b1/JuliaLowering/src/syntax_macros.jl#L32-L41"
+          snippet: |
+            function Base.var"@nospecialize"(__context__::MacroContext, ex, exs...)
+                # TODO support multi-arg version properly
+                _apply_nospecialize(__context__, ex)
+            end
+
+            # TODO: support all forms that the original supports
+            # function Base.var"@atomic"(__context__::MacroContext, ex)
+            #     @chk kind(ex) == K"Identifier" || kind(ex) == K"::" (ex, "Expected identifier or declaration")
+            #     @ast __context__ __context__.macrocall [K"atomic" ex]
+            # end
+        - source: "test"
+          path: "JuliaLowering/test/misc_ir.jl"
+          loc: "256-263"
+          url: "https://github.com/JuliaLang/julia/blob/625e8c7d268cdb7b3d8f7b077f9005db13a519b1/JuliaLowering/test/misc_ir.jl#L256-L263"
+          snippet: |
+            ########################################
+            # Error: @atomic in wrong position
+            let
+                @atomic x
+            end
+            #---------------------
+            LoweringError:
+            #= none:2 =# - unimplemented or unsupported atomic declaration
+  secondary_effects:
+    - effect: "Slot names for placeholder positional arguments become stable internal identifiers (#argN#), affecting IR and reflection outputs that surface slot names."
+      mechanism: |
+        expand_forms_1() normalizes placeholder identifiers to K"Placeholder" nodes. [macro_expansion.jl:390-403]
+          -> expand_function_arg() assigns placeholder positional args a new_local_binding("#arg$(arg_id)#"), while keyword placeholders stay as identifiers. [desugaring.jl:2274-2333]
+          -> add_lambda_args() enforces uniqueness only for Identifier args, so the synthesized #argN# names avoid duplicate-name errors. [scope_analysis.jl:181-200]
+      downstream_surfaces:
+        - "CodeInfo slotnames / IR dumps (affects IRTools.jl / JET.jl output comparisons)"
+        - "MacroTools/IR printers that expect '_' placeholder slot names"
+      likelihood: "high"
+      impact: "low"
+    - effect: "Placeholder decls in local/global now drop type assertions for `_::T` and `_::T = rhs`, which can elide intended convert/typeassert side effects in destructuring-heavy code." 
+      mechanism: |
+        expand_assignment() skips emitting K"decl" when lhs is a placeholder. [desugaring.jl:1347-1364]
+          -> make_lhs_decls() returns early for placeholder-typed decls and explicitly notes that `_::T = val` ignores the LHS. [desugaring.jl:2171-2185]
+      downstream_surfaces:
+        - "Destructuring assignments with typed placeholders in user code"
+        - "Static analysis tools that rely on decl nodes for type assertions"
+      likelihood: "medium"
+      impact: "medium"
+    - effect: "Macro expansion in generated functions now respects tls_world_age, so macro dispatch can differ from previous typemax(UInt) behavior (and interacts with hasmethod fallback logic)."
+      mechanism: |
+        GeneratedFunctionStub sets macro_world = Base.tls_world_age(). [runtime.jl:321-326]
+          -> expand_macro() uses ctx.macro_world for hasmethod checks and invoke_in_world, with a special-case fallback when macro_world == typemax(UInt). [macro_expansion.jl:257-279]
+      downstream_surfaces:
+        - "@generated functions that emit macro calls"
+        - "Packages that depend on macro methods appearing at the latest world age"
+      likelihood: "medium"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "CodeInfo.slotnames for placeholder args"
+        change: "Placeholder positional arguments are now named #argN# instead of '_' in lowered IR."
+        affected_tools:
+          - tool: "IRTools"
+            usage: "IRTools/IR printers display slotnames; tests comparing '_' placeholders may need updates."
+          - tool: "JET"
+            usage: "JET diagnostics include CodeInfo slotnames; placeholder names may shift in reports."
+    behavioral:
+      - field: "Placeholder decls with types"
+        change: "`global _::T = rhs` and `local _::T` are accepted but drop the type decl; conversions/assertions tied to `x::T` are not performed for `_`."
+      - field: "Macro expansion world for generated functions"
+        change: "Generated functions now expand macros at tls_world_age instead of typemax(UInt), so applicable macro methods may differ." 
+      - field: "@atomic macro handling"
+        change: "JuliaLowering no longer provides a custom @atomic macro shim; unsupported forms now error earlier in lowering."
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: negligible; placeholder arg binding adds one new_local_binding per placeholder and a conditional hasmethod branch in expand_macro."
+    runtime:
+      - impact: "ESTIMATED: none; changes affect lowering/macro expansion and IR names rather than runtime execution paths."
+  risk:
+    level: "medium"
+    rationale:
+      - "Dropping type declarations for placeholder decls can change semantics for code that expected conversion/typeassert side effects."
+      - "Generated-function macro expansion world age change could alter macro method dispatch in edge cases."
+  open_questions:
+    - "Should `_::T = rhs` perform `convert(T, rhs)::T` and discard the result, or should it error? (TODO noted in desugaring.)"
+    - "Is disabling the @atomic shim acceptable long-term, or should JuliaLowering mirror all Base @atomic forms before re-enabling?"
+  recommendations:
+    - "Update downstream IR snapshot tests to accept #argN# slot names for placeholder positional arguments."
+    - "Audit macro-heavy @generated functions for world-age-sensitive macro dispatch after tls_world_age alignment."
+    - "Decide semantics for typed placeholder decls to avoid silently dropping type assertions."

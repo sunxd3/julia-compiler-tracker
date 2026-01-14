@@ -1,0 +1,89 @@
+schema_version: "1.0"
+pr:
+  number: 60048
+  title: "Backports for 1.13.0-alpha1"
+  url: "https://github.com/JuliaLang/julia/pull/60048"
+  author: "KristofferC"
+  labels:
+    - "release"
+  merged_at: "2025-11-17T07:25:02Z"
+  merge_commit_sha: "25da06e0cd4e808466066639fd4bb03c709829c6"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60048.diff"
+scope:
+  files_touched:
+    - "Compiler/src/tfuncs.jl"
+    - "Compiler/test/effects.jl"
+  components:
+    - "Compiler.tfuncs"
+    - "Compiler.Effects"
+  pipeline_stages:
+    - "TypeInference"
+    - "Effects"
+analysis:
+  intent:
+    summary: "Backport compiler and runtime fixes for 1.13.0-alpha1, including correcting pointer arithmetic type inference for Const pointers and adding a regression test for null-pointer offset behavior."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60009"
+  direct_changes:
+    - summary: "Pointer arithmetic tfunc now widens Const pointers instead of returning the const lattice element, so inference yields a Ptr type rather than preserving a constant pointer value."
+      component: "Compiler.tfuncs"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/tfuncs.jl"
+          loc: "710-712"
+          url: "https://github.com/JuliaLang/julia/blob/25da06e0cd4e808466066639fd4bb03c709829c6/Compiler/src/tfuncs.jl#L710-L712"
+          snippet: |
+            @nospecs function pointerarith_tfunc(𝕃::AbstractLattice, ptr, offset)
+                return widenconst(ptr)
+            end
+    - summary: "Adds a regression test asserting pointer arithmetic on C_NULL produces the expected non-null offset pointer value."
+      component: "Compiler.Effects"
+      evidence:
+        - source: "test"
+          path: "Compiler/test/effects.jl"
+          loc: "1491-1495"
+          url: "https://github.com/JuliaLang/julia/blob/25da06e0cd4e808466066639fd4bb03c709829c6/Compiler/test/effects.jl#L1491-L1495"
+          snippet: |
+            # https://github.com/JuliaLang/julia/issues/60009
+            function null_offset(offset)
+                Ptr{UInt8}(C_NULL) + offset
+            end
+            @test null_offset(Int(100)) == Ptr{UInt8}(UInt(100))
+  secondary_effects:
+    - effect: "Type inference for add/sub on pointers no longer preserves Const pointer lattice elements, which can reduce constant propagation for pointer arithmetic but avoids incorrect constant results when offsets vary at runtime."
+      mechanism: |
+        add_tfunc(add_ptr, 2, 2, pointerarith_tfunc, 1)  [Compiler/src/tfuncs.jl:756]
+          -> pointerarith_tfunc(𝕃, ptr, offset)  [Compiler/src/tfuncs.jl:710-712]
+             now returns widenconst(ptr) instead of a Const lattice element
+          -> inference result for Ptr arithmetic becomes widened to Ptr{T}
+      downstream_surfaces:
+        - "Core.Compiler.tfuncs (type inference for pointer arithmetic)"
+        - "Const-prop dependent tooling (e.g., GPUCompiler / IRTools)"
+      likelihood: "medium"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "Core.Compiler.pointerarith_tfunc"
+        change: "Return value now uses widenconst(ptr) for Const pointers, reducing const-precision but avoiding incorrect Const pointer results."
+        affected_tools:
+          - tool: "GPUCompiler"
+            usage: "Relies on Core.Compiler inference results for pointer arithmetic when specializing GPU IR."
+          - tool: "IRTools"
+            usage: "Consumes Core.Compiler inference output when building IR-level transformations."
+    behavioral:
+      - area: "Pointer arithmetic on null pointers"
+        change: "Runtime result unchanged, but inference no longer forces Const pointer results; test now locks expected behavior for C_NULL offsets."
+  performance:
+    compile_time:
+      - impact: "Negligible (single widenconst call). ESTIMATED."
+    runtime:
+      - impact: "No runtime change expected; adjustment is to inference-only tfunc. ESTIMATED."
+  risk:
+    level: "low"
+    rationale:
+      - "Change is localized to an inference tfunc and validated by a new regression test."
+      - "Effect is limited to Const pointer lattice handling for add/sub pointer arithmetic."
+  open_questions:
+    - "Should other pointer-related tfuncs also widen Const inputs to avoid similar const-prop issues?"
+  recommendations:
+    - "Downstream tooling that depends on Const-prop of pointer arithmetic should account for widened results in inference outputs."

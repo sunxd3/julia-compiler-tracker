@@ -1,0 +1,132 @@
+schema_version: "1.0"
+pr:
+  number: 59996
+  title: "[backports-release-1.10] fix accidental save (and restore) of sigmask…"
+  url: "https://github.com/JuliaLang/julia/pull/59996"
+  author: "kpamnany"
+  labels: []
+  merged_at: "2025-11-04T17:36:29Z"
+  merge_commit_sha: "e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59996.diff"
+scope:
+  files_touched:
+    - "src/interpreter.c"
+  components:
+    - "Interpreter"
+  pipeline_stages:
+    - "Interpreter"
+analysis:
+  intent:
+    summary: "Stop the interpreter's try/enter path from saving and restoring the signal mask via jl_setjmp, which was observed to be accidental and potentially slow after #59878."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59878"
+      - "https://github.com/ericphanson/LicenseCheck.jl/issues/11"
+  direct_changes:
+    - summary: "Interpreter :enter now calls jl_setjmp with a 0 save-flag, preventing sigsetjmp from saving/restoring the signal mask during interpreter-managed try blocks."
+      component: "Interpreter"
+      evidence:
+        - source: "code"
+          path: "src/interpreter.c"
+          loc: "525-545"
+          url: "https://github.com/JuliaLang/julia/blob/e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5/src/interpreter.c#L525-L545"
+          snippet: |
+            size_t catch_ip = jl_unbox_long(jl_exprarg(stmt, 0)) - 1;
+            while (catch_ip < ns) {
+                jl_value_t *phicnode = jl_array_ptr_ref(stmts, catch_ip);
+                if (!jl_is_phicnode(phicnode))
+                    break;
+                jl_array_t *values = (jl_array_t*)jl_fieldref_noalloc(phicnode, 0);
+                for (size_t i = 0; i < jl_array_len(values); ++i) {
+                    jl_value_t *val = jl_array_ptr_ref(values, i);
+                    assert(jl_is_ssavalue(val));
+                    size_t upsilon = ((jl_ssavalue_t*)val)->id - 1;
+                    assert(jl_is_upsilonnode(jl_array_ptr_ref(stmts, upsilon)));
+                    s->locals[jl_source_nslots(s->src) + upsilon] = jl_box_ssavalue(catch_ip + 1);
+                }
+                s->locals[jl_source_nslots(s->src) + catch_ip] = NULL;
+                catch_ip += 1;
+            }
+            // store current top of exception stack for restore in pop_exception.
+            s->locals[jl_source_nslots(s->src) + ip] = jl_box_ulong(jl_excstack_state());
+            if (!jl_setjmp(__eh.eh_ctx, 0)) {
+                return eval_body(stmts, s, next_ip, toplevel);
+            }
+        - source: "rg"
+          path: "src/interpreter.c"
+          loc: "543"
+          url: "https://github.com/JuliaLang/julia/blob/e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5/src/interpreter.c#L543"
+          snippet: |
+            543:                if (!jl_setjmp(__eh.eh_ctx, 0)) {
+    - summary: "Existing interpreter tests exercise :enter/:leave (try/catch) paths, which are the control-flow sites affected by the setjmp behavior change."
+      component: "Interpreter"
+      evidence:
+        - source: "test"
+          path: "test/compiler/interpreter_exec.jl"
+          loc: "73-108"
+          url: "https://github.com/JuliaLang/julia/blob/e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5/test/compiler/interpreter_exec.jl#L73-L108"
+          snippet: |
+            let m = Meta.@lower 1 + 1
+                @assert Meta.isexpr(m, :thunk)
+                src = m.args[1]::Core.CodeInfo
+                src.code = Any[
+                    # block 1
+                    QuoteNode(:a),
+                    QuoteNode(:b),
+                    GlobalRef(@__MODULE__, :test29262),
+                    # block 2
+                    Expr(:enter, 11),
+                    # block 3
+                    Core.UpsilonNode(),
+                    Core.UpsilonNode(),
+                    Core.UpsilonNode(Core.SSAValue(2)),
+                    GotoIfNot(Core.SSAValue(3), 10),
+                    # block 4
+                    Core.UpsilonNode(Core.SSAValue(1)),
+                    # block 5
+                    Expr(:throw_undef_if_not, :expected, false),
+                    # block 6
+                    Core.PhiCNode(Any[Core.SSAValue(5), Core.SSAValue(7), Core.SSAValue(9)]), # NULL, :a, :b
+                    Core.PhiCNode(Any[Core.SSAValue(6)]), # NULL
+                    Expr(:leave, 1),
+                    # block 7
+                    ReturnNode(Core.SSAValue(11)),
+                ]
+                nstmts = length(src.code)
+                src.ssavaluetypes = Any[ Any for _ = 1:nstmts ]
+                src.codelocs = fill(Int32(1), nstmts)
+                src.inferred = true
+                Core.Compiler.verify_ir(Core.Compiler.inflate_ir(src))
+                global test29262 = true
+                @test :a === @eval $m
+                global test29262 = false
+                @test :b === @eval $m
+            end
+  secondary_effects:
+    - effect: "Interpreter try/enter no longer saves/restores the signal mask on entry, reducing overhead and avoiding unintended signal-mask restoration when unwinding interpreter frames."
+      mechanism: |
+        eval_body() handles Expr(:enter) in the interpreter loop and installs a handler, then
+        calls jl_setjmp(__eh.eh_ctx, 0) to establish the non-local return point.  [src/interpreter.c:525-545]
+        jl_setjmp(a, b) is defined to use sigsetjmp(a, b) on non-Windows platforms, so the
+        second argument controls whether the signal mask is saved/restored.  [src/julia.h:2131-2139]
+      downstream_surfaces:
+        - "Interpreter execution of try/catch and scope entry (Expr(:enter)/Expr(:leave))"
+        - "C-level signal mask interactions during interpreter unwinding"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - "Interpreter no longer preserves the signal mask across try/leave boundaries (aligned with sigsetjmp(..., 0) usage); observable only for code relying on signal mask side effects during interpreted control flow."
+  performance:
+    compile_time: []
+    runtime:
+      - "ESTIMATED: Slightly lower overhead per interpreter-entered try block by avoiding sigsetjmp signal-mask save/restore."
+  risk:
+    level: "low"
+    rationale:
+      - "Change is localized to interpreter :enter handling and mirrors common jl_setjmp(..., 0) usage elsewhere in the runtime."
+      - "No new tests added; behavior is exercised by existing interpreter_exec tests covering :enter/:leave control flow."
+  open_questions:
+    - "Should a targeted regression test be added to ensure interpreter try/leave does not alter the signal mask?"
+  recommendations:
+    - "If future signal-handling regressions appear, add a small interpreter test that asserts signal mask stability across Expr(:enter)/Expr(:leave) in interpreted code."

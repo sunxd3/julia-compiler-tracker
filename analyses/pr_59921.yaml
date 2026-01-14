@@ -1,0 +1,164 @@
+schema_version: "1.0"
+pr:
+  number: 59921
+  title: "Set types of boxed variables in `abstract_eval_nonlinearized_foreigncall_name`"
+  url: "https://github.com/JuliaLang/julia/pull/59921"
+  author: "JamesWrigley"
+  labels: []
+  merged_at: "2025-10-24T14:56:29Z"
+  merge_commit_sha: "3aea6638141da3169d9384ba1c20997bcd774486"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59921.diff"
+scope:
+  files_touched:
+    - "Compiler/src/abstractinterpretation.jl"
+  components:
+    - "Compiler.AbstractInterpretation"
+  pipeline_stages:
+    - "TypeInference"
+analysis:
+  intent:
+    summary: "Avoid invalidations in the inference path for nonlinearized foreigncall names by giving boxed closure variables concrete Future types."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59165"
+  direct_changes:
+    - summary: "Annotate the captured locals `ai` and `res` inside `abstract_eval_nonlinearized_foreigncall_name` as `Future`, preventing them from being boxed as `Any` in the evalargs closure."
+      component: "Compiler.AbstractInterpretation"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "3451-3486"
+          url: "https://github.com/JuliaLang/julia/blob/3aea6638141da3169d9384ba1c20997bcd774486/Compiler/src/abstractinterpretation.jl#L3451-L3486"
+          snippet: |
+            function abstract_eval_nonlinearized_foreigncall_name(
+                    interp::AbstractInterpreter, @nospecialize(e), sstate::StatementState, sv::InferenceState
+                )
+                if isexpr(e, :call)
+                    n = length(e.args)
+                    argtypes = Vector{Any}(undef, n)
+                    callresult = Future{CallMeta}()
+                    i::Int = 1
+                    nextstate::UInt8 = 0x0
+                    local ai::Future, res::Future
+                    function evalargs(interp, sv)
+                        if nextstate === 0x1
+                            @goto state1
+                        elseif nextstate === 0x2
+                            @goto state2
+                        end
+                        while i <= n
+                            ai = abstract_eval_nonlinearized_foreigncall_name(interp, e.args[i], sstate, sv)
+                            if !isready(ai)
+                                nextstate = 0x1
+                                return false
+                                @label state1
+                            end
+                            argtypes[i] = ai[].rt
+                            i += 1
+                        end
+                        res = abstract_call(interp, ArgInfo(e.args, argtypes), sstate, sv)
+                        if !isready(res)
+                            nextstate = 0x2
+                            return false
+                            @label state2
+                        end
+                        callresult[] = res[]
+                        return true
+                    end
+                    evalargs(interp, sv) || push!(sv.tasks, evalargs)
+                    return callresult
+                else
+                    return Future(abstract_eval_basic_statement(interp, e, sstate, sv))
+                end
+            end
+    - summary: "Call sites for `abstract_eval_nonlinearized_foreigncall_name`, showing its use from the foreigncall path and recursive evaluation."
+      component: "Compiler.AbstractInterpretation"
+      evidence:
+        - source: "rg"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "3447-3499"
+          snippet: |
+            3447:abstract_eval_nonlinearized_foreigncall_name(
+            3451:function abstract_eval_nonlinearized_foreigncall_name(
+            3468:                ai = abstract_eval_nonlinearized_foreigncall_name(interp, e.args[i], sstate, sv)
+            3497:        abstract_eval_nonlinearized_foreigncall_name(interp, callee.args[2], sstate, sv)
+            3499:            abstract_eval_nonlinearized_foreigncall_name(interp, callee.args[3], sstate, sv)
+    - summary: "Existing inference test that exercises foreigncall IR, providing a baseline behavior example (no change expected from this PR)."
+      component: "Compiler.AbstractInterpretation"
+      evidence:
+        - source: "test"
+          path: "Compiler/test/inference.jl"
+          loc: "3318-3322"
+          url: "https://github.com/JuliaLang/julia/blob/3aea6638141da3169d9384ba1c20997bcd774486/Compiler/test/inference.jl#L3318-L3322"
+          snippet: |
+            bar_inlining_apply() = Core._apply_iterate(iterate, Core._apply_iterate, (iterate,), (foo_inlining_apply,), ((1,),))
+            let ci = code_typed(bar_inlining_apply, Tuple{})[1].first
+                @test length(ci.code) == 2
+                @test ci.code[1].head === :foreigncall
+            end
+  secondary_effects:
+    - effect: "Lower chance of inference invalidations triggered by the evalargs task closure for nonlinearized foreigncall names, because captured slots are concretely typed as `Future` instead of `Any`."
+      mechanism: |
+        abstract_eval_foreigncall(...)  [abstractinterpretation.jl:3493-3503]
+          -> abstract_eval_nonlinearized_foreigncall_name(...)  [abstractinterpretation.jl:3497-3499]
+             defines evalargs closure with captured locals ai/res  [abstractinterpretation.jl:3460-3486]
+             -> captured slots now typed as Future (ai::Future, res::Future)
+        This reduces boxed-Any slot types in the closure environment, stabilizing inference for the evalargs task.
+      downstream_surfaces:
+        - "Core.Compiler.AbstractInterpreter task scheduling"
+        - "Inference cache stability for foreigncall name evaluation"
+      likelihood: "medium"
+      impact: "medium"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "No user-visible semantic change expected; this is a type-annotation in an internal inference helper."
+        evidence:
+          - source: "code"
+            path: "Compiler/src/abstractinterpretation.jl"
+            loc: "3451-3486"
+            url: "https://github.com/JuliaLang/julia/blob/3aea6638141da3169d9384ba1c20997bcd774486/Compiler/src/abstractinterpretation.jl#L3451-L3486"
+            snippet: |
+              callresult = Future{CallMeta}()
+              i::Int = 1
+              nextstate::UInt8 = 0x0
+              local ai::Future, res::Future
+              function evalargs(interp, sv)
+                  if nextstate === 0x1
+                      @goto state1
+                  elseif nextstate === 0x2
+                      @goto state2
+                  end
+                  while i <= n
+                      ai = abstract_eval_nonlinearized_foreigncall_name(interp, e.args[i], sstate, sv)
+                      if !isready(ai)
+                          nextstate = 0x1
+                          return false
+                          @label state1
+                      end
+                      argtypes[i] = ai[].rt
+                      i += 1
+                  end
+                  res = abstract_call(interp, ArgInfo(e.args, argtypes), sstate, sv)
+                  if !isready(res)
+                      nextstate = 0x2
+                      return false
+                      @label state2
+                  end
+                  callresult[] = res[]
+                  return true
+              end
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: no measurable compile-time cost; adds only concrete type annotations for captured locals."
+    runtime:
+      - impact: "ESTIMATED: reduces invalidation churn from inference tasks that traverse nonlinearized foreigncall names."
+  risk:
+    level: "low"
+    rationale:
+      - "Single-line type annotation in an internal inference helper; no control-flow changes."
+      - "No tests were modified; change is intended to stabilize inference state for existing behavior."
+  open_questions:
+    - "Should a regression test be added to assert that `abstract_eval_nonlinearized_foreigncall_name` no longer invalidates `isready` when loading Distributed?"
+  recommendations:
+    - "Consider adding a targeted inference invalidation test around foreigncall name evaluation to prevent regressions."
+    - "If future refactors remove the evalargs closure (as suggested in the PR description), verify that task scheduling still preserves this concrete typing."

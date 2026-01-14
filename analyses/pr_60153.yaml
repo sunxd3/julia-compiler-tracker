@@ -1,0 +1,164 @@
+schema_version: "1.0"
+pr:
+  number: 60153
+  title: "Use imperative form in docstrings"
+  url: "https://github.com/JuliaLang/julia/pull/60153"
+  author: "fingolfin"
+  labels: []
+  merged_at: "2025-11-20T06:52:49Z"
+  merge_commit_sha: "4606012b73293d44db72977ddcb3caaf0a4a5df0"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60153.diff"
+scope:
+  files_touched:
+    - "Compiler/src/abstractlattice.jl"
+    - "Compiler/src/ssair/EscapeAnalysis.jl"
+    - "Compiler/src/ssair/domtree.jl"
+    - "base/abstractset.jl"
+    - "base/channels.jl"
+    - "base/deprecated.jl"
+    - "base/docs/basedocs.jl"
+    - "base/essentials.jl"
+    - "base/experimental.jl"
+    - "base/file.jl"
+    - "base/floatfuncs.jl"
+    - "base/gcutils.jl"
+    - "base/int.jl"
+    - "base/intfuncs.jl"
+    - "base/libc.jl"
+    - "base/loading.jl"
+    - "base/lock.jl"
+    - "base/rational.jl"
+    - "base/rawbigfloats.jl"
+    - "base/reflection.jl"
+    - "base/runtime_internals.jl"
+    - "base/ryu/utils.jl"
+    - "base/sort.jl"
+    - "base/special/rem_pio2.jl"
+    - "base/special/trig.jl"
+    - "base/strings/cstring.jl"
+    - "base/sysinfo.jl"
+    - "base/task.jl"
+    - "base/threadingconstructs.jl"
+    - "base/tuple.jl"
+  components:
+    - "Compiler.AbstractLattice"
+    - "Compiler.SSAIR"
+    - "Base"
+  pipeline_stages:
+    - "TypeInference"
+    - "SSA"
+    - "Runtime"
+analysis:
+  intent:
+    summary: "Standardize Julia docstrings to use imperative phrasing (e.g., Return/Determine/Check) rather than third-person verbs."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/50301"
+  direct_changes:
+    - summary: "Compiler docstrings in lattice utilities and SSA IR helpers now use imperative verbs (Determine/Check/Try), with no code behavior changes."
+      component: "Compiler (AbstractLattice, SSAIR)"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/abstractlattice.jl"
+          loc: "183-211"
+          url: "https://github.com/JuliaLang/julia/blob/4606012b73293d44db72977ddcb3caaf0a4a5df0/Compiler/src/abstractlattice.jl#L183-L211"
+          snippet: |
+            """
+                has_nontrivial_extended_info(𝕃::AbstractLattice, t)::Bool
+
+            Determine whether the given lattice element `t` of `𝕃` has non-trivial extended lattice
+            information that would not be available from the type itself.
+            """
+            @nospecializeinfer has_nontrivial_extended_info(𝕃::AbstractLattice, @nospecialize t) =
+                has_nontrivial_extended_info(widenlattice(𝕃), t)
+
+            """
+                is_const_prop_profitable_arg(𝕃::AbstractLattice, t)::Bool
+
+            Determine whether the given lattice element `t` of `𝕃` has new extended lattice information
+            that should be forwarded along with constant propagation.
+            """
+        - source: "code"
+          path: "Compiler/src/ssair/EscapeAnalysis.jl"
+          loc: "415-424"
+          url: "https://github.com/JuliaLang/julia/blob/4606012b73293d44db72977ddcb3caaf0a4a5df0/Compiler/src/ssair/EscapeAnalysis.jl#L415-L424"
+          snippet: |
+            """
+                iridx(x, estate::EscapeState) -> xidx::Union{Int,Nothing}
+
+            Try to convert analyzable IR element `x::Union{Argument,SSAValue}` to
+            its unique identifier number `xidx` that is valid in the analysis context of `estate`.
+            Returns `nothing` if `x` isn't maintained by `estate` and thus unanalyzable (e.g. `x::GlobalRef`).
+
+            `irval` is the inverse function of `iridx` (not formally), i.e.
+            `irval(iridx(x::Union{Argument,SSAValue}, state), state) === x`.
+            """
+        - source: "code"
+          path: "Compiler/src/ssair/domtree.jl"
+          loc: "597-614"
+          url: "https://github.com/JuliaLang/julia/blob/4606012b73293d44db72977ddcb3caaf0a4a5df0/Compiler/src/ssair/domtree.jl#L597-L614"
+          snippet: |
+            """
+                dominates(domtree::DomTree, bb1::Int, bb2::Int)::Bool
+
+            Check if `bb1` dominates `bb2`.
+            `bb1` and `bb2` are indexes into the `CFG` blocks.
+            `bb1` dominates `bb2` if the only way to enter `bb2` is via `bb1`.
+            (Other blocks may be in between, e.g `bb1->bbx->bb2`).
+            """
+
+            """
+                postdominates(domtree::PostDomTree, bb1::Int, bb2::Int)::Bool
+
+            Check if `bb1` post-dominates `bb2`.
+            `bb1` and `bb2` are indexes into the `CFG` blocks.
+            `bb1` post-dominates `bb2` if every pass from `bb2` to the exit is via `bb1`.
+            (Other blocks may be in between, e.g `bb2->bbx->bb1->exit`).
+            """
+    - summary: "Base library docstrings were rephrased to imperative form for user-facing APIs."
+      component: "Base"
+      evidence:
+        - source: "code"
+          path: "base/channels.jl"
+          loc: "13-20"
+          url: "https://github.com/JuliaLang/julia/blob/4606012b73293d44db72977ddcb3caaf0a4a5df0/base/channels.jl#L13-L20"
+          snippet: |
+            """
+                Channel{T=Any}(size::Int=0)
+
+            Construct a `Channel` with an internal buffer that can hold a maximum of `size` objects
+            of type `T`.
+            [`put!`](@ref) calls on a full channel block until an object is removed with [`take!`](@ref).
+            """
+        - source: "code"
+          path: "base/reflection.jl"
+          loc: "211-216"
+          url: "https://github.com/JuliaLang/julia/blob/4606012b73293d44db72977ddcb3caaf0a4a5df0/base/reflection.jl#L211-L216"
+          snippet: |
+            """
+                code_typed(f, types; kw...)
+
+            Return an array of type-inferred lowered form (IR) for the methods matching the given
+            generic function and type signature.
+            """
+  secondary_effects:
+    - effect: "Help-mode/documentation output changes wording but not semantics."
+      mechanism: "Only docstring text literals were edited; function bodies and compiler logic remain unchanged."
+      downstream_surfaces:
+        - "REPL help mode (Base.Docs)"
+        - "Generated documentation"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral: []
+  performance:
+    compile_time: []
+    runtime: []
+  risk:
+    level: "low"
+    rationale:
+      - "Docstring-only edits with no changes to executable code or tests."
+  open_questions:
+    - "No tests were added or modified; confirm whether documentation style checks should enforce imperative wording automatically."
+  recommendations:
+    - "No downstream action required; update any internal documentation style guides if they mirror Julia's docstring conventions."
