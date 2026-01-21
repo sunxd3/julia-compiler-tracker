@@ -1,0 +1,319 @@
+schema_version: "1.0"
+
+pr:
+  number: 59787
+  title: "docs: parenthesis no longer required when using @main"
+  url: "https://github.com/JuliaLang/julia/pull/59787"
+  author: "cmcaine"
+  labels:
+    - "docs"
+  merged_at: "2025-10-13T15:19:40Z"
+  merge_commit_sha: "26952f701adf31d1c6ba29777b9828c20c6e67e3"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59787.diff"
+
+scope:
+  files_touched:
+    - "base/client.jl"
+  components:
+    - "Base.Documentation"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      This PR updates the documentation for the `@main` macro in `base/client.jl` to
+      reflect that parentheses are no longer required when using `@main` as part of a
+      function definition. Previously the docstring stated "The `@main` macro may be
+      used standalone or as part of the function definition, though in the latter case,
+      parentheses are required." This was changed to remove the parentheses requirement
+      claim, now reading "The `@main` macro may be used standalone or as part of the
+      function definition. The following are equivalent:"
+
+      This is a pure documentation clarification with no code behavior changes. The
+      parentheses-optional syntax was enabled by PR #55040 which added support for
+      macrocalls as function signatures in both the flisp parser and JuliaSyntax.
+      This PR simply corrects the @main documentation to match the actual behavior
+      that was enabled by PR #55040.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/55040"
+
+  direct_changes:
+    - summary: "Update @main macro docstring to remove parentheses requirement claim"
+      component: "Base.Documentation"
+      evidence:
+        - source: "diff"
+          path: "base/client.jl"
+          loc: "630-631"
+          url: "https://github.com/JuliaLang/julia/blob/26952f701adf31d1c6ba29777b9828c20c6e67e3/base/client.jl#L630-L631"
+          snippet: |
+            # BEFORE:
+            The `@main` macro may be used standalone or as part of the function definition, though in the latter
+            case, parentheses are required. In particular, the following are equivalent:
+
+            # AFTER:
+            The `@main` macro may be used standalone or as part of the function definition.
+            The following are equivalent:
+
+    - summary: "The @main macro implementation remains unchanged"
+      component: "Base.client"
+      evidence:
+        - source: "code"
+          path: "base/client.jl"
+          loc: "672-688"
+          url: "https://github.com/JuliaLang/julia/blob/26952f701adf31d1c6ba29777b9828c20c6e67e3/base/client.jl#L672-L688"
+          snippet: |
+            macro main(args...)
+                if isdefined(__module__, :main)
+                    if Base.binding_module(__module__, :main) !== __module__
+                        error("Symbol `main` is already a resolved import in module $(__module__). `@main` must be used in the defining module.")
+                    end
+                end
+                Core.eval(__module__, quote
+                    # Force the binding to resolve to this module
+                    global main
+                    global var"#__main_is_entrypoint__#"::Bool = true
+                end)
+                if !isempty(args)
+                    Expr(:call, esc(:main), map(esc, args)...)
+                else
+                    esc(:main)
+                end
+            end
+
+  secondary_effects:
+    - effect: "Documentation now correctly describes @main syntax flexibility"
+      mechanism: |
+        The @main macro accepts both forms:
+        1. `function @main(args) ... end` - macro applied to function definition
+        2. `function main(args) ... end; @main` - macro used standalone
+
+        The parser handles both syntaxes identically. The macro implementation at
+        base/client.jl:672-688 shows it processes `args...` and either:
+        - Returns `Expr(:call, esc(:main), map(esc, args)...)` if args provided
+        - Returns `esc(:main)` if no args
+
+        This works regardless of whether parentheses are used in the function form.
+        The documentation previously incorrectly claimed parentheses were required.
+
+        The syntax without parentheses was enabled by PR #55040 which added support
+        for macrocalls as function signatures. Test evidence from test/syntax.jl:4176-4177:
+          # PR# 55040 - Macrocall as function sig
+          @test :(function @f()() end) == :(function (@f)() end)
+      downstream_surfaces:
+        - "User understanding of @main syntax"
+      likelihood: "high"
+      impact: "none"
+
+    - effect: "No behavioral change to Julia programs"
+      mechanism: |
+        This is a documentation-only change. The actual macro behavior is unchanged.
+        The @main macro sets `var"#__main_is_entrypoint__#"::Bool = true` in the
+        module regardless of how it's invoked.
+
+        Call path:
+        @main macro expansion [client.jl:672-688]
+          -> Core.eval(__module__, ...) sets global entrypoint flag
+          -> should_use_main_entrypoint() [client.jl:563-568] checks flag
+          -> _start() [client.jl:570-605] calls Main.main if flag is set
+      downstream_surfaces: []
+      likelihood: "high"
+      impact: "none"
+
+  compatibility:
+    internal_api: []
+    behavioral: []
+
+  performance:
+    compile_time:
+      - impact: "none"
+        details: |
+          Documentation-only change. No impact on compilation.
+    runtime:
+      - impact: "none"
+        details: |
+          Documentation-only change. No impact on runtime behavior.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure documentation change - no code behavior modifications"
+      - "Corrects documentation to match existing behavior"
+      - "Only touches docstring text, not macro implementation"
+      - "Low impact on downstream users"
+
+  open_questions:
+    - question: "When did parentheses become optional for @main function syntax?"
+      resolved: true
+      answer: |
+        PR #55040 introduced the ability to use macrocalls as function signatures
+        without parentheses. This PR was implemented to allow syntax like
+        `function @main(args) end` which was previously a parse error. The change
+        was made in both the flisp parser and JuliaSyntax for consistency.
+
+        Test evidence at test/syntax.jl:4176-4177:
+          # PR# 55040 - Macrocall as function sig
+          @test :(function @f()() end) == :(function (@f)() end)
+
+        This test proves that `function @macro()` is parsed equivalently to
+        `function (@macro)()`. PR 59787 simply updates the @main documentation
+        to reflect this change that was already implemented in PR #55040.
+
+  recommendations:
+    - "No action required for downstream users"
+    - "Users can now confidently use `function @main(args)` without parentheses"
+
+changelog_entry:
+  category: "Documentation"
+  breaking: false
+  summary: |
+    Updated @main macro documentation to clarify that parentheses are no longer
+    required when using @main as part of a function definition. Both `function @main(args)`
+    and `function main(args); @main` are now documented as equivalent. This documents
+    the behavior enabled by PR #55040 which added macrocall support in function signatures.
+  downstream_impact: |
+    No impact. This is a documentation clarification only.
+  related_prs:
+    - number: 55040
+      title: "Allow macrocall as function signature"
+      relationship: "PR #55040 enabled the syntax that this documentation change describes"
+
+downstream_package_impact:
+  Turing_jl: "none - documentation only"
+  Enzyme_jl: "none - documentation only"
+  GPUCompiler: "none - documentation only"
+  JET: "none - documentation only"
+  IRTools: "none - documentation only"
+  Cassette: "none - documentation only"
+
+code_path_trace:
+  main_macro_invocation:
+    description: "How @main macro sets the entrypoint flag"
+    steps:
+      - location: "base/client.jl:672-682"
+        url: "https://github.com/JuliaLang/julia/blob/26952f701adf31d1c6ba29777b9828c20c6e67e3/base/client.jl#L672-L682"
+        code: |
+          macro main(args...)
+              if isdefined(__module__, :main)
+                  if Base.binding_module(__module__, :main) !== __module__
+                      error("Symbol `main` is already a resolved import...")
+                  end
+              end
+              Core.eval(__module__, quote
+                  global main
+                  global var"#__main_is_entrypoint__#"::Bool = true
+              end)
+        explanation: "Macro sets the hidden entrypoint flag in the defining module"
+
+  entrypoint_check:
+    description: "How Julia checks if main should be called"
+    steps:
+      - location: "base/client.jl:563-568"
+        url: "https://github.com/JuliaLang/julia/blob/26952f701adf31d1c6ba29777b9828c20c6e67e3/base/client.jl#L563-L568"
+        code: |
+          function should_use_main_entrypoint()
+              isdefined(Main, :main) || return false
+              M_binding_owner = Base.binding_module(Main, :main)
+              (isdefined(M_binding_owner, Symbol("#__main_is_entrypoint__#")) &&
+               M_binding_owner.var"#__main_is_entrypoint__#") || return false
+              return true
+          end
+        explanation: "Checks if Main.main exists and has the entrypoint flag set"
+      - location: "base/client.jl:578-584"
+        url: "https://github.com/JuliaLang/julia/blob/26952f701adf31d1c6ba29777b9828c20c6e67e3/base/client.jl#L578-L584"
+        code: |
+          if invokelatest(should_use_main_entrypoint) && !is_interactive
+              main = invokelatest(getglobal, Main, :main)
+              if Base.generating_output()
+                  precompile(main, (typeof(ARGS),))
+              else
+                  ret = invokelatest(main, ARGS)
+              end
+          end
+        explanation: "If entrypoint is set, automatically calls Main.main(ARGS)"
+
+test_coverage:
+  new_tests: []
+  existing_test_evidence:
+    - description: "Test suite already uses both @main syntax forms"
+      evidence:
+        - source: "test"
+          path: "test/trimming/hello.jl"
+          loc: "3-6"
+          url: "https://github.com/JuliaLang/julia/blob/26952f701adf31d1c6ba29777b9828c20c6e67e3/test/trimming/hello.jl#L3-L6"
+          form: "without parentheses"
+          snippet: |
+            function @main(args::Vector{String})::Cint
+                println(Core.stdout, "Hello, world!")
+                return 0
+            end
+        - source: "test"
+          path: "test/project/Rot13/src/Rot13.jl"
+          loc: "10-13"
+          url: "https://github.com/JuliaLang/julia/blob/26952f701adf31d1c6ba29777b9828c20c6e67e3/test/project/Rot13/src/Rot13.jl#L10-L13"
+          form: "with parentheses"
+          snippet: |
+            function (@main)(args)
+                foreach(arg -> print(rot13(arg), " "), args)
+                return 0
+            end
+        - source: "test"
+          path: "test/cmdlineargs.jl"
+          loc: "1348"
+          url: "https://github.com/JuliaLang/julia/blob/26952f701adf31d1c6ba29777b9828c20c6e67e3/test/cmdlineargs.jl#L1348"
+          form: "short form with parentheses"
+          snippet: |
+            @test readchomp(`$(Base.julia_cmd()) -e '(@main)(args) = println("hello")'`) == "hello"
+        - source: "test"
+          path: "test/syntax.jl"
+          loc: "4176-4177"
+          url: "https://github.com/JuliaLang/julia/blob/26952f701adf31d1c6ba29777b9828c20c6e67e3/test/syntax.jl#L4176-L4177"
+          form: "equivalence test from PR #55040"
+          snippet: |
+            # PR# 55040 - Macrocall as function sig
+            @test :(function @f()() end) == :(function (@f)() end)
+
+reviewer_notes:
+  initial_reviewer: "automated_analysis"
+  initial_date: "2026-01-21"
+  verification_method: |
+    1. Cloned Julia repository and checked out merge commit 26952f701adf31d1c6ba29777b9828c20c6e67e3
+    2. Read full source context of base/client.jl
+    3. Analyzed PR diff to understand the documentation change
+    4. Verified the @main macro implementation is unchanged
+    5. Traced the entrypoint mechanism to understand functionality
+  findings:
+    - "This is a pure documentation change"
+    - "The @main macro implementation is unchanged"
+    - "Documentation previously incorrectly stated parentheses were required"
+    - "Both syntax forms have been working - docs now match behavior"
+    - "No risk to downstream packages"
+  confidence: "high"
+  rationale: |
+    This is a straightforward documentation fix. The PR only modifies two lines of
+    docstring text in base/client.jl to remove an incorrect claim about parentheses
+    being required. The macro implementation and all behavior remain unchanged.
+    This is a low-risk change that simply aligns documentation with existing behavior.
+
+  secondary_reviewer: "independent_analysis"
+  secondary_date: "2026-01-21"
+  secondary_verification_method: |
+    1. Checked out PR merge commit 26952f701adf31d1c6ba29777b9828c20c6e67e3
+    2. Re-read base/client.jl lines 621-688 to verify @main docstring and macro
+    3. Searched test suite for @main usage patterns with: rg "@main" --glob "*test*.jl"
+    4. Found test evidence showing both syntax forms used in Julia tests:
+       - test/trimming/hello.jl:3 uses `function @main(args)` (no parentheses)
+       - test/project/Rot13/src/Rot13.jl:10 uses `function (@main)(args)` (with parentheses)
+    5. Discovered PR #55040 reference at test/syntax.jl:4176 that enabled this syntax
+    6. Verified PR #55040 via GitHub - it enabled macrocalls as function signatures
+  secondary_findings:
+    - "Resolved open question: PR #55040 enabled parentheses-optional syntax"
+    - "Test suite proves both forms work (test/trimming/hello.jl vs test/project/Rot13/)"
+    - "test/syntax.jl:4176-4177 explicitly tests equivalence of both forms"
+    - "Original analysis correctly identified this as documentation-only change"
+    - "Enhanced with concrete test evidence and PR #55040 reference"
+  secondary_confidence: "high"
+  secondary_rationale: |
+    The original analysis was accurate. This independent review adds valuable context
+    by identifying PR #55040 as the enabling change that made parentheses optional.
+    The test suite evidence (4 separate test files using @main in different forms)
+    provides concrete proof that both syntax forms are supported and in active use.
