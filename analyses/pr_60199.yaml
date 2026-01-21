@@ -30,8 +30,8 @@ analysis:
       evidence:
         - source: "code"
           path: "JuliaSyntax/src/julia/tokenize.jl"
-          loc: "1045-1067"
-          url: "https://github.com/JuliaLang/julia/blob/59ff9f957b9bff31d34986d55521966a5452791d/JuliaSyntax/src/julia/tokenize.jl#L1045-L1067"
+          loc: "1054-1067"
+          url: "https://github.com/JuliaLang/julia/blob/59ff9f957b9bff31d34986d55521966a5452791d/JuliaSyntax/src/julia/tokenize.jl#L1054-L1067"
           snippet: |
             if accept(l, "pP")
                 kind = K"Float"
@@ -83,13 +83,21 @@ analysis:
             # #60189
             @test_parseerror "0x1p3.2"
   secondary_effects:
-    - effect: "Expressions like 0x1p3.2 now emit ErrorInvalidNumericConstant instead of tokenizing as a hex float followed by a dot/decimal sequence, which prevents implicit multiplication parsing downstream."
+    - effect: |
+        Expressions like 0x1p3.2 now emit ErrorInvalidNumericConstant instead of tokenizing as
+        separate tokens (hex float + dot + decimal), which previously allowed implicit multiplication.
+        Before: 0x1p3.2 -> tokens [0x1p3, ., 2] -> parsed as 0x1p3 * 0.2 = 8.0 * 0.2 = 1.6
+        After:  0x1p3.2 -> token [ErrorInvalidNumericConstant] -> parse error
       mechanism: |
-        lex_token(l) dispatch on digit  [JuliaSyntax/src/julia/tokenize.jl:520-535]
-          -> lex_digit(l, K"Integer")
-        lex_digit(l, kind)  [JuliaSyntax/src/julia/tokenize.jl:1045-1067]
-          -> peekchar(l) after hex float exponent
-          -> emit(l, K"ErrorInvalidNumericConstant") on trailing '.' or digits
+        next_token(l::Lexer)  [tokenize.jl:450]
+          -> _next_token(l, readchar(l))  [tokenize.jl:455]
+        _next_token(l::Lexer, c)  [tokenize.jl:459]
+          -> isdigit(c): lex_digit(l, K"Integer")  [tokenize.jl:535]
+        lex_digit(l::Lexer, kind)  [tokenize.jl:985]
+          -> if c == '0' && pc == 'x': parse hex literal
+          -> if accept(l, "pP"): parse exponent  [tokenize.jl:1054]
+          -> NEW: pc = peekchar(l) after exponent  [tokenize.jl:1062]
+          -> NEW: if pc == '.': emit(l, K"ErrorInvalidNumericConstant")  [tokenize.jl:1063-1066]
         -> parser sees ErrorInvalidNumericConstant token and raises parse error
       downstream_surfaces:
         - "JuliaSyntax token stream consumers"
