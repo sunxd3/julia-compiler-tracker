@@ -20,7 +20,8 @@ scope:
 analysis:
   intent:
     summary: "Introduce a SyntaxTree pattern-matching macro (@stm) with optional debug tracing and usage checking, plus comprehensive tests."
-    issue_links: []
+    issue_links:
+      - "https://github.com/JuliaLang/JuliaLowering.jl/pull/93"
   direct_changes:
     - summary: "Add @stm/@stm_debug macros plus a matcher/validator pipeline that builds nested conditionals, validates patterns, matches tree kinds/child counts, and binds pattern variables."
       component: "JuliaSyntax porcelain utilities"
@@ -151,8 +152,8 @@ analysis:
       evidence:
         - source: "tests"
           path: "JuliaSyntax/test/syntax_graph.jl"
-          loc: "104-313"
-          url: "https://github.com/JuliaLang/julia/blob/a4ee3825664fcd4cb5dbca3a3f7eeb8e3bb0e54a/JuliaSyntax/test/syntax_graph.jl#L104-L313"
+          loc: "104-314"
+          url: "https://github.com/JuliaLang/julia/blob/a4ee3825664fcd4cb5dbca3a3f7eeb8e3bb0e54a/JuliaSyntax/test/syntax_graph.jl#L104-L314"
           snippet: |
             @testset "@stm SyntaxTree pattern-matching" begin
                 st = parsestmt(SyntaxTree, "foo(a,b=1,c(d=2))")
@@ -200,18 +201,28 @@ analysis:
                     end
                 end
             end
-    - summary: "Call-site search indicates @stm is only referenced in JuliaSyntax tests in this PR."
+    - summary: "Call-site search indicates @stm is only referenced in JuliaSyntax tests and definition in this PR; not yet adopted in JuliaLowering."
       component: "JuliaSyntax usage survey"
       evidence:
         - source: "rg"
-          path: "rg:@stm"
-          loc: "1-4"
-          url: "https://github.com/JuliaLang/julia/blob/a4ee3825664fcd4cb5dbca3a3f7eeb8e3bb0e54a/JuliaSyntax/test/syntax_graph.jl#L1-L4"
+          path: "JuliaSyntax/test/syntax_graph.jl"
+          loc: "1"
+          url: "https://github.com/JuliaLang/julia/blob/a4ee3825664fcd4cb5dbca3a3f7eeb8e3bb0e54a/JuliaSyntax/test/syntax_graph.jl#L1"
           snippet: |
-            JuliaSyntax/test/syntax_graph.jl
-            1:using .JuliaSyntax: SyntaxGraph, SyntaxTree, SyntaxList, freeze_attrs, unfreeze_attrs, ensure_attributes, ensure_attributes!, delete_attributes, copy_ast, attrdefs, @stm
-            104:@testset "@stm SyntaxTree pattern-matching" begin
-            JuliaSyntax/src/porcelain/syntax_graph.jl
+            using .JuliaSyntax: SyntaxGraph, SyntaxTree, SyntaxList, freeze_attrs, unfreeze_attrs, ensure_attributes, ensure_attributes!, delete_attributes, copy_ast, attrdefs, @stm
+        - source: "rg"
+          path: "JuliaSyntax/src/porcelain/syntax_graph.jl"
+          loc: "811-818"
+          url: "https://github.com/JuliaLang/julia/blob/a4ee3825664fcd4cb5dbca3a3f7eeb8e3bb0e54a/JuliaSyntax/src/porcelain/syntax_graph.jl#L811-L818"
+          snippet: |
+            macro stm(st, pats)
+                _stm(__source__, st, pats; debug=false)
+            end
+
+            "Like `@stm`, but prints a trace during matching."
+            macro stm_debug(st, pats)
+                _stm(__source__, st, pats; debug=true)
+            end
   secondary_effects:
     - effect: "Pattern matching emits runtime `kind`/`numchildren` checks and recursive descent, so using @stm in lowering or analysis code adds a per-branch walk over the SyntaxTree and (optionally) debug printing."
       mechanism: |
@@ -237,17 +248,19 @@ analysis:
   compatibility:
     internal_api:
       - field: "JuliaSyntax.@stm (new macro)"
-        change: "Adds a new public macro for SyntaxTree matching; no existing API removed."
+        change: "Adds a new internal macro for SyntaxTree matching; not publicly exported, requires explicit import via `using JuliaSyntax: @stm` or qualified access `JuliaSyntax.@stm`. No existing API removed."
         affected_tools:
           - tool: "JuliaSyntax consumers"
-            usage: "Can adopt @stm for tree matching; existing code unchanged."
+            usage: "Can adopt @stm for tree matching via explicit import; existing code unchanged."
+          - tool: "JuliaLowering"
+            usage: "Intended primary consumer (see PR description); can use @stm for cleaner lowering code."
     behavioral:
       - change: "@stm throws ErrorException when no pattern matches; malformed patterns throw AssertionError during macro expansion."
         evidence:
           - source: "tests"
             path: "JuliaSyntax/test/syntax_graph.jl"
-            loc: "141-177"
-            url: "https://github.com/JuliaLang/julia/blob/a4ee3825664fcd4cb5dbca3a3f7eeb8e3bb0e54a/JuliaSyntax/test/syntax_graph.jl#L141-L177"
+            loc: "141-179"
+            url: "https://github.com/JuliaLang/julia/blob/a4ee3825664fcd4cb5dbca3a3f7eeb8e3bb0e54a/JuliaSyntax/test/syntax_graph.jl#L141-L179"
             snippet: |
               @testset "errors" begin
                   # no match
