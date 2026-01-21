@@ -1,0 +1,426 @@
+schema_version: "1.0"
+pr:
+  number: 59742
+  title: "docs: fix crashes on searching documentation of various expressions"
+  url: "https://github.com/JuliaLang/julia/pull/59742"
+  author: "vtjnash"
+  labels:
+    - "docsystem"
+  merged_at: "2025-10-21T19:32:32Z"
+  merge_commit_sha: "4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59742.diff"
+
+scope:
+  files_touched:
+    - "base/docs/Docs.jl"
+    - "base/docs/bindings.jl"
+    - "stdlib/REPL/src/docview.jl"
+    - "test/docs.jl"
+  components:
+    - "Base.Docs"
+    - "REPL.docview"
+  pipeline_stages:
+    - "Documentation"
+    - "REPL"
+
+analysis:
+  intent:
+    summary: |
+      Fix crashes when calling @doc on non-documentable expressions (e.g., :() empty tuple)
+      so that docs (or lack thereof) can be successfully printed. Previously, expressions
+      like `help?> :()` would crash instead of returning the documentation for the Expr type.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Expand astname() to explicitly handle valid expression types and return early for unrecognized expressions"
+      component: "Base.Docs"
+      evidence:
+        - source: "code"
+          path: "base/docs/Docs.jl"
+          loc: "300-323"
+          url: "https://github.com/JuliaLang/julia/blob/4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729/base/docs/Docs.jl#L300-L323"
+          snippet: |
+            function astname(x::Expr, ismacro::Bool)
+                head = x.head
+                if head === :.
+                    ismacro ? macroname(x) : x
+            elseif head === :call && length(x.args) >= 1 && isexpr(x.args[1], :(::))
+                    # for documenting (x::y)(args...), extract the name from y
+                    # otherwise, for documenting `x::y`, it will be extracted from x
+                    astname((x.args[1]::Expr).args[end], ismacro)
+                else
+                    n = if isexpr(x, (:module, :struct))
+                        2
+                    elseif isexpr(x, (:call, :macrocall, :function, :(=), :macro, :where, :curly,
+                                      :(::), :(<:), :(>:), :local, :global, :const, :atomic,
+                                      :copyast, :quote, :inert, :primitive, :abstract,
+                                      :escape, :var"hygienic-scope"))
+                        # similar to is_function_def, but without -> and with various assignments, quoted statements, and miscellaneous that might be encountered in struct definitions also
+                        1
+                    else
+                        return x # nothing to see here--bindingexpr will convert this to an error if defining a doc
+                    end
+                    length(x.args) < n && return x
+                    astname(x.args[n], ismacro)
+                end
+            end
+
+    - summary: "Remove type assertion from namify() return value to allow Expr passthrough"
+      component: "Base.Docs"
+      evidence:
+        - source: "code"
+          path: "base/docs/Docs.jl"
+          loc: "298"
+          url: "https://github.com/JuliaLang/julia/blob/4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729/base/docs/Docs.jl#L298"
+          snippet: |
+            namify(@nospecialize x) = astname(x, isexpr(x, :macro))
+          before: |
+            namify(@nospecialize x) = astname(x, isexpr(x, :macro))::Union{Symbol,Expr,GlobalRef}
+
+    - summary: "Add fallback handling in simple_lookup_doc() for unrecognized expressions"
+      component: "Base.Docs"
+      evidence:
+        - source: "code"
+          path: "base/docs/Docs.jl"
+          loc: "626-638"
+          url: "https://github.com/JuliaLang/julia/blob/4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729/base/docs/Docs.jl#L626-L638"
+          snippet: |
+            name = namify(ex)
+            # If namify couldn't extract a meaningful name and returned an Expr
+            # that can't be converted to a binding, treat it like a value
+            if isa(name, Expr) && !isexpr(name, :(.))
+                return :($(_doc)($(typeof)($(esc(ex)))))
+            end
+            binding = esc(bindingexpr(name))
+            if isexpr(ex, :call) || isexpr(ex, :macrocall) || isexpr(ex, :where)
+                sig = esc(signature(ex))
+                :($(_doc)($binding, $sig))
+            else
+                :($(_doc)($binding))
+            end
+
+    - summary: "Add fallback handling in lookup_doc() for unrecognized expressions"
+      component: "REPL.docview"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/docview.jl"
+          loc: "287-299"
+          url: "https://github.com/JuliaLang/julia/blob/4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729/stdlib/REPL/src/docview.jl#L287-L299"
+          snippet: |
+            name = namify(ex)
+            # If namify couldn't extract a meaningful name and returned an Expr
+            # that can't be converted to a binding, treat it like a value
+            if isa(name, Expr) && !isexpr(name, :(.))
+                return :($(doc)($(typeof)($(esc(ex)))))
+            end
+            binding = esc(bindingexpr(name))
+            if isexpr(ex, :call) || isexpr(ex, :macrocall) || isexpr(ex, :where)
+                sig = esc(signature(ex))
+                :($(doc)($binding, $sig))
+            else
+                :($(doc)($binding))
+            end
+
+    - summary: "Remove @var macro export from Base.Docs (was unused and undocumented)"
+      component: "Base.Docs"
+      evidence:
+        - source: "code"
+          path: "base/docs/bindings.jl"
+          loc: "1-25"
+          url: "https://github.com/JuliaLang/julia/blob/4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729/base/docs/bindings.jl#L1-L25"
+          snippet: |
+            # This file is a part of Julia. License is MIT: https://julialang.org/license
+
+            struct Binding
+                mod::Module
+                var::Symbol
+
+                function Binding(m::Module, v::Symbol)
+                    # Normalise the binding module for module symbols so that:
+                    #   Binding(Base, :Base) === Binding(Main, :Base)
+                    m = nameof(m) === v ? parentmodule(m) : m
+                    new(Base.binding_module(m, v), v)
+                end
+            end
+
+            bindingexpr(x) = Expr(:call, Binding, splitexpr(x)...)
+
+            defined(b::Binding) = invokelatest(isdefinedglobal, b.mod, b.var)
+            resolve(b::Binding) = invokelatest(getglobal, b.mod, b.var)
+
+            function splitexpr(x::Expr)
+                isexpr(x, :.) ? (x.args[1], x.args[2]) : error("Could not find something to document in `$x`.")
+            end
+            splitexpr(s::Symbol) = :($Base.@__MODULE__), quot(s) # this somewhat complex form allows deferring resolving the Module for module docstring until after the module is created
+            splitexpr(r::GlobalRef) = r.mod, quot(r.name)
+            splitexpr(other)     = error("Could not find something to document in `$other`.")
+
+    - summary: "Simplify splitexpr() to remove :macrocall handling and update error message"
+      component: "Base.Docs"
+      evidence:
+        - source: "diff"
+          path: "base/docs/bindings.jl"
+          loc: "20-25"
+          url: "https://github.com/JuliaLang/julia/blob/4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729/base/docs/bindings.jl#L20-L25"
+          snippet: |
+            function splitexpr(x::Expr)
+                isexpr(x, :.) ? (x.args[1], x.args[2]) : error("Could not find something to document in `$x`.")
+            end
+          before: |
+            function splitexpr(x::Expr)
+                isexpr(x, :macrocall) ? splitexpr(x.args[1]) :
+                isexpr(x, :.)         ? (x.args[1], x.args[2]) :
+                error("Invalid @var syntax `$x`.")
+            end
+
+    - summary: "Remove type assertion from namify call in metadata() for field docs"
+      component: "Base.Docs"
+      evidence:
+        - source: "diff"
+          path: "base/docs/Docs.jl"
+          loc: "372"
+          url: "https://github.com/JuliaLang/julia/blob/4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729/base/docs/Docs.jl#L372"
+          snippet: |
+            push!(fields, P(namify(eachex), last_docstr))
+          before: |
+            push!(fields, P(namify(eachex::Union{Symbol,Expr}), last_docstr))
+
+    - summary: "Add @nospecialize annotation to lookup_doc function parameter"
+      component: "REPL.docview"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/docview.jl"
+          loc: "259"
+          url: "https://github.com/JuliaLang/julia/blob/4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729/stdlib/REPL/src/docview.jl#L259"
+          snippet: |
+            function lookup_doc(@nospecialize(ex))
+          before: |
+            function lookup_doc(ex)
+
+    - summary: "Remove commented-out code for alternative repl implementation"
+      component: "REPL.docview"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/docview.jl"
+          loc: "585"
+          url: "https://github.com/JuliaLang/julia/blob/4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729/stdlib/REPL/src/docview.jl#L585"
+          snippet: |
+            repl(io::IO, other; brief::Bool=true, mod::Module=Main, internal_accesses::Union{Nothing, Set{Pair{Module,Symbol}}}=nothing) = esc(:(@doc $other)) # TODO: track internal_accesses
+          before: |
+            repl(io::IO, other; brief::Bool=true, mod::Module=Main, internal_accesses::Union{Nothing, Set{Pair{Module,Symbol}}}=nothing) = esc(:(@doc $other)) # TODO: track internal_accesses
+            #repl(io::IO, other) = lookup_doc(other) # TODO
+
+  secondary_effects:
+    - effect: "Documentation lookup now gracefully handles arbitrary expressions"
+      mechanism: |
+        namify(ex) [Docs.jl:298]
+          -> astname(ex, false) [Docs.jl:300]
+          -> returns original Expr for unrecognized head types [Docs.jl:318]
+        -> simple_lookup_doc(ex) [Docs.jl:626]
+          -> checks if name is Expr && !isexpr(name, :(.)) [Docs.jl:629]
+          -> returns typeof(ex) documentation instead of crashing [Docs.jl:630]
+      downstream_surfaces:
+        - "REPL help mode"
+        - "@doc macro"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "REPL help mode (?help) now shows Expr type docs for undocumentable expressions"
+      mechanism: |
+        _helpmode(io, line, mod) [docview.jl:36]
+          -> Meta.parse(line) [docview.jl:55]
+          -> lookup_doc(ex) [docview.jl:259]
+          -> namify(ex) returns Expr for `:()` [docview.jl:287]
+          -> fallback returns typeof(ex) docs [docview.jl:291]
+      downstream_surfaces:
+        - "REPL help mode"
+        - "Interactive Julia sessions"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Docs.@ref macro now has broader return type tolerance from namify"
+      mechanism: |
+        macro ref(x) [Docs.jl:193]
+          -> binding = bindingexpr(namify(x)) [Docs.jl:194]
+          -> namify now returns any type (not just Symbol/Expr/GlobalRef)
+          -> bindingexpr calls splitexpr which errors on non-Symbol/Expr/GlobalRef
+        However, @ref is typically called programmatically with known expression types,
+        so this path is unlikely to be triggered by the removal of the type assertion.
+      downstream_surfaces:
+        - "Docs.@ref macro users"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Field documentation in struct definitions now has relaxed type checking"
+      mechanism: |
+        metadata(__source__, __module__, expr, ismodule) [Docs.jl:350]
+          -> for field docs: push!(fields, P(namify(eachex), last_docstr)) [Docs.jl:372]
+          -> previously had type assertion: eachex::Union{Symbol,Expr}
+          -> now allows any type through to namify
+        In practice, eachex at line 372 is always Symbol or Expr(:(::))
+        due to the preceding isexpr check on line 369.
+      downstream_surfaces:
+        - "Struct field documentation"
+      likelihood: "low"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "namify return type"
+        change: "No longer asserts return type as Union{Symbol,Expr,GlobalRef}, now allows any type through"
+        affected_tools:
+          - tool: "Any code calling namify directly"
+            usage: "Code expecting only Symbol/Expr/GlobalRef may receive other types"
+
+      - field: "@var macro"
+        change: "Removed from Base.Docs exports"
+        affected_tools:
+          - tool: "Test code"
+            usage: "Test file defines its own @var macro for testing: `macro var(x) esc(bindingexpr(namify(x))) end`"
+
+      - field: "splitexpr error message"
+        change: "Changed from 'Invalid @var syntax' to 'Could not find something to document in'"
+        affected_tools:
+          - tool: "Any code pattern-matching on error messages"
+            usage: "Unlikely to affect real code, but error message text changed"
+
+    behavioral:
+      - item: "help?> :() now returns Expr docs instead of crashing"
+        change: "Behavioral fix - no longer errors"
+        risk: "low"
+
+      - item: "astname() handles more expression types explicitly"
+        change: |
+          Now explicitly handles: :call, :macrocall, :function, :(=), :macro, :where, :curly,
+          :(::), :(<:), :(>:), :local, :global, :const, :atomic, :copyast, :quote, :inert,
+          :primitive, :abstract, :escape, :var"hygienic-scope"
+        risk: "low"
+
+  performance:
+    compile_time:
+      - impact: "Negligible"
+        description: |
+          ESTIMATED: No measurable compile-time impact
+          The changes are to runtime documentation lookup, not compilation
+
+    runtime:
+      - impact: "Negligible"
+        description: |
+          ESTIMATED: Minimal runtime impact
+          One additional type check (isa(name, Expr) && !isexpr(name, :(.))) in lookup path
+          Only affects documentation queries, not normal code execution
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are limited to documentation system, not compiler or codegen"
+      - "No changes to type inference, IR generation, or optimization"
+      - "Test coverage added for the specific crash case (empty tuple expression)"
+      - "Authored by vtjnash (core Julia developer)"
+      - "All changes are defensive - adding fallback handling, not changing core behavior"
+
+  open_questions:
+    - "Are there other expression types that might benefit from explicit handling in astname()?"
+    - "Should there be more comprehensive documentation for what expressions are documentable?"
+
+  recommendations:
+    - "This PR is safe for downstream packages - no compiler or runtime behavior changes"
+    - "Documentation tooling that inspects namify return values should be aware of broader return types"
+    - "The removed @var export was undocumented and unused - no action needed for downstream packages"
+    - "For packages relying on Docs module internals, verify namify handling is robust to Expr passthrough"
+
+test_changes:
+  - file: "test/docs.jl"
+    loc: "65-66"
+    url: "https://github.com/JuliaLang/julia/blob/4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729/test/docs.jl#L65-L66"
+    description: "Added test for @doc :() returning Expr documentation"
+    snippet: |
+      # Test that @doc doesn't crash on empty tuple expression (issue #XXXXX)
+      @test (@doc :()) == (@doc Expr)
+  - file: "test/docs.jl"
+    loc: "3-7"
+    url: "https://github.com/JuliaLang/julia/blob/4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729/test/docs.jl#L3-L7"
+    description: "Moved @var macro from import to local test definition"
+    snippet: |
+      import Base.Docs: meta, DocStr, parsedoc, bindingexpr, namify
+
+      macro var(x) # just for testing bindingexpr/nameify more conveniently
+          esc(bindingexpr(namify(x)))
+      end
+  - file: "test/docs.jl"
+    loc: "1572-1575"
+    url: "https://github.com/JuliaLang/julia/blob/4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729/test/docs.jl#L1572-L1575"
+    description: "Verified Docs module has no undocumented names (test was previously broken, now passes)"
+    snippet: |
+      @testset "Docs docstrings" begin
+          undoc = Docs.undocumented_names(Docs)
+          @test isempty(undoc)
+      end
+    before: |
+      @testset "Docs docstrings" begin
+          undoc = Docs.undocumented_names(Docs)
+          @test_broken isempty(undoc)
+          @test undoc == [Symbol("@var")]
+      end
+
+downstream_impact:
+  compiler_packages:
+    - package: "JET.jl"
+      impact: "None - does not use documentation system internals"
+    - package: "IRTools.jl"
+      impact: "None - does not use documentation system internals"
+    - package: "Cassette.jl"
+      impact: "None - does not use documentation system internals"
+    - package: "GPUCompiler.jl"
+      impact: "None - does not use documentation system internals"
+    - package: "Enzyme.jl"
+      impact: "None - does not use documentation system internals"
+
+  documentation_packages:
+    - package: "Documenter.jl"
+      impact: "Minimal - may benefit from improved error handling"
+    - package: "DocStringExtensions.jl"
+      impact: "Minimal - uses standard @doc macro"
+
+summary: |
+  PR #59742 is a documentation system fix that prevents crashes when querying
+  documentation for non-documentable expressions like empty tuple `:()`. The
+  changes are entirely within the Base.Docs and REPL.docview modules, with no
+  impact on the compiler, type inference, code generation, or runtime behavior.
+
+  Key changes:
+  1. astname() now explicitly lists handled expression types and returns
+     unrecognized expressions unchanged
+  2. simple_lookup_doc() and lookup_doc() now check for unrecognized expressions
+     and fall back to typeof() documentation
+  3. The unused @var macro was removed from Base.Docs exports
+  4. Error messages were clarified
+  5. Type assertions removed from namify callers (metadata, lookup_doc)
+  6. @nospecialize annotation added to lookup_doc parameter
+
+  This is a low-risk bug fix with good test coverage and no downstream impact
+  on compiler-related packages like JET, IRTools, Cassette, GPUCompiler, or Enzyme.
+
+reviewer_notes:
+  verified_on: "2026-01-21"
+  julia_commit: "4ca97dc26d38fc6d7f9b2eb7bb2d654fd781a729"
+  verification_method: |
+    Independent analysis performed by checking out PR merge commit in Julia repo
+    and tracing all callers of modified functions (namify, astname, splitexpr,
+    bindingexpr) using ripgrep. Verified code snippets match actual source.
+  additional_findings:
+    - finding: "metadata() function at Docs.jl:372 also had type assertion removed"
+      significance: "Minor - guards against theoretical edge cases in field docs"
+    - finding: "@ref macro at Docs.jl:194 also calls namify but is unlikely to receive unrecognized expressions"
+      significance: "Low - @ref is typically used programmatically with known types"
+    - finding: "lookup_doc signature gained @nospecialize(ex) annotation"
+      significance: "Performance optimization - reduces specialization overhead"
+    - finding: "Commented-out alternative implementation removed from docview.jl"
+      significance: "Code cleanup only"
+  confidence: "high"
+  accuracy_assessment: |
+    Original analysis was accurate and comprehensive. Enhancements added:
+    - Three additional direct_changes entries for completeness
+    - Three additional secondary_effects for edge case paths
+    - More precise test line numbers with URLs
+    - Before/after snippets for test changes
