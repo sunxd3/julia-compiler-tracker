@@ -1,0 +1,398 @@
+schema_version: "1.0"
+pr:
+  number: 59849
+  title: "allow specifying projects in a workspace more than one level under it"
+  url: "https://github.com/JuliaLang/julia/pull/59849"
+  author: "KristofferC"
+  labels:
+    - "packages"
+  merged_at: "2025-10-17T11:11:52Z"
+  merge_commit_sha: "16fa7a43b506de8c25c0a3c9c0d88049ace2ccd1"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59849.diff"
+
+scope:
+  files_touched:
+    - "base/loading.jl"
+    - "doc/src/manual/code-loading.md"
+    - "test/loading.jl"
+    - "test/project/SubProject/Project.toml"
+    - "test/project/SubProject/nested/deep/Project.toml"
+    - "test/project/SubProject/nested/deep/src/DeepNested.jl"
+  components:
+    - "Base.loading"
+  pipeline_stages:
+    - "PackageLoading"
+
+analysis:
+  intent:
+    summary: |
+      Enables workspace projects to be specified at arbitrary depth within a workspace,
+      not just as direct children. Previously, projects in [workspace].projects had to be
+      in immediate subfolders. Now paths like "nested/deep" are supported, and base_project
+      searches upward through multiple directory levels to find the containing workspace.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Rewrote base_project() to search upward through parent directories"
+      component: "Base.loading"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "673-713"
+          url: "https://github.com/JuliaLang/julia/blob/16fa7a43b506de8c25c0a3c9c0d88049ace2ccd1/base/loading.jl#L673-L713"
+          snippet: |
+            function base_project(project_file)
+                home_dir = abspath(homedir())
+                project_dir = abspath(dirname(project_file))
+                current_dir = project_dir
+                # Only stop at home boundary if we started under home
+                started_in_home = startswith(project_dir, home_dir)
+
+                while true
+                    parent_dir = dirname(current_dir)
+                    # Stop if we've reached root
+                    if parent_dir == current_dir
+                        return nothing
+                    end
+                    # Stop if we started in home and have now left it
+                    if started_in_home && !startswith(parent_dir, home_dir)
+                        return nothing
+                    end
+
+                    base_project_file = env_project_file(parent_dir)
+                    if base_project_file isa String
+                        d = parsed_toml(base_project_file)
+                        workspace = get(d, "workspace", nothing)::Union{Dict{String, Any}, Nothing}
+                        if workspace !== nothing
+                            projects = get(workspace, "projects", nothing)::Union{Vector{String}, Nothing, String}
+                            if projects isa Vector
+                                # Check if any project in the workspace matches the original project
+                                workspace_root = dirname(base_project_file)
+                                for project in projects
+                                    project_path = joinpath(workspace_root, project)
+                                    if isdir(project_path)
+                                        if samefile(project_path, project_dir)
+                                            return base_project_file
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    current_dir = parent_dir
+                end
+            end
+
+    - summary: "Changed project matching from basename comparison to samefile() for path equality"
+      component: "Base.loading"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "699-707"
+          url: "https://github.com/JuliaLang/julia/blob/16fa7a43b506de8c25c0a3c9c0d88049ace2ccd1/base/loading.jl#L699-L707"
+          snippet: |
+            workspace_root = dirname(base_project_file)
+            for project in projects
+                project_path = joinpath(workspace_root, project)
+                if isdir(project_path)
+                    if samefile(project_path, project_dir)
+                        return base_project_file
+                    end
+                end
+            end
+        - source: "code"
+          path: "base/stat.jl"
+          loc: "592-602"
+          url: "https://github.com/JuliaLang/julia/blob/16fa7a43b506de8c25c0a3c9c0d88049ace2ccd1/base/stat.jl#L592-L602"
+          snippet: |
+            # samefile can be used for files and directories: #11145#issuecomment-99511194
+            function samefile(a::StatStruct, b::StatStruct)
+                ispath(a) && ispath(b) && a.device == b.device && a.inode == b.inode
+            end
+
+            """
+                samefile(path_a, path_b)
+
+            Check if the paths `path_a` and `path_b` refer to the same existing file or directory.
+            """
+            samefile(a::AbstractString, b::AbstractString) = samefile(stat(a), stat(b))
+
+    - summary: "Added home directory boundary check to prevent searching outside user home"
+      component: "Base.loading"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "674-688"
+          url: "https://github.com/JuliaLang/julia/blob/16fa7a43b506de8c25c0a3c9c0d88049ace2ccd1/base/loading.jl#L674-L688"
+          snippet: |
+            home_dir = abspath(homedir())
+            project_dir = abspath(dirname(project_file))
+            current_dir = project_dir
+            # Only stop at home boundary if we started under home
+            started_in_home = startswith(project_dir, home_dir)
+
+            while true
+                parent_dir = dirname(current_dir)
+                # Stop if we've reached root
+                if parent_dir == current_dir
+                    return nothing
+                end
+                # Stop if we started in home and have now left it
+                if started_in_home && !startswith(parent_dir, home_dir)
+                    return nothing
+                end
+
+  secondary_effects:
+    - effect: "workspace_manifest() now locates manifests from deeply nested projects"
+      mechanism: |
+        workspace_manifest(project_file)  [loading.jl:842]
+          calls base = base_project(project_file)  [loading.jl:843]
+          -> base_project now searches upward through all parent dirs
+          -> returns workspace root Project.toml for any depth
+          -> project_file_manifest_path(base) returns manifest path from workspace root
+      downstream_surfaces:
+        - "Manifest.toml resolution for nested workspace projects"
+        - "Dependency resolution within workspaces"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "get_projects_workspace_to_root() traverses full workspace hierarchy for nested projects"
+      mechanism: |
+        get_projects_workspace_to_root(project_file)  [loading.jl:3889]
+          repeatedly calls base_project(project_file)  [loading.jl:3892]
+          -> collects all workspace Project.toml files from leaf to root
+          -> used by get_preferences() for preference merging  [loading.jl:3906]
+
+        Call chain for preferences:
+          get_preferences(uuid)  [loading.jl:3900]
+            -> prepend!(projects_to_merge_prefs, get_projects_workspace_to_root(first(loadpath)))  [loading.jl:3906]
+            -> for env in reverse(projects_to_merge_prefs): collect_preferences(project_toml, uuid)  [loading.jl:3916]
+            -> merged_prefs = recursive_prefs_merge(merged_prefs, dicts...)  [loading.jl:3917]
+      downstream_surfaces:
+        - "Preferences loading order in nested workspace projects"
+        - "LocalPreferences.toml inheritance chain"
+        - "Compile-time preferences hash calculation"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "REPL prompt displays nested project paths in workspace hierarchy"
+      mechanism: |
+        Pkg_promptf()  [stdlib/REPL/src/Pkg_beforeload.jl:93]
+          -> root = find_root_base_project(project_file)  [Pkg_beforeload.jl:103]
+          -> find_root_base_project iteratively calls Base.base_project(project_file)  [Pkg_beforeload.jl:50]
+          -> path_prefix = "/" * dirname(relative_project_path(root, project_file))  [Pkg_beforeload.jl:106]
+          -> prefix = "($(rootname)$(path_prefix)) "  [Pkg_beforeload.jl:113]
+
+        For deeply nested project at workspace/nested/deep:
+          - OLD: Would not find workspace root (only checked immediate parent)
+          - NEW: Finds workspace root, displays "(WorkspaceName/nested/deep) " in REPL prompt
+      downstream_surfaces:
+        - "User-visible REPL prompt for nested workspace projects"
+        - "Project navigation and context awareness"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Symlink and case-insensitive filesystem handling now correct"
+      mechanism: |
+        OLD matching (would fail with symlinks):
+          basename(dirname(project_file)) in projects
+          -> Only compared directory names as strings
+          -> Failed if project was accessed via symlink
+          -> Failed on case-insensitive filesystems with different casing
+
+        NEW matching (robust):
+          samefile(project_path, project_dir)  [loading.jl:703]
+          -> samefile(a, b) = samefile(stat(a), stat(b))  [stat.jl:602]
+          -> samefile(a::StatStruct, b::StatStruct) = a.device == b.device && a.inode == b.inode  [stat.jl:594]
+          -> Compares actual filesystem inodes, handles symlinks correctly
+      downstream_surfaces:
+        - "Workspace detection for symlinked projects"
+        - "Case-insensitive filesystem support (macOS, Windows)"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "Projects outside home directory search to filesystem root"
+      mechanism: |
+        Boundary check logic  [loading.jl:677-688]:
+          started_in_home = startswith(project_dir, home_dir)
+          if started_in_home && !startswith(parent_dir, home_dir)
+              return nothing
+          end
+
+        Implication:
+          - Projects INSIDE home: search stops at home directory boundary
+          - Projects OUTSIDE home (e.g., /opt/project, /var/lib/project):
+            search continues all the way to filesystem root "/"
+          - Could potentially find unexpected workspace definitions in system directories
+      downstream_surfaces:
+        - "System-level project installations"
+        - "Docker/container deployments with projects outside home"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Performance: multiple stat() calls per parent directory level during search"
+      mechanism: |
+        base_project iteration  [loading.jl:680-711]:
+          for each parent_dir level:
+            env_project_file(parent_dir) -> isdir(), locate_project_file() calls
+            if workspace found: parsed_toml() parses TOML file
+            for each project in workspace.projects:
+              isdir(project_path) -> 1 stat syscall
+              samefile(project_path, project_dir) -> 2 stat syscalls (stat each path)
+
+        Cost analysis for depth N with M workspace projects:
+          - O(N) iterations up the directory tree
+          - O(N) env_project_file() calls (cached after first call via LOADING_CACHE)
+          - O(N) parsed_toml() calls for workspaces found
+          - O(M * N) samefile() calls in worst case
+          - Each samefile() = 2 stat syscalls
+
+        ESTIMATED: Negligible for typical depths (2-5 levels, <10 projects)
+        May be noticeable for deep hierarchies (10+ levels) on network filesystems
+      downstream_surfaces:
+        - "Package load time for deeply nested projects"
+        - "REPL startup time when using nested workspace"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Precompilation module imports base_project for future code loading"
+      mechanism: |
+        Precompilation module imports  [precompilation.jl:3-5]:
+          using Base: ... base_project, isdefined
+
+        Note: base_project is imported but not directly used in current code.
+        Comment indicates future use: "see the `kc/codeloading2.0` branch"
+        ExplicitEnv struct may use base_project for workspace resolution in future.
+      downstream_surfaces:
+        - "Future precompilation cache paths for workspace projects"
+      likelihood: "medium"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - item: "base_project() return value unchanged (String or nothing)"
+        description: |
+          Function signature: base_project(project_file) -> Union{String, Nothing}
+          Return type is unchanged; only search algorithm differs.
+          Code calling base_project() does not need modification.
+        affected_tools: []
+
+      - item: "workspace.projects now supports relative paths with path separators"
+        description: |
+          Previously: projects = ["sub", "test"] (direct children only)
+          Now: projects = ["sub", "test", "nested/deep"] (arbitrary depth)
+          This is a capability extension, not a breaking change.
+        affected_tools:
+          - tool: "Pkg.jl"
+            usage: "Reads and writes [workspace].projects in Project.toml at Pkg/src/Types.jl"
+
+    behavioral:
+      - item: "Search boundary changed from single parent to home directory limit"
+        description: |
+          OLD algorithm:
+            base_dir = abspath(joinpath(dirname(project_file), ".."))
+            -> Only checked the immediate parent directory
+
+          NEW algorithm:
+            while true: parent_dir = dirname(current_dir)
+            -> Searches upward through all parents until:
+              1. Root directory is reached (parent_dir == current_dir)
+              2. Home directory boundary crossed (if started within home)
+
+          This could find workspaces that were previously missed if:
+            - Project was more than one level deep in workspace
+            - Workspace was defined at a higher ancestor directory
+        affected_tools: []
+
+      - item: "Project matching uses samefile() instead of basename comparison"
+        description: |
+          OLD: basename(dirname(project_file)) in projects
+            -> Compared directory name strings directly
+
+          NEW: samefile(joinpath(workspace_root, project), project_dir)
+            -> Compares filesystem inodes via stat()
+
+          Correctly handles:
+            - Symlinks (now resolved to actual files)
+            - Different path representations (/foo vs /foo/)
+            - Case-insensitive filesystems
+        affected_tools: []
+
+  performance:
+    compile_time: []
+    runtime:
+      - item: "Additional stat() calls during workspace search"
+        description: |
+          For a project at depth N below workspace root:
+          - O(N) calls to env_project_file() during upward search
+          - O(M * N) samefile() calls in worst case (M = projects in workspace)
+          - Each samefile() = 2 stat syscalls
+
+          ESTIMATED: Negligible for typical depths (2-5 levels), may be noticeable
+          for very deep project hierarchies (10+ levels) on slow filesystems.
+
+          Mitigating factors:
+          - env_project_file() results cached in LOADING_CACHE
+          - Early termination when workspace found
+          - Typical workspaces have <10 projects
+
+  risk:
+    level: "low"
+    rationale:
+      - "Package loading only - no compiler internals affected"
+      - "Behavioral change is capability extension, not breaking change"
+      - "Home directory boundary prevents runaway upward search"
+      - "Test coverage added for nested project scenario"
+      - "samefile() is well-tested standard library function"
+
+  open_questions:
+    - "Should there be a maximum search depth limit to prevent pathological cases?"
+    - "Could caching of base_project results improve performance for repeated lookups?"
+    - "Should projects outside home directory have a different search boundary?"
+
+  recommendations:
+    - "Downstream packages that manually parse workspace TOML should support nested paths in projects array"
+    - "Packages using custom project discovery should be aware of the new upward search behavior"
+    - "Consider LOAD_PATH ordering implications when projects exist at multiple workspace depths"
+    - "Users with symlinked workspace projects should verify behavior with new samefile() matching"
+
+  test_coverage:
+    - description: "Test that workspace projects can be specified with subfolder paths"
+      path: "test/loading.jl"
+      loc: "1672-1678"
+      url: "https://github.com/JuliaLang/julia/blob/16fa7a43b506de8c25c0a3c9c0d88049ace2ccd1/test/loading.jl#L1672-L1678"
+      snippet: |
+        # Test that workspace projects can be specified with subfolder paths
+        # and that base_project searches upward through multiple directory levels
+        empty!(LOAD_PATH)
+        push!(LOAD_PATH, joinpath(@__DIR__, "project", "SubProject", "nested", "deep"))
+        proj_file = joinpath(@__DIR__, "project", "SubProject", "nested", "deep", "Project.toml")
+        base_proj = Base.base_project(proj_file)
+        @test base_proj == joinpath(@__DIR__, "project", "SubProject", "Project.toml")
+
+    - description: "Test fixture: workspace with nested/deep project path"
+      path: "test/project/SubProject/Project.toml"
+      loc: "4-5"
+      url: "https://github.com/JuliaLang/julia/blob/16fa7a43b506de8c25c0a3c9c0d88049ace2ccd1/test/project/SubProject/Project.toml#L4-L5"
+      snippet: |
+        [workspace]
+        projects = ["sub", "PackageThatIsSub", "test", "nested/deep"]
+
+    - description: "Test fixture: deeply nested project definition"
+      path: "test/project/SubProject/nested/deep/Project.toml"
+      loc: "1-2"
+      url: "https://github.com/JuliaLang/julia/blob/16fa7a43b506de8c25c0a3c9c0d88049ace2ccd1/test/project/SubProject/nested/deep/Project.toml#L1-L2"
+      snippet: |
+        name = "DeepNested"
+        uuid = "d5e3a334-7f12-4e5f-9ab8-123456789abc"
+
+  reviewer_notes: |
+    Independent review completed 2026-01-21. Enhancements added:
+    1. Corrected test line numbers (was 1794-1800, actual 1672-1678)
+    2. Added REPL prompt behavior secondary effect (Pkg_promptf path display)
+    3. Added symlink/case-insensitive filesystem handling analysis
+    4. Added edge case for projects outside home directory
+    5. Added preferences inheritance chain impact analysis
+    6. Enhanced call chain evidence with specific file:line references
+    7. Added cost analysis for performance impact
+    8. Verified base_project import in Precompilation module (imported but not yet used)
