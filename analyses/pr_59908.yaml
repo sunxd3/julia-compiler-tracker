@@ -19,7 +19,7 @@ scope:
     - "AbstractInterpretation"
 analysis:
   intent:
-    summary: "Allow external AbstractInterpreter implementations (notably JETAnalyzer) to cancel concrete evaluation ad-hoc and fall back to regular abstract interpretation when concrete evaluation throws, reducing false positives while keeping precision when concrete eval succeeds."
+    summary: "Allow external AbstractInterpreter implementations (notably JETAnalyzer) to cancel concrete evaluation ad-hoc by returning nothing from concrete_eval_call, enabling fallback to regular abstract interpretation when concrete evaluation throws. This reduces false positives (e.g., spurious type instability warnings for `>(1.0, π)`) while preserving precision when concrete evaluation succeeds."
     issue_links:
       - "https://github.com/JuliaLang/julia/issues/59884"
   direct_changes:
@@ -28,8 +28,8 @@ analysis:
       evidence:
         - source: "code"
           path: "Compiler/src/abstractinterpretation.jl"
-          loc: "865-881"
-          url: "https://github.com/JuliaLang/julia/blob/c6091de0942ab75c9da18bbf1b49db1fb760e353/Compiler/src/abstractinterpretation.jl#L865-L881"
+          loc: "865-900"
+          url: "https://github.com/JuliaLang/julia/blob/c6091de0942ab75c9da18bbf1b49db1fb760e353/Compiler/src/abstractinterpretation.jl#L865-L900"
           snippet: |
             function abstract_call_method_with_const_args(interp::AbstractInterpreter,
                 result::MethodCallResult, @nospecialize(f), arginfo::ArgInfo, si::StmtInfo,
@@ -51,13 +51,56 @@ analysis:
                     end
                     # TODO allow semi-concrete interp for this call?
                 end
-    - summary: "Existing regression tests show how custom AbstractInterpreter implementations override abstract-eval hooks, providing the baseline extension point that this PR expands (concrete-eval cancellation)."
+                mi = maybe_get_const_prop_profitable(interp, result, f, arginfo, si, match, sv)
+                mi === nothing && return concrete_eval_result
+                if is_constprop_recursed(result, mi, sv)
+                    add_remark!(interp, sv, "[constprop] Edge cycle encountered")
+                    return nothing
+                end
+                # try semi-concrete evaluation
+                if eligibility === :semi_concrete_eval
+                    irinterp_result = semi_concrete_eval_call(interp, mi, result, arginfo, sv)
+                    if irinterp_result !== nothing
+                        return irinterp_result
+                    end
+                end
+                # try constant prop'
+                return const_prop_call(interp, mi, result, arginfo, sv, concrete_eval_result)
+            end
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "997-1018"
+          url: "https://github.com/JuliaLang/julia/blob/c6091de0942ab75c9da18bbf1b49db1fb760e353/Compiler/src/abstractinterpretation.jl#L997-L1018"
+          snippet: |
+            function concrete_eval_call(interp::AbstractInterpreter,
+                @nospecialize(f), result::MethodCallResult, arginfo::ArgInfo, ::AbsIntState,
+                invokecall::Union{InvokeCall,Nothing}=nothing)
+                args = collect_const_args(arginfo, #=start=#2)
+                if invokecall !== nothing
+                    # this call should be `invoke`d, rewrite `args` back now
+                    pushfirst!(args, f, invokecall.types)
+                    f = invoke
+                end
+                world = get_inference_world(interp)
+                edge = result.edge::CodeInstance
+                value = try
+                    Core._call_in_world_total(world, f, args...)
+                catch
+                    # The evaluation threw. By :consistent-cy, we're guaranteed this would have happened at runtime.
+                    # Howevever, at present, :consistency does not mandate the type of the exception
+                    concrete_result = ConcreteResult(edge, result.effects)
+                    return ConstCallResult(Bottom, Any, concrete_result, result.effects, #=const_edge=#nothing)
+                end
+                concrete_result = ConcreteResult(edge, EFFECTS_TOTAL, value)
+                return ConstCallResult(Const(value), Bottom, concrete_result, EFFECTS_TOTAL, #=const_edge=#nothing)
+            end
+    - summary: "Existing AbstractInterpreter tests demonstrate customization of concrete_eval_eligible, providing the established extension point pattern that this PR expands."
       component: "Compiler/test/AbstractInterpreter.jl"
       evidence:
         - source: "test"
           path: "Compiler/test/AbstractInterpreter.jl"
-          loc: "171-190"
-          url: "https://github.com/JuliaLang/julia/blob/c6091de0942ab75c9da18bbf1b49db1fb760e353/Compiler/test/AbstractInterpreter.jl#L171-L190"
+          loc: "173-190"
+          url: "https://github.com/JuliaLang/julia/blob/c6091de0942ab75c9da18bbf1b49db1fb760e353/Compiler/test/AbstractInterpreter.jl#L173-L190"
           snippet: |
             # GPUCompiler needs accurate inference through kwfunc with the overlay of `Core.throw_inexacterror`
             # https://github.com/JuliaLang/julia/issues/48097
@@ -79,43 +122,125 @@ analysis:
             @test fully_eliminated(; interp=Issue48097Interp(), retval=42) do
                 issue48097(; a=1f0, b=1.0)
             end
+    - summary: "REPLCompletions uses REPLInterpreter which overrides concrete_eval_eligible, demonstrating the established pattern of custom AbstractInterpreter overrides in stdlib."
+      component: "stdlib/REPL/src/REPLCompletions.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "602-620"
+          url: "https://github.com/JuliaLang/julia/blob/c6091de0942ab75c9da18bbf1b49db1fb760e353/stdlib/REPL/src/REPLCompletions.jl#L602-L620"
+          snippet: |
+            # aggressive concrete evaluation for `:inconsistent` frames within `repl_frame`
+            function CC.concrete_eval_eligible(interp::REPLInterpreter, @nospecialize(f),
+                                               result::CC.MethodCallResult, arginfo::CC.ArgInfo,
+                                               sv::CC.InferenceState)
+                if (interp.limit_aggressive_inference ? is_repl_frame(sv) : is_call_stack_uncached(sv))
+                    neweffects = CC.Effects(result.effects; consistent=CC.ALWAYS_TRUE)
+                    result = CC.MethodCallResult(result.rt, result.exct, neweffects, result.edge,
+                                                 result.edgecycle, result.edgelimited, result.volatile_inf_result)
+                end
+                ret = @invoke CC.concrete_eval_eligible(interp::CC.AbstractInterpreter, f::Any,
+                                                        result::CC.MethodCallResult, arginfo::CC.ArgInfo,
+                                                        sv::CC.InferenceState)
+                if ret === :semi_concrete_eval
+                    # while the base eligibility check probably won't permit semi-concrete evaluation
+                    # for `REPLInterpreter` (given it completely turns off optimization),
+                    # this ensures we don't inadvertently enter irinterp
+                    ret = :none
+                end
+                return ret
+            end
   secondary_effects:
-    - effect: "External interpreters can now cancel concrete evaluation per-call, forcing fallback to const-prop/abstract interpretation when concrete evaluation throws or is otherwise undesirable (e.g., JETAnalyzer error reporting)."
+    - effect: "External interpreters can now cancel concrete evaluation per-call by returning `nothing` from `concrete_eval_call`, forcing fallback to const-prop/abstract interpretation when concrete evaluation throws or is otherwise undesirable (e.g., JETAnalyzer error reporting)."
       mechanism: |
-        abstract_call_method_with_const_args(...)  [abstractinterpretation.jl:865-899]
-          -> concrete_eval_call(...)  [abstractinterpretation.jl:997-1018]
-          -> if concrete_eval_result !== nothing then return it
-          -> else proceed to maybe_get_const_prop_profitable(...) and const_prop_call(...)
-        The new `concrete_eval_result !== nothing` guard makes `nothing` a cancellation signal.
+        Call chain with three entry points into abstract_call_method_with_const_args:
+
+        1. abstract_call_gf_by_type() -> infercalls()  [abstractinterpretation.jl:178]
+           -> abstract_call_method_with_const_args(interp, mresult[], state.func, this_arginfo, si, match, sv)
+
+        2. abstract_invoke()  [abstractinterpretation.jl:2310]
+           -> abstract_call_method_with_const_args(interp, result, f, arginfo′, si, match, sv, invokecall)
+
+        3. abstract_call_opaque_closure()  [abstractinterpretation.jl:2826]
+           -> abstract_call_method_with_const_args(interp, result, #=f=#nothing, arginfo, si, match, sv)
+
+        Inside abstract_call_method_with_const_args:
+          concrete_eval_eligible(interp, f, result, arginfo, sv)  [line 871]
+            -> if :concrete_eval then concrete_eval_call(...)  [line 874]
+            -> NEW: if concrete_eval_result !== nothing then return it  [line 875]
+            -> else proceed to maybe_get_const_prop_profitable(...) and const_prop_call(...)  [line 885-899]
+
+        The new `concrete_eval_result !== nothing` guard makes `nothing` a cancellation signal,
+        allowing the call to fall through to const-prop inference.
       downstream_surfaces:
         - "AbstractInterpreter implementors that override concrete_eval_call (e.g., JETAnalyzer)"
         - "Tools relying on const-prop fallback for diagnostics (JET, custom analyzers)"
         - "Overlay-based inference stacks (GPUCompiler/CUDA-style overlays)"
       likelihood: "medium"
       impact: "medium"
+    - effect: "OpaqueClosure inference now also respects ad-hoc concrete evaluation cancellation, allowing custom interpreters to control concrete eval behavior for opaque closure calls."
+      mechanism: |
+        abstract_call_opaque_closure(interp, closure, arginfo, si, sv, check)  [abstractinterpretation.jl:2799]
+          -> abstract_call_method(interp, ocmethod, sig, ...)  [line 2818]
+          -> if !edgecycle then abstract_call_method_with_const_args(...)  [line 2826]
+             -> concrete_eval_call can now return nothing to cancel  [line 874-881 in callee]
+          -> const_call_result feeds into OpaqueClosure inference result  [line 2828-2840]
+
+        This means JETAnalyzer and other custom interpreters can control concrete evaluation
+        behavior when analyzing OpaqueClosure calls, not just regular method calls.
+      downstream_surfaces:
+        - "OpaqueClosure-heavy packages (GPUCompiler, Enzyme)"
+        - "Custom analyzers inspecting opaque closure behavior"
+      likelihood: "low"
+      impact: "medium"
+    - effect: "When concrete_eval_result passes through const_prop_call, it overrides the inferred return type and effects, preserving concrete eval precision even when falling back to const-prop for inlineability analysis."
+      mechanism: |
+        const_prop_call(interp, mi, result, arginfo, sv, concrete_eval_result)  [abstractinterpretation.jl:1307-1373]
+          -> performs fresh constant propagation  [line 1342-1358]
+          -> if concrete_eval_result !== nothing:  [line 1367]
+               inf_result.result = concrete_eval_result.rt  # override with concrete type
+               inf_result.ipo_effects = concrete_eval_result.effects  # override effects
+
+        This ensures that when concrete evaluation succeeded but wasn't inlined, the concrete
+        result precision is preserved in the const-prop result rather than being discarded.
+      downstream_surfaces:
+        - "Inlining decisions based on const-prop results"
+        - "Effect analysis accuracy"
+      likelihood: "high"
+      impact: "low"
   compatibility:
     internal_api:
       - field: "Compiler.concrete_eval_call(::AbstractInterpreter, ...) return contract"
-        change: "Return value may now be `nothing` to signal cancellation; callers treat `nothing` as a request to skip concrete evaluation and continue with const-prop."
+        change: "Return value may now be `nothing` to signal cancellation; callers treat `nothing` as a request to skip concrete evaluation and continue with const-prop. Base implementation (NativeInterpreter) never returns nothing."
         affected_tools:
+          - tool: "JETAnalyzer"
+            usage: "JET overrides concrete_eval_call to return nothing when concrete evaluation causes errors it wants to report in user-understandable form"
           - tool: "Custom AbstractInterpreter implementations"
-            usage: "Tests in Compiler/test/AbstractInterpreter.jl show downstream-style interpreters overriding abstract interpretation hooks; these can now override concrete_eval_call similarly."
+            usage: "Tests in Compiler/test/AbstractInterpreter.jl show downstream-style interpreters overriding abstract interpretation hooks; these can now override concrete_eval_call to return nothing"
     behavioral:
-      - change: "Inference paths may skip concrete evaluation when external interpreters opt out, potentially widening return types or changing diagnostic output compared to always returning the concrete-eval result."
+      - change: "Inference paths may skip concrete evaluation when external interpreters opt out via `nothing` return, potentially widening return types or changing diagnostic output compared to always returning the concrete-eval result. Default NativeInterpreter behavior unchanged."
         affected_surfaces:
-          - "JETAnalyzer error reporting"
+          - "JETAnalyzer error reporting (primary beneficiary - fixes false positives like issue 59884)"
           - "Const-prop driven inlining decisions"
+          - "OpaqueClosure inference results"
   performance:
     compile_time:
-      - impact: "ESTIMATED: negligible (<1%); one extra branch and null-check in a hot abstract interpretation path when concrete eval is eligible."
+      - impact: |
+          ESTIMATED: negligible (<1%)
+          One extra null-check in a hot abstract interpretation path when concrete eval is eligible.
+          The check `concrete_eval_result !== nothing` is a simple pointer comparison.
+          Only executed when eligibility === :concrete_eval, which is already a specialized path.
     runtime:
-      - impact: "No direct runtime codegen changes; behavior is limited to inference/analysis time." 
+      - impact: "No direct runtime codegen changes; behavior is limited to inference/analysis time."
   risk:
     level: "low"
     rationale:
-      - "Change is narrowly scoped to a guard around concrete evaluation results."
-      - "Default interpreter behavior unchanged because Base concrete_eval_call never returns nothing."
+      - "Change is narrowly scoped to a guard around concrete evaluation results in abstract_call_method_with_const_args."
+      - "Default interpreter behavior unchanged because Base concrete_eval_call always returns ConstCallResult, never nothing."
+      - "Pattern follows established AbstractInterpreter extension mechanism (similar to concrete_eval_eligible overrides)."
+      - "PR author (aviatesk) is the JET maintainer and Julia compiler team member with extensive abstract interpretation expertise."
   open_questions:
-    - "No Julia test explicitly exercises concrete_eval_call returning nothing; should a targeted regression test be added for the new cancellation hook?"
+    - "No Julia test explicitly exercises concrete_eval_call returning nothing; JET presumably has its own tests but in-tree regression test would document the contract."
   recommendations:
-    - "Add a small AbstractInterpreter test that overrides concrete_eval_call to return nothing on specific errors and asserts fallback to const-prop."
+    - "Consider adding a small AbstractInterpreter test that overrides concrete_eval_call to return nothing on specific errors and asserts fallback to const-prop, documenting the new return contract in-tree."
+    - "Document in docstring that concrete_eval_call may return nothing to signal cancellation, alongside the existing ConstCallResult return type."
