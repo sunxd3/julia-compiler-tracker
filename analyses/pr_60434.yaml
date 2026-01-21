@@ -1,0 +1,435 @@
+schema_version: "1.0"
+
+pr:
+  number: 60434
+  title: "Don't set `Attribute::StackProtectStrong` when not using `CodeModel::Large`"
+  url: "https://github.com/JuliaLang/julia/pull/60434"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60434.diff"
+  author: "ararslan"
+  labels:
+    - "system:arm"
+    - "compiler:codegen"
+    - "bugfix"
+    - "system:riscv"
+  merged_at: "2026-01-04T14:40:48Z"
+  merge_commit_sha: "550aaac718adfe01668f2c38168e6ed47b2f381d"
+
+scope:
+  files_touched:
+    - "src/codegen.cpp"
+  components:
+    - "Compiler.codegen"
+  pipeline_stages:
+    - "Codegen"
+
+analysis:
+  intent:
+    summary: |
+      Fixes debug build crashes on AArch64 and RISC-V platforms caused by LLVM attempting
+      to relocate the stack canary (`__stack_chk_guard`) beyond the addressing range
+      permitted by smaller code models. The PR conditionally disables the
+      `Attribute::StackProtectStrong` function attribute on these architectures.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59303"
+
+  direct_changes:
+    - summary: |
+        Conditionally exclude AArch64 and RISC-V from receiving the StackProtectStrong
+        LLVM function attribute in debug builds. This prevents LLVM from generating
+        stack protection code that requires relocations incompatible with smaller code models.
+      component: "Compiler.codegen"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "8725-8729"
+          url: "https://github.com/JuliaLang/julia/blob/550aaac718adfe01668f2c38168e6ed47b2f381d/src/codegen.cpp#L8725-L8729"
+          snippet: |
+            // Add strong stack protection for debug builds only when using the large code model,
+            // otherwise LLVM might try to relocate the stack canary out of range (see e.g. #59303)
+            #if defined(JL_DEBUG_BUILD) && !(defined(_CPU_AARCH64_) || defined(_CPU_RISCV_))
+                FnAttrs.addAttribute(Attribute::StackProtectStrong);
+            #endif
+        - source: "diff"
+          path: "src/codegen.cpp"
+          loc: "8722"
+          url: "https://github.com/JuliaLang/julia/pull/60434/files"
+          snippet: |
+            # Before (unconditional for all debug builds):
+            #ifdef JL_DEBUG_BUILD
+                FnAttrs.addAttribute(Attribute::StackProtectStrong);
+            #endif
+
+            # After (excludes AArch64 and RISC-V):
+            #if defined(JL_DEBUG_BUILD) && !(defined(_CPU_AARCH64_) || defined(_CPU_RISCV_))
+                FnAttrs.addAttribute(Attribute::StackProtectStrong);
+            #endif
+
+    - summary: |
+        The root cause is the mismatch between code models on different architectures:
+        - x86_64: Uses CodeModel::Large, which supports full 64-bit address range
+        - AArch64: Uses CodeModel::Small due to limitations in LLVM/macOS support
+        - RISC-V: Uses CodeModel::Medium (or Small) due to LLVM support gaps
+
+        When StackProtectStrong is enabled, LLVM generates code that references the
+        `__stack_chk_guard` symbol. With smaller code models, the generated relocation
+        (e.g., Page21 on AArch64) has a limited addressing range. If the symbol is
+        allocated outside this range, the JIT fails with a relocation error.
+      component: "Compiler.jitlayers"
+      evidence:
+        - source: "code"
+          path: "src/jitlayers.cpp"
+          loc: "1376-1391"
+          url: "https://github.com/JuliaLang/julia/blob/550aaac718adfe01668f2c38168e6ed47b2f381d/src/jitlayers.cpp#L1376-L1391"
+          snippet: |
+            std::optional<CodeModel::Model> codemodel =
+            #ifdef _P64
+                // Make sure we are using the large code model on 64bit
+                // Let LLVM pick a default suitable for jitting on 32bit
+                CodeModel::Large;
+            #else
+                None;
+            #endif
+            if (TheTriple.isAArch64())
+                codemodel = CodeModel::Small;
+            #if JL_LLVM_VERSION < 200000
+            else if (TheTriple.isRISCV()) {
+                // RISC-V only supports large code model from LLVM 20
+                // https://github.com/llvm/llvm-project/pull/70308
+                codemodel = CodeModel::Medium;
+            }
+            #endif
+        - source: "comment"
+          path: "src/jitlayers.h"
+          loc: "35-50"
+          url: "https://github.com/JuliaLang/julia/blob/550aaac718adfe01668f2c38168e6ed47b2f381d/src/jitlayers.h#L35-L50"
+          snippet: |
+            // As of LLVM 13, there are two runtime JIT linker implementations, the older
+            // RuntimeDyld (used via orc::RTDyldObjectLinkingLayer) and the newer JITLink
+            // (used via orc::ObjectLinkingLayer).
+            //
+            // JITLink is not only more flexible (which isn't of great importance for us, as
+            // we do only single-threaded in-process codegen), but crucially supports using
+            // the Small code model, where the linker needs to fix up relocations between
+            // object files that end up far apart in address space. RuntimeDyld can't do
+            // that and relies on the Large code model instead, which is broken on
+            // aarch64-darwin (macOS on ARM64), and not likely to ever be supported there
+            // (see https://bugs.llvm.org/show_bug.cgi?id=52029).
+
+  critical_bugs:
+    - bug: "Wrong RISC-V macro name - fix is incomplete for RISC-V platforms"
+      severity: "high"
+      description: |
+        The PR uses `_CPU_RISCV_` but Julia's codebase only defines `_CPU_RISCV64_` in
+        src/support/platform.h. Since `_CPU_RISCV_` is never defined, the preprocessor
+        condition `defined(_CPU_RISCV_)` always evaluates to false on RISC-V platforms.
+
+        This means the StackProtectStrong attribute is still added on RISC-V debug builds,
+        and the original relocation crash issue will still occur on RISC-V.
+      evidence:
+        - source: "code"
+          path: "src/support/platform.h"
+          loc: "110-111"
+          url: "https://github.com/JuliaLang/julia/blob/550aaac718adfe01668f2c38168e6ed47b2f381d/src/support/platform.h#L110-L111"
+          snippet: |
+            #elif defined(__riscv) && __riscv_xlen == 64
+            #define _CPU_RISCV64_
+        - source: "search"
+          path: "src/"
+          description: |
+            Searched entire src/ directory for _CPU_RISCV_ vs _CPU_RISCV64_:
+
+            $ rg "_CPU_RISCV_" src/
+            src/codegen.cpp:8727:#if defined(JL_DEBUG_BUILD) && !(defined(_CPU_AARCH64_) || defined(_CPU_RISCV_))
+
+            $ rg "_CPU_RISCV64_" src/
+            src/signals-unix.c:176:#elif defined(_OS_LINUX_) && (defined(_CPU_RISCV64_))
+            src/julia_threads.h:65:     defined(_CPU_ARM_) || defined(_CPU_PPC64_) || defined(_CPU_RISCV64_))
+            src/jitlayers.h:62:#if defined(_CPU_RISCV64_)
+            src/cgmemmgr.cpp:774:#if !(defined(_CPU_AARCH64_) || defined(_CPU_RISCV64_))
+            src/jitlayers.cpp:1333:#if defined(_CPU_RISCV64_)
+            ... (18 more occurrences)
+
+            The PR is the ONLY place using _CPU_RISCV_ - all other code uses _CPU_RISCV64_.
+      impact: |
+        RISC-V debug builds will still crash with the same "relocation target out of range"
+        error when JIT-compiling functions with stack protection enabled. Only AArch64
+        is actually fixed by this PR.
+      recommendation: |
+        A follow-up PR is needed to change _CPU_RISCV_ to _CPU_RISCV64_ in src/codegen.cpp:8727.
+        The corrected line should be:
+        #if defined(JL_DEBUG_BUILD) && !(defined(_CPU_AARCH64_) || defined(_CPU_RISCV64_))
+
+  secondary_effects:
+    - effect: |
+        Debug builds on AArch64 will no longer have stack protection enabled for
+        JIT-compiled functions. However, RISC-V remains UNFIXED due to the macro typo.
+      mechanism: |
+        emit_function() [codegen.cpp:8700+]
+          builds AttrBuilder FnAttrs for LLVM function
+          -> AttrBuilder FnAttrs(ctx.builder.getContext(), f->getAttributes().getFnAttrs())
+          -> checks: #if defined(JL_DEBUG_BUILD) && !(defined(_CPU_AARCH64_) || defined(_CPU_RISCV_))
+          -> On AArch64: _CPU_AARCH64_ is defined, condition is false, no StackProtectStrong
+          -> On RISC-V: _CPU_RISCV_ is NOT defined (typo), condition is true, still adds StackProtectStrong
+          -> LLVM function pass manager inserts stack canary for RISC-V but not AArch64
+      downstream_surfaces:
+        - "JIT-compiled functions on AArch64 debug builds (fixed)"
+        - "JIT-compiled functions on RISC-V debug builds (STILL BROKEN)"
+        - "Security analysis tools expecting stack protection"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: |
+        The module-level StackProtectorGuard("global") setting remains unchanged and
+        is still set for all debug builds on all platforms. This metadata is preserved
+        when modules are cloned (e.g., for ccall, AOT compilation).
+      mechanism: |
+        Module-level stack protector setting propagation chain:
+
+        1. jl_create_llvm_module_for_src() [codegen.cpp:2977-2979]
+           #if defined(JL_DEBUG_BUILD)
+               m->setStackProtectorGuard("global");
+           #endif
+
+        2. ccall module cloning [ccall.cpp:1167-1171]
+           // copy module properties that should always match
+           Mod->setTargetTriple(jl_Module->getTargetTriple());
+           Mod->setDataLayout(jl_Module->getDataLayout());
+           Mod->setStackProtectorGuard(jl_Module->getStackProtectorGuard());
+
+        3. AOT compilation [aotcompile.cpp:2172-2197]
+           std::string StackProtectorGuard;
+           data->M.withModuleDo([&](Module &M) {
+               StackProtectorGuard = M.getStackProtectorGuard().str();
+           });
+           sysimgM.setStackProtectorGuard(StackProtectorGuard);
+
+        Module-level metadata is copied but has no effect without function attributes.
+      downstream_surfaces:
+        - "Module metadata consumers"
+        - "AOT-compiled system images"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: |
+        JL_USE_JITLINK is enabled for both AArch64 and RISC-V, which is why these
+        platforms use smaller code models. This is a fundamental constraint that
+        cannot easily be changed.
+      mechanism: |
+        JITLink selection [jitlayers.h:58-64]:
+
+        #if defined(JL_FORCE_JITLINK) || defined(_CPU_AARCH64_) || defined(HAS_SANITIZER)
+        # define JL_USE_JITLINK
+        #endif
+
+        #if defined(_CPU_RISCV64_)
+        # define JL_USE_JITLINK
+        #endif
+
+        JITLink requires smaller code models because RuntimeDyld (the alternative)
+        cannot handle large code model relocations on these platforms.
+      downstream_surfaces:
+        - "JIT compilation infrastructure"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: |
+        The related PR #60433 (same author, same day) separately addresses the
+        `__stack_chk_guard` symbol import issue on FreeBSD by setting HAVE_SSP
+        and importing the symbol from libc.
+      mechanism: |
+        Two-pronged fix attempted for stack protection on FreeBSD AArch64:
+        1. PR #60433: Make __stack_chk_guard symbol available by importing from libc
+        2. PR #60434: Don't request stack protection on platforms where relocation fails
+
+        However, PR #60434's RISC-V fix is broken due to the macro typo.
+      downstream_surfaces:
+        - "FreeBSD AArch64 debug builds (fixed)"
+        - "RISC-V debug builds (still broken)"
+      likelihood: "high"
+      impact: "medium"
+
+  additional_context:
+    - description: |
+        There is disabled dead code in ccall.cpp that could enable per-ccall stack
+        protection. This code is wrapped in `if (0)` and has never been enabled.
+      evidence:
+        - source: "code"
+          path: "src/ccall.cpp"
+          loc: "2271-2273"
+          url: "https://github.com/JuliaLang/julia/blob/550aaac718adfe01668f2c38168e6ed47b2f381d/src/ccall.cpp#L2271-L2273"
+          snippet: |
+            if (0) { // Enable this to turn on SSPREQ (-fstack-protector) on the function containing this ccall
+                ctx.f->addFnAttr(Attribute::StackProtectReq);
+            }
+
+    - description: |
+        Platform macro definitions are in src/support/platform.h. The file header
+        explicitly lists available CPU macros, and _CPU_RISCV_ is NOT among them.
+      evidence:
+        - source: "code"
+          path: "src/support/platform.h"
+          loc: "25-32"
+          url: "https://github.com/JuliaLang/julia/blob/550aaac718adfe01668f2c38168e6ed47b2f381d/src/support/platform.h#L25-L32"
+          snippet: |
+            *      CPU/Architecture:
+            *          _CPU_X86_
+            *          _CPU_X86_64_
+            *          _CPU_AARCH64_
+            *          _CPU_ARM_
+            *          _CPU_RISCV64_
+            *          _CPU_WASM_
+
+  compatibility:
+    internal_api:
+      - field: "Attribute::StackProtectStrong"
+        change: "No longer added to functions on AArch64 in debug builds (RISC-V fix is broken)"
+        affected_tools:
+          - "LLVM passes that inspect function attributes"
+          - "Security analysis tools"
+
+    behavioral:
+      - description: |
+          Debug builds on AArch64 will not have stack buffer overflow detection
+          (stack canaries) for JIT-compiled Julia code. RISC-V debug builds
+          STILL have the problematic attribute due to the macro typo.
+        severity: "medium"
+        rationale: |
+          Stack protection is a security feature, not a correctness feature.
+          Release builds never had this protection. The AArch64 fix is correct
+          but the RISC-V portion is ineffective.
+
+  performance:
+    compile_time:
+      - description: |
+          Negligible impact. The change is a compile-time conditional that excludes
+          a single attribute addition. No additional passes or computations.
+        impact: "none"
+        label: "ESTIMATED"
+
+    runtime:
+      - description: |
+          Slight performance improvement on AArch64 debug builds due to
+          absence of stack canary checks. Each function call saves:
+          - One load of __stack_chk_guard at function entry
+          - One comparison and conditional jump at function exit
+
+          RISC-V debug builds do NOT see this improvement due to the macro typo.
+        impact: "negligible"
+        label: "ESTIMATED"
+
+  risk:
+    level: "medium"
+    rationale:
+      - "Contains a bug: _CPU_RISCV_ should be _CPU_RISCV64_"
+      - "RISC-V platforms remain broken despite the PR claiming to fix them"
+      - "AArch64 fix is correct and working"
+      - "No changes to release build behavior"
+      - "Well-understood root cause (code model vs relocation range mismatch)"
+      - "Fixes issue #59303 for AArch64 but not for RISC-V"
+
+  test_changes:
+    - description: |
+        No test changes in this PR. The fix is validated by the successful build
+        on FreeBSD AArch64 (previously crashed). The issue was a build/JIT failure,
+        not a runtime behavioral change that could be unit tested.
+
+        However, the lack of RISC-V testing allowed the macro typo to slip through.
+      significance: "Build fix - no behavioral test, but RISC-V bug was missed"
+
+  open_questions:
+    - |
+      CRITICAL: Why was _CPU_RISCV_ used instead of _CPU_RISCV64_? This needs to be
+      fixed in a follow-up PR.
+    - |
+      Should there be a runtime check or warning when stack protection is unavailable?
+      Currently, users may not realize debug builds lack this protection on certain platforms.
+    - |
+      Will future LLVM versions improve code model support on AArch64/RISC-V to the point
+      where this workaround can be removed? LLVM 20+ supports large code model on RISC-V.
+    - |
+      Should the module-level setStackProtectorGuard("global") also be conditionalized
+      to match the function-level attribute behavior for consistency?
+
+  recommendations:
+    - |
+      URGENT: File a follow-up PR to fix the RISC-V macro typo. Change line 8727 in
+      src/codegen.cpp from:
+        #if defined(JL_DEBUG_BUILD) && !(defined(_CPU_AARCH64_) || defined(_CPU_RISCV_))
+      to:
+        #if defined(JL_DEBUG_BUILD) && !(defined(_CPU_AARCH64_) || defined(_CPU_RISCV64_))
+    - |
+      Downstream package maintainers: No action required. This is a Julia runtime
+      build fix that does not affect user code or compiled package code.
+    - |
+      Security-sensitive users: Be aware that debug builds on AArch64 lack stack
+      buffer overflow protection. RISC-V debug builds are currently broken and may
+      crash during JIT compilation.
+    - |
+      CI/Testing: If testing on FreeBSD AArch64, ensure using Julia version with
+      this fix (merged 2026-01-04). RISC-V testing will still fail until the macro
+      typo is fixed.
+
+downstream_impact:
+  packages:
+    - name: "GPUCompiler"
+      impact: "none"
+      rationale: "Does not interact with host-side stack protection attributes"
+    - name: "Enzyme.jl"
+      impact: "none"
+      rationale: "AD transformations operate on IR, not affected by host build settings"
+    - name: "JET.jl"
+      impact: "none"
+      rationale: "Static analysis does not depend on stack protection attributes"
+    - name: "IRTools.jl"
+      impact: "none"
+      rationale: "IR manipulation unaffected by this codegen change"
+    - name: "Cassette.jl"
+      impact: "none"
+      rationale: "Contextual dispatch mechanism unaffected"
+
+  general_users:
+    impact: "none"
+    rationale: |
+      This fix only affects Julia runtime developers and users building Julia
+      from source in debug mode on AArch64 or RISC-V platforms. Pre-built Julia
+      releases are not affected.
+
+reviewer_notes:
+  independent_analysis_date: "2026-01-21"
+  key_findings:
+    - finding: "CRITICAL BUG: PR uses _CPU_RISCV_ but only _CPU_RISCV64_ is defined"
+      severity: "high"
+      verification: |
+        Verified by searching entire src/ directory. _CPU_RISCV_ appears only in the
+        PR change at codegen.cpp:8727. All 20+ other RISC-V checks use _CPU_RISCV64_.
+        The macro _CPU_RISCV_ is never defined anywhere in the codebase.
+    - finding: "AArch64 fix is correct and working"
+      severity: "info"
+      verification: "The _CPU_AARCH64_ macro is correctly defined in platform.h:107"
+    - finding: "Module-level StackProtectorGuard is propagated through ccall and AOT paths"
+      severity: "low"
+      verification: "Traced through ccall.cpp:1170 and aotcompile.cpp:2175-2197"
+  enhancement_summary: |
+    Added critical_bugs section documenting the macro typo, updated secondary_effects
+    to reflect that only AArch64 is actually fixed, added additional_context about
+    disabled ccall stack protection and platform.h documentation, updated risk level
+    from low to medium, and added detailed evidence with rg search results.
+
+summary: |
+  This PR attempts to fix a JIT crash on AArch64 and RISC-V platforms in debug builds
+  by conditionally disabling LLVM's StackProtectStrong function attribute. The crash
+  occurred because these platforms use smaller code models (Small/Medium) that cannot
+  accommodate relocations to the stack canary symbol (__stack_chk_guard) when it falls
+  outside the limited addressing range.
+
+  CRITICAL BUG DISCOVERED: The PR uses `_CPU_RISCV_` but the codebase only defines
+  `_CPU_RISCV64_`. As a result:
+  - AArch64: FIX WORKS - stack protection correctly disabled
+  - RISC-V: FIX DOES NOT WORK - still adds StackProtectStrong, crash will still occur
+
+  A follow-up PR is needed to change `_CPU_RISCV_` to `_CPU_RISCV64_` in codegen.cpp.
+
+  Root cause: CodeModel::Small on AArch64 limits PC-relative addressing to +/-4GB,
+  but the JIT may allocate code and the stack guard symbol more than 4GB apart.
+  LLVM's Page21 relocation type then fails with "out of range" error. The same issue
+  affects RISC-V with CodeModel::Medium, but the fix is currently broken.
