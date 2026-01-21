@@ -49,8 +49,8 @@ analysis:
       evidence:
         - source: "code"
           path: "src/llvm-multiversioning.cpp"
-          loc: "498-542"
-          url: "https://github.com/JuliaLang/julia/blob/af3e3bb21e4cae85fb4694451c725adf54748cc1/src/llvm-multiversioning.cpp#L498-L542"
+          loc: "498-543"
+          url: "https://github.com/JuliaLang/julia/blob/af3e3bb21e4cae85fb4694451c725adf54748cc1/src/llvm-multiversioning.cpp#L498-L543"
           snippet: |
             Function *CloneCtx::create_trampoline(Function *F, GlobalVariable *slot, bool autoinit)
             {
@@ -100,8 +100,8 @@ analysis:
             }
         - source: "code"
           path: "src/llvm-multiversioning.cpp"
-          loc: "545-565"
-          url: "https://github.com/JuliaLang/julia/blob/af3e3bb21e4cae85fb4694451c725adf54748cc1/src/llvm-multiversioning.cpp#L545-L565"
+          loc: "545-568"
+          url: "https://github.com/JuliaLang/julia/blob/af3e3bb21e4cae85fb4694451c725adf54748cc1/src/llvm-multiversioning.cpp#L545-L568"
           snippet: |
             void CloneCtx::prepare_slots()
             {
@@ -140,8 +140,8 @@ analysis:
       evidence:
         - source: "code"
           path: "src/llvm-multiversioning.cpp"
-          loc: "717-736"
-          url: "https://github.com/JuliaLang/julia/blob/af3e3bb21e4cae85fb4694451c725adf54748cc1/src/llvm-multiversioning.cpp#L717-L736"
+          loc: "718-737"
+          url: "https://github.com/JuliaLang/julia/blob/af3e3bb21e4cae85fb4694451c725adf54748cc1/src/llvm-multiversioning.cpp#L718-L737"
           snippet: |
             void CloneCtx::rewrite_alias(GlobalAlias *alias, Function *F)
             {
@@ -165,8 +165,8 @@ analysis:
             }
         - source: "test"
           path: "test/llvmpasses/multiversioning-clone-only.ll"
-          loc: "76-83"
-          url: "https://github.com/JuliaLang/julia/blob/af3e3bb21e4cae85fb4694451c725adf54748cc1/test/llvmpasses/multiversioning-clone-only.ll#L76-L83"
+          loc: "76-82"
+          url: "https://github.com/JuliaLang/julia/blob/af3e3bb21e4cae85fb4694451c725adf54748cc1/test/llvmpasses/multiversioning-clone-only.ll#L76-L82"
           snippet: |
             ; COM: check that the autoinit trampoline is generated correctly
             ; CHECK: define{{.*}}@subtarget_cloned.autoinit_trampoline({{.*}}
