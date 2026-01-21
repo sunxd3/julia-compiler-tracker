@@ -1,0 +1,111 @@
+schema_version: "1.0"
+
+pr:
+  number: 54575
+  title: "Small change to docs for module import syntax"
+  url: "https://github.com/JuliaLang/julia/pull/54575"
+  diff_url: "https://github.com/JuliaLang/julia/pull/54575.diff"
+  author: "DilumAluthge"
+  labels:
+    - "docs"
+    - "packages"
+    - "modules"
+  merged_at: "2025-10-19T00:44:38Z"
+  merge_commit_sha: "ec8b6440a6a499d7ebfcaeaae46ea61eac3761c0"
+
+scope:
+  files_touched:
+    - "doc/src/manual/modules.md"
+  components:
+    - "Documentation"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Clarifies documentation about module import syntax by moving an existing sentence
+      about "keeping the namespace clean" and adding `using ModuleName: ModuleName` as
+      an equivalent alternative to `import ModuleName`. This change was originally part
+      of PR #53428 but was split out to reduce review confusion.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/53428"
+      - "https://github.com/JuliaLang/julia/pull/42080"
+
+  direct_changes:
+    - summary: "Reworded documentation sentence about clean namespace module imports"
+      component: "Documentation"
+      evidence:
+        - source: "diff"
+          path: "doc/src/manual/modules.md"
+          loc: "154-158"
+          url: "https://github.com/JuliaLang/julia/blob/ec8b6440a6a499d7ebfcaeaae46ea61eac3761c0/doc/src/manual/modules.md#L154-L158"
+          snippet: |
+            # Actual diff from PR:
+            # -brings *only* the module name into scope. Users would need to use `NiceStuff.DOG`,
+            # -`NiceStuff.Dog`, and `NiceStuff.nice` to access its contents. Usually, `import
+            # -ModuleName` is used in contexts when the user wants to keep the namespace clean.
+            # -As we will see in the next section `import .NiceStuff` is equivalent to `using
+            # -.NiceStuff: NiceStuff`.
+            #
+            # +brings *only* the module name into scope. Users would need to use `NiceStuff.DOG`,
+            # +`NiceStuff.Dog`, and `NiceStuff.nice` to access its contents.
+            # +As we will see in the next section `import .NiceStuff` is equivalent to `using
+            # +.NiceStuff: NiceStuff`. Usually, `import ModuleName` or `using ModuleName: ModuleName`
+            # +is used in contexts when the user wants to keep the namespace clean.
+
+            # Key change: Moved "clean namespace" sentence after equivalence statement,
+            # and added "using ModuleName: ModuleName" as alternate syntax
+
+  secondary_effects: []
+
+  compatibility:
+    internal_api: []
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "Documentation-only change with no code modifications"
+      - "No compiler, runtime, or API changes whatsoever"
+      - "Simply clarifies existing documented behavior about module import equivalence"
+
+  downstream_impact:
+    packages: []
+    surfaces: []
+    notes: |
+      This PR has ZERO impact on downstream packages. It is purely a documentation
+      clarification that helps users understand that `import ModuleName` and
+      `using ModuleName: ModuleName` are equivalent syntaxes for keeping namespaces clean.
+      No code paths, APIs, or behaviors are affected.
+
+  open_questions: []
+
+  recommendations:
+    - "No action required by downstream package maintainers"
+    - "This PR may be safely ignored in changelog/migration documentation"
+
+classification:
+  type: "documentation"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false
+
+independent_review:
+  reviewer: "secondary_analyst"
+  review_date: "2026-01-21"
+  verification:
+    - "Confirmed PR changes only doc/src/manual/modules.md (2 additions, 2 deletions)"
+    - "Verified diff patch matches documented changes"
+    - "Confirmed no source code files modified"
+    - "No compiler components touched"
+  additional_findings: []
+  conclusion: |
+    Independent analysis confirms this PR is strictly documentation. The changes
+    restructure an existing sentence about "keeping the namespace clean" and add
+    mention of the equivalent `using ModuleName: ModuleName` syntax. There are no
+    code changes, no compiler impact, and no secondary effects to consider. The
+    original analysis is accurate and complete.
