@@ -28,8 +28,8 @@ analysis:
       evidence:
         - source: "code"
           path: "JuliaLowering/src/desugaring.jl"
-          loc: "581-621"
-          url: "https://github.com/JuliaLang/julia/blob/1806b0bc31d262ed7181162f6caeb8e8b944ddae/JuliaLowering/src/desugaring.jl#L581-L621"
+          loc: "581-622"
+          url: "https://github.com/JuliaLang/julia/blob/1806b0bc31d262ed7181162f6caeb8e8b944ddae/JuliaLowering/src/desugaring.jl#L581-L622"
           snippet: |
             function replace_beginend(ctx, ex, arr, n, splats, is_last)
                 k = kind(ex)
@@ -97,14 +97,16 @@ analysis:
   secondary_effects:
     - effect: "Keyword-argument names that are literally begin/end no longer get rewritten to firstindex/lastindex during indexing desugaring."
       mechanism: |
-        replace_beginend(ctx, ex, arr, n, splats, is_last)  [desugaring.jl:581-621]
-          handles K"kw" by rewriting only ex[2] (keyword value)
+        Call chain (top-down):
+        expand_forms_2(ctx, ex) handles K"ref"  [desugaring.jl:4548-4560]
+          emits getindex call with rewritten indices
+        -> expand_ref_components(sctx, ex)  [desugaring.jl:651-662]
+          uses process_indices for ref nodes
         -> process_indices(sctx, arr, idxs)  [desugaring.jl:629-645]
           calls replace_beginend for each index expression
-        -> expand_ref_components(sctx, ex)  [desugaring.jl:651-660]
-          uses process_indices for ref nodes
-        -> expand_forms_2(ctx, ex) handles K"ref"  [desugaring.jl:4550-4568]
-          emits getindex call with rewritten indices
+        -> replace_beginend(ctx, ex, arr, n, splats, is_last)  [desugaring.jl:581-622]
+          NEW: handles K"kw" (lines 614-618) by rewriting only ex[2] (keyword value)
+          preserves ex[1] (keyword name) unchanged, preventing var"begin"/var"end" from becoming firstindex/lastindex
       downstream_surfaces:
         - "Indexing lowering (getindex/setindex!/dotview)"
         - "Macros/tools that reason about lowered SyntaxTree for array refs"
@@ -143,6 +145,7 @@ analysis:
     rationale:
       - "Change is localized to lowering of begin/end within keyword argument nodes in indexing expressions."
       - "Tests lock in the intended behavior for keyword names and quoted identifiers."
-  open_questions: []
+  open_questions:
+    - "The TODO comment at desugaring.jl:616-617 notes that keyword args 'probably should not be allowed' in indexing since they aren't positional. Should this be a syntax error instead of silently preserving the keyword name?"
   recommendations:
     - "Downstream tooling that inspects lowered SyntaxTree for array refs should ensure keyword name identifiers are preserved and only keyword values are eligible for begin/end rewriting."
