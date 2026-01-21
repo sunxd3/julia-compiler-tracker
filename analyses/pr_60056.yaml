@@ -1,0 +1,657 @@
+schema_version: "1.0"
+
+pr:
+  number: 60056
+  title: "Fix windows profiler deadlock"
+  url: "https://github.com/JuliaLang/julia/pull/60056"
+  author: "xal-0"
+  labels:
+    - "multithreading"
+    - "bugfix"
+  created_at: "2025-11-06T00:42:20Z"
+  merged_at: "2025-11-10T07:48:52Z"
+  merge_commit_sha: "a969c027ebd8d82c1e29cbb8c6b6b0982e275c07"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60056.diff"
+  related_issues:
+    - number: 60042
+      description: "Windows profiler intermittently deadlocks when handle reuse causes profiler to suspend itself"
+      diagnostic_evidence: |
+        From issue #60042 diagnostic logs:
+        - Worker thread received handle 0x2bc
+        - Mark thread received handle 0x2c0
+        - After uv_thread_detach(), handle 0x2c0 was recycled by Windows
+        - Profiler thread was assigned recycled handle 0x2c0
+        - Profiler attempted: "suspending thread GetThreadId(): 8116, using handle: 0x2c0"
+        - This caused profiler to suspend itself, resulting in deadlock
+
+scope:
+  files_touched:
+    - "src/gc-stock.c"
+    - "src/signals-win.c"
+    - "stdlib/Profile/test/runtests.jl"
+  components:
+    - "Runtime.GC"
+    - "Runtime.Threading"
+    - "Runtime.Signals"
+    - "Profile"
+  pipeline_stages:
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      This PR fixes an intermittent deadlock in the Windows profiler that occurred approximately
+      10% of the time when profiling with multiple threads. The root cause was that GC thread
+      handles were being detached via uv_thread_detach() immediately after creation. On Windows,
+      detaching a thread handle closes/invalidates it, but the memory can be recycled by the OS.
+      When the profiler later attempts to suspend threads for stack sampling, it reads the
+      thread handle from ptls->system_id. If that handle was recycled and now refers to a
+      different thread (potentially the profiler thread itself), attempting to suspend it
+      causes a deadlock.
+
+      The fix removes the uv_thread_detach() call entirely since GC threads never exit normally,
+      so there's no need to detach them. An assertion is also added to catch any future cases
+      where a thread attempts to suspend itself.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60042"
+    quoted_from_pr: |
+      Wasn't sure if we could get away with deleting the `uv_thread_detach`, but apparently we can.
+      On Windows, it's definitely unsafe to keep using the thread handle after closing it. POSIX
+      is a little less clear about what you're allowed to do with a `pthread_t` after detaching it,
+      but the GC threads never exit normally anyway.
+
+  direct_changes:
+    - summary: "Remove uv_thread_detach call for GC threads"
+      component: "Runtime.GC"
+      evidence:
+        - source: "diff"
+          path: "src/gc-stock.c"
+          loc: "3586-3589"
+          url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src/gc-stock.c#L3583-L3589"
+          snippet: |
+            if (i == nthreads - 1 && jl_n_sweepthreads == 1) {
+                uv_thread_create(&uvtid, jl_concurrent_gc_threadfun, t);
+            }
+            else {
+                uv_thread_create(&uvtid, jl_parallel_gc_threadfun, t);
+            }
+            // NOTE: uv_thread_detach(&uvtid) was REMOVED here
+            // Previously this line existed after the if/else block
+
+    - summary: "Add assertion to prevent thread self-suspension"
+      component: "Runtime.Signals"
+      evidence:
+        - source: "diff"
+          path: "src/signals-win.c"
+          loc: "447-449"
+          url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src/signals-win.c#L447-L449"
+          snippet: |
+            HANDLE hThread = ptls2->system_id;
+            assert(GetCurrentThreadId() != GetThreadId(hThread));
+            if ((DWORD)-1 == SuspendThread(hThread)) {
+
+    - summary: "Add regression test for deadlock issue"
+      component: "Profile"
+      evidence:
+        - source: "diff"
+          path: "stdlib/Profile/test/runtests.jl"
+          loc: "285-297"
+          url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/stdlib/Profile/test/runtests.jl#L285-L297"
+          snippet: |
+            # Thread suspend deadlock - run many times (#60042)
+            let cmd = Base.julia_cmd()
+                script = """
+                    using Profile
+                    @profile println("done")
+                    """
+                good = true
+                for i=1:100
+                    s = run_with_watchdog(`$cmd -t2 -e $script`, 5)
+                    good &= occursin("done", s)
+                end
+                @test good
+            end
+
+  pipeline_impact:
+    - stage: "Runtime"
+      effect: "GC thread handles remain valid throughout process lifetime"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "3573-3589"
+          url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src/gc-stock.c#L3573-L3589"
+          snippet: |
+            void jl_start_gc_threads(void)
+            {
+                int nthreads = jl_atomic_load_relaxed(&jl_n_threads);
+                int ngcthreads = jl_n_gcthreads;
+                int nmutator_threads = nthreads - ngcthreads;
+                uv_thread_t uvtid;
+                for (int i = nmutator_threads; i < nthreads; ++i) {
+                    jl_threadarg_t *t = (jl_threadarg_t *)malloc_s(sizeof(jl_threadarg_t));
+                    t->tid = i;
+                    t->barrier = &thread_init_done;
+                    if (i == nthreads - 1 && jl_n_sweepthreads == 1) {
+                        uv_thread_create(&uvtid, jl_concurrent_gc_threadfun, t);
+                    }
+                    else {
+                        uv_thread_create(&uvtid, jl_parallel_gc_threadfun, t);
+                    }
+                }
+            }
+
+  secondary_effects:
+    - effect: "Thread handle stored in ptls->system_id remains valid for profiler use"
+      mechanism: |
+        The profiler uses ptls->system_id to suspend threads for stack sampling:
+
+        jl_thread_suspend_and_get_state(tid, timeout, ctx)  [signals-win.c:438]
+          reads HANDLE hThread = ptls2->system_id  [signals-win.c:447]
+          calls SuspendThread(hThread)  [signals-win.c:449]
+
+        Previously, the call chain for GC threads was:
+
+        jl_start_gc_threads()  [gc-stock.c:3573]
+          calls uv_thread_create(&uvtid, ...)  [gc-stock.c:3584,3587]
+          calls uv_thread_detach(&uvtid)  [REMOVED]
+
+        jl_parallel_gc_threadfun(arg)  [gc-stock.c:3607]
+          calls ptls->system_id = uv_thread_self()  [threading.c:346]
+
+        The race condition was:
+        1. GC thread created, handle stored in local uvtid
+        2. uv_thread_detach() closes/invalidates uvtid on Windows
+        3. GC thread calls ptls->system_id = uv_thread_self() (new handle)
+        4. If profiler runs before step 3, ptls->system_id may be uninitialized/stale
+        5. If Windows recycles the handle, it may now reference a different thread
+
+        By removing uv_thread_detach(), the handle lifecycle is simplified and the
+        system_id stored by the thread itself is always valid.
+      downstream_surfaces:
+        - "Profile.jl sampling on Windows"
+        - "Any code that reads ptls->system_id for GC threads"
+      likelihood: "high"
+      impact: "high"
+      evidence:
+        - source: "code"
+          path: "src/threading.c"
+          loc: "346"
+          url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src/threading.c#L346"
+          snippet: |
+            ptls->system_id = uv_thread_self();
+
+    - effect: "Assertion catches self-suspension attempts"
+      mechanism: |
+        The new assertion in jl_thread_suspend_and_get_state detects if a thread
+        is about to suspend itself:
+
+        assert(GetCurrentThreadId() != GetThreadId(hThread))  [signals-win.c:448]
+
+        This would catch scenarios where:
+        1. Handle reuse causes hThread to reference the current thread
+        2. A bug causes incorrect tid to be passed
+        3. Thread state becomes inconsistent
+
+        This is a defensive measure that would cause an immediate crash rather than
+        a hard-to-debug deadlock.
+      downstream_surfaces:
+        - "Debugging of profiler issues"
+      likelihood: "low"
+      impact: "medium"
+      evidence:
+        - source: "code"
+          path: "src/signals-win.c"
+          loc: "438-462"
+          url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src/signals-win.c#L438-L462"
+          snippet: |
+            static int jl_thread_suspend_and_get_state(int tid, int timeout, bt_context_t *ctx)
+            {
+                (void)timeout;
+                jl_ptls_t ptls2 = jl_atomic_load_relaxed(&jl_all_tls_states)[tid];
+                if (ptls2 == NULL) // this thread is not alive
+                    return 0;
+                jl_task_t *ct2 = jl_atomic_load_relaxed(&ptls2->current_task);
+                if (ct2 == NULL) // this thread is already dead
+                    return 0;
+                HANDLE hThread = ptls2->system_id;
+                assert(GetCurrentThreadId() != GetThreadId(hThread));
+                if ((DWORD)-1 == SuspendThread(hThread)) {
+                    return 0;
+                }
+                assert(sizeof(*ctx) == sizeof(CONTEXT));
+                memset(ctx, 0, sizeof(CONTEXT));
+                ctx->ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+                if (!GetThreadContext(hThread, ctx)) {
+                    if ((DWORD)-1 == ResumeThread(hThread))
+                        abort();
+                    return 0;
+                }
+                return 1;
+            }
+
+    - effect: "No behavioral change on POSIX systems"
+      mechanism: |
+        On POSIX systems, pthread_detach() has different semantics than Windows.
+        A detached pthread_t can still be used with pthread_kill() and other
+        operations that don't require joining. However, the PR author notes that
+        POSIX behavior is "a little less clear" and since GC threads never exit
+        normally, removing the detach is safe and consistent across platforms.
+      downstream_surfaces:
+        - "None - POSIX profiler behavior unchanged"
+      likelihood: "low"
+      impact: "none"
+
+    - effect: "jl_getaffinity/jl_setaffinity also use system_id"
+      mechanism: |
+        These exported functions also read ptls->system_id and could theoretically
+        be affected by stale handles during the race window (before fix):
+
+        jl_getaffinity(tid, mask, cpumasksize)  [threading.c:1117]
+          reads uv_thread_t uvtid = ptls2->system_id  [threading.c:1126]
+          calls uv_thread_getaffinity(&uvtid, ...)  [threading.c:1128]
+
+        jl_setaffinity(tid, mask, cpumasksize)  [threading.c:1140]
+          reads uv_thread_t uvtid = ptls2->system_id  [threading.c:1149]
+          calls uv_thread_setaffinity(&uvtid, ...)  [threading.c:1151]
+
+        Both have TODO comments noting: "TODO: use correct lock. system_id is only
+        legal if the thread is alive."
+
+        The fix indirectly improves safety for these functions when called on GC
+        thread IDs, though this is an uncommon use case.
+      downstream_surfaces:
+        - "Threaded affinity management APIs"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "src/threading.c"
+          loc: "1117-1133"
+          url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src/threading.c#L1117-L1133"
+          snippet: |
+            JL_DLLEXPORT int jl_getaffinity(int16_t tid, char *mask, int cpumasksize) {
+                int nthreads = jl_atomic_load_acquire(&jl_n_threads);
+                if (tid < 0 || tid >= nthreads)
+                    return 1;
+
+                // TODO: use correct lock. system_id is only legal if the thread is alive.
+                jl_ptls_t ptls2 = jl_atomic_load_relaxed(&jl_all_tls_states)[tid];
+                if (ptls2 == NULL)
+                    return 2;
+                uv_thread_t uvtid = ptls2->system_id;
+
+                int ret_uv = uv_thread_getaffinity(&uvtid, mask, cpumasksize);
+                if (ret_uv != 0)
+                    return ret_uv;
+
+                return 0; // success
+            }
+
+    - effect: "GC thread creation now consistent with worker threads"
+      mechanism: |
+        Worker threads created in jl_start_threads never called uv_thread_detach:
+
+        jl_start_threads()  [threading.c:858-876]
+          for (i = 1; i < nmutator_threads; ++i) {
+              uv_thread_create(&uvtid, jl_threadfun, t);  [threading.c:866]
+              // NO uv_thread_detach call here
+          }
+
+        The GC thread code was the ONLY place using uv_thread_detach after
+        uv_thread_create. This fix makes GC thread creation consistent with
+        how all other threads are created in Julia.
+      downstream_surfaces:
+        - "Thread creation consistency"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "src/threading.c"
+          loc: "858-876"
+          url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src/threading.c#L858-L876"
+          snippet: |
+            // create threads
+            uv_barrier_init(&thread_init_done, nthreads);
+
+            // GC/System threads need to be after the worker threads.
+            for (i = 1; i < nmutator_threads; ++i) {
+                jl_threadarg_t *t = (jl_threadarg_t *)malloc_s(sizeof(jl_threadarg_t));
+                t->tid = i;
+                t->barrier = &thread_init_done;
+                uv_thread_create(&uvtid, jl_threadfun, t);
+
+                // Interactive pool threads get the low IDs
+                if (exclusive && i >= ninteractive_threads) {
+                    assert(i - ninteractive_threads < cpumasksize);
+                    mask[i - ninteractive_threads] = 1;
+                    uv_thread_setaffinity(&uvtid, mask, NULL, cpumasksize);
+                    mask[i - ninteractive_threads] = 0;
+                }
+            }
+
+  compatibility:
+    internal_api:
+      - summary: "No API changes - ptls->system_id semantics unchanged"
+        evidence:
+          - source: "code"
+            path: "src/julia_threads.h"
+            loc: "198"
+            url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src/julia_threads.h#L198"
+            snippet: |
+              jl_thread_t system_id;
+    behavioral:
+      - summary: "Windows profiler no longer deadlocks intermittently"
+        evidence:
+          - source: "issue"
+            path: "Issue #60042"
+            loc: "body"
+            snippet: |
+              Roughly 10% of the time, the profiler hangs because the closed handle
+              it is trying to suspend now refers to itself.
+
+  performance:
+    compile_time:
+      - summary: "None - change only affects GC thread initialization at runtime"
+        evidence: []
+        details: "This change does not affect compilation."
+    runtime:
+      - summary: "No measurable impact - one fewer syscall per GC thread at startup"
+        evidence: []
+        details: |
+          The removal of uv_thread_detach() eliminates one syscall per GC thread
+          during Julia startup. This is a negligible improvement that only occurs
+          once during initialization. The main benefit is correctness, not performance.
+
+  tests:
+    changed_files:
+      - "stdlib/Profile/test/runtests.jl"
+    new_behavior_assertions:
+      - description: "Regression test runs profiler 100 times with multiple threads"
+        evidence:
+          - source: "test"
+            path: "stdlib/Profile/test/runtests.jl"
+            loc: "285-297"
+            url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/stdlib/Profile/test/runtests.jl#L285-L297"
+            snippet: |
+              # Thread suspend deadlock - run many times (#60042)
+              let cmd = Base.julia_cmd()
+                  script = """
+                      using Profile
+                      @profile println("done")
+                      """
+                  good = true
+                  for i=1:100
+                      s = run_with_watchdog(`$cmd -t2 -e $script`, 5)
+                      good &= occursin("done", s)
+                  end
+                  @test good
+              end
+      - description: "run_with_watchdog helper refactored to shared function"
+        evidence:
+          - source: "test"
+            path: "stdlib/Profile/test/runtests.jl"
+            loc: "249-264"
+            url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/stdlib/Profile/test/runtests.jl#L249-L264"
+            snippet: |
+              function run_with_watchdog(cmd, timeout=120)
+                  p = open(cmd)
+                  t = Timer(timeout) do t
+                      println("KILLING debuginfo registration test BY PROFILE TEST WATCHDOG\n")
+                      kill(p, Base.SIGQUIT)
+                      sleep(30)
+                      kill(p, Base.SIGQUIT)
+                      sleep(30)
+                      kill(p, Base.SIGKILL)
+                  end
+                  s = read(p, String)
+                  close(t)
+                  close(p)
+                  success(p) ? s : ""
+              end
+    coverage_gaps:
+      - "Test only covers @profile macro, not direct Profile.start_timer() usage"
+      - "Test uses 5-second timeout per iteration, may be slow in CI (100 x 5s = 8+ minutes worst case)"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Fix is minimal and targeted - removes one function call"
+      - "GC threads never exit normally, so detaching is unnecessary"
+      - "The assertion provides defensive detection of similar issues"
+      - "Author is a Julia core developer familiar with threading internals"
+      - "PR was reviewed and merged by maintainers"
+      - "Issue was reproduced in ~10% of runs, fix eliminates the root cause"
+      - "No behavioral changes expected on POSIX systems"
+      - "Fix makes GC thread creation CONSISTENT with worker threads (which never used uv_thread_detach)"
+      - "No uv_thread_detach calls remain anywhere in the Julia codebase after this fix"
+      - "Regression test actively runs in CI (100 iterations with watchdog timeout)"
+
+  open_questions:
+    - question: "Should other threads also avoid uv_thread_detach?"
+      resolved: true
+      notes: |
+        VERIFIED: Other thread creation points (jl_start_threads in threading.c:866)
+        never called uv_thread_detach. The GC thread code was the ONLY place using
+        uv_thread_detach after uv_thread_create. This fix makes all thread creation
+        consistent - no uv_thread_detach anywhere in the codebase.
+
+    - question: "Are there still race conditions with system_id access?"
+      resolved: false
+      notes: |
+        jl_getaffinity and jl_setaffinity (threading.c:1117-1156) also read
+        ptls->system_id with TODO comments noting it's not fully safe. However,
+        these are unlikely to be called during the narrow initialization window,
+        and are primarily used for worker threads, not GC threads.
+
+  recommendations:
+    - "No action required for downstream packages - this is a bugfix only affecting Windows"
+    - "Users experiencing profiler hangs on Windows should upgrade to this version or later"
+    - "The fix is Windows-specific but harmless on other platforms"
+    - "Monitor CI for regression test duration - 100 iterations with 5s timeout could be slow"
+
+changelog_entry:
+  category: "Runtime/Threading"
+  breaking: false
+  summary: |
+    Fixed an intermittent deadlock in the Windows profiler that occurred when GC thread
+    handles were recycled after being detached. The profiler could attempt to suspend
+    a handle that now referred to a different thread (including itself), causing a deadlock.
+  downstream_impact: |
+    This is a bugfix with no breaking changes. Users on Windows experiencing intermittent
+    profiler hangs (~10% of runs with multiple threads) should upgrade. No changes needed
+    for downstream packages. POSIX systems (Linux, macOS) were not affected.
+
+downstream_package_impact:
+  Turing_jl: "none - runtime threading bugfix, does not affect inference or PPL"
+  Enzyme_jl: "none - runtime threading bugfix, does not affect differentiation"
+  GPUCompiler: "none - runtime threading bugfix, GPU compilation unaffected"
+  JET: "none - runtime threading bugfix, static analysis unaffected"
+  IRTools: "none - runtime threading bugfix, IR manipulation unaffected"
+  Cassette: "none - runtime threading bugfix, code transformation unaffected"
+
+code_path_trace:
+  thread_handle_lifecycle_before_fix:
+    description: "How GC thread handles were managed before this fix (causing the bug)"
+    steps:
+      - location: "src/gc-stock.c:3573-3590 (before fix)"
+        code: |
+          void jl_start_gc_threads(void)
+          {
+              int nthreads = jl_atomic_load_relaxed(&jl_n_threads);
+              int ngcthreads = jl_n_gcthreads;
+              int nmutator_threads = nthreads - ngcthreads;
+              uv_thread_t uvtid;
+              for (int i = nmutator_threads; i < nthreads; ++i) {
+                  jl_threadarg_t *t = (jl_threadarg_t *)malloc_s(sizeof(jl_threadarg_t));
+                  t->tid = i;
+                  t->barrier = &thread_init_done;
+                  if (i == nthreads - 1 && jl_n_sweepthreads == 1) {
+                      uv_thread_create(&uvtid, jl_concurrent_gc_threadfun, t);
+                  }
+                  else {
+                      uv_thread_create(&uvtid, jl_parallel_gc_threadfun, t);
+                  }
+                  uv_thread_detach(&uvtid);  // <-- THIS LINE CAUSED THE BUG
+              }
+          }
+        explanation: |
+          GC threads were created and immediately detached. On Windows, detach closes the
+          thread handle, making it invalid. The OS can then recycle the handle value.
+
+      - location: "src/threading.c:346"
+        url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src/threading.c#L346"
+        code: |
+          ptls->system_id = uv_thread_self();
+        explanation: |
+          The GC thread later stores its own handle via uv_thread_self(). This is a new
+          handle, not the one that was detached. However, there's a race window where
+          system_id is uninitialized or the detached handle value was recycled.
+
+  profiler_thread_suspension:
+    description: "How the profiler suspends threads for stack sampling"
+    steps:
+      - location: "src/signals-win.c:438-462"
+        url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src/signals-win.c#L438-L462"
+        code: |
+          static int jl_thread_suspend_and_get_state(int tid, int timeout, bt_context_t *ctx)
+          {
+              (void)timeout;
+              jl_ptls_t ptls2 = jl_atomic_load_relaxed(&jl_all_tls_states)[tid];
+              if (ptls2 == NULL)
+                  return 0;
+              jl_task_t *ct2 = jl_atomic_load_relaxed(&ptls2->current_task);
+              if (ct2 == NULL)
+                  return 0;
+              HANDLE hThread = ptls2->system_id;
+              assert(GetCurrentThreadId() != GetThreadId(hThread));  // NEW ASSERTION
+              if ((DWORD)-1 == SuspendThread(hThread)) {
+                  return 0;
+              }
+              // ... get thread context ...
+              return 1;
+          }
+        explanation: |
+          The profiler reads ptls->system_id to get the thread handle, then calls
+          SuspendThread(). If the handle was recycled and now refers to the profiler
+          thread itself, this causes a deadlock. The new assertion catches this case.
+
+      - location: "src/signals-win.c:484-583"
+        url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src/signals-win.c#L484-L583"
+        code: |
+          static DWORD WINAPI profile_bt( LPVOID lparam )
+          {
+              // ... timer setup ...
+              while (1) {
+                  // ... profiling loop ...
+                  for (int idx = nthreads; idx-- > 0; ) {
+                      int tid = randperm[idx];
+                      if (!jl_thread_suspend(tid, &c))
+                          continue;
+                      // ... collect backtrace ...
+                      jl_thread_resume(tid);
+                  }
+              }
+          }
+        explanation: |
+          The profile_bt thread iterates through all threads in random order,
+          suspending each one to collect a backtrace. The deadlock occurred when
+          a recycled handle caused the profiler to suspend itself.
+
+  jl_thread_t_definition:
+    description: "Thread handle type definition"
+    steps:
+      - location: "src/julia_threads.h:117-122"
+        url: "https://github.com/JuliaLang/julia/blob/a969c027ebd8d82c1e29cbb8c6b6b0982e275c07/src/julia_threads.h#L117-L122"
+        code: |
+          // handle to reference an OS thread
+          #ifdef _OS_WINDOWS_
+          typedef HANDLE jl_thread_t;
+          #else
+          typedef pthread_t jl_thread_t;
+          #endif
+        explanation: |
+          On Windows, jl_thread_t is a HANDLE which is essentially a pointer-sized
+          value that the OS can recycle. On POSIX, it's a pthread_t which has
+          different semantics for detached threads.
+
+test_coverage:
+  new_tests:
+    - description: "Regression test runs profiler 100 times with 2 threads"
+      location: "stdlib/Profile/test/runtests.jl:285-297"
+      rationale: |
+        Since the bug only manifested ~10% of the time, running 100 iterations
+        increases the probability of catching a regression to nearly 100%.
+        The test IS active (uses @test, not @test_skip) so it runs in CI.
+  missing_tests:
+    - description: "No test for the assertion (self-suspension detection)"
+      suggested_test: |
+        This would require intentionally creating a bad state, which is difficult.
+        The assertion is defensive and not expected to trigger in normal operation.
+    - description: "No test for jl_getaffinity/jl_setaffinity on GC thread IDs"
+      suggested_test: |
+        These functions also use system_id and were indirectly made safer.
+        A test calling getaffinity on a GC thread ID would verify handle validity.
+
+reviewer_notes:
+  initial_reviewer: "automated_analysis"
+  initial_date: "2026-01-21"
+  verification_method: |
+    1. Read PR metadata from pr-archive/JuliaLang_julia/pr_60056.json
+    2. Read full source context of src/gc-stock.c jl_start_gc_threads function
+    3. Read full source context of src/signals-win.c jl_thread_suspend_and_get_state function
+    4. Read jl_thread_t definition in src/julia_threads.h
+    5. Read threading.c to understand system_id initialization
+    6. Fetched issue #60042 to understand the root cause
+    7. Analyzed the test changes in stdlib/Profile/test/runtests.jl
+    8. Traced the profiler code path to understand how handles are used
+  findings:
+    - "Bug was caused by uv_thread_detach() invalidating handles on Windows"
+    - "Fix correctly removes the unnecessary detach call"
+    - "Assertion provides defensive detection of handle reuse issues"
+    - "Change is safe on POSIX since GC threads never exit"
+  confidence: "high"
+  rationale: |
+    This is a targeted bugfix with clear root cause analysis. The issue #60042
+    provided detailed diagnostic information showing the ~10% failure rate and
+    the mechanism (handle reuse causing self-suspension). The fix is minimal
+    and addresses the root cause directly. The assertion adds defense in depth.
+
+  secondary_reviewer: "independent_analysis"
+  secondary_date: "2026-01-21"
+  secondary_verification_method: |
+    1. Cloned Julia repo and checked out merge commit a969c027eb
+    2. Independent code trace of system_id usage across codebase using rg
+    3. Verified test file contents directly (found error in initial analysis)
+    4. Compared GC thread creation to worker thread creation patterns
+    5. Examined jl_getaffinity/jl_setaffinity for similar system_id usage
+    6. Reviewed signals-unix.c and signals-mach.c for cross-platform comparison
+    7. Fetched issue #60042 for additional diagnostic details
+  secondary_findings:
+    - "CORRECTION: Test is NOT @test_skip - it uses regular @test good and runs in CI"
+    - "CONFIRMED: GC threads were the ONLY place using uv_thread_detach - fix makes code consistent"
+    - "ADDITIONAL: jl_getaffinity/jl_setaffinity also read system_id with TODO safety comments"
+    - "ADDITIONAL: Worker threads (threading.c:866) never called uv_thread_detach"
+    - "VERIFIED: Issue #60042 showed handle 0x2c0 being recycled to profiler thread"
+  corrections_made:
+    - field: "direct_changes[2].evidence.snippet"
+      error: "Showed @test_skip but actual code uses @test good"
+      correction: "Updated snippet to match actual source code"
+    - field: "tests.new_behavior_assertions[0].evidence.snippet"
+      error: "Showed @test_skip but actual code uses @test good"
+      correction: "Updated snippet to match actual source code"
+    - field: "tests.coverage_gaps"
+      error: "Claimed test was @test_skip"
+      correction: "Removed incorrect claim, added actual coverage gap about test duration"
+    - field: "open_questions"
+      error: "Asked why test was @test_skip"
+      correction: "Replaced with resolved question about thread consistency"
+  enhancements_added:
+    - "Added secondary effect for jl_getaffinity/jl_setaffinity system_id usage"
+    - "Added secondary effect showing GC thread creation is now consistent with workers"
+    - "Added new missing test coverage for affinity functions on GC threads"
+  secondary_confidence: "high"
+  secondary_rationale: |
+    Independent verification confirmed the core analysis is correct. The main error
+    was a misreading of the test code (@test_skip vs @test). The fix is verified
+    correct and makes GC thread creation consistent with all other thread creation
+    in Julia. No uv_thread_detach calls remain anywhere in the codebase.
