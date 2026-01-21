@@ -1,0 +1,445 @@
+schema_version: "1.0"
+
+pr:
+  number: 59692
+  title: "Remove restrictions on kwarg tab completion"
+  url: "https://github.com/JuliaLang/julia/pull/59692"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59692.diff"
+  author: "mbauman"
+  labels:
+    - "completions"
+  created_at: "2025-09-29T18:38:32Z"
+  merged_at: "2025-10-16T09:00:01Z"
+  merge_commit_sha: "e7dd1451efdf3edfdc38bd0794e6cefa012ec518"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/src/REPLCompletions.jl"
+    - "stdlib/REPL/test/replcompletions.jl"
+  components:
+    - "REPL"
+    - "REPLCompletions"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Removes the `isconcretetype(funct) || return false` restriction from the
+      `complete_keyword_argument!` function, allowing keyword argument tab completion
+      to work for type constructors like `@kwdef` struct types. Previously, kwarg
+      completion silently failed for these cases because type constructors yield
+      `Type{T}` which is not a concrete type.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59244"
+    quoted_from_pr: |
+      Resolves issue #59244 on master
+
+  direct_changes:
+    - summary: "Removed isconcretetype guard from complete_keyword_argument!"
+      component: "REPLCompletions"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "896-904"
+          url: "https://github.com/JuliaLang/julia/blob/e7dd1451efdf3edfdc38bd0794e6cefa012ec518/stdlib/REPL/src/REPLCompletions.jl#L896-L904"
+          snippet: |
+            # REMOVED CODE (6 lines deleted at original line 903-908):
+            # Limit kwarg completions to cases when function is concretely known; looking up
+            # matching methods for abstract functions - particularly `Any` or `Function` - can
+            # take many seconds to run over the thousands of possible methods. Note that
+            # isabstracttype would return naively return true for common constructor calls
+            # like Array, but the REPL's introspection here may know their Type{T}.
+            isconcretetype(funct) || return false
+
+            # AFTER the change, line 904 now directly calls:
+            complete_methods!(methods, funct, Any[Vararg{Any}], kwargs_ex, -1, arg_pos == :kwargs)
+
+    - summary: "Added comprehensive tests for @kwdef type kwarg completion"
+      component: "REPLCompletions tests"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/test/replcompletions.jl"
+          loc: "2694-2738"
+          url: "https://github.com/JuliaLang/julia/blob/e7dd1451efdf3edfdc38bd0794e6cefa012ec518/stdlib/REPL/test/replcompletions.jl#L2694-L2738"
+          snippet: |
+            @kwdef struct T59244
+                asdf = 1
+                qwer = 2
+            end
+            @kwdef struct S59244{T}
+                asdf::T = 1
+                qwer::T = 2
+            end
+            @testset "kwarg completion of types" begin
+                s = "T59244(as"
+                a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)
+                @test REPLCompletions.KeywordArgumentCompletion("asdf") in a
+
+                s = "T59244(; qw"
+                a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)
+                @test REPLCompletions.KeywordArgumentCompletion("qwer") in a
+                @test REPLCompletions.KeywordArgumentCompletion("qwer") == only(a)
+
+                s = "S59244(as"
+                a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)
+                @test REPLCompletions.KeywordArgumentCompletion("asdf") in a
+
+                s = "S59244(; qw"
+                a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)
+                @test REPLCompletions.KeywordArgumentCompletion("qwer") in a
+                @test REPLCompletions.KeywordArgumentCompletion("qwer") == only(a)
+
+                s = "S59244{Int}(as"
+                a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)
+                @test REPLCompletions.KeywordArgumentCompletion("asdf") in a
+
+                s = "S59244{Int}(; qw"
+                a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)
+                @test REPLCompletions.KeywordArgumentCompletion("qwer") in a
+                @test REPLCompletions.KeywordArgumentCompletion("qwer") == only(a)
+
+                s = "S59244{Any}(as"
+                a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)
+                @test REPLCompletions.KeywordArgumentCompletion("asdf") in a
+
+                s = "S59244{Any}(; qw"
+                a, b, c = completions(s, lastindex(s), @__MODULE__, #= shift =# false)
+                @test REPLCompletions.KeywordArgumentCompletion("qwer") in a
+                @test REPLCompletions.KeywordArgumentCompletion("qwer") == only(a)
+            end
+
+    - summary: "Changed test assertion from @test_broken to @test"
+      component: "REPLCompletions tests"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/test/replcompletions.jl"
+          loc: "2688-2691"
+          url: "https://github.com/JuliaLang/julia/blob/e7dd1451efdf3edfdc38bd0794e6cefa012ec518/stdlib/REPL/test/replcompletions.jl#L2688-L2691"
+          snippet: |
+            s = "f54131.x(kwa"
+            a, b, c = completions(s, lastindex(s), @__MODULE__, false)
+            # BEFORE: @test_broken REPLCompletions.KeywordArgumentCompletion("kwarg") in a
+            # AFTER:  @test REPLCompletions.KeywordArgumentCompletion("kwarg") in a
+            @test REPLCompletions.KeywordArgumentCompletion("kwarg") in a
+            # BEFORE: @test (@elapsed completions(s, lastindex(s), @__MODULE__, false)) < 1
+            # AFTER:  @test (@elapsed completions(s, lastindex(s), @__MODULE__, false)) < 100
+            @test (@elapsed completions(s, lastindex(s), @__MODULE__, false)) < 100
+
+  pipeline_impact: []
+
+  secondary_effects:
+    - effect: "Kwarg completion now works for all callable types, including Type{T}"
+      mechanism: |
+        The call chain for kwarg completion (verified line numbers from merge commit):
+
+        completions(string, pos, context_module, shift)  [REPLCompletions.jl:994]
+          -> complete_keyword_argument!(suggestions, e, s, context_module, arg_pos)  [line 1096]
+          -> _complete_methods(ex_org, context_module, shift)  [line 695-711]
+             -> repl_eval_ex(ex_org.args[1], context_module)  [line 706]
+                Returns Const(Type{T}) for type constructor calls like T59244(...)
+             -> CC.widenconst(funct) => Type{T59244}  [line 708]
+          -> (REMOVED) isconcretetype(funct) || return false
+             For Type{T}, isconcretetype(Type{T}) == false, causing early return
+          -> complete_methods!(methods, funct, Any[Vararg{Any}], kwargs_ex, -1, ...)  [line 904]
+             Now always called, allowing method lookup for kwarg extraction
+
+        Result: Base.kwarg_decl(method) is now called for type constructor methods,
+        returning the keyword argument names defined via @kwdef.
+      downstream_surfaces:
+        - "REPL tab completion for @kwdef struct constructors"
+        - "REPL tab completion for type constructors with keyword arguments"
+        - "IDE integrations using REPLCompletions"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "913-933"
+          url: "https://github.com/JuliaLang/julia/blob/e7dd1451efdf3edfdc38bd0794e6cefa012ec518/stdlib/REPL/src/REPLCompletions.jl#L913-L933"
+          snippet: |
+            kwargs = Set{String}()
+            for m in methods
+                m isa TextCompletion && continue
+                m::MethodCompletion
+                possible_kwargs = Base.kwarg_decl(m.method)
+                current_kwarg_candidates = String[]
+                for _kw in possible_kwargs
+                    kw = String(_kw)
+                    if !endswith(kw, "...") && startswith(kw, last_word) && (_kw !in kwargs_ex || kw == last_word)
+                        push!(current_kwarg_candidates, kw)
+                    end
+                end
+                union!(kwargs, current_kwarg_candidates)
+            end
+
+            for kwarg in kwargs
+                push!(suggestions, KeywordArgumentCompletion(kwarg))
+            end
+
+    - effect: "Base.kwarg_decl extracts kwarg names via Core.kwcall signature lookup"
+      mechanism: |
+        The kwarg_decl function (base/methodshow.jl:80-101) extracts keyword argument names:
+
+        1. Constructs kwcall signature: Tuple{typeof(Core.kwcall), NamedTuple, original_sig...}
+        2. Looks up the kwcall method via jl_methtable_lookup
+        3. Extracts slot names from the method's slot_syms
+        4. Filters out internal symbols (empty_sym, symbols containing '#')
+        5. Returns the remaining names as kwarg completions
+
+        This mechanism works for @kwdef structs because:
+        - @kwdef generates a constructor with keyword arguments
+        - The kwcall method stores kwarg names in its slot_syms
+        - kwarg_decl successfully extracts these names via the kwcall lookup
+      downstream_surfaces:
+        - "Kwarg extraction for any method with keyword arguments"
+        - "Method signature display in show(Method)"
+        - "Error message formatting in errorshow.jl"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/methodshow.jl"
+          loc: "80-101"
+          url: "https://github.com/JuliaLang/julia/blob/e7dd1451efdf3edfdc38bd0794e6cefa012ec518/base/methodshow.jl#L80-L101"
+          snippet: |
+            function kwarg_decl(m::Method, kwtype = nothing)
+                if !(m.sig === Tuple || m.sig <: Tuple{Core.Builtin, Vararg})
+                    kwtype = typeof(Core.kwcall)
+                    sig = rewrap_unionall(Tuple{kwtype, NamedTuple, (unwrap_unionall(m.sig)::DataType).parameters...}, m.sig)
+                    kwli = ccall(:jl_methtable_lookup, Any, (Any, UInt), sig, get_world_counter())
+                    if kwli !== nothing
+                        kwli = kwli::Method
+                        slotnames = ccall(:jl_uncompress_argnames, Vector{Symbol}, (Any,), kwli.slot_syms)
+                        kws = filter(x -> !(x === empty_sym || '#' in string(x)), slotnames[(kwli.nargs + 1):end])
+                        i = findfirst(x -> endswith(string(x)::String, "..."), kws)
+                        if i !== nothing
+                            push!(kws, kws[i])
+                            deleteat!(kws, i)
+                        end
+                        isempty(kws) && push!(kws, :var"...")
+                        return kws
+                    end
+                end
+                return Symbol[]
+            end
+
+    - effect: "Performance tradeoff: may be slower for highly abstract function types"
+      mechanism: |
+        The original comment explained the restriction:
+
+        "Limit kwarg completions to cases when function is concretely known; looking up
+        matching methods for abstract functions - particularly `Any` or `Function` - can
+        take many seconds to run over the thousands of possible methods."
+
+        With the restriction removed:
+        - Type constructor calls (Type{T}) now work correctly
+        - Highly abstract callable types (Any, Function) may trigger slow method lookups
+
+        However, the test change from `< 1` second to `< 100` seconds suggests this is
+        acceptable because:
+        1. Abstract function calls are relatively rare in practice
+        2. The SHIFT key modifier provides an escape hatch for expensive completions
+        3. The user experience benefit outweighs the rare performance degradation
+
+        Call chain for method lookup:
+        complete_methods!(out, funct, args_ex, kwargs_ex, max_completions, exact_nargs)  [line 828]
+          -> Base._methods_by_ftype(t_in, nothing, max_completions, ...)  [line 831]
+             This is where performance can degrade for abstract types
+      downstream_surfaces:
+        - "REPL responsiveness when completing kwargs on abstract callables"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "823-837"
+          url: "https://github.com/JuliaLang/julia/blob/e7dd1451efdf3edfdc38bd0794e6cefa012ec518/stdlib/REPL/src/REPLCompletions.jl#L823-L837"
+          snippet: |
+            function complete_methods!(out::Vector{Completion}, @nospecialize(funct), args_ex::Vector{Any}, kwargs_ex::Set{Symbol}, max_method_completions::Int, exact_nargs::Bool)
+                # Input types and number of arguments
+                t_in = Tuple{funct, args_ex...}
+                m = Base._methods_by_ftype(t_in, nothing, max_method_completions, Base.get_world_counter(),
+                    #=ambig=# true, Ref(typemin(UInt)), Ref(typemax(UInt)), Ptr{Int32}(C_NULL))
+                if !isa(m, Vector)
+                    push!(out, TextCompletion(sprint(Base.show_signature_function, funct) * "( too many methods, use SHIFT-TAB to show )"))
+                    return
+                end
+                for match in m
+                    push!(out, MethodCompletion(match.spec_types, match.method))
+                end
+            end
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - summary: "Tab completion now provides kwarg suggestions for @kwdef struct constructors"
+        evidence:
+          - source: "issue"
+            path: "GitHub Issue #59244"
+            snippet: |
+              BEFORE (Julia 1.11.6+):
+              julia> @kwdef struct Test
+                         first = 2
+                         second = 3
+                     end
+              julia> Test(; fi<TAB>
+              # Shows global completions: fieldcount, fieldname, fill, filter, first...
+
+              AFTER (with this PR):
+              julia> Test(; fi<TAB>
+              julia> Test(; first=
+              # Correctly suggests keyword argument from @kwdef
+
+  performance:
+    compile_time: []
+    runtime:
+      - summary: "Potential slowdown for kwarg completion on abstract callable types"
+        evidence:
+          - source: "test"
+            path: "stdlib/REPL/test/replcompletions.jl"
+            loc: "2691"
+            snippet: |
+              # Test timeout relaxed from 1 second to 100 seconds:
+              @test (@elapsed completions(s, lastindex(s), @__MODULE__, false)) < 100
+
+              ESTIMATED: For typical @kwdef struct constructors, completion should remain
+              sub-second. The 100-second bound is a safety margin for pathological cases
+              where an abstract callable type triggers exhaustive method table searches.
+
+              Typical performance characteristics:
+              - Concrete type constructors: O(1) to O(n) where n = number of methods
+              - Type{T} constructors: Same as above (now works correctly)
+              - Abstract callable types: O(methods in table), potentially slow
+
+  tests:
+    changed_files:
+      - "stdlib/REPL/test/replcompletions.jl"
+    new_behavior_assertions:
+      - description: "T59244(as... completes to asdf="
+        evidence: |
+          @test REPLCompletions.KeywordArgumentCompletion("asdf") in a
+      - description: "T59244(; qw... completes to qwer= and is the only completion"
+        evidence: |
+          @test REPLCompletions.KeywordArgumentCompletion("qwer") in a
+          @test REPLCompletions.KeywordArgumentCompletion("qwer") == only(a)
+      - description: "Parametric types S59244{T} also get kwarg completion"
+        evidence: |
+          s = "S59244{Int}(as"
+          @test REPLCompletions.KeywordArgumentCompletion("asdf") in a
+      - description: "Fixed previously broken test for f54131.x(kwa..."
+        evidence: |
+          # Changed from @test_broken to @test
+          @test REPLCompletions.KeywordArgumentCompletion("kwarg") in a
+    coverage_gaps:
+      - "No explicit test for abstract callable types (Any, Function)"
+      - "No performance regression test with tight bounds"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Change is purely to REPL completion logic, not compiler internals"
+      - "The removed restriction was overly conservative and broke valid use cases"
+      - "Type inference, lowering, and codegen are completely unaffected"
+      - "Performance concerns are bounded by existing method table limits"
+      - "Tests explicitly verify the fix for the reported issue"
+      - "Worst case is slower completion, not incorrect behavior"
+
+  open_questions:
+    - "Should there be a different heuristic to avoid slow completions for truly abstract types?"
+    - "Could the relaxed 100-second timeout cause CI flakiness on slow machines?"
+
+  recommendations:
+    - "No action required for downstream compiler packages"
+    - "This PR has zero impact on JET, Enzyme, IRTools, GPUCompiler, or Cassette"
+    - "IDE plugins using REPLCompletions will automatically benefit from improved kwarg completion"
+
+classification:
+  type: "bugfix"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false
+
+notes: |
+  This PR fixes a regression introduced by commit f7c33af which added the isconcretetype
+  restriction to prevent slow completions. The restriction was too broad and prevented
+  valid kwarg completion for type constructors.
+
+  Root cause analysis:
+  - When typing `Test(fi<TAB>` where Test is a @kwdef struct
+  - repl_eval_ex evaluates `Test` and returns Const(Type{Test})
+  - CC.widenconst produces Type{Test}
+  - isconcretetype(Type{Test}) returns false (Type{T} is not concrete)
+  - The function returned early, preventing kwarg completion
+  - User saw global symbol completions instead of kwarg completions
+
+  Key insight from the removed comment:
+  "Note that isabstracttype would return naively return true for common constructor calls
+  like Array, but the REPL's introspection here may know their Type{T}."
+
+  This comment acknowledged that Type{T} is handled specially, but the isconcretetype
+  check still blocked it. The fix is to simply remove the restriction and rely on the
+  existing method table limits (max_method_completions) for performance bounds.
+
+  Callers of complete_keyword_argument!:
+  $ rg "complete_keyword_argument!" julia/
+  stdlib/REPL/src/REPLCompletions.jl:896:function complete_keyword_argument!(...)
+  stdlib/REPL/src/REPLCompletions.jl:1096:            complete_keyword_argument!(suggestions, e, s, context_module, arg_pos; shift) &&
+
+  Technical details:
+  - complete_keyword_argument! is called from completions() when inside a function call
+  - _complete_methods extracts the callable type via repl_eval_ex + CC.widenconst
+  - complete_methods! does the actual method lookup via Base._methods_by_ftype
+  - Base.kwarg_decl extracts keyword argument names from each matching method
+
+  This PR has absolutely NO impact on:
+  - Type inference
+  - Lowering or IR generation
+  - Optimization passes
+  - Code generation
+  - OpaqueClosure handling
+  - Generated functions
+  - World age / invalidation
+  - Any internal compiler APIs
+
+  It is safe to ignore for all compiler-focused downstream package analysis.
+
+reviewer_notes:
+  reviewer: "Independent second-pass analysis"
+  review_date: "2026-01-21"
+  methodology: |
+    1. Read existing analysis and PR cache data
+    2. Checked out PR merge commit e7dd1451ef in Julia repo
+    3. Independently traced call chains using rg searches
+    4. Read full source files at affected locations
+    5. Verified line numbers against actual code
+    6. Searched for downstream consumers of REPLCompletions
+  findings:
+    verified:
+      - "The isconcretetype removal is the only code change (6 lines deleted)"
+      - "Test additions cover both positional and keyword-prefixed (;) completion"
+      - "Call chain from completions() to complete_keyword_argument! to complete_methods!"
+      - "Base.kwarg_decl mechanism extracts kwargs via Core.kwcall signature lookup"
+      - "No compiler pipeline components are affected (REPL stdlib only)"
+    corrections_made:
+      - "Updated line numbers throughout (completions at 994 not 999, etc.)"
+      - "Added missing test cases for S59244(; qw variants with semicolons"
+      - "Added S59244{Int}(; qw and S59244{Any}(; qw test cases"
+    additions:
+      - "Documented Base.kwarg_decl mechanism with code evidence from methodshow.jl:80-101"
+      - "Added secondary effect explaining how kwcall signature lookup works"
+    callers_verified: |
+      $ rg "complete_keyword_argument!" julia/stdlib/REPL/
+      src/REPLCompletions.jl:896:function complete_keyword_argument!(...)
+      src/REPLCompletions.jl:1096:            complete_keyword_argument!(suggestions, e, s, ...)
+
+      $ rg "REPLCompletions" julia/ --type-not test
+      stdlib/REPL/src/REPL.jl (imports module)
+      stdlib/REPL/src/docview.jl (imports completions function)
+      base/shell.jl (mentions in comment only)
+  confidence: "high"
+  agreement_with_original: |
+    The original analysis was accurate in its conclusions. This PR:
+    - Is purely a REPL stdlib change with no compiler impact
+    - Fixes a legitimate bug where Type{T} constructors were blocked
+    - Has a known performance tradeoff (100s vs 1s timeout) for edge cases
+    - Requires no action from downstream compiler package maintainers
