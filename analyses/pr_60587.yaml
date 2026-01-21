@@ -119,8 +119,8 @@ analysis:
         evidence:
           - source: "test"
             path: "JuliaLowering/test/scopes_ir.jl"
-            loc: "166-186"
-            url: "https://github.com/JuliaLang/julia/blob/c2647e99afdb598f64ce7859ed50761b61a5a9f3/JuliaLowering/test/scopes_ir.jl#L166-L186"
+            loc: "171-187"
+            url: "https://github.com/JuliaLang/julia/blob/c2647e99afdb598f64ce7859ed50761b61a5a9f3/JuliaLowering/test/scopes_ir.jl#L171-L187"
             snippet: |
               # @locals with local and global
               begin
