@@ -27,26 +27,29 @@ scope:
     - "test/intrinsics.jl"
     - "test/threads_exec.jl"
   components:
-    - "Compiler.tfuncs"
-    - "Base.Threads"
-    - "Codegen.Intrinsics"
-    - "Runtime.Intrinsics"
-    - "Signals"
+    - "Compiler.Inference"
+    - "Compiler.Codegen"
+    - "Other"
   pipeline_stages:
     - "TypeInference"
     - "Codegen"
-    - "Runtime"
-    - "Threading"
 analysis:
   intent:
     summary: "Add asymmetric atomic fences with light/heavy variants, extend Core.Intrinsics.atomic_fence to accept a syncscope, and provide OS-specific heavy-fence implementations."
     issue_links:
       - "https://github.com/JuliaLang/julia/pull/60311"
+    quoted_from_pr: |
+      Asymmetric atomic fences are a performance optimization of regular atomic fences.
+      The problem with these regular fences is that they require a CPU fence instruction,
+      which can be very expensive and is thus unsuitable for code in the hot path.
+      Asymmetric fences on the other hand split an ordinary fence into two: A `light` side
+      where the fence is extremely cheap (only a compiler reordering barrier) and a `heavy`
+      side where the fence is very expensive.
   direct_changes:
     - summary: "Expose new public threading APIs for asymmetric fences and route the existing fence through a system syncscope."
       component: "Base.Threads"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "base/atomics.jl"
           loc: "317-356"
           url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/base/atomics.jl#L317-L356"
@@ -94,7 +97,7 @@ analysis:
     - summary: "Threading code that relied on Core.Intrinsics.atomic_fence now passes an explicit syncscope symbol."
       component: "Base.Threading"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "base/asyncevent.jl"
           loc: "164-169"
           url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/base/asyncevent.jl#L164-L169"
@@ -108,7 +111,7 @@ analysis:
     - summary: "Extend the atomic_fence intrinsic to accept a syncscope and select LLVM syncscope at compile time when possible."
       component: "Codegen.Intrinsics"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "src/intrinsics.cpp"
           loc: "915-938"
           url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/intrinsics.cpp#L915-L938"
@@ -140,10 +143,10 @@ analysis:
     - summary: "Runtime intrinsic validation adds syncscope checking, a single-thread compiler barrier, and error reporting for invalid syncscope symbols."
       component: "Runtime.Intrinsics"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "src/runtime_intrinsics.c"
-          loc: "625-638"
-          url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/runtime_intrinsics.c#L625-L638"
+          loc: "625-639"
+          url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/runtime_intrinsics.c#L625-L639"
           snippet: |
             JL_DLLEXPORT jl_value_t *jl_atomic_fence(jl_value_t *order_sym, jl_value_t *syncscope_sym)
             {
@@ -163,10 +166,10 @@ analysis:
     - summary: "Introduce jl_membarrier with OS-specific heavy-fence implementations (Linux/FreeBSD, macOS, Windows)."
       component: "Runtime.Signals"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "src/signals-unix.c"
-          loc: "1367-1445"
-          url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/signals-unix.c#L1367-L1445"
+          loc: "1368-1449"
+          url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/signals-unix.c#L1368-L1449"
           snippet: |
             enum membarrier_implementation {
                 MEMBARRIER_IMPLEMENTATION_UNKNOWN        = 0,
@@ -182,22 +185,18 @@ analysis:
                 int ret = membarrier(MEMBARRIER_CMD_QUERY, 0);
                 int needed = MEMBARRIER_CMD_PRIVATE_EXPEDITED | MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED;
                 if (ret > 0 && ((ret & needed) == needed)) {
-                    // supported
                     if (membarrier(MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED, 0) == 0) {
-                        // working
                         jl_atomic_store_relaxed(&membarrier_impl, MEMBARRIER_IMPLEMENTATION_SYS_MEMBARRIER);
                         return MEMBARRIER_IMPLEMENTATION_SYS_MEMBARRIER;
                     }
                 }
             #endif
-                // The mprotect fallback is known not to work on AArch64, so skip it there
             #if !defined(_CPU_AARCH64_) && !defined(_CPU_ARM_)
                 if (jl_init_mprotect_membarrier()) {
                     jl_atomic_store_relaxed(&membarrier_impl, MEMBARRIER_IMPLEMENTATION_MPROTECT);
                     return MEMBARRIER_IMPLEMENTATION_MPROTECT;
                 }
             #endif
-                // Fall back to thread suspension (sound but slow)
                 jl_atomic_store_relaxed(&membarrier_impl, MEMBARRIER_IMPLEMENTATION_THREAD_SUSPEND);
                 return MEMBARRIER_IMPLEMENTATION_THREAD_SUSPEND;
             }
@@ -228,7 +227,7 @@ analysis:
                     abort();
                 }
             }
-        - source: "code"
+        - source: "diff"
           path: "src/signals-mach.c"
           loc: "896-937"
           url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/signals-mach.c#L896-L937"
@@ -242,20 +241,17 @@ analysis:
                 uintptr_t registerValues[128];
                 kern_return_t machret;
 
-                // Iterate through each of the threads in the list.
                 int nthreads = jl_atomic_load_acquire(&jl_n_threads);
                 for (int tid = 0; tid < nthreads; tid++) {
                     jl_ptls_t ptls2 = jl_atomic_load_relaxed(&jl_all_tls_states)[tid];
                     thread_act_t thread = pthread_mach_thread_np(ptls2->system_id);
                     if (__builtin_available (macOS 10.14, iOS 12, tvOS 9, *))
                     {
-                        // Request the threads pointer values to force the thread to emit a memory barrier
                         size_t registers = 128;
                         machret = thread_get_register_pointer_values(thread, &sp, &registers, registerValues);
                     }
                     else
                     {
-                        // fallback implementation for older OS versions
             #if defined(_CPU_X86_64_)
                         x86_thread_state64_t threadState;
                         mach_msg_type_number_t count = x86_THREAD_STATE64_COUNT;
@@ -268,14 +264,13 @@ analysis:
                         #error Unexpected architecture
             #endif
                     }
-
                     if (machret == KERN_INSUFFICIENT_BUFFER_SIZE)
                     {
                         HANDLE_MACH_ERROR("thread_get_register_pointer_values()", machret);
                     }
                 }
             }
-        - source: "code"
+        - source: "diff"
           path: "src/signals-win.c"
           loc: "668-670"
           url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/signals-win.c#L668-L670"
@@ -286,60 +281,26 @@ analysis:
     - summary: "Compiler tfuncs and intrinsic metadata updated for the new atomic_fence arity and syncscope argument."
       component: "Compiler.tfuncs"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "Compiler/src/tfuncs.jl"
-          loc: "719-761"
-          url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/Compiler/src/tfuncs.jl#L719-L761"
+          loc: "719-760"
+          url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/Compiler/src/tfuncs.jl#L719-L760"
           snippet: |
-            @nospecs function atomic_fence_tfunc(𝕃::AbstractLattice, order, syncscope)
+            @nospecs function atomic_fence_tfunc(L::AbstractLattice, order, syncscope)
                 return Nothing
             end
-            @nospecs function atomic_pointerref_tfunc(𝕃::AbstractLattice, a, order)
-                return pointer_eltype(a)
-            end
-            @nospecs function atomic_pointerset_tfunc(𝕃::AbstractLattice, a, v, order)
-                return a
-            end
-            @nospecs function atomic_pointerswap_tfunc(𝕃::AbstractLattice, a, v, order)
-                return pointer_eltype(a)
-            end
-            @nospecs function atomic_pointermodify_tfunc(𝕃::AbstractLattice, ptr, op, v, order)
-                a = widenconst(ptr)
-                if !has_free_typevars(a)
-                    unw = unwrap_unionall(a)
-                    if isa(unw, DataType) && unw.name === Ptr.body.name
-                        T = unw.parameters[1]
-                        # note: we could sometimes refine this to a PartialStruct if we analyzed `op(T, T)::T`
-                        valid_as_lattice(T, true) || return Bottom
-                        return rewrap_unionall(Pair{T, T}, a)
-                    end
-                end
-                return Pair
-            end
-            @nospecs function atomic_pointerreplace_tfunc(𝕃::AbstractLattice, ptr, x, v, success_order, failure_order)
-                a = widenconst(ptr)
-                if !has_free_typevars(a)
-                    unw = unwrap_unionall(a)
-                    if isa(unw, DataType) && unw.name === Ptr.body.name
-                        T = unw.parameters[1]
-                        valid_as_lattice(T) || return Bottom
-                        return rewrap_unionall(ccall(:jl_apply_cmpswap_type, Any, (Any,), T), a)
-                    end
-                end
-                return ccall(:jl_apply_cmpswap_type, Any, (Any,), T) where T
-            end
-            add_tfunc(add_ptr, 2, 2, pointerarith_tfunc, 1)
-            add_tfunc(sub_ptr, 2, 2, pointerarith_tfunc, 1)
-            add_tfunc(pointerref, 3, 3, pointerref_tfunc, 4)
-            add_tfunc(pointerset, 4, 4, pointerset_tfunc, 5)
+            # Lines 722-759: other atomic pointer tfuncs unchanged
             add_tfunc(atomic_fence, 2, 2, atomic_fence_tfunc, 4)
-            add_tfunc(atomic_pointerref, 2, 2, atomic_pointerref_tfunc, 4)
-            add_tfunc(atomic_pointerset, 3, 3, atomic_pointerset_tfunc, 5)
-            add_tfunc(atomic_pointerswap, 3, 3, atomic_pointerswap_tfunc, 5)
+        - source: "diff"
+          path: "src/intrinsics.h"
+          loc: "98"
+          url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/intrinsics.h#L98"
+          snippet: |
+            ADD_I(atomic_fence, 2) \
     - summary: "Tests updated to exercise new syncscope signature and asymmetric fence behavior."
-      component: "Tests.Threading"
+      component: "Tests"
       evidence:
-        - source: "code"
+        - source: "test"
           path: "test/intrinsics.jl"
           loc: "397-405"
           url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/test/intrinsics.jl#L397-L405"
@@ -353,7 +314,7 @@ analysis:
                 @test (order -> Core.Intrinsics.atomic_fence(order, :system))(order) === nothing
                 @test Base.invokelatest(@eval () -> Core.Intrinsics.atomic_fence($(QuoteNode(order)), :system)) === nothing
             end
-        - source: "code"
+        - source: "test"
           path: "test/threads_exec.jl"
           loc: "467-515"
           url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/test/threads_exec.jl#L467-L515"
@@ -381,26 +342,9 @@ analysis:
                     wait(cond2)
                 end
             end
-            function test_asymmetric_fence(data::AsymmetricFenceTestData, cond1, cond2, threadid)
-                for i = 1:data.n
-                    test_asymmetric_fence(data, cond1, cond2, threadid, i)
-                end
-            end
             function test_asymmetric_fence()
                 asymmetric_test_count = 200_000
-                cond1 = Threads.Event(true)
-                cond2 = Threads.Event(true)
-                data = AsymmetricFenceTestData(asymmetric_test_count,
-                                               AtomicMemory{Int}(undef, asymmetric_test_count),
-                                               AtomicMemory{Int}(undef, asymmetric_test_count),
-                                               AtomicMemory{Int}(undef, asymmetric_test_count),
-                                               AtomicMemory{Int}(undef, asymmetric_test_count))
-                for i = 1:asymmetric_test_count
-                    @atomic :monotonic data.x[i] = 0
-                    @atomic :monotonic data.y[i] = 0
-                    @atomic :monotonic data.read_x[i] = typemax(Int)
-                    @atomic :monotonic data.read_y[i] = typemax(Int)
-                end
+                # ... setup code ...
                 t1 = @Threads.spawn test_asymmetric_fence(data, cond1, cond2, 1)
                 t2 = @Threads.spawn test_asymmetric_fence(data, cond1, cond2, 2)
                 wait(t1); wait(t2)
@@ -410,78 +354,207 @@ analysis:
   secondary_effects:
     - effect: "Light fences only emit a compiler barrier (single-thread syncscope) and therefore synchronize only with heavy fences, not with ordinary fences."
       mechanism: |
-        Threads.atomic_fence_light()  [base/atomics.jl:334-347]
-          -> Core.Intrinsics.atomic_fence(:sequentially_consistent, :singlethread)  [base/atomics.jl:347]
-          -> emit_atomicfence() chooses llvm::SyncScope::SingleThread and uses CreateFence(order, ssid)  [src/intrinsics.cpp:915-935]
-          -> runtime fallback treats :singlethread as `asm volatile ("" : : : "memory")`  [src/runtime_intrinsics.c:625-633]
+        Threads.atomic_fence_light()  [base/atomics.jl:347]
+          -> Core.Intrinsics.atomic_fence(:sequentially_consistent, :singlethread)
+          -> emit_atomicfence() checks ssid_arg.constant == jl_singlethread_sym  [src/intrinsics.cpp:925-926]
+          -> ctx.builder.CreateFence(order, llvm::SyncScope::SingleThread)  [src/intrinsics.cpp:934]
+          -> runtime fallback: asm volatile ("" : : : "memory")  [src/runtime_intrinsics.c:630-632]
       downstream_surfaces:
         - "Base.Threads.atomic_fence_light"
         - "Core.Intrinsics.atomic_fence(syncscope=:singlethread)"
         - "LLVM IR fence syncscope=singlethread"
       likelihood: "high"
       impact: "medium"
+      evidence:
+        - source: "diff"
+          path: "src/intrinsics.cpp"
+          loc: "925-934"
+          url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/intrinsics.cpp#L925-L934"
+          snippet: |
+            if ((jl_sym_t*)ssid_arg.constant == jl_singlethread_sym)
+                ssid = llvm::SyncScope::SingleThread;
+            if (ord.constant && jl_is_symbol(ord.constant)) {
+                enum jl_memory_order order = jl_get_atomic_order((jl_sym_t*)ord.constant, true, true);
+                if (order == jl_memory_order_invalid) {
+                    emit_atomic_error(ctx, "invalid atomic ordering");
+                    return jl_cgval_t();
+                }
+                if (order > jl_memory_order_monotonic)
+                    ctx.builder.CreateFence(get_llvm_atomic_order(order), ssid);
     - effect: "Heavy fence path may trigger system calls or thread suspension, causing cross-thread latency spikes on some OS/arch combinations."
       mechanism: |
-        Threads.atomic_fence_heavy()  [base/atomics.jl:349-356]
-          -> ccall(:jl_membarrier, Cvoid, ())  [base/atomics.jl:356]
-          -> jl_membarrier() selects implementation (membarrier syscall, mprotect, or thread suspend)  [src/signals-unix.c:1367-1445]
-          -> macOS uses Mach thread register queries to induce barriers  [src/signals-mach.c:896-936]
-          -> Windows uses FlushProcessWriteBuffers  [src/signals-win.c:668-670]
+        Threads.atomic_fence_heavy()  [base/atomics.jl:356]
+          -> ccall(:jl_membarrier, Cvoid, ())
+          -> jl_membarrier() selects implementation based on platform:  [src/signals-unix.c:1424-1449]
+             - Linux/FreeBSD: membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED) syscall
+             - Linux/FreeBSD fallback: mprotect-based barrier (x86 only)
+             - Linux/FreeBSD final fallback: jl_thread_suspend_membarrier()
+             - macOS: thread_get_register_pointer_values() Mach call  [src/signals-mach.c:900-937]
+             - Windows: FlushProcessWriteBuffers()  [src/signals-win.c:668-670]
       downstream_surfaces:
         - "Threads.atomic_fence_heavy"
         - "Runtime jl_membarrier"
         - "Schedulers sensitive to thread suspension"
       likelihood: "medium"
       impact: "medium"
+      evidence:
+        - source: "diff"
+          path: "src/signals-unix.c"
+          loc: "1284-1306"
+          url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/signals-unix.c#L1284-L1306"
+          snippet: |
+            static void jl_thread_suspend_membarrier(void)
+            {
+                bt_context_t ctx;
+                // Suspend each thread and immediately resume it.
+                // The act of suspending/resuming forces a memory barrier via
+                // the signal handler mechanism.
+                for (int tid = 0; tid < jl_atomic_load_acquire(&jl_n_threads); tid++) {
+                    while (!jl_thread_suspend(tid, &ctx)) {
+                        jl_ptls_t ptls2 = jl_atomic_load_relaxed(&jl_all_tls_states)[tid];
+                        jl_task_t *ct2 = ptls2 ? jl_atomic_load_relaxed(&ptls2->current_task) : NULL;
+                        if (ct2 == NULL) {
+                            goto next_thread;
+                        }
+                    }
+                    jl_thread_resume(tid);
+            next_thread:;
+                }
+            }
     - effect: "Invalid syncscope symbols now raise errors in runtime intrinsics, which may surface in tooling that calls Core.Intrinsics.atomic_fence directly."
       mechanism: |
         Core.Intrinsics.atomic_fence(order, syncscope)
-          -> jl_atomic_fence(order_sym, syncscope_sym)  [src/runtime_intrinsics.c:625-638]
+          -> jl_atomic_fence(order_sym, syncscope_sym)  [src/runtime_intrinsics.c:625-639]
           -> jl_error("atomic_fence: invalid syncscope") for non-:system/:singlethread symbols  [src/runtime_intrinsics.c:633-634]
       downstream_surfaces:
         - "Core.Intrinsics.atomic_fence"
         - "Compiler plugins emitting intrinsics"
       likelihood: "low"
       impact: "low"
+      evidence:
+        - source: "diff"
+          path: "src/runtime_intrinsics.c"
+          loc: "630-635"
+          url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/runtime_intrinsics.c#L630-L635"
+          snippet: |
+            if ((jl_sym_t*)syncscope_sym == jl_singlethread_sym) {
+                asm volatile ("" : : : "memory");
+                return jl_nothing;
+            } else if ((jl_sym_t*)syncscope_sym != jl_system_sym) {
+                jl_error("atomic_fence: invalid syncscope");
+            }
   compatibility:
     internal_api:
-      - field: "Core.Intrinsics.atomic_fence arity"
-        change: "Intrinsic now takes (order, syncscope) instead of a single order argument; metadata updated in intrinsics.h and codegen assert expects nargs==2."
-        affected_tools:
-          - tool: "GPUCompiler"
-            usage: "Emits Core.Intrinsics.atomic_fence when lowering custom IR to Julia IR; must pass syncscope symbol."
-          - tool: "IRTools"
-            usage: "May construct intrinsic calls; any use of atomic_fence must be updated to 2 args."
-      - field: "jl_atomic_fence signature"
-        change: "Runtime API now expects (order, syncscope) and validates syncscope symbol before issuing a fence."
-        affected_tools:
-          - tool: "Embedding APIs"
-            usage: "C extensions calling jl_atomic_fence must update call sites to supply syncscope symbol."
-      - field: "jl_membarrier export"
-        change: "New runtime export available for heavy fence path."
-        affected_tools:
-          - tool: "Embedding APIs"
-            usage: "Could be used by external runtimes to issue process-wide barriers; now exported in jl_exported_funcs.inc."
+      - summary: "Core.Intrinsics.atomic_fence arity changed from 1 to 2 arguments; codegen asserts nargs==2."
+        evidence:
+          - source: "diff"
+            path: "src/intrinsics.h"
+            loc: "98"
+            url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/intrinsics.h#L98"
+            snippet: |
+              ADD_I(atomic_fence, 2) \
+      - summary: "jl_atomic_fence runtime API signature changed to (order, syncscope) and validates syncscope symbol."
+        evidence:
+          - source: "diff"
+            path: "src/julia_internal.h"
+            loc: "1692"
+            url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/julia_internal.h#L1692"
+            snippet: |
+              JL_DLLEXPORT jl_value_t *jl_atomic_fence(jl_value_t *order, jl_value_t *syncscope);
+      - summary: "New jl_membarrier export available for heavy fence path via jl_exported_funcs.inc."
+        evidence:
+          - source: "diff"
+            path: "src/jl_exported_funcs.inc"
+            loc: "509"
+            url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/jl_exported_funcs.inc#L509"
+            snippet: |
+              XX(jl_membarrier) \
     behavioral:
-      - change: "Base.Threads.atomic_fence now uses syncscope :system explicitly, and a new :singlethread syncscope is introduced for light fences."
-        impact: "Direct calls to Core.Intrinsics.atomic_fence must include a valid syncscope or they will error."
-      - change: "Asymmetric fence pair guarantees are now tested via a two-thread atomic memory litmus."
-        impact: "Code that expects symmetric fence behavior should prefer Threads.atomic_fence() instead of light/heavy pair."
+      - summary: "Base.Threads.atomic_fence now uses syncscope :system explicitly; a new :singlethread syncscope is introduced for light fences."
+        evidence:
+          - source: "diff"
+            path: "base/atomics.jl"
+            loc: "332"
+            url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/base/atomics.jl#L332"
+            snippet: |
+              atomic_fence() = Core.Intrinsics.atomic_fence(:sequentially_consistent, :system)
+      - summary: "Direct calls to Core.Intrinsics.atomic_fence must include a valid syncscope or they will error."
+        evidence:
+          - source: "test"
+            path: "test/intrinsics.jl"
+            loc: "398-405"
+            url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/test/intrinsics.jl#L398-L405"
+            snippet: |
+              @test_throws ConcurrencyViolationError("invalid atomic ordering") (@force_compile; Core.Intrinsics.atomic_fence(:u, :system)) === nothing
+              for order in (:not_atomic, :monotonic, :acquire, :release, :acquire_release, :sequentially_consistent)
+                  @test Core.Intrinsics.atomic_fence(order, :system) === nothing
+              end
   performance:
     compile_time:
-      - item: "ESTIMATED: negligible compile-time impact; extra intrinsic argument and syncscope validation are constant-time in codegen." 
+      - summary: "ESTIMATED: negligible compile-time impact; extra intrinsic argument and syncscope validation are constant-time in codegen."
+        evidence:
+          - source: "diff"
+            path: "src/intrinsics.cpp"
+            loc: "920-926"
+            url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/intrinsics.cpp#L920-L926"
+            snippet: |
+              if (!ssid_arg.constant || !jl_is_symbol(ssid_arg.constant) ||
+                  ((jl_sym_t*)ssid_arg.constant != jl_singlethread_sym &&
+                      (jl_sym_t*)ssid_arg.constant != jl_system_sym)) {
+                  return emit_runtime_call(ctx, atomic_fence, argv, 2);
+              }
+              if ((jl_sym_t*)ssid_arg.constant == jl_singlethread_sym)
+                  ssid = llvm::SyncScope::SingleThread;
     runtime:
-      - item: "ESTIMATED: atomic_fence_light emits only a compiler barrier (singlethread syncscope) and should be much cheaper than a full system fence." 
-      - item: "ESTIMATED: atomic_fence_heavy may perform system calls or thread suspension, so per-call latency can be high; use on cold paths." 
+      - summary: "ESTIMATED: atomic_fence_light emits only a compiler barrier (singlethread syncscope) and should be much cheaper than a full system fence."
+        evidence:
+          - source: "diff"
+            path: "src/runtime_intrinsics.c"
+            loc: "630-632"
+            url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/runtime_intrinsics.c#L630-L632"
+            snippet: |
+              if ((jl_sym_t*)syncscope_sym == jl_singlethread_sym) {
+                  asm volatile ("" : : : "memory");
+                  return jl_nothing;
+              }
+      - summary: "ESTIMATED: atomic_fence_heavy may perform system calls or thread suspension, so per-call latency can be high; use on cold paths."
+        evidence:
+          - source: "diff"
+            path: "src/signals-unix.c"
+            loc: "1424-1449"
+            url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/signals-unix.c#L1424-L1449"
+            snippet: |
+              JL_DLLEXPORT void jl_membarrier(void) {
+                  enum membarrier_implementation impl = jl_atomic_load_relaxed(&membarrier_impl);
+                  if (impl == MEMBARRIER_IMPLEMENTATION_UNKNOWN) {
+                      impl = jl_init_membarrier();
+                  }
+                  switch (impl) { /* ... syscall, mprotect, or thread suspend */ }
+              }
+  tests:
+    changed_files:
+      - "test/intrinsics.jl"
+      - "test/threads_exec.jl"
+    new_behavior_assertions:
+      - "atomic_fence intrinsic now requires 2 arguments (order, syncscope) and tests validate :system syncscope"
+      - "New asymmetric fence litmus test verifies atomic_fence_light/heavy synchronization with 200k iterations"
+      - "Effects test in Compiler/test/effects.jl confirms atomic_fence is marked !effect_free for synchronization semantics"
+    coverage_gaps:
+      - "No explicit test for invalid syncscope error path (jl_error branch in jl_atomic_fence)"
+      - "No benchmark comparing light fence vs regular fence performance"
+      - "mprotect fallback and thread suspension fallback paths not explicitly tested"
   risk:
     level: "medium"
     rationale:
       - "New syncscope argument touches codegen, runtime intrinsics, and exported C API; mistakes could surface as invalid call errors or wrong fence strength."
       - "Heavy fence implementations depend on OS-specific behavior (membarrier/mprotect/thread suspension) with potential latency and portability implications."
+      - "macOS implementation relies on undocumented behavior validated by .NET runtime team with Apple but not formally specified."
   open_questions:
     - "Should additional documentation clarify that atomic_fence_light does not synchronize with Threads.atomic_fence(), only with atomic_fence_heavy?"
     - "Are there performance benchmarks for jl_membarrier fallbacks (mprotect vs thread suspension) on AArch64 Linux/FreeBSD?"
+    - "What happens if jl_membarrier is called during GC when threads are in safepoint - is there a potential for deadlock in the thread suspension path?"
   recommendations:
     - "Audit downstream packages that call Core.Intrinsics.atomic_fence directly to pass an explicit syncscope (:system for ordinary fences)."
     - "Prefer Threads.atomic_fence_light/heavy only when the synchronization pattern is asymmetric; otherwise keep using Threads.atomic_fence()."
     - "Consider adding microbenchmarks for jl_membarrier implementations to detect regressions in latency-sensitive workloads."
+    - "Document that GPUCompiler and IRTools users constructing intrinsic calls must update to 2-argument atomic_fence."

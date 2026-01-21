@@ -11,6 +11,7 @@ pr:
 scope:
   files_touched:
     - "Compiler/extras/CompilerDevTools/test/testpkg.jl"
+    - "JuliaLowering/.gitignore"
     - "JuliaLowering/Manifest.toml"
     - "JuliaLowering/test/runtests_vendored.jl"
     - "deps/jlutilities/objectfile/Manifest.toml"
@@ -36,12 +37,9 @@ analysis:
       evidence:
         - source: "code"
           path: "test/runtests.jl"
-          loc: "17-38"
-          url: "https://github.com/JuliaLang/julia/blob/1ba499652c86b11d42c08b042b22613c077662e2/test/runtests.jl#L17-L38"
+          loc: "29-41"
+          url: "https://github.com/JuliaLang/julia/blob/1ba499652c86b11d42c08b042b22613c077662e2/test/runtests.jl#L29-L41"
           snippet: |
-            (; tests, net_on, exit_on_error, use_revise, buildroot, seed) = choosetests(ARGS)
-            tests = unique(tests)
-
             const rmwait_timeout = running_under_rr() ? 300 : 30
 
             ENV["JULIA_TEST_BUILDROOT"] = buildroot
@@ -91,7 +89,7 @@ analysis:
 
             if !@isdefined(ObjectFile)
                 @warn("ObjectFile.jl not available; skipping stdlib JLL dependency tests")
-    - summary: "Remove Pkg.instantiate calls in CompilerDevTools and JuliaLowering tests to avoid writing to the stdlib depot; JuliaLowering now relies on a checked-in Manifest.toml."
+    - summary: "Remove Pkg.instantiate calls in CompilerDevTools and JuliaLowering tests to avoid writing to the stdlib depot; JuliaLowering now relies on a checked-in Manifest.toml enabled by removing .gitignore entry."
       component: "CompilerDevTools / JuliaLowering tests"
       evidence:
         - source: "code"
@@ -128,6 +126,13 @@ analysis:
                 # Restore original load path and active project
                 Base.set_active_project(old_active_project)
             end
+        - source: "diff"
+          path: "JuliaLowering/.gitignore"
+          loc: "1"
+          url: "https://github.com/JuliaLang/julia/blob/1ba499652c86b11d42c08b042b22613c077662e2/JuliaLowering/.gitignore"
+          snippet: |
+            # Previously contained "/Manifest.toml" - now empty
+            # Removing this entry allows JuliaLowering/Manifest.toml to be tracked in git
         - source: "code"
           path: "JuliaLowering/Manifest.toml"
           loc: "1-16"
@@ -195,10 +200,10 @@ analysis:
   secondary_effects:
     - effect: "Stdlib JLL dependency checks now depend on JULIA_TEST_BUILDROOT to locate the jlutilities depot and avoid mutating the stdlib depot."
       mechanism: |
-        test/runtests.jl sets ENV["JULIA_TEST_BUILDROOT"] = buildroot  [test/runtests.jl:17-31]
-          -> test/stdlib_dependencies.jl reads buildroot = get(ENV, "JULIA_TEST_BUILDROOT", ...)  [test/stdlib_dependencies.jl:6-8]
+        test/runtests.jl sets ENV["JULIA_TEST_BUILDROOT"] = buildroot  [test/runtests.jl:31]
+          -> test/stdlib_dependencies.jl reads buildroot = get(ENV, "JULIA_TEST_BUILDROOT", ...)  [test/stdlib_dependencies.jl:7]
           -> when deps/jlutilities exists, DEPOT_PATH is prepended and Pkg.activate(...) + Pkg.instantiate() run  [test/stdlib_dependencies.jl:12-19]
-          -> ObjectFile is loaded from the vendored depot and tests proceed  [test/stdlib_dependencies.jl:21-34]
+          -> ObjectFile is loaded from the vendored depot and tests proceed  [test/stdlib_dependencies.jl:21]
       downstream_surfaces:
         - "Julia test harness"
         - "jlutilities vendored depot"
@@ -206,21 +211,33 @@ analysis:
       impact: "medium"
     - effect: "In deployed test environments without the source tree, the stdlib JLL dependency tests are skipped with a warning instead of forcing a Pkg.add into the stdlib depot."
       mechanism: |
-        test/stdlib_dependencies.jl falls back to Base.locate_package(ObjectFile_pkgid)  [test/stdlib_dependencies.jl:25-28]
-          -> if ObjectFile is not defined, it emits a warning and skips the test body  [test/stdlib_dependencies.jl:32-34]
+        test/stdlib_dependencies.jl falls back to Base.locate_package(ObjectFile_pkgid)  [test/stdlib_dependencies.jl:26-28]
+          -> if ObjectFile is not defined, it emits a warning and skips the test body  [test/stdlib_dependencies.jl:32-33]
       downstream_surfaces:
         - "Pkg/stdlib dependency test coverage"
         - "CI configurations that do not preinstall ObjectFile.jl"
       likelihood: "high"
       impact: "low"
+    - effect: "JuliaLowering tests no longer run Pkg.instantiate(), relying instead on the checked-in Manifest.toml for reproducible dependency resolution."
+      mechanism: |
+        JuliaLowering/.gitignore removed "/Manifest.toml" entry  [JuliaLowering/.gitignore]
+          -> JuliaLowering/Manifest.toml now tracked in git with pinned JuliaSyntax path  [JuliaLowering/Manifest.toml:13-16]
+          -> runtests_vendored.jl removed Pkg.instantiate() call and manifest deletion  [JuliaLowering/test/runtests_vendored.jl:5]
+      downstream_surfaces:
+        - "JuliaLowering test reproducibility"
+        - "JuliaSyntax path resolution"
+      likelihood: "high"
+      impact: "low"
   compatibility:
     internal_api:
       - field: "ENV[\"JULIA_TEST_BUILDROOT\"]"
-        change: "Newly set in test/runtests.jl for downstream test helpers to locate the jlutilities depot."
+        change: "Newly set in test/runtests.jl at line 31 for downstream test helpers to locate the jlutilities depot."
         affected_tools:
           - "Custom test runners that invoke test/stdlib_dependencies.jl directly"
     behavioral:
       - change: "stdlib dependency tests no longer implicitly install ObjectFile.jl; they require a vendored jlutilities depot or preinstalled ObjectFile.jl and otherwise skip with a warning."
+        affected_surface: "Test-only behavior"
+      - change: "JuliaLowering tests use checked-in Manifest.toml instead of running Pkg.instantiate() at test time."
         affected_surface: "Test-only behavior"
   performance:
     compile_time:
@@ -232,8 +249,10 @@ analysis:
     rationale:
       - "Changes are confined to test harness setup and vendored dependency management."
       - "Behavior is gated by the presence of a source tree or preinstalled ObjectFile.jl, with a warning and skip otherwise."
+      - "No compiler pipeline changes; purely test infrastructure."
   open_questions:
-    - "Should CI preinstall ObjectFile.jl in the jlutilities depot for all stdlib dependency test runs, mirroring the note in the PR description?"
+    - "Should CI preinstall ObjectFile.jl in the jlutilities depot for all stdlib dependency test runs, as noted in the PR description?"
   recommendations:
     - "Ensure CI/test runners set or inherit JULIA_TEST_BUILDROOT when running test/stdlib_dependencies.jl outside the standard test harness."
     - "Keep the jlutilities ObjectFile.jl manifest in sync with the version expectations of stdlib dependency tests."
+    - "When updating JuliaSyntax, regenerate JuliaLowering/Manifest.toml to maintain path consistency."

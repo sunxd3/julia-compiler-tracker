@@ -16,20 +16,31 @@ scope:
   components:
     - "JuliaLowering"
   pipeline_stages:
+    - "MacroExpansion"
     - "Lowering"
 analysis:
   intent:
-    summary: "Ensure old-style macro expansion passes the lexical module as `__module__`, fixing cases like `@static` that eval into `__module__`."
+    summary: "Ensure old-style macro expansion passes the lexical (root) module as `__module__`, fixing cases like `@static` that eval into `__module__`."
     issue_links:
       - "https://github.com/c42f/JuliaLowering.jl/issues/120"
+    quoted_from_pr: "Resolves https://github.com/c42f/JuliaLowering.jl/issues/120. This is required for macros like `@static` that `eval` into `__module__` to expand correctly."
   direct_changes:
-    - summary: "Old-style macro invocation now passes the root lexical scope module (layer 1) as the `__module__` argument instead of the current hygienic scope module."
+    - summary: "Old-style macro invocation now passes the root lexical scope module (scope_layers[1].mod) as the `__module__` argument instead of the current hygienic scope module (current_layer(ctx).mod)."
       component: "JuliaLowering/src/macro_expansion.jl"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "JuliaLowering/src/macro_expansion.jl"
-          loc: "300-317"
-          url: "https://github.com/JuliaLang/julia/blob/6baf8f78eafdca137f1e39b128f540fd88f8a06e/JuliaLowering/src/macro_expansion.jl#L300-L317"
+          loc: "303"
+          url: "https://github.com/JuliaLang/julia/blob/6baf8f78eafdca137f1e39b128f540fd88f8a06e/JuliaLowering/src/macro_expansion.jl#L303"
+          snippet: |
+            # Before:
+            macro_args = Any[macro_loc, current_layer(ctx).mod]
+            # After:
+            macro_args = Any[macro_loc, ctx.scope_layers[1].mod]
+        - source: "diff"
+          path: "JuliaLowering/src/macro_expansion.jl"
+          loc: "300-310"
+          url: "https://github.com/JuliaLang/julia/blob/6baf8f78eafdca137f1e39b128f540fd88f8a06e/JuliaLowering/src/macro_expansion.jl#L300-L310"
           snippet: |
             else
                 # Compat: attempt to invoke an old-style macro if there's no applicable
@@ -41,9 +52,7 @@ analysis:
                     # handle that using manual escaping in the macro itself.
                     push!(macro_args, Expr(arg))
                 end
-                expanded = try
-                    Base.invoke_in_world(ctx.macro_world, macfunc, macro_args...)
-    - summary: "Added regression test ensuring `@__MODULE__` expands to the lexical module rather than the current hygienic scope module."
+    - summary: "Added regression test verifying `@__MODULE__` resolves to the lexical caller module, not the macro's defining module."
       component: "JuliaLowering/test/macros.jl"
       evidence:
         - source: "test"
@@ -65,30 +74,66 @@ analysis:
             code = JuliaLowering.include_string(test_mod, """Mod1.@indirect_MODULE()""")
             @test JuliaLowering.eval(test_mod, code) === test_mod # !== test_mod.Mod1
   secondary_effects:
-    - effect: "Macros implemented in old style that call `eval` or rely on `__module__` now see the lexical caller module rather than the current hygienic scope module."
+    - effect: "Old-style macros that call `eval` or use `__module__` for module-relative operations now correctly see the lexical caller module rather than the current hygienic scope module."
       mechanism: |
         expand_macro(ctx, ex)  [macro_expansion.jl:300-329]
-          -> macro_args = Any[macro_loc, ctx.scope_layers[1].mod]
+          -> detects old-style macro (no new-style method signature)
+          -> constructs macro_args = Any[macro_loc, ctx.scope_layers[1].mod]
+             where scope_layers[1] is the ROOT lexical module (initialized at context creation)
+             NOT current_layer(ctx).mod which is ctx.scope_layers[last(ctx.scope_layer_stack)]
           -> Base.invoke_in_world(ctx.macro_world, macfunc, macro_args...)
           -> old-style macro receives (__source__, __module__, ...) from macro_args
+
+        The key distinction:
+          current_layer(ctx) = ctx.scope_layers[last(ctx.scope_layer_stack)]
+            Returns the CURRENT hygienic scope (may be nested macro scope)
+          ctx.scope_layers[1]
+            Returns the ROOT lexical module (the caller's original module)
       downstream_surfaces:
-        - "Old-style macros using `__module__` for `eval` or module-relative lookups"
-        - "Packages depending on JuliaLowering old-style macro compat behavior (e.g. macro hygiene tooling)"
-      likelihood: "medium"
-      impact: "low"
+        - "Macros using `eval(__module__, ...)` pattern (e.g. @static)"
+        - "Macros using `__module__` for module-relative symbol lookup"
+        - "Packages depending on correct __module__ semantics for precompilation (e.g. Mmap.jl)"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "issue"
+          path: "c42f/JuliaLowering.jl#120"
+          url: "https://github.com/c42f/JuliaLowering.jl/issues/120"
+          snippet: |
+            The issue reported that macros were expanded with wrong module:
+
+            FLISP lowering disabled (expected): @foo() -> Base.JuliaLowering
+            FLISP lowering enabled (incorrect): @foo() -> Main
+
+            This was responsible for Mmap.jl failing to precompile.
   compatibility:
     internal_api: []
     behavioral:
-      - change: "`__module__` passed to old-style macros is now the lexical module (scope layer 1), not the current hygienic scope module."
-        affected_tools:
-          - "Macros that `eval` into `__module__` (e.g. `@static`-style patterns)"
+      - summary: "`__module__` passed to old-style macros is now the lexical module (scope_layers[1].mod), not the current hygienic scope module (current_layer(ctx).mod). This is a bug FIX restoring correct semantics."
+        evidence:
+          - source: "issue"
+            path: "c42f/JuliaLowering.jl#120"
+            url: "https://github.com/c42f/JuliaLowering.jl/issues/120"
+            snippet: |
+              The change aligns JuliaLowering behavior with FLISP lowering for __module__.
+              Before: __module__ incorrectly reflected hygienic scope module
+              After: __module__ correctly reflects lexical caller module
   performance:
     compile_time: []
     runtime: []
+  tests:
+    changed_files:
+      - "JuliaLowering/test/macros.jl"
+    new_behavior_assertions:
+      - "Mod1.@indirect_MODULE() called from test_mod returns test_mod (the caller module), NOT test_mod.Mod1 (the macro's defining module)"
+    coverage_gaps: []
   risk:
     level: "low"
     rationale:
-      - "Change is localized to old-style macro argument construction and backed by a regression test."
+      - "Single-line fix changing module source from current_layer(ctx).mod to ctx.scope_layers[1].mod"
+      - "This is a bug fix restoring correct semantics (matching FLISP lowering behavior)"
+      - "Change is backed by a regression test that precisely validates the expected behavior"
+      - "Fix resolved real-world precompilation failure in Mmap.jl"
   open_questions: []
   recommendations:
-    - "If downstream tools relied on hygienic-scope `__module__` for old-style macros, update expectations to match lexical module semantics."
+    - "If downstream tools relied on the buggy behavior (hygienic-scope __module__ for old-style macros), update to expect lexical module semantics."

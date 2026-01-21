@@ -15,6 +15,8 @@ scope:
     - "JuliaLowering/src/bindings.jl"
     - "JuliaLowering/src/closure_conversion.jl"
     - "JuliaLowering/src/compat.jl"
+    - "JuliaLowering/src/desugaring.jl"
+    - "JuliaLowering/src/eval.jl"
     - "JuliaLowering/src/linear_ir.jl"
     - "JuliaLowering/src/macro_expansion.jl"
     - "JuliaLowering/src/runtime.jl"
@@ -580,6 +582,37 @@ analysis:
 
               setmeta(ex::SyntaxTree, k::Symbol, @nospecialize(v)) =
                   setmeta!(copy_node(ex), k, v)
+      - field: "sethead!(graph, id, k) and setflags!(graph, id, f)"
+        change: "REMOVED: Functions completely removed. Use setattr!(graph, id, :kind, k) and setattr!(graph, id, :syntax_flags, f) instead."
+        affected_tools:
+          - tool: "JuliaLowering tests and tooling"
+            usage: "test/compat.jl and test/utils.jl previously imported sethead!"
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/test/utils.jl"
+            loc: "17-23"
+            url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/test/utils.jl#L17-L23"
+            snippet: |
+              using .JuliaLowering:
+                  SyntaxGraph, newnode!, ensure_attributes!,
+                  Kind, SourceRef, SyntaxTree, NodeId,
+                  makenode, makeleaf, setattr!,
+                  is_leaf, numchildren, children,
+                  @ast, flattened_provenance, showprov, LoweringError, MacroExpansionError,
+                  syntax_graph, Bindings, ScopeLayer, mapchildren
+      - field: "emit(ctx::LinearIRContext, srcref, k, args...)"
+        change: "REMOVED: Convenience overload removed. Use emit(ctx, @ast ctx srcref [...]) instead."
+        affected_tools:
+          - tool: "JuliaLowering linear_ir pass"
+            usage: "Previously used for shorthand node emission; now uses @ast macro"
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/linear_ir.jl"
+            loc: "327-328"
+            url: "https://github.com/JuliaLang/julia/blob/6c75e91cf4fc8bc7972131a778482e3e8279e9c6/JuliaLowering/src/linear_ir.jl#L327-L328"
+            snippet: |
+              # Now uses @ast macro instead of emit(ctx, srcref, op, lhs, rhs)
+              emit(ctx, @ast ctx srcref [op lhs rhs])
     behavioral:
       - item: "Lowering/macro expansion semantics"
         change: "No intended semantic changes; updates are refactors to attribute handling and node construction APIs."
@@ -645,6 +678,7 @@ analysis:
       - "Tests and internal call sites updated to the new attribute-setting style."
   open_questions:
     - "Should any remaining keyword-style setattr! call sites (e.g., build_tree wrapper setup) be updated or should a compatibility overload be kept?"
+    - "top_ref(ctx, ex, name) at ast.jl:205 still uses makeleaf with 4 args, but the old signature makeleaf(ctx, srcref, k::Kind, value; kws...) no longer exists. The new 4-arg signature requires attrs::AbstractVector. This function is currently dead code (never called) but would fail if used."
   recommendations:
     - "Update downstream JuliaLowering users to pass attribute vectors (Pair lists) and use explicit setattr! calls instead of keyword attributes."
     - "Consider adding a short-lived deprecation layer for keyword-based setters if external packages consume JuliaLowering APIs."
@@ -652,23 +686,9 @@ analysis:
   callers_search:
     - function: "makeleaf"
       rg_output: |
-        JuliaLowering/src/linear_ir.jl:350:    makeleaf(ctx, srcref, K"label", [:id=>id])
-        JuliaLowering/src/linear_ir.jl:369:        emit(ctx, makeleaf(ctx, srcref, K"latestworld"))
-        JuliaLowering/src/linear_ir.jl:692:        emit(ctx, makeleaf(ctx, ex, K"TOMBSTONE")) # ? pop_exception
-        JuliaLowering/src/linear_ir.jl:693:        emit(ctx, makeleaf(ctx, ex, K"TOMBSTONE")) # ? leave
-        JuliaLowering/src/linear_ir.jl:694:        emit(ctx, makeleaf(ctx, ex, K"TOMBSTONE")) # ? goto
-        JuliaLowering/src/linear_ir.jl:969:            makeleaf(ctx, ex, K"SSAValue", [:var_id=>ssa_rewrites[id]])
-        JuliaLowering/src/linear_ir.jl:977:                makeleaf(ctx, ex, sk, [:var_id=>new_id])
-        JuliaLowering/src/linear_ir.jl:982:                makeleaf(ctx, ex, K"globalref",
-        JuliaLowering/src/macro_expansion.jl:146:        makeleaf(ctx, ex, ex, [:kind=>K"Identifier", :scope_layer=>layerid,
-        JuliaLowering/src/macro_expansion.jl:155:            makeleaf(ctx, ex[1], ex[1], [:kind=>kind(ex[1]), :name_val=>newname])
-        JuliaLowering/src/macro_expansion.jl:219:        makeleaf(ctx, ex, ex, [:scope_layer=>scope_layer])
-        JuliaLowering/src/macro_expansion.jl:391:        makeleaf(ctx, srcref, ex)
-        JuliaLowering/src/macro_expansion.jl:434:            makeleaf(ctx, ex, ex, [:kind=>k, :scope_layer=>scope_layer])
-        JuliaLowering/src/closure_conversion.jl:391:            makeleaf(ctx, ex, K"TOMBSTONE")
-        JuliaLowering/src/closure_conversion.jl:413:            makeleaf(ctx, ex, K"TOMBSTONE")
         JuliaLowering/src/ast.jl:133:function makeleaf(graph::SyntaxGraph, srcref, proto::Union{Kind, SyntaxTree})
         JuliaLowering/src/ast.jl:141:function makeleaf(ctx::AbstractLoweringContext, srcref, proto)
+        JuliaLowering/src/ast.jl:142:    makeleaf(syntax_graph(ctx), srcref, proto)
         JuliaLowering/src/ast.jl:145:function makeleaf(ctx, srcref, proto, @nospecialize(attrs::AbstractVector))
         JuliaLowering/src/ast.jl:147:    ex = makeleaf(graph, srcref, proto)
         JuliaLowering/src/ast.jl:156:    ex = isnothing(attrs) ? makeleaf(graph, srcref, proto) :
@@ -680,10 +700,32 @@ analysis:
         JuliaLowering/src/bindings.jl:154:    nameref = makeleaf(ctx, srcref, K"Identifier")
         JuliaLowering/src/bindings.jl:162:    nameref = makeleaf(ctx, srcref, K"Identifier")
         JuliaLowering/src/bindings.jl:173:    nameref = makeleaf(ctx, srcref, K"Identifier")
+        JuliaLowering/src/closure_conversion.jl:391:            makeleaf(ctx, ex, K"TOMBSTONE")
+        JuliaLowering/src/closure_conversion.jl:413:            makeleaf(ctx, ex, K"TOMBSTONE")
+        JuliaLowering/src/linear_ir.jl:350:    makeleaf(ctx, srcref, K"label", [:id=>id])
+        JuliaLowering/src/linear_ir.jl:369:        emit(ctx, makeleaf(ctx, srcref, K"latestworld"))
+        JuliaLowering/src/linear_ir.jl:692:        emit(ctx, makeleaf(ctx, ex, K"TOMBSTONE"))
+        JuliaLowering/src/linear_ir.jl:693:        emit(ctx, makeleaf(ctx, ex, K"TOMBSTONE"))
+        JuliaLowering/src/linear_ir.jl:694:        emit(ctx, makeleaf(ctx, ex, K"TOMBSTONE"))
+        JuliaLowering/src/linear_ir.jl:969:            makeleaf(ctx, ex, K"SSAValue", [:var_id=>ssa_rewrites[id]])
+        JuliaLowering/src/linear_ir.jl:977:                makeleaf(ctx, ex, sk, [:var_id=>new_id])
+        JuliaLowering/src/linear_ir.jl:982:                makeleaf(ctx, ex, K"globalref",
+        JuliaLowering/src/macro_expansion.jl:146:        makeleaf(ctx, ex, ex, [:kind=>K"Identifier", :scope_layer=>layerid,
+        JuliaLowering/src/macro_expansion.jl:155:            makeleaf(ctx, ex[1], ex[1], [:kind=>kind(ex[1]), :name_val=>newname])
+        JuliaLowering/src/macro_expansion.jl:219:        makeleaf(ctx, ex, ex, [:scope_layer=>scope_layer])
+        JuliaLowering/src/macro_expansion.jl:391:        makeleaf(ctx, srcref, ex)
+        JuliaLowering/src/macro_expansion.jl:434:            makeleaf(ctx, ex, ex, [:kind=>k, :scope_layer=>scope_layer])
         JuliaLowering/src/scope_analysis.jl:452:        makeleaf(ctx, ex, K"TOMBSTONE")
         JuliaLowering/src/scope_analysis.jl:565:        makeleaf(ctx, ex, K"TOMBSTONE")
     - function: "setmeta"
       rg_output: |
+        JuliaLowering/src/ast.jl:569:setmeta(ex::SyntaxTree, k::Symbol, @nospecialize(v)) =
         JuliaLowering/src/syntax_macros.jl:21:        setmeta(ex, :nospecialize, true)
         JuliaLowering/src/desugaring.jl:2519:        gen_arg_names[i] = setmeta(gen_arg_names[i], :nospecialize, true)
-        JuliaLowering/src/ast.jl:569:setmeta(ex::SyntaxTree, k::Symbol, @nospecialize(v)) =
+    - function: "newleaf"
+      rg_output: |
+        JuliaLowering/src/ast.jl:162:function newleaf(ctx, srcref, k::Kind, @nospecialize(value))
+        JuliaLowering/src/ast.jl:201:core_ref(ctx, ex, name) = newleaf(ctx, ex, K"core", name)
+        JuliaLowering/src/ast.jl:279:            n = :(newleaf($ctx, $srcref, $kind, $val))
+        JuliaLowering/src/runtime.jl:66:        newleaf(ctx, srcref, K"Identifier", string(ex))
+        JuliaLowering/src/runtime.jl:68:        newleaf(ctx, srcref, K"Value", ex)

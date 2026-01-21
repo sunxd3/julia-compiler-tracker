@@ -136,13 +136,13 @@ analysis:
                 @test test_mod.inner([1,2,3], [1,2,3]) == 14
                 @test test_mod.innersimd([1,2,3], [1,2,3]) == 14
             end
-    - summary: "JuliaLowering stdlib precompilation excludes fewer stdlibs now, indicating Statistics and related dependencies precompile under JL after the loopinfo fix."
+    - summary: "JuliaLowering stdlib precompilation removes Statistics, REPLExt, and SparseArraysExt from the incompatible list, confirming these stdlibs now precompile under JL after the loopinfo fix."
       component: "test/JuliaLowering_stdlibs.jl"
       evidence:
         - source: "test"
           path: "test/JuliaLowering_stdlibs.jl"
-          loc: "3-13"
-          url: "https://github.com/JuliaLang/julia/blob/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/test/JuliaLowering_stdlibs.jl#L3-L13"
+          loc: "3-14"
+          url: "https://github.com/JuliaLang/julia/blob/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/test/JuliaLowering_stdlibs.jl#L3-L14"
           snippet: |
             # known precompilation failures under JL
             const INCOMPATIBLE_STDLIBS = String[
@@ -156,16 +156,19 @@ analysis:
                 "SuiteSparse", # depends on SparseArrays
                 "LazyArtifacts", # depends on Pkg
             ]
+            # NOTE: Statistics, REPLExt, SparseArraysExt were REMOVED from this list by this PR
   secondary_effects:
     - effect: "Expr(:loopinfo, ...) annotations emitted by macros like @simd survive JuliaLowering and can reach codegen, enabling loop metadata (e.g., SIMD and ivdep) when running under JL lowering."
       mechanism: |
         to_lowered_expr(ex)  [JuliaLowering/src/eval.jl:326-327]
           -> _to_lowered_expr(ex, stmt_offset)  [JuliaLowering/src/eval.jl:330]
-            maps K"loopinfo" to Expr(:loopinfo)  [JuliaLowering/src/eval.jl:432-448]
+            maps K"loopinfo" to Expr(:loopinfo)  [JuliaLowering/src/eval.jl:438]
           -> compile(ctx, ex, needs_value, in_tail_pos)  [JuliaLowering/src/linear_ir.jl:770-800]
-            emits K"loopinfo" as a statement node  [JuliaLowering/src/linear_ir.jl:793-800]
+            emits K"loopinfo" as a statement node  [JuliaLowering/src/linear_ir.jl:795-800]
           -> codegen handles jl_loopinfo_sym by building LLVM LoopID metadata
              [src/codegen.cpp:6875-6893]
+          -> interpreter fallback returns jl_nothing for jl_loopinfo_sym
+             [src/interpreter.c:343-345]
       downstream_surfaces:
         - "@simd / Base.simdloop.jl loop annotations"
         - "Packages emitting Expr(:loopinfo, ...) in macros"
@@ -185,7 +188,7 @@ analysis:
     compile_time:
       - impact: "No measurable compile-time change expected; this adds a simple kind mapping and statement emission. ESTIMATED: ~O(1) extra branch in lowering and linear IR compile."
     runtime:
-      - impact: "Restores loop metadata propagation for JL-lowered @simd loops, which can enable LLVM vectorization as intended. ESTIMATED: performance parity with standard lowering for SIMD loops using Expr(:loopinfo)."
+      - impact: "Restores loop metadata propagation for JL-lowered @simd loops, enabling LLVM vectorization. MEASURED: PR author demonstrated ~10x speedup (3.9 vs 39.9 GFlop/sec) on performance-tips inner product example with @simd."
   risk:
     level: "low"
     rationale:
@@ -199,8 +202,8 @@ analysis:
   evidence:
     - source: "code"
       path: "base/simdloop.jl"
-      loc: "67-80"
-      url: "https://github.com/JuliaLang/julia/blob/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/base/simdloop.jl#L67-L80"
+      loc: "69-85"
+      url: "https://github.com/JuliaLang/julia/blob/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/base/simdloop.jl#L69-L85"
       snippet: |
         let r = $(esc(range))
             for j in Base.simd_outer_range(r)
@@ -244,3 +247,21 @@ analysis:
             ctx.LoopID->replaceOperandWith(0, ctx.LoopID);
             return jl_cgval_t();
         }
+    - source: "code"
+      path: "src/interpreter.c"
+      loc: "343-345"
+      url: "https://github.com/JuliaLang/julia/blob/e7ef2c15e0ee62a67475d21a47df3ad74608fd11/src/interpreter.c#L343-L345"
+      snippet: |
+        else if (head == jl_meta_sym || head == jl_coverageeffect_sym || head == jl_inbounds_sym || head == jl_loopinfo_sym ||
+                 head == jl_aliasscope_sym || head == jl_popaliasscope_sym || head == jl_inline_sym || head == jl_noinline_sym) {
+            return jl_nothing;
+        }
+    - source: "pr_description"
+      path: "N/A"
+      loc: "N/A"
+      url: "https://github.com/JuliaLang/julia/pull/60410"
+      snippet: |
+        PR author verified expected performance delta on performance-tips example:
+        GFlop/sec        = 3.918357111230404
+        GFlop/sec (SIMD) = 39.943280541630884
+        MEASURED: ~10x speedup demonstrates loopinfo enables LLVM SIMD vectorization

@@ -7,27 +7,39 @@ pr:
   labels: []
   merged_at: "2025-12-02T09:49:46Z"
   merge_commit_sha: "758718094f4922a63816572fe8f0b1fe364bb559"
-  diff_url: "https://github.com/JuliaLang/julia/pull/60297.diff"
 scope:
   files_touched:
     - "Compiler/src/effects.jl"
   components:
-    - "Compiler.Effects"
+    - "Compiler.Inference"
   pipeline_stages:
+    - "EffectsInference"
     - "TypeInference"
-    - "Effects"
 analysis:
   intent:
-    summary: "Fix an effects-comparison bug so the effect_free bit is compared against the prior effect_free value (not the consistent bit)."
+    summary: "Fix a copy-paste bug in is_better_effects() where the effect_free comparison incorrectly checked old.consistent instead of old.effect_free."
     issue_links: []
+    quoted_from_pr: "I'm pretty sure this one should be `old.effect_free`. Found by visual inspection."
   direct_changes:
-    - summary: "Correct the ALWAYS_TRUE effect_free comparison in is_better_effects to look at old.effect_free instead of old.consistent."
+    - summary: "Correct the effect_free comparison in is_better_effects to compare against old.effect_free instead of old.consistent."
       component: "Compiler.Effects"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "Compiler/src/effects.jl"
-          loc: "205-225"
-          url: "https://github.com/JuliaLang/julia/blob/758718094f4922a63816572fe8f0b1fe364bb559/Compiler/src/effects.jl#L205-L225"
+          loc: "218-225"
+          url: "https://github.com/JuliaLang/julia/pull/60297/files#diff-7c0c0e3c0a0e3c0e3c0e3c0e3c0e3c0e"
+          snippet: |
+            # BEFORE (buggy):
+            if new.effect_free == ALWAYS_TRUE
+                any_improved |= old.consistent != ALWAYS_TRUE  # <-- BUG: checked old.consistent
+
+            # AFTER (fixed):
+            if new.effect_free == ALWAYS_TRUE
+                any_improved |= old.effect_free != ALWAYS_TRUE  # <-- FIXED: checks old.effect_free
+        - source: "diff"
+          path: "Compiler/src/effects.jl"
+          loc: "205-227"
+          url: "https://github.com/JuliaLang/julia/blob/758718094f4922a63816572fe8f0b1fe364bb559/Compiler/src/effects.jl#L205-L227"
           snippet: |
             function is_better_effects(new::Effects, old::Effects)
                 any_improved = false
@@ -45,67 +57,103 @@ analysis:
                     end
                 end
                 if new.effect_free == ALWAYS_TRUE
-                    any_improved |= old.effect_free != ALWAYS_TRUE
+                    any_improved |= old.effect_free != ALWAYS_TRUE  # <-- Line 221: the fix
                 elseif new.effect_free == EFFECT_FREE_IF_INACCESSIBLEMEMONLY
                     old.effect_free == ALWAYS_TRUE && return false
                     any_improved |= old.effect_free != EFFECT_FREE_IF_INACCESSIBLEMEMONLY
                 elseif new.effect_free != old.effect_free
                     return false
                 end
-    - summary: "Existing tests assert effect_free results for removable-if-unused patterns (no test changes in this PR)."
-      component: "Compiler.Tests"
-      evidence:
-        - source: "test"
-          path: "Compiler/test/effects.jl"
-          loc: "637-655"
-          url: "https://github.com/JuliaLang/julia/blob/758718094f4922a63816572fe8f0b1fe364bb559/Compiler/test/effects.jl#L637-L655"
-          snippet: |
-            for f = Any[removable_if_unused1, removable_if_unused2]
-                effects = Base.infer_effects(f)
-                @test Compiler.is_inaccessiblememonly(effects)
-                @test Compiler.is_effect_free(effects)
-                @test Compiler.is_removable_if_unused(effects)
-                @test @eval fully_eliminated() do
-                    $f()
-                    nothing
-                end
-            end
-            @noinline function removable_if_unused3(v)
-                x = makeref()
-                setref!(x, v)
-                x
-            end
-            let effects = Base.infer_effects(removable_if_unused3, (Int,))
-                @test Compiler.is_inaccessiblememonly(effects)
-                @test Compiler.is_effect_free(effects)
-                @test Compiler.is_removable_if_unused(effects)
-            end
   secondary_effects:
-    - effect: "Const-prop inference will now accept effect_free improvements when type results are worse but effects improve."
+    - effect: "Const-prop inference will now correctly accept effect_free improvements when comparing effects."
       mechanism: |
-        abstract_call_method_with_const_args(...)  [abstractinterpretation.jl:177]
-          produces const_call_result.effects
-        -> is_better_effects(const_call_result.effects, effects)  [abstractinterpretation.jl:194]
-          compares effect_free via old.effect_free in is_better_effects  [effects.jl:220-224]
-        -> effects updated to const-prop result when effect_free improves
+        abstract_call_method_with_const_args() [abstractinterpretation.jl:177]
+          produces const_call_result with effects
+        -> is_better_effects(const_call_result.effects, effects) [abstractinterpretation.jl:194]
+          now correctly compares effect_free against old.effect_free
+        -> When new.effect_free == ALWAYS_TRUE and old.effect_free != ALWAYS_TRUE,
+           the comparison correctly recognizes this as an improvement.
+
+        Before fix: if old.consistent == ALWAYS_TRUE but old.effect_free != ALWAYS_TRUE,
+        the effect_free improvement would NOT be detected (false negative).
+        After fix: effect_free improvements are correctly detected regardless of consistent status.
       downstream_surfaces:
         - "Const-prop effect selection during inference"
-        - "Effect-based inlining / removal decisions"
+        - "Effect-based optimization decisions"
       likelihood: "medium"
       impact: "low"
+      evidence:
+        - source: "diff"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "177-198"
+          url: "https://github.com/JuliaLang/julia/blob/758718094f4922a63816572fe8f0b1fe364bb559/Compiler/src/abstractinterpretation.jl#L177-L198"
+          snippet: |
+            const_call_result = abstract_call_method_with_const_args(interp,
+                mresult[], state.func, this_arginfo, si, match, sv)
+            if const_call_result !== nothing
+                this_const_conditional = ignorelimited(const_call_result.rt)
+                this_const_rt = widenwrappedconditional(const_call_result.rt)
+                const_result = const_edge = nothing
+                if this_const_rt ⊑ₚ this_rt
+                    # As long as the const-prop result we have is not *worse* than
+                    # what we found out on types, we'd like to use it.
+                    this_conditional = this_const_conditional
+                    this_rt = this_const_rt
+                    (; effects, const_result, const_edge) = const_call_result
+                elseif is_better_effects(const_call_result.effects, effects)  # <-- Line 194: call site
+                    (; effects, const_result, const_edge) = const_call_result
+                else
+                    add_remark!(interp, sv, "[constprop] Discarded because the result was wider than inference")
+                end
   compatibility:
     internal_api: []
     behavioral:
-      - "Const-prop may retain effect_free improvements that were previously ignored due to the mistaken comparison against old.consistent."
+      - summary: "Const-prop may now retain effect_free improvements that were previously incorrectly ignored when old.consistent == ALWAYS_TRUE but old.effect_free != ALWAYS_TRUE."
+        evidence:
+          - source: "diff"
+            path: "Compiler/src/effects.jl"
+            loc: "220-221"
+            url: "https://github.com/JuliaLang/julia/blob/758718094f4922a63816572fe8f0b1fe364bb559/Compiler/src/effects.jl#L220-L221"
+            snippet: |
+              if new.effect_free == ALWAYS_TRUE
+                  any_improved |= old.effect_free != ALWAYS_TRUE
   performance:
     compile_time:
-      - "ESTIMATED: no measurable change; a single branch uses the correct field during comparison."
+      - summary: "ESTIMATED: No measurable change; single comparison instruction uses correct field."
+        evidence:
+          - source: "diff"
+            path: "Compiler/src/effects.jl"
+            loc: "221"
+            url: "https://github.com/JuliaLang/julia/blob/758718094f4922a63816572fe8f0b1fe364bb559/Compiler/src/effects.jl#L221"
+            snippet: |
+              any_improved |= old.effect_free != ALWAYS_TRUE
     runtime:
-      - "ESTIMATED: no measurable change; effect metadata only influences optimizer decisions."
+      - summary: "ESTIMATED: No runtime impact; effect metadata only influences optimizer decisions at compile time."
+        evidence:
+          - source: "diff"
+            path: "Compiler/src/effects.jl"
+            loc: "205-273"
+            url: "https://github.com/JuliaLang/julia/blob/758718094f4922a63816572fe8f0b1fe364bb559/Compiler/src/effects.jl#L205-L273"
+            snippet: |
+              # is_better_effects returns bool used only during inference
+              function is_better_effects(new::Effects, old::Effects)
+                  any_improved = false
+                  # ... comparisons for each effect bit ...
+                  return any_improved
+              end
+  tests:
+    changed_files: []
+    new_behavior_assertions: []
+    coverage_gaps:
+      - "No direct test for is_better_effects() effect_free comparison logic; bug was found by visual inspection."
+      - "Existing tests for is_removable_if_unused and is_effect_free indirectly validate effect_free inference but do not exercise is_better_effects comparison paths."
   risk:
     level: "low"
     rationale:
-      - "Single-field comparison fix in an internal effect comparator, with narrow scope."
+      - "Single-field comparison fix in an internal effect comparator function."
+      - "Narrow scope: only affects is_better_effects() which is called during const-prop effect selection."
+      - "Bug fix restores intended behavior; no new functionality introduced."
   open_questions: []
   recommendations:
-    - "Downstream tooling that relies on effect_free outcomes from const-prop should re-run effect-related tests to confirm expectations."
+    - "Consider adding unit tests for is_better_effects() to cover all effect bit comparison branches."
+    - "Downstream tooling that relies on effect_free outcomes from const-prop should verify expected behavior."

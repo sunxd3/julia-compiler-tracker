@@ -13,25 +13,26 @@ scope:
     - "JuliaSyntax/src/julia/tokenize.jl"
     - "src/flisp/julia_opsuffs.h"
     - "NEWS.md"
-  components: ["JuliaSyntax", "Interpreter"]
+  components: ["JuliaSyntax", "Flisp"]
   pipeline_stages: ["Parsing"]
 analysis:
   intent:
     summary: |
-      Extend the operator suffix allowlist so additional Unicode sub/superscripts that already
+      Extend the operator suffix allowlist so six additional Unicode sub/superscripts that already
       exist in REPL tab completion are accepted as part of operator tokens in both JuliaSyntax
-      and the flisp parser. This aligns tokenization with the existing LaTeX symbol mappings
-      and documents the change in NEWS.
+      and the flisp parser. The added characters are: ᵅ (U+1D45), ᵋ (U+1D4B), ᶲ (U+1DB2),
+      ˱ (U+02F1), ˲ (U+02F2), and ₔ (U+2094). This aligns tokenization with the existing
+      LaTeX symbol mappings in stdlib/REPL and documents the change in NEWS.
     issue_links:
-      - "https://github.com/JuliaLang/julia/pull/60285#issuecomment-305479765"
+      - "https://github.com/JuliaLang/julia/pull/22089#issuecomment-305479765"
   direct_changes:
-    - summary: "JuliaSyntax operator-suffix predicate now recognizes additional sub/superscripts."
+    - summary: "JuliaSyntax isopsuffix predicate now recognizes six additional sub/superscript characters."
       component: "JuliaSyntax"
       evidence:
         - source: "code"
           path: "JuliaSyntax/src/julia/tokenize.jl"
-          loc: "135-150"
-          url: "https://github.com/JuliaLang/julia/blob/aa465d5c401587e6bb4ede92f95f8361c187ef09/JuliaSyntax/src/julia/tokenize.jl#L135-L150"
+          loc: "135-151"
+          url: "https://github.com/JuliaLang/julia/blob/aa465d5c401587e6bb4ede92f95f8361c187ef09/JuliaSyntax/src/julia/tokenize.jl#L135-L151"
           snippet: |
             @eval function isopsuffix(c::Char)
                 c == EOF_CHAR && return false
@@ -49,13 +50,14 @@ analysis:
                 # Additional allowed cases
                 return $(_char_in_set_expr(:u,
                     collect("²³¹ʰʲʳʷʸˡˢˣ˱˲ᴬᴮᴰᴱᴳᴴᴵᴶᴷᴸᴹᴺᴼᴾᴿᵀᵁᵂᵃᵅᵇᵈᵉᵋᵍᵏᵐᵒᵖᵗᵘᵛᵝᵞᵟᵠᵡᵢᵣᵤᵥᵦᵧᵨᵩᵪᶜᶠᶥᶦᶫᶰᶲᶸᶻᶿ′″‴‵‶‷⁗⁰ⁱ⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿ₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑₒₓₔₕₖₗₘₙₚₛₜⱼⱽꜛꜜꜝ")))
-    - summary: "flisp opsuffs table expanded to include additional sub/superscript codepoints."
-      component: "Interpreter"
+            end
+    - summary: "Flisp opsuffs table expanded to include six additional sub/superscript codepoints."
+      component: "Flisp"
       evidence:
         - source: "code"
           path: "src/flisp/julia_opsuffs.h"
-          loc: "11-122"
-          url: "https://github.com/JuliaLang/julia/blob/aa465d5c401587e6bb4ede92f95f8361c187ef09/src/flisp/julia_opsuffs.h#L11-L122"
+          loc: "11-135"
+          url: "https://github.com/JuliaLang/julia/blob/aa465d5c401587e6bb4ede92f95f8361c187ef09/src/flisp/julia_opsuffs.h#L11-L135"
           snippet: |
             static const uint32_t opsuffs[] = {
                0x000000b2, // ²
@@ -69,105 +71,30 @@ analysis:
                0x000002e1, // ˡ
                0x000002e2, // ˢ
                0x000002e3, // ˣ
-               0x000002f1, // ˱
-               0x000002f2, // ˲
+               0x000002f1, // ˱  <-- NEW
+               0x000002f2, // ˲  <-- NEW
                0x00001d2c, // ᴬ
-               0x00001d2e, // ᴮ
-               0x00001d30, // ᴰ
-               0x00001d31, // ᴱ
-               0x00001d33, // ᴳ
-               0x00001d34, // ᴴ
-               0x00001d35, // ᴵ
-               0x00001d36, // ᴶ
-               0x00001d37, // ᴷ
-               0x00001d38, // ᴸ
-               0x00001d39, // ᴹ
-               0x00001d3a, // ᴺ
-               0x00001d3c, // ᴼ
-               0x00001d3e, // ᴾ
-               0x00001d3f, // ᴿ
-               0x00001d40, // ᵀ
-               0x00001d41, // ᵁ
-               0x00001d42, // ᵂ
-               0x00001d43, // ᵃ
-               0x00001d45, // ᵅ
-               0x00001d47, // ᵇ
-               0x00001d48, // ᵈ
-               0x00001d49, // ᵉ
-               0x00001d4b, // ᵋ
-               0x00001d4d, // ᵍ
-               0x00001d4f, // ᵏ
-               0x00001d50, // ᵐ
-               0x00001d52, // ᵒ
-               0x00001d56, // ᵖ
-               0x00001d57, // ᵗ
-               0x00001d58, // ᵘ
-               0x00001d5b, // ᵛ
-               0x00001d5d, // ᵝ
-               0x00001d5e, // ᵞ
-               0x00001d5f, // ᵟ
-               0x00001d60, // ᵠ
-               0x00001d61, // ᵡ
-               0x00001d62, // ᵢ
-               0x00001d63, // ᵣ
-               0x00001d64, // ᵤ
-               0x00001d65, // ᵥ
-               0x00001d66, // ᵦ
-               0x00001d67, // ᵧ
-               0x00001d68, // ᵨ
-               0x00001d69, // ᵩ
-               0x00001d6a, // ᵪ
-               0x00001d9c, // ᶜ
-               0x00001da0, // ᶠ
-               0x00001da5, // ᶥ
-               0x00001da6, // ᶦ
-               0x00001dab, // ᶫ
-               0x00001db0, // ᶰ
-               0x00001db2, // ᶲ
-               0x00001db8, // ᶸ
-               0x00001dbb, // ᶻ
-               0x00001dbf, // ᶿ
-               0x00002032, // ′
-               0x00002033, // ″
-               0x00002034, // ‴
-               0x00002035, // ‵
-               0x00002036, // ‶
-               0x00002037, // ‷
-               0x00002057, // ⁗
-               0x00002070, // ⁰
-               0x00002071, // ⁱ
-               0x00002074, // ⁴
-               0x00002075, // ⁵
-               0x00002076, // ⁶
-               0x00002077, // ⁷
-               0x00002078, // ⁸
-               0x00002079, // ⁹
-               0x0000207a, // ⁺
-               0x0000207b, // ⁻
-               0x0000207c, // ⁼
-               0x0000207d, // ⁽
-               0x0000207e, // ⁾
-               0x0000207f, // ⁿ
-               0x00002080, // ₀
-               0x00002081, // ₁
-               0x00002082, // ₂
-               0x00002083, // ₃
-               0x00002084, // ₄
-               0x00002085, // ₅
-               0x00002086, // ₆
-               0x00002087, // ₇
-               0x00002088, // ₈
-               0x00002089, // ₉
-               0x0000208a, // ₊
-               0x0000208b, // ₋
-               0x0000208c, // ₌
-               0x0000208d, // ₍
-               0x0000208e, // ₎
-               0x00002090, // ₐ
-               0x00002091, // ₑ
-               0x00002092, // ₒ
-               0x00002093, // ₓ
-               0x00002094, // ₔ
+               0x00001d45, // ᵅ  <-- NEW
+               0x00001d4b, // ᵋ  <-- NEW
+               0x00001db2, // ᶲ  <-- NEW
+               0x00002094, // ₔ  <-- NEW
+               // ... (113 entries total, see full file for complete list)
+               0x0000a71d  // ꜝ
+            };
+    - summary: "REPL latex_symbols.jl already contains tab completions for the newly-allowed suffix characters."
+      component: "REPL"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/latex_symbols.jl"
+          loc: "226-275"
+          url: "https://github.com/JuliaLang/julia/blob/aa465d5c401587e6bb4ede92f95f8361c187ef09/stdlib/REPL/src/latex_symbols.jl#L226-L275"
+          snippet: |
+            "\\^alpha" => "ᵅ",
+            "\\^epsilon" => "ᵋ",
+            "\\^ltphi" => "ᶲ",
+            "\\_<" => "˱",
+            "\\_>" => "˲",
+            "\\_schwa" => "ₔ",
     - summary: "Release notes document new suffixes and their REPL LaTeX completions."
       component: "Docs"
       evidence:
@@ -179,13 +106,13 @@ analysis:
             - `ᵅ` (U+U+1D45), `ᵋ` (U+1D4B), `ᶲ` (U+1DB2), `˱` (U+02F1), `˲` (U+02F2), and `ₔ` (U+2094) can now also be used as
               operator suffixes, accessible as `\^alpha`, `\^epsilon`, `\^ltphi`, `\_<`, `\_>`, and `\_schwa` at the REPL
               ([#60285]).
-    - summary: "Existing parsing tests show how operator suffixes are parsed as part of operator tokens."
+    - summary: "Existing parsing tests demonstrate how operator suffixes are parsed as part of operator tokens."
       component: "Parsing tests"
       evidence:
         - source: "test"
           path: "test/syntax.jl"
-          loc: "1062-1070"
-          url: "https://github.com/JuliaLang/julia/blob/aa465d5c401587e6bb4ede92f95f8361c187ef09/test/syntax.jl#L1062-L1070"
+          loc: "1064-1072"
+          url: "https://github.com/JuliaLang/julia/blob/aa465d5c401587e6bb4ede92f95f8361c187ef09/test/syntax.jl#L1064-L1072"
           snippet: |
             # operator suffixes
             @test Meta.parse("3 +̂ 4") == Expr(:call, :+̂, 3, 4)
@@ -195,40 +122,54 @@ analysis:
             for bad in ('=', '$', ':', "||", "&&", "->", "<:")
                 @test_parseerror "3 $(bad)⁽¹⁾ 4"
             end
+            @test Base.operator_precedence(:+̂) == Base.operator_precedence(:+)
   secondary_effects:
     - effect: "Operators with the newly-allowed suffix characters now tokenize as single operator symbols instead of splitting or erroring."
       mechanism: |
-        emit(l, kind, maybe_op=true)  [JuliaSyntax/src/julia/tokenize.jl:430-439]
+        emit(l, kind, maybe_op=true)  [JuliaSyntax/src/julia/tokenize.jl:430-443]
+          -> optakessuffix(kind)  [JuliaSyntax/src/julia/tokenize.jl:153-178]
+             checks if the operator kind can take suffixes
           -> while isopsuffix(peekchar(l))  [JuliaSyntax/src/julia/tokenize.jl:433]
              consumes suffix chars added to the isopsuffix allowlist
-          -> RawToken(kind, ..., suffix=true) recorded for the operator
+          -> RawToken(kind, ..., suffix=true)  [JuliaSyntax/src/julia/tokenize.jl:439]
+             recorded for the operator with suffix flag set
       downstream_surfaces: ["Parser tokenization", "Macro expansion that depends on operator symbols"]
       likelihood: "high"
       impact: "low"
     - effect: "C/Flisp parser helpers and Base.Meta.is_op_suffix_char now recognize the new suffix characters."
       mechanism: |
-        jl_op_suffix_char(wc)  [src/flisp/julia_extensions.c:163-179]
-          -> lookup in opsuffs[] table  [src/flisp/julia_opsuffs.h:11-122]
-          -> exposed to flisp via fl_julia_op_suffix_char  [src/flisp/julia_extensions.c:236-242]
+        jl_op_suffix_char(wc)  [src/flisp/julia_extensions.c:163-180]
+          -> lookup in opsuffs[] table  [src/flisp/julia_opsuffs.h:11-135]
+          -> exposed to flisp via fl_julia_op_suffix_char  [src/flisp/julia_extensions.c:236-243]
           -> exposed to Julia via Meta.is_op_suffix_char  [base/meta.jl:58]
+             is_op_suffix_char(c::AbstractChar) = ccall(:jl_op_suffix_char, Cint, (UInt32,), c) != 0
       downstream_surfaces: ["Meta.is_op_suffix_char", "flisp strip-op-suffix", "legacy parser op tokenization"]
+      likelihood: "high"
+      impact: "low"
+    - effect: "Postfix operator detection in Meta.ispostfixoperator now accepts the new suffixes."
+      mechanism: |
+        ispostfixoperator(s)  [base/meta.jl:117-120]
+          -> startswith(s, '\'') && all(is_op_suffix_char, SubString(s, 2))
+          -> is_op_suffix_char(c)  [base/meta.jl:58]
+             calls jl_op_suffix_char which uses expanded opsuffs table
+      downstream_surfaces: ["Meta.ispostfixoperator", "Meta.isoperator"]
       likelihood: "high"
       impact: "low"
   compatibility:
     internal_api:
       - field: "jl_op_suffix_char / Meta.is_op_suffix_char"
-        change: "Behavior-only change: returns true for six additional Unicode suffix codepoints."
+        change: "Behavior-only change: returns true for six additional Unicode suffix codepoints (U+1D45, U+1D4B, U+1DB2, U+02F1, U+02F2, U+2094)."
         affected_tools:
           - tool: "MacroTools/IRTools-style metaprogramming"
             usage: "Tools that validate operator symbols via Meta.is_op_suffix_char will now accept the added suffixes."
     behavioral:
-      - change: 'Operators using \\^alpha, \\^epsilon, \\^ltphi, \\_<, \\_>, \\_schwa now parse as single operator symbols.'
+      - change: "Operators using ᵅ (\\^alpha), ᵋ (\\^epsilon), ᶲ (\\^ltphi), ˱ (\\_<), ˲ (\\_>), ₔ (\\_schwa) now parse as single operator symbols."
         affected_surface: "Parser tokenization / operator symbol resolution"
         evidence:
           - source: "code"
             path: "JuliaSyntax/src/julia/tokenize.jl"
-            loc: "430-439"
-            url: "https://github.com/JuliaLang/julia/blob/aa465d5c401587e6bb4ede92f95f8361c187ef09/JuliaSyntax/src/julia/tokenize.jl#L430-L439"
+            loc: "430-443"
+            url: "https://github.com/JuliaLang/julia/blob/aa465d5c401587e6bb4ede92f95f8361c187ef09/JuliaSyntax/src/julia/tokenize.jl#L430-L443"
             snippet: |
               function emit(l::Lexer, kind::Kind, maybe_op=true)
                   suffix = false
@@ -238,11 +179,15 @@ analysis:
                           suffix = true
                       end
                   end
-              
+
                   tok = RawToken(kind, startpos(l), position(l) - 1, suffix)
+
+                  l.last_token = kind
+                  return tok
+              end
   performance:
     compile_time:
-      - change: "ESTIMATED: negligible. The isopsuffix character-set grows by six codepoints; lookup remains a set-membership check."
+      - change: "ESTIMATED: negligible. The isopsuffix character-set grows by six codepoints; lookup remains a set-membership check via generated if-else chain in JuliaSyntax and hash table in flisp."
     runtime:
       - change: "ESTIMATED: no measurable runtime impact; affects parsing only."
   risk:
@@ -250,14 +195,18 @@ analysis:
     rationale:
       - "Change is limited to parsing/lexing allowlists for operator suffix characters."
       - "No existing syntax is removed; new suffixes are additive and documented in NEWS."
+      - "The characters were already available via REPL tab completion, so users may have expected them to work."
   open_questions:
-    - "No dedicated parser tests for the new suffix characters were added; should we add a syntax test for each new suffix?"
+    - "No dedicated parser tests for the six new suffix characters were added; should tests be added for each new suffix?"
+    - "NEWS.md contains typo 'U+U+1D45' instead of 'U+1D45' - minor documentation issue."
   recommendations:
     - |
       Callers confirmed via ripgrep:
       JuliaSyntax/src/julia/tokenize.jl:135:@eval function isopsuffix(c::Char)
       JuliaSyntax/src/julia/tokenize.jl:433:        while isopsuffix(peekchar(l))
+      JuliaSyntax/test/tokenize.jl:1049:        @test Tokenize.isopsuffix(c) == false
       src/flisp/julia_extensions.c:163:JL_DLLEXPORT int jl_op_suffix_char(uint32_t wc)
-      src/flisp/julia_extensions.c:236:value_t fl_julia_op_suffix_char(fl_context_t *fl_ctx, value_t *args, uint32_t nargs)
+      src/flisp/julia_extensions.c:242:    return jl_op_suffix_char(wc) ? fl_ctx->T : fl_ctx->F
       src/flisp/julia_extensions.c:254:        if (jl_op_suffix_char(u8_nextchar(op, &j)))
+      src/flisp/flisp.h:391:JL_DLLEXPORT int jl_op_suffix_char(uint32_t wc);
       base/meta.jl:58:is_op_suffix_char(c::AbstractChar) = ccall(:jl_op_suffix_char, Cint, (UInt32,), c) != 0

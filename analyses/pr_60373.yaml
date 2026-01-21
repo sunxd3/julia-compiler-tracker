@@ -23,16 +23,16 @@ analysis:
     summary: |
       Add trivial conversions between Expr and the new Expr-like SyntaxTree (EST)
       so round-tripping is possible and future syntax-evolution steps can build on
-      a stable conversion layer.
+      a stable conversion layer. Part of a multi-PR series for Expr/SyntaxTree parity.
     issue_links: []
   direct_changes:
-    - summary: "Introduce Expr -> EST conversion with explicit handling for symbols, QuoteNode, scope layers, and unknown heads."
+    - summary: "Introduce expr_to_est function for Expr -> EST conversion with SyntaxGraph initialization."
       component: "JuliaLowering/src/compat.jl"
       evidence:
         - source: "code"
           path: "JuliaLowering/src/compat.jl"
-          loc: "633-707"
-          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L633-L707"
+          loc: "633-642"
+          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L633-L642"
           snippet: |
             function expr_to_est(@nospecialize(e), lnn::LineNumberNode=LineNumberNode(0, :none))
                 graph = ensure_attributes!(
@@ -44,9 +44,46 @@ analysis:
                     toplevel_pure=Bool)
                 SyntaxTree(graph, _expr_to_est(graph, e, lnn)[1])
             end
-
+    - summary: "Add _get_inner_lnn helper to extract LineNumberNode from function/macro/module bodies."
+      component: "JuliaLowering/src/compat.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/compat.jl"
+          loc: "644-651"
+          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L644-L651"
+          snippet: |
+            function _get_inner_lnn(e::Expr, default::LineNumberNode)
+                e.head in (:function, :macro, :module) || return default
+                length(e.args) >= 2 || return default
+                b = e.args[end]
+                b isa Expr && b.head === :block || return default
+                length(b.args) >= 1 && b.args[1] isa LineNumberNode || return default
+                return b.args[1]
+            end
+    - summary: "Add isa_lowering_ast_node predicate determining which types get converted vs stored as K\"Value\"."
+      component: "JuliaLowering/src/compat.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/compat.jl"
+          loc: "653-657"
+          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L653-L657"
+          snippet: |
+            # List of Expr-AST forms that are always converted to some SyntaxTree form and
+            # never inserted as an opaque `K"Value"`. Note no LineNumberNode, which appears
+            # unwrapped in a macrocall (possibly generated functions too, TODO check)
+            isa_lowering_ast_node(@nospecialize(e)) =
+                e isa Symbol || e isa QuoteNode || e isa Expr # || e isa GlobalRef
+    - summary: "Implement _expr_to_est for recursive Expr -> EST conversion with explicit handling for symbols, QuoteNode, scope layers, and unknown heads."
+      component: "JuliaLowering/src/compat.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/compat.jl"
+          loc: "659-707"
+          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L659-L707"
+          snippet: |
             function _expr_to_est(graph::SyntaxGraph, @nospecialize(e), src::LineNumberNode)
                 st = if e === Core.nothing
+                    # e.value can't be nothing in `K"Value"`, so represent with K"core"
                     setattr!(makeleaf(graph, src, K"core"), :name_val, "nothing")
                 elseif e isa Symbol
                     setattr!(makeleaf(graph, src, K"Identifier"), :name_val, String(e))
@@ -77,9 +114,12 @@ analysis:
                     else
                         makenode(graph, old_src, st_k, cs)
                     end
+                # elseif e isa GlobalRef
+                    # TODO: Better-behaved as K"globalref", but lowering doesn't know this
                 else
                     @assert !isa_lowering_ast_node(e)
                     if e isa LineNumberNode
+                        # linenode oustside of block or toplevel
                         src = e
                     end
                     setattr!(makeleaf(graph, src, K"Value"), :value, e)
@@ -87,13 +127,13 @@ analysis:
 
                 return st._id, src
             end
-    - summary: "Introduce EST -> Expr conversion, including special handling for K\"Value\" and unknown heads." 
+    - summary: "Introduce est_to_expr for EST -> Expr conversion, including special handling for K\"Value\" and unknown heads."
       component: "JuliaLowering/src/compat.jl"
       evidence:
         - source: "code"
           path: "JuliaLowering/src/compat.jl"
-          loc: "709-745"
-          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L709-L745"
+          loc: "709-746"
+          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L709-L746"
           snippet: |
             function est_to_expr(st::SyntaxTree)
                 k = kind(st)
@@ -102,6 +142,12 @@ analysis:
                     hasattr(st, :scope_layer) ? Expr(:scope_layer, n, st.scope_layer) : n
                 elseif k === K"Value"
                     v = st.value
+                    # Let `kind(st) === K"Value"` with `st.value isa Symbol` (or other AST
+                    # node).  Since we enforce that this is never produced by the reverse
+                    # Expr->SyntaxTree transformation, there is no lonely Expr for which
+                    # `st` is the only SyntaxTree representation.  This means we can pick
+                    # some other expr this represents, namely Expr(`(inert ,st.value))
+                    # rather than Expr(st.value).
                     isa_lowering_ast_node(v) ? QuoteNode(v) : v
                 elseif k === K"core" && numchildren(st) === 0 && st.name_val === "nothing"
                     nothing
@@ -109,6 +155,8 @@ analysis:
                     QuoteNode(est_to_expr(st[1]))
                 else
                     @assert !is_leaf(st)
+                    # In a partially-expanded or quoted AST, there may be heads with no
+                    # corresponding kind
                     head = Symbol(k === K"unknown_head" ? st.name_val : untokenize(k))
                     need_lnns = head in (:block, :toplevel)
                     out = Expr(head)
@@ -116,6 +164,7 @@ analysis:
                         need_lnns && push!(out.args, source_location(LineNumberNode, c))
                         push!(out.args, est_to_expr(c))
                     end
+                    # extra linenodes
                     n = length(out.args)
                     if (k === K"module" && 3 <= n <= 4 && kind(st[end]) === K"block") ||
                         (k in KSet"function macro" && n === 2 && kind(st[end]) === K"block")
@@ -124,56 +173,35 @@ analysis:
                     out
                 end
             end
-    - summary: "Register a new extension kind (unknown_head) so EST can represent Expr heads without a known SyntaxKind." 
+    - summary: "Register K\"unknown_head\" extension kind so EST can represent Expr heads without a known SyntaxKind."
       component: "JuliaLowering/src/kinds.jl"
       evidence:
         - source: "code"
           path: "JuliaLowering/src/kinds.jl"
-          loc: "3-28"
-          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/kinds.jl#L3-L28"
+          loc: "19-27"
+          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/kinds.jl#L19-L27"
           snippet: |
-            function _register_kinds()
-                JuliaSyntax.register_kinds!(JuliaLowering, 1, [
-                    "BEGIN_EXTENSION_KINDS"
-                        "atomic"
-                        "generated"
-                        "gc_preserve"
-                        "gc_preserve_begin"
-                        "gc_preserve_end"
-                        "Value"
-                        "Symbol"
-                        "inert"
-                        "unknown_head"
-                        "inbounds"
-                        "boundscheck"
-                        "inline"
-                        "noinline"
-                        "loopinfo"
-                        "foreigncall"
-                        "cfunction"
-                        "opaque_closure"
-                        "isdefined"
-                        "throw_undef_if_not"
-                        "symbolic_label"
-                        "symbolic_goto"
-                        "new"
-                        "splatnew"
-                        "escape"
-                        "hygienic_scope"
-                        "static_eval"
-                        "extension"
-                    "END_EXTENSION_KINDS"
-    - summary: "Add round-trip tests for Expr<->EST, including bulk parsing and special Value quoting behavior." 
+            # A literal Julia value of any kind, as might be inserted into the
+            # AST during macro expansion
+            "Value"
+            # A (quoted) `Symbol`
+            "Symbol"
+            # QuoteNode; not quasiquote
+            "inert"
+            "unknown_head"
+            # TODO: Use `meta` for inbounds and loopinfo etc?
+    - summary: "Add comprehensive round-trip tests for Expr<->EST, including bulk parsing and special Value quoting behavior."
       component: "JuliaLowering/test/compat.jl"
       evidence:
-        - source: "code"
+        - source: "test"
           path: "JuliaLowering/test/compat.jl"
-          loc: "636-775"
-          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/test/compat.jl#L636-L775"
+          loc: "636-676"
+          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/test/compat.jl#L636-L676"
           snippet: |
             @testset "Expr<->EST" begin
 
                 local roundtrip = e->JuliaLowering.est_to_expr(JuliaLowering.expr_to_est(e))
+                local roundtrip_eq = x->x==roundtrip(x)
 
                 local expr_syntax = Any[
                     LineNumberNode(1)
@@ -183,71 +211,146 @@ analysis:
                     nothing
                 ]
 
-                @testset "special cases: Value implicitly quotes AST nodes" begin
-                    @test JL.est_to_expr(@ast_ :foo::K"Value") ==
-                        JL.est_to_expr(@ast_ [K"inert" "foo"::K"Identifier"]) ==
-                        QuoteNode(:foo)
-                end
+                local expr_wrappers = Function[
+                    identity
+                    x->QuoteNode(x)
+                    x->Expr(:function, x)
+                    x->Expr(:dummy, x)
+                ]
 
-                @testset "bulk parsed code, no linenodes" begin
-                    jl_dir = joinpath(@__DIR__, "..")
-                    test_each_in_path(roundtrip, jl_dir)
-                end
+                local st_wrappers = Function[
+                    x->(@assert(!isnothing(x)); @ast _ast_test_graph() @__LINE__() (x::K"Value"))
+                    x->(@assert(!isnothing(x)); @ast _ast_test_graph() @__LINE__() [K"inert" x::K"Value"])
+                    x->(@assert(!isnothing(x)); @ast _ast_test_graph() @__LINE__() [K"function" x::K"Value"])
+                ]
 
-                @testset "linenodes equal (modules and functions have extra)" begin
-                    e = JuliaSyntax.parseall(Expr, """
-                    module M
-                    function f()
-                        if x
-                            j
-                        elseif y
-                            let
-                                y
-                            end
+                @testset "every basic case" begin
+                    for e in expr_syntax, w1 in expr_wrappers, w2 in expr_wrappers
+                        e_wrapped = w2(w1(e))
+                        @test roundtrip(e_wrapped) == e_wrapped
+                    end
+
+                    for e in expr_syntax, st_w in st_wrappers, e_w in expr_wrappers
+                        isnothing(e) && continue
+                        e_wrapped = st_w(e_w(e))
+                        @test roundtrip(e_wrapped) == e_wrapped
+                        e_wrapped = e_w(st_w(e))
+                        @test roundtrip(e_wrapped) == e_wrapped
+                    end
+                end
+        - source: "test"
+          path: "JuliaLowering/test/compat.jl"
+          loc: "677-687"
+          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/test/compat.jl#L677-L687"
+          snippet: |
+            @testset "special cases: Value implicitly quotes AST nodes" begin
+                @test JL.est_to_expr(@ast_ :foo::K"Value") ==
+                    JL.est_to_expr(@ast_ [K"inert" "foo"::K"Identifier"]) ==
+                    QuoteNode(:foo)
+                @test JL.est_to_expr(@ast_ Expr(:call, 1)::K"Value") ==
+                    JL.est_to_expr(@ast_ [K"inert" [K"call" 1::K"Value"]]) ==
+                    QuoteNode(Expr(:call, 1))
+                @test JL.est_to_expr(@ast_ QuoteNode(Expr(:call, 1))::K"Value") ==
+                    JL.est_to_expr(@ast_ [K"inert" [K"inert" [K"call" 1::K"Value"]]]) ==
+                    QuoteNode(QuoteNode(Expr(:call, 1)))
+            end
+        - source: "test"
+          path: "JuliaLowering/test/compat.jl"
+          loc: "751-776"
+          url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/test/compat.jl#L751-L776"
+          snippet: |
+            @testset "bulk parsed code, no linenodes" begin
+                jl_dir = joinpath(@__DIR__, "..")
+                test_each_in_path(roundtrip, jl_dir)
+            end
+
+            @testset "linenodes equal (modules and functions have extra)" begin
+                e = JuliaSyntax.parseall(Expr, """
+                module M
+                function f()
+                    if x
+                        j
+                    elseif y
+                        let
+                            y
                         end
                     end
-                    begin
-                        1
-                    end
-                    end
-                    """; filename="foo")
-
-                    @test e == roundtrip(e)
                 end
+                begin
+                    1
+                end
+                end
+                """; filename="foo")
+
+                @test e == roundtrip(e)
             end
   secondary_effects:
     - effect: "Round-tripping preserves unknown Expr heads by storing the head string in K\"unknown_head\" nodes."
       mechanism: |
-        _expr_to_est(graph, e, src) [compat.jl:659]
-          uses find_kind(head_s) [compat.jl:675]
-          -> when nothing, makenode(..., K"unknown_head", cs) and setattr! :name_val [compat.jl:687-688]
-        est_to_expr(st) [compat.jl:709]
-          -> head = Symbol(k === K"unknown_head" ? st.name_val : untokenize(k)) [compat.jl:731]
+        _expr_to_est(graph, e, src)  [compat.jl:659]
+          -> head_s = string(e.head)  [compat.jl:674]
+          -> st_k = find_kind(head_s)  [compat.jl:675]
+          -> when isnothing(st_k):
+             setattr!(makenode(graph, src, K"unknown_head", cs), :name_val, head_s)  [compat.jl:688]
+        est_to_expr(st)  [compat.jl:709]
+          -> head = Symbol(k === K"unknown_head" ? st.name_val : untokenize(k))  [compat.jl:731]
+        This allows arbitrary Expr heads (e.g., custom macro output) to survive round-tripping.
       downstream_surfaces:
         - "Tools that inspect SyntaxTree kinds (JuliaSyntax-based tooling, macro tools)"
+        - "Future macro expansion that produces non-standard Expr heads"
       likelihood: "high"
       impact: "low"
     - effect: "K\"Value\" nodes containing AST nodes now round-trip as QuoteNode to preserve quotation semantics."
       mechanism: |
-        est_to_expr(st) [compat.jl:709]
-          when k === K"Value", v = st.value [compat.jl:714-716]
-          -> isa_lowering_ast_node(v) ? QuoteNode(v) : v [compat.jl:722]
-        Tests enforce Value-quoted AST behavior [test/compat.jl:677-686].
+        est_to_expr(st)  [compat.jl:709]
+          when k === K"Value":
+            v = st.value  [compat.jl:715]
+            isa_lowering_ast_node(v) ? QuoteNode(v) : v  [compat.jl:722]
+        isa_lowering_ast_node(e)  [compat.jl:656]
+          returns true for Symbol, QuoteNode, Expr
+        This ensures that when an AST node (Symbol/Expr/QuoteNode) is stored as a K"Value",
+        it gets wrapped in QuoteNode on conversion back to Expr, preserving quote semantics.
+        Tests enforce this at [test/compat.jl:677-687].
       downstream_surfaces:
         - "Macro tooling that embeds Expr/Symbol inside SyntaxTree values"
+        - "Any code that constructs K\"Value\" nodes with AST node values"
       likelihood: "medium"
       impact: "medium"
     - effect: "Block/toplevel conversions drop embedded LineNumberNode children and re-insert them on EST->Expr conversion."
       mechanism: |
-        _expr_to_est(graph, e, src) [compat.jl:659]
-          rm_linenodes = e.head in (:block, :toplevel) [compat.jl:678]
-          -> LineNumberNode children update src but are not converted [compat.jl:679-685]
-        est_to_expr(st) [compat.jl:709]
-          need_lnns = head in (:block, :toplevel) [compat.jl:732]
-          -> push source_location(LineNumberNode, c) before each child [compat.jl:735]
+        _expr_to_est(graph, e, src)  [compat.jl:659]
+          rm_linenodes = e.head in (:block, :toplevel)  [compat.jl:678]
+          -> for arg in e.args:
+               if rm_linenodes && arg isa LineNumberNode:
+                 src = arg  (updates tracking, not converted)  [compat.jl:680-681]
+               else:
+                 cid, src = _expr_to_est(graph, arg, src)  [compat.jl:683]
+        est_to_expr(st)  [compat.jl:709]
+          need_lnns = head in (:block, :toplevel)  [compat.jl:732]
+          -> for c in children(st):
+               need_lnns && push!(out.args, source_location(LineNumberNode, c))  [compat.jl:735]
+        LineNumberNodes are tracked via source attributes rather than as children,
+        then reconstructed from source_location on conversion back.
       downstream_surfaces:
         - "Tools that compare Expr trees with or without line nodes"
+        - "Round-trip equality testing (addressed by expr_equal_forgiving in tests)"
       likelihood: "medium"
+      impact: "low"
+    - effect: "Function/macro/module expressions preserve inner block LineNumberNode for proper source location."
+      mechanism: |
+        _get_inner_lnn(e, default)  [compat.jl:644]
+          e.head in (:function, :macro, :module) || return default  [compat.jl:645]
+          -> extracts LineNumberNode from first arg of final :block child
+        _expr_to_est uses this via:
+          old_src = _get_inner_lnn(e, src)  [compat.jl:676]
+        est_to_expr reconstructs this via:
+          if (k === K"module" && ...) || (k in KSet"function macro" && ...):
+            pushfirst!(out.args[end].args, source_location(LineNumberNode, st))  [compat.jl:742]
+        This ensures function/macro/module definitions have correct line information.
+      downstream_surfaces:
+        - "Debuggers and error reporting that rely on accurate source locations"
+        - "Tools generating or transforming function definitions"
+      likelihood: "high"
       impact: "low"
   compatibility:
     internal_api:
@@ -255,61 +358,106 @@ analysis:
         change: "Adds K\"unknown_head\" to extension kinds to represent Expr heads without a known SyntaxKind."
         affected_tools:
           - tool: "JuliaSyntax-based tooling"
-            usage: "Tools enumerating known Kinds or matching on extension kinds should account for K\"unknown_head\"." 
+            usage: "Tools enumerating known Kinds or pattern-matching on extension kinds should add fallback handling for K\"unknown_head\"."
         evidence:
           - source: "code"
             path: "JuliaLowering/src/kinds.jl"
-            loc: "3-28"
-            url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/kinds.jl#L3-L28"
+            loc: "19-27"
+            url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/kinds.jl#L19-L27"
             snippet: |
-              function _register_kinds()
-                  JuliaSyntax.register_kinds!(JuliaLowering, 1, [
-                      "BEGIN_EXTENSION_KINDS"
-                          "Value"
-                          "Symbol"
-                          "inert"
-                          "unknown_head"
-                          "inbounds"
-                      "END_EXTENSION_KINDS"
+              # A literal Julia value of any kind, as might be inserted into the
+              # AST during macro expansion
+              "Value"
+              # A (quoted) `Symbol`
+              "Symbol"
+              # QuoteNode; not quasiquote
+              "inert"
+              "unknown_head"
+              # TODO: Use `meta` for inbounds and loopinfo etc?
+      - field: "find_kind(s::String)"
+        change: "Used by expr_to_est to look up Kinds; returns nothing for unknown heads, triggering K\"unknown_head\" path."
+        affected_tools:
+          - tool: "Code using find_kind for Expr->SyntaxTree conversion"
+            usage: "find_kind at [compat.jl:137-140] uses JS._kind_str_to_int internal API."
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/compat.jl"
+            loc: "137-140"
+            url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L137-L140"
+            snippet: |
+              function find_kind(s::String)
+                  out = get(JS._kind_str_to_int, s, nothing)
+                  return isnothing(out) ? nothing : JS.Kind(out)
+              end
     behavioral:
       - change: "Expr <-> SyntaxTree round-trips now normalize AST nodes embedded in K\"Value\" to QuoteNode in the resulting Expr."
         evidence:
           - source: "code"
             path: "JuliaLowering/src/compat.jl"
-            loc: "714-723"
-            url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L714-L723"
+            loc: "714-722"
+            url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L714-L722"
             snippet: |
               elseif k === K"Value"
                   v = st.value
+                  # Let `kind(st) === K"Value"` with `st.value isa Symbol` (or other AST
+                  # node).  Since we enforce that this is never produced by the reverse
+                  # Expr->SyntaxTree transformation, there is no lonely Expr for which
+                  # `st` is the only SyntaxTree representation.  This means we can pick
+                  # some other expr this represents, namely Expr(`(inert ,st.value))
+                  # rather than Expr(st.value).
                   isa_lowering_ast_node(v) ? QuoteNode(v) : v
           - source: "test"
             path: "JuliaLowering/test/compat.jl"
-            loc: "677-686"
-            url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/test/compat.jl#L677-L686"
+            loc: "677-687"
+            url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/test/compat.jl#L677-L687"
             snippet: |
-              @test JL.est_to_expr(@ast_ :foo::K"Value") ==
-                  JL.est_to_expr(@ast_ [K"inert" "foo"::K"Identifier"]) ==
-                  QuoteNode(:foo)
-              @test JL.est_to_expr(@ast_ Expr(:call, 1)::K"Value") ==
-                  JL.est_to_expr(@ast_ [K"inert" [K"call" 1::K"Value"]]) ==
-                  QuoteNode(Expr(:call, 1))
-  performance:
-    compile_time:
-      - impact: "ESTIMATED: O(n) traversal per Expr<->EST conversion where n = number of AST nodes, due to recursive traversal in _expr_to_est/est_to_expr."
+              @testset "special cases: Value implicitly quotes AST nodes" begin
+                  @test JL.est_to_expr(@ast_ :foo::K"Value") ==
+                      JL.est_to_expr(@ast_ [K"inert" "foo"::K"Identifier"]) ==
+                      QuoteNode(:foo)
+                  @test JL.est_to_expr(@ast_ Expr(:call, 1)::K"Value") ==
+                      JL.est_to_expr(@ast_ [K"inert" [K"call" 1::K"Value"]]) ==
+                      QuoteNode(Expr(:call, 1))
+                  @test JL.est_to_expr(@ast_ QuoteNode(Expr(:call, 1))::K"Value") ==
+                      JL.est_to_expr(@ast_ [K"inert" [K"inert" [K"call" 1::K"Value"]]]) ==
+                      QuoteNode(QuoteNode(Expr(:call, 1)))
+              end
+      - change: "Core.nothing is converted to K\"core\" with name_val=\"nothing\" since K\"Value\" cannot hold nothing."
         evidence:
           - source: "code"
             path: "JuliaLowering/src/compat.jl"
-            loc: "659-737"
-            url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L659-L737"
+            loc: "660-662"
+            url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L660-L662"
             snippet: |
-              elseif e isa Expr
-                  cs = NodeId[]
-                  for arg in e.args
+              st = if e === Core.nothing
+                  # e.value can't be nothing in `K"Value"`, so represent with K"core"
+                  setattr!(makeleaf(graph, src, K"core"), :name_val, "nothing")
+  performance:
+    compile_time:
+      - impact: |
+          ESTIMATED: O(n) traversal per Expr<->EST conversion where n = number of AST nodes.
+          Both _expr_to_est and est_to_expr perform single recursive traversal of the tree.
+          Additional O(1) hash lookup in find_kind per Expr node with head.
+          Expected overhead: negligible for typical expressions, proportional to AST size.
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/compat.jl"
+            loc: "679-685"
+            url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L679-L685"
+            snippet: |
+              for arg in e.args
+                  if rm_linenodes && arg isa LineNumberNode
+                      src = arg
+                  else
                       cid, src = _expr_to_est(graph, arg, src)
                       push!(cs, cid)
                   end
               end
-
+          - source: "code"
+            path: "JuliaLowering/src/compat.jl"
+            loc: "734-737"
+            url: "https://github.com/JuliaLang/julia/blob/1cff13010c1abd587d603c76394db6f00ef62a12/JuliaLowering/src/compat.jl#L734-L737"
+            snippet: |
               for c in children(st)
                   need_lnns && push!(out.args, source_location(LineNumberNode, c))
                   push!(out.args, est_to_expr(c))
@@ -321,8 +469,12 @@ analysis:
     rationale:
       - "Changes are additive conversion utilities and tests within JuliaLowering."
       - "Behavioral differences are limited to EST/Expr round-tripping, not core execution semantics."
+      - "No changes to existing lowering paths; these are new utility functions."
+      - "Comprehensive test coverage with bulk parsing round-trip tests."
   open_questions:
-    - "GlobalRef handling is still TODO in _expr_to_est; should GlobalRef map to a dedicated kind (e.g., K\"globalref\")?" 
+    - "GlobalRef handling is still TODO in _expr_to_est (commented out at line 692-693); should GlobalRef map to K\"globalref\"?"
+    - "LineNumberNode outside block/toplevel becomes K\"Value\" - is this the desired behavior for all cases?"
   recommendations:
     - "Downstream tooling that pattern-matches on SyntaxTree kinds should add a fallback for K\"unknown_head\"."
     - "When storing Expr/Symbol inside K\"Value\", expect est_to_expr to return QuoteNode for AST nodes, per tests."
+    - "Tools comparing Expr trees after round-tripping may need to use expr_equal_forgiving pattern to ignore LineNumberNode differences."

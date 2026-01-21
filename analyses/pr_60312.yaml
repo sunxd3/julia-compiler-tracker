@@ -13,195 +13,196 @@ scope:
     - "Compiler/src/abstractinterpretation.jl"
     - "Compiler/src/typeinfer.jl"
     - "base/timing.jl"
+    - "src/gc-stock.c"
+    - "src/gc-stock.h"
     - "test/misc.jl"
   components:
     - "Compiler.AbstractInterpretation"
-    - "Compiler.TypeInference"
-    - "Base.Timing"
+    - "Compiler.Inference"
+    - "Other"
   pipeline_stages:
     - "TypeInference"
     - "AbstractInterpretation"
 analysis:
   intent:
-    summary: "Backport a set of fixes for the 1.13.0-beta1 release branch, including compiler inference/compilation queue handling and Base timing macro behavior."
-    issue_links:
-      - "https://github.com/JuliaLang/julia/issues/60444"
+    summary: "Backport a set of fixes for the 1.13.0-beta1 release branch, including a typo fix in abstract_invoke exception handling, callable-struct compilation queue handling, @allocated dotted operator support, and GC sweep reason tracking."
+    issue_links: []
   direct_changes:
-    - summary: "Fixes the exception widening predicate in abstract_invoke to consult the current CodeInstance/Method owner, avoiding a stale reference when computing ErrorException unions."
+    - summary: "Fixes a typo in abstract_invoke where 'method_ir_ci' was incorrectly used instead of 'method_or_ci' when checking the def field for exception type widening."
       component: "Compiler.AbstractInterpretation"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "Compiler/src/abstractinterpretation.jl"
-          loc: "2246-2249"
-          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/Compiler/src/abstractinterpretation.jl#L2246-L2249"
+          loc: "2247"
+          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/Compiler/src/abstractinterpretation.jl#L2247"
           snippet: |
-            # TODO: When we add curing, we may want to assume this is nothrow
+            # Before (typo):
+            # if (method_or_ci.owner === Nothing && method_ir_ci.def.def isa Method)
+            # After (fixed):
             if (method_or_ci.owner === Nothing && method_or_ci.def.def isa Method)
                 exct = Union{exct, ErrorException}
             end
     - summary: "collectinvokes! now recognizes :new expressions that construct Function-typed structs and enqueues a callable specialization for invokelatest precompilation."
-      component: "Compiler.TypeInference"
+      component: "Compiler.Inference"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "Compiler/src/typeinfer.jl"
-          loc: "1466-1519"
-          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/Compiler/src/typeinfer.jl#L1466-L1519"
+          loc: "1504-1509"
+          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/Compiler/src/typeinfer.jl#L1504-L1509"
           snippet: |
-            function collectinvokes!(workqueue::CompilationQueue, ci::CodeInfo, sptypes::Vector{VarState};
-                                     invokelatest_queue::Union{CompilationQueue,Nothing} = nothing)
-                src = ci.code
-                for i = 1:length(src)
-                    stmt = src[i]
-                    isexpr(stmt, :(=)) && (stmt = stmt.args[2])
-                    if isexpr(stmt, :invoke) || isexpr(stmt, :invoke_modify)
-                        edge = stmt.args[1]
-                        edge isa CodeInstance && isdefined(edge, :inferred) && push!(workqueue, edge)
-                    end
-
-                    invokelatest_queue === nothing && continue
-                    if isexpr(stmt, :call)
-                        farg = stmt.args[1]
-                        !applicable(argextype, farg, ci, sptypes) && continue # TODO: Why is this failing during bootstrap
-                        ftyp = widenconst(argextype(farg, ci, sptypes))
-
-                        if ftyp === typeof(Core.finalizer) && length(stmt.args) == 3
-                            finalizer = argextype(stmt.args[2], ci, sptypes)
-                            obj = argextype(stmt.args[3], ci, sptypes)
-                            atype = argtypes_to_type(Any[finalizer, obj])
-                        else
-                            # No dynamic dispatch to resolve / enqueue
-                            continue
-                        end
-                    elseif isexpr(stmt, :cfunction) && length(stmt.args) == 5
-                        (_, f, _, at, _) = stmt.args
-                        linfo = ci.parent
-
-                        linfo isa MethodInstance || continue
-                        at isa SimpleVector || continue
-
-                        ft = argextype(f, ci, sptypes)
-                        argtypes = Any[ft]
-                        for i = 1:length(at)
-                            push!(argtypes, sp_type_rewrap(at[i], linfo, #= isreturn =# false))
-                        end
-                        atype = argtypes_to_type(argtypes)
-                    elseif isexpr(stmt, :new)
-                        # When creating a struct of Function type, check to see if we should
-                        # proactively compile the lambda
-                        t, _, _, _ = instanceof_tfunc(argextype(stmt.args[1], ci, sptypes))
-                        t <: Function || continue
-                        atype = Tuple{t, Vararg}
-                    else
-                        # TODO: handle other StmtInfo like OpaqueClosure?
-                        continue
-                    end
-                    let workqueue = invokelatest_queue
-                        # make a best-effort attempt to enqueue the relevant code for the dynamic invokelatest call
-                        mi = compileable_specialization_for_call(workqueue.interp, atype)
-                        mi === nothing && continue
-
-                        push!(workqueue, mi)
-                    end
-                end
-            end
-        - source: "rg"
-          path: "Compiler/src/typeinfer.jl"
-          loc: "1466,1557,1645"
-          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/Compiler/src/typeinfer.jl#L1466-L1657"
-          snippet: |
-            Compiler/src/typeinfer.jl
-            1466:function collectinvokes!(workqueue::CompilationQueue, ci::CodeInfo, sptypes::Vector{VarState};
-            1557:        collectinvokes!(workqueue, src, sptypes)
-            1645:                collectinvokes!(workqueue, src, sptypes; invokelatest_queue)
-    - summary: "The @allocated machinery now treats dotted operators (e.g. .+) as non-simple calls, forcing wrapping so allocation measurement covers broadcasted expressions."
-      component: "Base.Timing"
+            elseif isexpr(stmt, :new)
+                # When creating a struct of Function type, check to see if we should
+                # proactively compile the lambda
+                t, _, _, _ = instanceof_tfunc(argextype(stmt.args[1], ci, sptypes))
+                t <: Function || continue
+                atype = Tuple{t, Vararg}
+    - summary: "The @allocated macro now treats dotted operators (e.g. .+) as non-simple calls, forcing wrapping so allocation measurement covers broadcasted expressions."
+      component: "Other"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "base/timing.jl"
-          loc: "493-509"
-          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/base/timing.jl#L493-L509"
+          loc: "501-508"
+          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/base/timing.jl#L501-L508"
           snippet: |
-            function is_simply_call(@nospecialize ex)
-                is_simple_atom(a) = a isa QuoteNode || a isa Symbol || !isa_ast_node(a)
-                Meta.isexpr(ex, :call) || return false
-                for a in ex.args
-                    is_simple_atom(a) && continue
-                    Meta.isexpr(a, :..., 1) && is_simple_atom(a.args[1]) && continue
+            # Ensure Expr(:call, .+, ...) get wrapped
+            if ex.args[1] isa Symbol
+                sa = String(ex.args[1]::Symbol)
+                startswith(sa, ".") &&
+                    !endswith(sa, ".") &&
+                    isoperator(Symbol(sa[2:end])) &&
                     return false
-                end
-                # Ensure Expr(:call, .+, ...) get wrapped
-                if ex.args[1] isa Symbol
-                    sa = String(ex.args[1]::Symbol)
-                    startswith(sa, ".") &&
-                        !endswith(sa, ".") &&
-                        isoperator(Symbol(sa[2:end])) &&
-                        return false
-                end
-                return true
             end
         - source: "test"
           path: "test/misc.jl"
-          loc: "1552-1565"
-          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/test/misc.jl#L1552-L1565"
+          loc: "1563-1564"
+          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/test/misc.jl#L1563-L1564"
           snippet: |
-            @testset "Base/timing.jl" begin
-                @test Base.jit_total_bytes() >= 0
-
-                # sanity check `@allocations` returns what we expect in some very simple cases.
-                @test (() -> @allocations "a")() == 0
-                "a" * Base.inferencebarrier("b")
-                @test (() -> @allocations "a" * Base.inferencebarrier("b"))() == 1
-                # test that you can grab the value from @allocated
-                @allocated _x = 1+2
-                @test _x === 3
-
-                # test `@allocated` works for dotted operations
-                @test (@allocated 1 .+ 1) == 0
-            end
+            # test `@allocated` works for dotted operations
+            @test (@allocated 1 .+ 1) == 0
+    - summary: "Added new GC full sweep reason FULL_SWEEP_REASON_LARGE_HEAP_GROWTH to track when heap growth triggers a full collection."
+      component: "Other"
+      evidence:
+        - source: "diff"
+          path: "src/gc-stock.h"
+          loc: "476"
+          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/src/gc-stock.h#L476"
+          snippet: |
+            #define FULL_SWEEP_REASON_LARGE_HEAP_GROWTH (4)
+        - source: "diff"
+          path: "src/gc-stock.c"
+          loc: "3342-3344"
+          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/src/gc-stock.c#L3342-L3344"
+          snippet: |
+            else if (last_full_gc_heap_ratio > 1) {
+                next_sweep_full = 1;
+                gc_count_full_sweep_reason(FULL_SWEEP_REASON_LARGE_HEAP_GROWTH);
+            }
   secondary_effects:
     - effect: "Callable struct construction inside invokelatest-tracked CodeInfo now triggers proactive specialization enqueueing, which can reduce runtime latency when calling those callable objects via invokelatest."
       mechanism: |
-        collectinvokes!(workqueue, ci, sptypes; invokelatest_queue)  [typeinfer.jl:1466-1519]
-          detects Expr(:new, ...) where t <: Function
+        collectinvokes!(workqueue, ci, sptypes; invokelatest_queue)  [typeinfer.jl:1466]
+          detects Expr(:new, ...) where t <: Function  [typeinfer.jl:1504-1509]
           -> atype = Tuple{t, Vararg}
-          -> compileable_specialization_for_call(...) and push! to invokelatest_queue
-        add_codeinsts_to_jit!() calls collectinvokes! for CodeInfo  [typeinfer.jl:1554-1559]
-        compile!() also calls collectinvokes! when scanning CodeInfo  [typeinfer.jl:1642-1646]
+          -> compileable_specialization_for_call(workqueue.interp, atype)  [typeinfer.jl:1516]
+          -> push!(invokelatest_queue, mi)  [typeinfer.jl:1519]
+        Callers:
+          add_codeinsts_to_jit!() calls collectinvokes! for CodeInfo  [typeinfer.jl:1557]
+          compile!() also calls collectinvokes! with invokelatest_queue  [typeinfer.jl:1645]
       downstream_surfaces:
         - "Invocation of callable structs via invokelatest (e.g., closures stored in structs)"
         - "Packages using custom Function subtypes to carry state (e.g., GPUCompiler, DifferentialEquations caches)"
       likelihood: "medium"
       impact: "low"
-    - effect: "Exception effect metadata from abstract_invoke is more accurate for ownerless CodeInstances, which can slightly adjust nothrow/effects-driven optimizations and diagnostics."
+      evidence:
+        - source: "diff"
+          path: "Compiler/src/typeinfer.jl"
+          loc: "1514-1519"
+          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/Compiler/src/typeinfer.jl#L1514-L1519"
+          snippet: |
+            let workqueue = invokelatest_queue
+                # make a best-effort attempt to enqueue the relevant code for the dynamic invokelatest call
+                mi = compileable_specialization_for_call(workqueue.interp, atype)
+                mi === nothing && continue
+                push!(workqueue, mi)
+            end
+    - effect: "The typo fix in abstract_invoke now correctly accesses method_or_ci.def.def instead of the undefined method_ir_ci.def.def, ensuring ErrorException is properly unioned into exception types for ownerless CodeInstances."
       mechanism: |
-        abstract_invoke() now unions ErrorException based on method_or_ci.def.def  [abstractinterpretation.jl:2246-2249]
-        -> CallMeta uses exct to compute Effects(..., nothrow=(exct===Bottom))
-        -> downstream passes that consult effects may see a more conservative nothrow flag
+        abstract_invoke() [abstractinterpretation.jl:2218] handles invoke expressions
+          -> checks method_or_ci.owner === Nothing  [abstractinterpretation.jl:2247]
+          -> now correctly checks method_or_ci.def.def isa Method (was typo: method_ir_ci)
+          -> exct = Union{exct, ErrorException} properly applied
+          -> CallMeta uses exct to compute Effects(..., nothrow=(exct===Bottom))
       downstream_surfaces:
         - "Inference-driven optimizations that rely on nothrow/effects flags (e.g., inlining decisions)"
         - "JET diagnostics that display potential exception paths"
-      likelihood: "low"
+      likelihood: "medium"
       impact: "low"
+      evidence:
+        - source: "diff"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "2246-2252"
+          url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/Compiler/src/abstractinterpretation.jl#L2246-L2252"
+          snippet: |
+            # TODO: When we add curing, we may want to assume this is nothrow
+            if (method_or_ci.owner === Nothing && method_or_ci.def.def isa Method)
+                exct = Union{exct, ErrorException}
+            end
+            update_valid_age!(sv, callee_valid_range)
+            return Future(CallMeta(method_or_ci.rettype, exct, Effects(decode_effects(method_or_ci.ipo_purity_bits), nothrow=(exct===Bottom)),
+                InvokeCICallInfo(method_or_ci)))
   compatibility:
     internal_api: []
     behavioral:
-      - change: "@allocated now consistently reports on dotted (broadcast) operator expressions by wrapping them like other non-simple calls."
-        risk: "low"
-        affected_users: ["Users relying on @allocated for broadcast expressions"]
+      - summary: "@allocated now consistently reports on dotted (broadcast) operator expressions by wrapping them like other non-simple calls."
+        evidence:
+          - source: "test"
+            path: "test/misc.jl"
+            loc: "1563-1564"
+            url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/test/misc.jl#L1563-L1564"
+            snippet: |
+              # test `@allocated` works for dotted operations
+              @test (@allocated 1 .+ 1) == 0
   performance:
     compile_time:
-      - change: "Additional invokelatest_queue entries for callable-struct :new expressions."
-        impact: "ESTIMATED: minor extra queue work proportional to number of such expressions in a CodeInfo."
+      - summary: "Additional invokelatest_queue entries for callable-struct :new expressions may increase queue work."
+        evidence:
+          - source: "diff"
+            path: "Compiler/src/typeinfer.jl"
+            loc: "1504-1509"
+            url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/Compiler/src/typeinfer.jl#L1504-L1509"
+            snippet: |
+              elseif isexpr(stmt, :new)
+                  t, _, _, _ = instanceof_tfunc(argextype(stmt.args[1], ci, sptypes))
+                  t <: Function || continue
+                  atype = Tuple{t, Vararg}
     runtime:
-      - change: "Potentially lower latency on first invokelatest call of callable structs due to proactive compilation."
-        impact: "ESTIMATED: small latency reduction for affected call sites."
+      - summary: "Potentially lower latency on first invokelatest call of callable structs due to proactive compilation. ESTIMATED: small latency reduction for affected call sites."
+        evidence:
+          - source: "diff"
+            path: "Compiler/src/typeinfer.jl"
+            loc: "1514-1519"
+            url: "https://github.com/JuliaLang/julia/blob/1ef81a6256ad21d84cc7aa7dddd4a05e8e9fc760/Compiler/src/typeinfer.jl#L1514-L1519"
+            snippet: |
+              mi = compileable_specialization_for_call(workqueue.interp, atype)
+              mi === nothing && continue
+              push!(workqueue, mi)
+  tests:
+    changed_files:
+      - "test/misc.jl"
+    new_behavior_assertions:
+      - "@allocated 1 .+ 1 returns 0 (dotted operators now correctly measured)"
+    coverage_gaps:
+      - "No direct test for the abstract_invoke typo fix - relies on existing inference test coverage"
+      - "No test for callable-struct invokelatest proactive compilation behavior"
   risk:
     level: "low"
     rationale:
-      - "Changes are narrowly scoped to inference queueing and exception metadata, with tests added for @allocated behavior."
-      - "No new public compiler APIs or data structure layouts are introduced."
+      - "The abstractinterpretation.jl change is a clear typo fix that corrects incorrect variable reference."
+      - "The typeinfer.jl change extends existing invokelatest handling to cover callable structs without altering core behavior."
+      - "The timing.jl fix adds explicit handling for dotted operators with test coverage."
+      - "The GC change adds diagnostic tracking without changing collection behavior."
   open_questions:
-    - "Should callable-struct enqueueing also cover OpaqueClosure or other StmtInfo kinds (noted TODO in collectinvokes!)?"
+    - "Should callable-struct enqueueing also cover OpaqueClosure or other StmtInfo kinds (noted TODO at typeinfer.jl:1511)?"
   recommendations:
-    - "Downstream tooling that inspects effects/nothrow flags (JET, IRTools) should validate diagnostics on invokelatest-heavy workloads."
+    - "Downstream tooling that inspects effects/nothrow flags (JET, IRTools) should validate diagnostics on code using invoke with CodeInstance."
     - "Packages that construct callable structs and rely on invokelatest may see slightly different precompile coverage; consider re-running precompile tests."

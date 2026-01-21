@@ -20,15 +20,27 @@ scope:
 analysis:
   intent:
     summary: "Force specialization on the `after_parse` callable passed to `parse_brackets` so bracket parsing avoids heuristic despecialization (notably when default-argument wrappers call into the parser), reducing REPL lag after heavy package loads."
-    issue_links: []
+    issue_links:
+      - "https://github.com/JuliaLang/JuliaSyntax.jl/pull/601"
   direct_changes:
-    - summary: "`parse_brackets` now uses a parametric callable type for `after_parse`, enabling specialization on the specific closure passed by each caller."
+    - summary: "Change `parse_brackets` function signature from `after_parse::Function` to `after_parse::F where {F}` to force specialization on each distinct closure passed by callers."
       component: "JuliaSyntax parser"
       evidence:
+        - source: "diff"
+          path: "JuliaSyntax/src/julia/parser.jl"
+          loc: "3192-3193"
+          url: "https://github.com/JuliaLang/julia/pull/60403/files"
+          snippet: |
+            # BEFORE:
+            function parse_brackets(after_parse::Function,
+                                    ps::ParseState, closing_kind, generator_is_last=true)
+            # AFTER:
+            function parse_brackets(after_parse::F,
+                                    ps::ParseState, closing_kind, generator_is_last=true) where {F}
         - source: "code"
           path: "JuliaSyntax/src/julia/parser.jl"
-          loc: "3192-3199"
-          url: "https://github.com/JuliaLang/julia/blob/b34261b5d099153c7d454588332f822ddcb12ea9/JuliaSyntax/src/julia/parser.jl#L3192-L3199"
+          loc: "3192-3200"
+          url: "https://github.com/JuliaLang/julia/blob/b34261b5d099153c7d454588332f822ddcb12ea9/JuliaSyntax/src/julia/parser.jl#L3192-L3200"
           snippet: |
             function parse_brackets(after_parse::F,
                                     ps::ParseState, closing_kind, generator_is_last=true) where {F}
@@ -38,6 +50,7 @@ analysis:
                                 whitespace_newline=true)
                 params_positions = acquire_positions(ps.stream)
                 last_eq_before_semi = 0
+                num_subexprs = 0
     - summary: "Callers pass in distinct `do`-block closures that now specialize independently, covering parse-unary, paren, and other bracketed forms."
       component: "JuliaSyntax parser"
       evidence:
@@ -75,12 +88,28 @@ analysis:
   secondary_effects:
     - effect: "Parser call-sites now get specialized `parse_brackets` instantiations per closure, reducing dynamic dispatch in bracket parsing hot paths (notably `parse_unary`)."
       mechanism: |
+        The default argument `generator_is_last=true` causes Julia to generate two methods:
+          g(f, x) = <body calling f>           # calls f directly
+          g(f) = g(f, true)                    # wrapper - does NOT call f directly
+
+        The second wrapper method heuristically gets despecialized on `f` since it doesn't
+        call `f` directly. By using `where {F}`, both methods MUST specialize on F.
+
+        Call chain affected:
         parse_unary(ps::ParseState)  [parser.jl:1191]
           -> parse_brackets(ps, K")") do ... end  [parser.jl:1275]
           -> after_parse closure specializes via parse_brackets(after_parse::F)  [parser.jl:3192]
           -> opts influences call-vs-block parsing and operator precedence  [parser.jl:1276-1283]
+
+        Six distinct call sites now each get specialized code paths:
+          - parse_unary (line 1275): prefix operator calls like +(a,b)
+          - function definition parsing (line 2218): anonymous function argument lists
+          - parse_call_arglist (line 2764): call argument lists with generators
+          - parse_vect (line 2780): vector/array parsing [x, y]
+          - parse_paren (line 3133): tuple and block syntax (x, y) or (a; b)
+          - parse_string (line 3315): string interpolation $(x + y)
       downstream_surfaces:
-        - "REPL parsing latency during heavy package loads"
+        - "REPL parsing latency during heavy package loads (3586ms recompile time reported for REPL.LineEdit.refresh_multi_line after loading GLMakie)"
         - "JuliaSyntax-based tooling that repeatedly parses bracketed call forms"
       likelihood: "high"
       impact: "medium"
@@ -94,9 +123,13 @@ analysis:
     behavioral: []
   performance:
     compile_time:
-      - impact: "ESTIMATED: Slight increase in method specialization count for parser entry points because each distinct closure gets a dedicated `parse_brackets` instantiation."
+      - impact: "ESTIMATED: Slight increase in method specialization count (~6 additional specialized methods for parse_brackets, one per call site closure type)."
     runtime:
-      - impact: "ESTIMATED: Reduced dynamic dispatch in bracket parsing hot paths, improving REPL responsiveness after loading large packages (as described in PR motivation)."
+      - impact: |
+          MEASURED (from PR): Before fix, loading GLMakie caused 3586ms recompile time for:
+            precompile(Tuple{typeof(REPL.LineEdit.refresh_multi_line), ...})
+          After fix, specialized code paths avoid recompilation on first REPL use.
+          Root cause: default-argument wrapper methods were being despecialized on closure type.
   risk:
     level: "low"
     rationale:

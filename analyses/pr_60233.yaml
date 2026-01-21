@@ -8,7 +8,6 @@ pr:
     - "compiler:lowering"
   merged_at: "2025-11-25T12:34:40Z"
   merge_commit_sha: "eca649c6bbfcc29e90333bd6850d9b165fe19ecc"
-  diff_url: "https://github.com/JuliaLang/julia/pull/60233.diff"
 scope:
   files_touched:
     - "JuliaLowering/src/desugaring.jl"
@@ -23,58 +22,43 @@ scope:
   pipeline_stages:
     - "Lowering"
     - "MacroExpansion"
-    - "IRPrinting"
 analysis:
   intent:
     summary: |
-      Ensure generated functions honor expr_compat_mode by threading the flag into
-      GeneratedFunctionStub and macro expansion contexts, and reduce IR printing
-      verbosity for generated functions that keep full green tree provenance.
+      Fix generated functions to honor expr_compat_mode by threading the flag into
+      GeneratedFunctionStub and its macro expansion contexts. Also improve IR printing
+      to show compact SourceRef strings instead of full green-tree provenance dumps.
     issue_links:
       - "https://github.com/JuliaLang/julia/issues/60226"
+    quoted_from_pr: |
+      Pass `expr_compat_mode` through to `GeneratedFunctionStub`. You can get
+      surprisingly far into the stdlibs without testing this!
+      Also reduce the IR printing I mentioned being an issue in #60226, which tests
+      that we're keeping the whole green tree the same.
   direct_changes:
     - summary: |
-        Pass expr_compat_mode into GeneratedFunctionStub creation for generated
-        functions so runtime expansion can use the same compatibility mode.
+        Add ctx.expr_compat_mode as a new field in the GeneratedFunctionStub construction
+        during generated function desugaring, so runtime expansion uses the same mode.
       component: "JuliaLowering/desugaring"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "JuliaLowering/src/desugaring.jl"
-          loc: "2547-2582"
-          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/desugaring.jl#L2547-L2582"
+          loc: "2563-2566"
+          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/desugaring.jl#L2563-L2566"
           snippet: |
-            nongen_body = @ast ctx body [K"block"
-                [K"meta"
-                    "generated"::K"Symbol"
-                    [K"new"
-                        GeneratedFunctionStub::K"Value" # Use stub type from JuliaLowering
-                        ctx.expr_compat_mode::K"Value"
-                        gen_name
-                        sourceref(srcref)::K"Value"
-                        [K"call"
-                            "svec"::K"core"
-                            "#self#"::K"Symbol"
-                            (stub_argname(n,i)::K"Symbol"(n) for (i,n) in enumerate(arg_names[2:end]))...
-                        ]
-                        [K"call"
-                            "svec"::K"core"
-                            (n.name_val::K"Symbol"(n) for n in typevar_names)...
-                        ]
-                    ]
-                ]
-                split_generated(ctx, body, false)
-            ]
+            [K"new"
+                GeneratedFunctionStub::K"Value" # Use stub type from JuliaLowering
+                ctx.expr_compat_mode::K"Value"
+                gen_name
     - summary: |
-        GeneratedFunctionStub now carries expr_compat_mode and uses it to build
-        MacroExpansionContext/MacroContext. Expr results from generator are
-        converted to SyntaxTree using expr_to_syntaxtree with a LineNumberNode
-        derived from the stub's source reference.
+        Add expr_compat_mode::Bool as the first field in GeneratedFunctionStub struct,
+        and add type annotations to gen and srcref fields.
       component: "JuliaLowering/runtime"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "JuliaLowering/src/runtime.jl"
-          loc: "290-357"
-          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/runtime.jl#L290-L357"
+          loc: "292-298"
+          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/runtime.jl#L292-L298"
           snippet: |
             struct GeneratedFunctionStub
                 expr_compat_mode::Bool
@@ -83,255 +67,236 @@ analysis:
                 argnames::Core.SimpleVector
                 spnames::Core.SimpleVector
             end
-
-            function (g::GeneratedFunctionStub)(world::UInt, source::Method, @nospecialize args...)
-                macro_world = Base.tls_world_age()
-                ctx1 = MacroExpansionContext(graph, __module__, g.expr_compat_mode, macro_world)
-
-                layer = only(ctx1.scope_layers)
-
-                mctx = MacroContext(syntax_graph(ctx1), g.srcref, layer, g.expr_compat_mode)
-                ex0 = g.gen(mctx, args...)
-                if ex0 isa Expr
-                    ex0 = expr_to_syntaxtree(ctx1, ex0, source_location(LineNumberNode, g.srcref))
-                end
-                if ex0 isa SyntaxTree
-                    if !is_compatible_graph(ctx1, ex0)
-                        ex0 = copy_ast(ctx1, ex0)
-                    end
-                else
-                    ex0 = @ast ctx1 g.srcref ex0::K"Value"
-                end
-                ex1 = expand_forms_1(ctx1, reparent(ctx1, ex0))
-                ctx1 = MacroExpansionContext(delete_attributes(graph, :__macro_ctx__),
-                                             ctx1.bindings, ctx1.scope_layers,
-                                             ctx1.scope_layer_stack, g.expr_compat_mode,
-                                             macro_world)
-                ex1 = reparent(ctx1, ex1)
-
-                ctx2, ex2 = expand_forms_2(ctx1, ex1)
     - summary: |
-        to_lowered_expr now preserves LineNumberNode values by wrapping them in
-        QuoteNode when lowering Value nodes.
+        Thread g.expr_compat_mode into MacroExpansionContext and MacroContext creation,
+        and add conversion of Expr results via expr_to_syntaxtree.
+      component: "JuliaLowering/runtime"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/runtime.jl"
+          loc: "324-337"
+          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/runtime.jl#L324-L337"
+          snippet: |
+            # Macro expansion. Note that we expand in `tls_world_age()` (see
+            # Core.GeneratedFunctionStub)
+            macro_world = Base.tls_world_age()
+            ctx1 = MacroExpansionContext(graph, __module__, g.expr_compat_mode, macro_world)
+
+            layer = only(ctx1.scope_layers)
+
+            # Run code generator - this acts like a macro expander and like a macro
+            # expander it gets a MacroContext.
+            mctx = MacroContext(syntax_graph(ctx1), g.srcref, layer, g.expr_compat_mode)
+            ex0 = g.gen(mctx, args...)
+            if ex0 isa Expr
+                ex0 = expr_to_syntaxtree(ctx1, ex0, source_location(LineNumberNode, g.srcref))
+            end
+        - source: "diff"
+          path: "JuliaLowering/src/runtime.jl"
+          loc: "350-353"
+          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/runtime.jl#L350-L353"
+          snippet: |
+            ctx1 = MacroExpansionContext(delete_attributes(graph, :__macro_ctx__),
+                                         ctx1.bindings, ctx1.scope_layers,
+                                         ctx1.scope_layer_stack, g.expr_compat_mode,
+                                         macro_world)
+    - summary: |
+        Wrap LineNumberNode values in QuoteNode when lowering K"Value" nodes to prevent
+        them being interpreted as source location markers.
       component: "JuliaLowering/eval"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "JuliaLowering/src/eval.jl"
-          loc: "350-374"
-          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/eval.jl#L350-L374"
+          loc: "372-373"
+          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/eval.jl#L372-L373"
           snippet: |
-            elseif k == K"SourceLocation"
-                QuoteNode(source_location(LineNumberNode, ex))
-            elseif k == K"Symbol"
-                QuoteNode(Symbol(ex.name_val))
-            elseif k == K"slot"
-                Core.SlotNumber(ex.var_id)
-            elseif k == K"static_parameter"
-                Expr(:static_parameter, ex.var_id)
-            elseif k == K"SSAValue"
-                Core.SSAValue(ex.var_id + stmt_offset)
-            elseif k == K"return"
-                Core.ReturnNode(_to_lowered_expr(ex[1], stmt_offset))
-            elseif k == K"inert"
-                e1 = ex[1]
-                getmeta(ex, :as_Expr, false) ? QuoteNode(Expr(e1)) : e1
-            elseif k == K"code_info"
-                ir = to_code_info(ex[1], ex.slots, ex.meta)
-                if ex.is_toplevel_thunk
-                    Expr(:thunk, ir)
-                else
-                    ir
-                end
             elseif k == K"Value"
                 ex.value isa LineNumberNode ? QuoteNode(ex.value) : ex.value
     - summary: |
-        IR printing now shows SourceRef values distinctly when Value nodes hold a
-        SourceRef, reducing huge provenance dumps for generated stubs.
+        Add special handling in _value_string to display SourceRef values compactly
+        as "SourceRef:filename:line" instead of full provenance dumps.
       component: "JuliaLowering/syntax_graph"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "JuliaLowering/src/syntax_graph.jl"
-          loc: "466-505"
-          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/syntax_graph.jl#L466-L505"
+          loc: "482-486"
+          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/syntax_graph.jl#L482-L486"
           snippet: |
-            function _value_string(ex)
-                k = kind(ex)
-                str = k in KSet"Identifier StrMacroName CmdMacroName" || is_operator(k) ? ex.name_val :
-                      k == K"Placeholder" ? ex.name_val           :
-                      k == K"SSAValue"    ? "%"                   :
-                      k == K"BindingId"   ? "#"                   :
-                      k == K"label"       ? "label"               :
-                      k == K"core"        ? "core.$(ex.name_val)" :
-                      k == K"top"         ? "top.$(ex.name_val)"  :
-                      k == K"Symbol"      ? ":$(ex.name_val)" :
-                      k == K"globalref"   ? "$(ex.mod).$(ex.name_val)" :
-                      k == K"slot"        ? "slot" :
-                      k == K"latestworld" ? "latestworld" :
-                      k == K"static_parameter" ? "static_parameter" :
-                      k == K"symbolic_label" ? "label:$(ex.name_val)" :
-                      k == K"symbolic_goto" ? "goto:$(ex.name_val)" :
-                      k == K"SourceLocation" ?
-                          "SourceLocation:$(JuliaSyntax.filename(ex)):$(join(source_location(ex), ':'))" :
-                      k == K"Value" && ex.value isa SourceRef ?
-                          "SourceRef:$(JuliaSyntax.filename(ex)):$(join(source_location(ex), ':'))" :
-                      repr(get(ex, :value, nothing))
-                id = get(ex, :var_id, nothing)
-                if isnothing(id)
-                    id = get(ex, :id, nothing)
-                end
-                if !isnothing(id)
-                    idstr = subscript_str(id)
-                    str = "$(str)$idstr"
-                end
+            k == K"SourceLocation" ?
+                "SourceLocation:$(JuliaSyntax.filename(ex)):$(join(source_location(ex), ':'))" :
+            k == K"Value" && ex.value isa SourceRef ?
+                "SourceRef:$(JuliaSyntax.filename(ex)):$(join(source_location(ex), ':'))" :
+            repr(get(ex, :value, nothing))
+    - summary: |
+        Add TODO comment noting that JuliaLowering module should print consistently
+        regardless of parent modules (cosmetic change only).
+      component: "JuliaLowering/utils"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/utils.jl"
+          loc: "121"
+          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/utils.jl#L121"
+          snippet: |
+            # TODO: JuliaLowering-the-module should always print the same way, ignoring parent modules
   secondary_effects:
     - effect: |
         Generated functions that return Expr now reliably enter JuliaLowering's
         macro expansion and desugaring with expr_compat_mode enabled, enabling
-        Expr-based macro output (including raw string macros) to round-trip in
-        compatibility mode.
+        Expr-based macro output (including raw string macros) to round-trip correctly.
       mechanism: |
-        expand_function_generator(...) creates GeneratedFunctionStub with ctx.expr_compat_mode
-          -> GeneratedFunctionStub.call uses g.expr_compat_mode to build MacroExpansionContext
-             and MacroContext before calling g.gen
-          -> if generator returns Expr, expr_to_syntaxtree(ctx1, ex0, source_location(...))
-             converts it to SyntaxTree for subsequent expand_forms_1/expand_forms_2
+        expand_function_generator [desugaring.jl:2563-2566] creates GeneratedFunctionStub
+        with ctx.expr_compat_mode
+          -> GeneratedFunctionStub.__call__ [runtime.jl:304] is invoked by runtime
+          -> uses g.expr_compat_mode to build MacroExpansionContext [runtime.jl:327]
+          -> uses g.expr_compat_mode to build MacroContext [runtime.jl:333]
+          -> if generator returns Expr, expr_to_syntaxtree converts it [runtime.jl:335-336]
+          -> second MacroExpansionContext also uses g.expr_compat_mode [runtime.jl:350-353]
       downstream_surfaces:
         - "@generated functions in stdlibs using expr_compat_mode"
         - "Macro-heavy generated functions in packages using JuliaLowering"
+        - "Generated functions returning Expr with macros like @raw_str"
       likelihood: "high"
       impact: "medium"
-    - effect: |
-        IR dumps for generated-function metadata become shorter and more stable
-        because SourceRef values are rendered as SourceRef:filename:line ranges
-        instead of full green-tree provenance.
-      mechanism: |
-        _value_string(ex) recognizes K"Value" nodes with SourceRef values and emits
-        a compact SourceRef string, which is used by syntax tree/IR printing.
-      downstream_surfaces:
-        - "JuliaLowering.print_ir output in tests and tooling"
-        - "Debugger/IR inspection tools that display SyntaxTree values"
-      likelihood: "high"
-      impact: "low"
-  compatibility:
-    internal_api:
-      - field: "JuliaLowering.GeneratedFunctionStub.expr_compat_mode"
-        change: "New boolean field added and threaded into macro expansion contexts."
-        affected_tools:
-          - tool: "Downstream JuliaLowering consumers"
-            usage: "Any tooling that pattern-matches GeneratedFunctionStub layout in lowered IR."
-    behavioral:
-      - change: |
-          Generated functions executing in expr_compat_mode now accept Expr output
-          and macro usage that previously failed or produced mismatched syntax trees.
-        affected_surfaces:
-          - "@generated functions that emit Expr and use @raw_str or other macros"
-          - "JuliaLowering.include_string(...; expr_compat_mode=true)"
-  performance:
-    compile_time:
-      - impact: |
-          ESTIMATED: negligible. The new expr_to_syntaxtree conversion only runs
-          when generator returns an Expr; otherwise behavior is unchanged.
-    runtime:
-      - impact: "None expected; changes are compile-time/lowering only."
-  risk:
-    level: "low"
-    rationale:
-      - "Changes are localized to generated-function lowering and macro expansion contexts."
-      - "Behavior locked in by generated-function tests running in both compat modes."
-  open_questions:
-    - "Do any downstream tools rely on the previous (field-less) GeneratedFunctionStub layout in IR dumps?"
-  recommendations:
-    - "If tooling parses printed IR, update expectations for GeneratedFunctionStub fields and SourceRef formatting."
-    - "Consider adding a dedicated test for expr_compat_mode with Expr-returning generators beyond raw string macros."
-  evidence_from_tests:
-    - summary: "Generated functions now tested under both expr_compat_mode values, including a macro-using generator."
       evidence:
         - source: "test"
           path: "JuliaLowering/test/functions.jl"
-          loc: "503-559"
-          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/test/functions.jl#L503-L559"
+          loc: "550-558"
+          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/test/functions.jl#L550-L558"
           snippet: |
-            @testset "Generated functions" begin
-                for expr_compat_mode in (false, true)
-                @test JuliaLowering.include_string(test_mod, raw"""
-                begin
-                    @generated function f_gen(x::NTuple{N,T}) where {N,T}
-                        quote
-                            ($x, $N, $T)
-                        end
-                    end
-
-                    f_gen((1,2,3,4,5))
+            @test JuliaLowering.include_string(test_mod, raw"""
+            begin
+                @generated function f_gen_calls_macros(x::T) where {T}
+                    s = @raw_str "foo"
+                    :(@raw_str $s)
                 end
-                """; expr_compat_mode) == (NTuple{5,Int}, 5, Int)
-
-                @test JuliaLowering.include_string(test_mod, """
-                begin
-                    @generated function f_gen_unnamed_args(::Type{T}, y, ::Type{U}) where {T, U}
-                        return (T, y, U)
-                    end
-
-                    f_gen_unnamed_args(Int, UInt8(3), Float64)
-                end
-                """; expr_compat_mode) == (Int, UInt8, Float64)
-
-                @test JuliaLowering.include_string(test_mod, raw"""
-                begin
-                    function f_partially_gen(x::NTuple{N,T}) where {N,T}
-                        shared = :shared_stuff
-                        if @generated
-                            if N == 2
-                                error("intentionally broken codegen (will trigger nongen branch)")
-                            end
-                            quote
-                                unshared = (:gen, ($x, $N, $T))
-                            end
-                        else
-                            unshared = (:nongen, (typeof(x), N, T))
-                        end
-                        (shared, unshared)
-                    end
-
-                    (f_partially_gen((1,2)), f_partially_gen((1,2,3,4,5)))
-                end
-                """; expr_compat_mode) ==
-                    ((:shared_stuff, (:nongen, (NTuple{2,Int}, 2, Int))),
-                     (:shared_stuff, (:gen, (NTuple{5,Int}, 5, Int))))
-
-                @test JuliaLowering.include_string(test_mod, raw"""
-                begin
-                    @generated function f_gen_calls_macros(x::T) where {T}
-                        s = @raw_str "foo"
-                        :(@raw_str $s)
-                    end
-                    f_gen_calls_macros(1)
-                end
-                """; expr_compat_mode) === "foo"
-                end
-    - summary: "IR printing shows compact GeneratedFunctionStub with expr_compat_mode and SourceRef display."
+                f_gen_calls_macros(1)
+            end
+            """; expr_compat_mode) === "foo"
+    - effect: |
+        IR dumps for generated-function metadata become shorter and more stable
+        because SourceRef values are rendered compactly instead of showing full
+        green-tree provenance information.
+      mechanism: |
+        _value_string(ex) [syntax_graph.jl:466-505] recognizes K"Value" nodes where
+        ex.value isa SourceRef [line 484-485] and emits a compact string format
+        "SourceRef:filename:line" which is used by IR printing functions.
+      downstream_surfaces:
+        - "JuliaLowering.print_ir output in tests and tooling"
+        - "Debugger/IR inspection tools that display SyntaxTree values"
+        - "Test assertions comparing IR output strings"
+      likelihood: "high"
+      impact: "low"
       evidence:
         - source: "test"
           path: "JuliaLowering/test/functions_ir.jl"
-          loc: "1540-1616"
-          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/test/functions_ir.jl#L1540-L1616"
+          loc: "1560-1564"
+          url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/test/functions_ir.jl#L1560-L1564"
           snippet: |
             19  --- method core.nothing %₁₈
                 slots: [slot₁/#self#(!read) slot₂/x(!read) slot₃/y(!read)]
                 1   (meta :generated (new JuliaLowering.GeneratedFunctionStub false TestMod.#f_only_generated@generator#0 SourceRef::1:1 (call core.svec :#self# :x :y) (call core.svec)))
                 2   (meta :generated_only)
                 3   (return core.nothing)
-            20  latestworld
-            21  TestMod.f_only_generated
-            22  (return %₂₁)
-
-            19  --- method core.nothing %₁₈
-                slots: [slot₁/#self#(!read) slot₂/x slot₃/y slot₄/maybe_gen_stuff slot₅/nongen_stuff]
-                1   (meta :generated (new JuliaLowering.GeneratedFunctionStub false TestMod.#f_partially_generated@generator#0 SourceRef::1:37 (call core.svec :#self# :x :y) (call core.svec)))
-                2   TestMod.bothgen
-                3   (= slot₅/nongen_stuff (call %₂ slot₂/x slot₃/y))
-                4   TestMod.some_nongen_stuff
-                5   (= slot₄/maybe_gen_stuff (call %₄ slot₂/x slot₃/y))
-                6   slot₅/nongen_stuff
-                7   slot₄/maybe_gen_stuff
-                8   (call core.tuple %₆ %₇)
-                9   (return %₈)
+  compatibility:
+    internal_api:
+      - summary: |
+          GeneratedFunctionStub struct has a new first field expr_compat_mode::Bool,
+          changing its memory layout. Tooling that pattern-matches GeneratedFunctionStub
+          in lowered IR will see the new field.
+        evidence:
+          - source: "diff"
+            path: "JuliaLowering/src/runtime.jl"
+            loc: "292-298"
+            url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/runtime.jl#L292-L298"
+            snippet: |
+              struct GeneratedFunctionStub
+                  expr_compat_mode::Bool
+                  gen::Function
+                  srcref::Union{SyntaxTree,LineNumberNode,SourceRef}
+                  argnames::Core.SimpleVector
+                  spnames::Core.SimpleVector
+              end
+    behavioral:
+      - summary: |
+          Generated functions executing in expr_compat_mode now accept Expr output
+          and macro usage that previously failed or produced mismatched syntax trees.
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/functions.jl"
+            loc: "503-559"
+            url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/test/functions.jl#L503-L559"
+            snippet: |
+              @testset "Generated functions" begin
+                  for expr_compat_mode in (false, true)
+                  @test JuliaLowering.include_string(test_mod, raw"""
+                  begin
+                      @generated function f_gen(x::NTuple{N,T}) where {N,T}
+                          quote
+                              ($x, $N, $T)
+                          end
+                      end
+                      f_gen((1,2,3,4,5))
+                  end
+                  """; expr_compat_mode) == (NTuple{5,Int}, 5, Int)
+    ir_format:
+      - summary: |
+          IR printed output for GeneratedFunctionStub now shows expr_compat_mode bool
+          and compact SourceRef format instead of full provenance tree.
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/functions_ir.jl"
+            loc: "1606-1608"
+            url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/test/functions_ir.jl#L1606-L1608"
+            snippet: |
+              19  --- method core.nothing %₁₈
+                  slots: [slot₁/#self#(!read) slot₂/x slot₃/y slot₄/maybe_gen_stuff slot₅/nongen_stuff]
+                  1   (meta :generated (new JuliaLowering.GeneratedFunctionStub false TestMod.#f_partially_generated@generator#0 SourceRef::1:37 (call core.svec :#self# :x :y) (call core.svec)))
+  performance:
+    compile_time:
+      - summary: |
+          ESTIMATED: Negligible overhead. The new expr_to_syntaxtree conversion only
+          runs when a generator returns an Expr; otherwise behavior is unchanged.
+          The SourceRef string formatting in _value_string is only invoked during
+          IR printing/debugging, not during normal compilation.
+        evidence:
+          - source: "diff"
+            path: "JuliaLowering/src/runtime.jl"
+            loc: "335-337"
+            url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/runtime.jl#L335-L337"
+            snippet: |
+              if ex0 isa Expr
+                  ex0 = expr_to_syntaxtree(ctx1, ex0, source_location(LineNumberNode, g.srcref))
+              end
+    runtime:
+      - summary: "None expected; all changes are compile-time/lowering only."
+        evidence:
+          - source: "diff"
+            path: "JuliaLowering/src/runtime.jl"
+            loc: "304"
+            url: "https://github.com/JuliaLang/julia/blob/eca649c6bbfcc29e90333bd6850d9b165fe19ecc/JuliaLowering/src/runtime.jl#L304"
+            snippet: |
+              function (g::GeneratedFunctionStub)(world::UInt, source::Method, @nospecialize args...)
+  tests:
+    changed_files:
+      - "JuliaLowering/test/functions.jl"
+      - "JuliaLowering/test/functions_ir.jl"
+    new_behavior_assertions:
+      - "Generated functions tested under both expr_compat_mode=false and expr_compat_mode=true"
+      - "New test f_gen_calls_macros verifies @raw_str macro works inside generated functions"
+      - "IR output tests updated to expect compact SourceRef format and expr_compat_mode field"
+    coverage_gaps:
+      - "No test for generators returning non-Expr, non-SyntaxTree values with expr_compat_mode=true"
+      - "No explicit test for SourceRef display in error messages or debugging output"
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are localized to generated-function lowering and macro expansion contexts"
+      - "Behavior locked in by comprehensive tests running in both compat modes"
+      - "IR format changes are cosmetic and improve readability"
+      - "No changes to type inference, optimization, or codegen paths"
+  open_questions:
+    - "Do any downstream tools rely on the previous GeneratedFunctionStub field order in IR dumps?"
+    - "Should expr_compat_mode default be configurable at a higher level than per-include?"
+  recommendations:
+    - "If tooling parses printed IR, update expectations for GeneratedFunctionStub fields and SourceRef formatting"
+    - "Consider documenting the expr_compat_mode flag for package authors using generated functions"

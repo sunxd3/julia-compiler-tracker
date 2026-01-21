@@ -11,7 +11,9 @@ pr:
   diff_url: "https://github.com/JuliaLang/julia/pull/60316.diff"
 scope:
   files_touched:
+    - "JuliaLowering/src/ast.jl"
     - "JuliaLowering/src/bindings.jl"
+    - "JuliaLowering/src/closure_conversion.jl"
     - "JuliaLowering/src/scope_analysis.jl"
     - "JuliaLowering/test/decls_ir.jl"
     - "JuliaLowering/test/scopes.jl"
@@ -21,20 +23,36 @@ scope:
     - "Lowering"
     - "ScopeResolution"
     - "VariableAnalysis"
+    - "ClosureConversion"
 analysis:
   intent:
-    summary: "Refactor scope resolution to better model soft scope toggling and binding metadata, while consolidating variable usage flags into BindingInfo for later lowering stages."
+    summary: "Refactor scope resolution to correctly model soft scope toggling behavior, consolidate variable usage flags (read/called/assigned/captured) into a mutable BindingInfo struct, and simplify LambdaBindings to track only local capture status."
     issue_links:
       - "https://github.com/JuliaLang/JuliaLowering.jl/issues/101"
   direct_changes:
-    - summary: "BindingInfo is now mutable and expanded to carry vinfo-style usage flags (read/called/assigned, capture state, always-defined, etc.), and binding creation routes through the new _new_binding helper." 
+    - summary: "Add ScopeId type alias and K\"softscope\" AST node support for soft scope toggling."
+      component: "JuliaLowering/src/ast.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/ast.jl"
+          loc: "88-91"
+          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/ast.jl#L88-L91"
+          snippet: |
+            """
+            Lexical scope ID
+            """
+            const ScopeId = Int
+    - summary: "BindingInfo is now mutable and expanded to carry vinfo-style usage flags (is_read, is_called, is_assigned, is_assigned_once, is_captured, is_always_defined, is_used_undef). Replaces previous n_assigned counter approach."
       component: "JuliaLowering/src/bindings.jl"
       evidence:
         - source: "code"
           path: "JuliaLowering/src/bindings.jl"
-          loc: "4-45"
-          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/bindings.jl#L4-L45"
+          loc: "1-25"
+          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/bindings.jl#L1-L25"
           snippet: |
+            """
+            Metadata about a binding
+            """
             mutable struct BindingInfo
                 const id::IdTag                 # Unique integer identifying this binding
                 const name::String
@@ -72,24 +90,58 @@ analysis:
                 add_binding(ctx.bindings, b)
                 return b
             end
-    - summary: "Scope resolution now tracks permeable scopes and softscope markers to decide when assignments in neutral scopes should target existing globals versus introduce locals." 
+    - summary: "LambdaBindings simplified to track only binding ID to capture status mapping (locals_capt Dict{IdTag,Bool}), removing the per-lambda LambdaBindingInfo with its own read/assigned/called flags."
+      component: "JuliaLowering/src/bindings.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/bindings.jl"
+          loc: "161-183"
+          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/bindings.jl#L161-L183"
+          snippet: |
+            # One lambda's variables
+            struct LambdaBindings
+                # Binding ID of #self#
+                self::IdTag
+                # For finding the parent lambda in variable analysis
+                scope_id::ScopeId
+                # A map from every referenced local binding ID to whether the local is
+                # captured (true) or native to this lambda (false).  References in inner
+                # lambdas count: `inner.locals_capt[id]` implies `haskey(locals_capt, id)`
+                # TODO: If we use scope ID as a lambda ID and give BindingInfo a field
+                # noting which lambda it belongs to, we could just make this a BitSet of
+                # vars present, where we tell if a binding is captured by comparing
+                # this.scope_id with the BindingInfo's scope_id.
+                locals_capt::Dict{IdTag,Bool}
+            end
+
+            LambdaBindings(self::IdTag = 0, scope_id::ScopeId = 0) =
+                LambdaBindings(self, scope_id, Dict{IdTag,LambdaBindings}())
+
+            function init_lambda_binding(bindings::LambdaBindings, id::IdTag, capt::Bool)
+                @assert !haskey(bindings.locals_capt, id)
+                bindings.locals_capt[id] = capt
+            end
+    - summary: "Scope resolution now tracks permeable scopes and uses contains_softscope_marker to toggle soft scope behavior for REPL-like assignment resolution."
       component: "JuliaLowering/src/scope_analysis.jl"
       evidence:
         - source: "code"
           path: "JuliaLowering/src/scope_analysis.jl"
-          loc: "83-90"
-          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/scope_analysis.jl#L83-L90"
+          loc: "73-90"
+          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/scope_analysis.jl#L73-L90"
           snippet: |
-            ScopeResolutionContext(
-                graph,
-                ctx.bindings,
-                ctx.mod,
-                Vector{ScopeInfo}(),
-                Vector{ScopeId}(),
-                ctx.scope_layers,
-                Set{NameKey}(),
-                contains_softscope_marker(ex),
-                ctx.expr_compat_mode)
+            function ScopeResolutionContext(ctx, ex)
+                graph = ensure_attributes(ctx.graph, lambda_bindings=LambdaBindings)
+                ScopeResolutionContext(
+                    graph,
+                    ctx.bindings,
+                    ctx.mod,
+                    Vector{ScopeInfo}(),
+                    Vector{ScopeId}(),
+                    ctx.scope_layers,
+                    Set{NameKey}(),
+                    contains_softscope_marker(ex),
+                    ctx.expr_compat_mode)
+            end
 
             function contains_softscope_marker(ex)
                 kind(ex) == K"softscope" ||
@@ -97,8 +149,8 @@ analysis:
             end
         - source: "code"
           path: "JuliaLowering/src/scope_analysis.jl"
-          loc: "229-306"
-          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/scope_analysis.jl#L229-L306"
+          loc: "229-310"
+          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/scope_analysis.jl#L229-L310"
           snippet: |
             function enter_scope!(ctx, ex)
                 @assert kind(ex) in KSet"lambda scope_block"
@@ -111,54 +163,13 @@ analysis:
                 scope = ScopeInfo(ctx, parent_id, ex._id, kind(ex) === K"lambda", is_permeable)
                 lambda_scope = ctx.scopes[scope.lambda_id]
                 push!(ctx.scope_stack, scope.id)
-            
-                #---------------------------------------------------------------------------
-                # Find assignment targets, possibly introducing implicit locals and globals
-                for (vk, node_id) in sort!(collect(scope.assignments))
-                    local ex = SyntaxTree(ctx.graph, node_id)
-                    b = resolve_name(ctx, ex)
-                    if b === nothing
-                        if is_toplevel_thunk && !ctx.scope_layers[vk.layer].is_macro_expansion
-                            push!(ctx.soft_assignable_globals, vk)
-                            declare_in_scope!(ctx, top_scope(ctx), ex, :global)
-                        elseif scope.is_permeable && is_defined_and_owned_global(
-                            ctx.scope_layers[vk.layer].mod, Symbol(vk.name))
-                            # special soft scope rules: existing global variables are assigned to
-                            if ctx.enable_soft_scopes
-                                push!(ctx.soft_assignable_globals, vk)
-                                declare_in_scope!(ctx, top_scope(ctx), ex, :global)
-                            else
-                                declare_in_scope!(ctx, scope, ex, :local; is_ambiguous_local=true)
-                            end
-                        else
-                            declare_in_scope!(ctx, scope, ex, :local)
-                        end
-                    elseif b.kind === :global
-                        if is_toplevel_thunk
-                            # assign-existing and make visible to soft scope
-                            push!(ctx.soft_assignable_globals, vk)
-                        elseif !isnothing(resolve_name(ctx, ex; exclude_toplevel_globals=true)) ||
-                            (ctx.enable_soft_scopes && scope.is_permeable &&
-                            vk in ctx.soft_assignable_globals)
-                            # assign-existing-global if this is an explicit global that
-                            # isn't at top level, or if the soft scope exception applies
-                        else
-                            declare_in_scope!(ctx, scope, ex, :local)
-                        end
-                    elseif b.kind === :static_parameter
-                        throw(LoweringError(ex, "cannot overwrite a static parameter"))
-                    elseif b.kind === :local || b.kind === :argument
-                        # unambiguous assignment to existing variable
-                        record_lambda_var!(ctx, scope, b, capt=true)
-                    end
-                end
-            
+                # ... assignment resolution logic using is_permeable + enable_soft_scopes ...
                 return scope
             end
         - source: "test"
           path: "JuliaLowering/test/scopes.jl"
-          loc: "147-171"
-          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/test/scopes.jl#L147-L171"
+          loc: "147-172"
+          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/test/scopes.jl#L147-L172"
           snippet: |
             @testset "basic softscope (uses internal lowering nodes, not surface syntax)" begin
                 # wrap expression in scope block of `scope_type` (:neutral or :hard)
@@ -186,7 +197,7 @@ analysis:
                 JuliaLowering.eval(test_mod, use_soft(wrapscope(assign_z_2, :neutral)))
                 @test test_mod.z == 2
             end
-    - summary: "Variable analysis now writes read/assigned/called flags into BindingInfo and records capture metadata used by closure conversion and linear IR slot flags." 
+    - summary: "Variable analysis pass (analyze_variables!) now writes read/assigned/called flags directly into BindingInfo rather than per-lambda LambdaBindingInfo."
       component: "JuliaLowering/src/scope_analysis.jl"
       evidence:
         - source: "code"
@@ -230,11 +241,54 @@ analysis:
                         get_binding(ctx, name.var_id).is_called = true
                     end
                     foreach(e->analyze_variables!(ctx, e), children(ex))
+                # ... additional cases for function_decl, constdecl, lambda, etc.
+    - summary: "Closure conversion updated to use simplified LambdaBindings.locals_capt map and read boxing decisions from BindingInfo flags."
+      component: "JuliaLowering/src/closure_conversion.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/closure_conversion.jl"
+          loc: "234-242"
+          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/closure_conversion.jl#L234-L242"
+          snippet: |
+            function closure_type_fields(ctx, srcref, closure_binds, is_opaque)
+                capture_ids = Vector{IdTag}()
+                for lambda_bindings in closure_binds.lambdas
+                    for (id, is_capt) in lambda_bindings.locals_capt
+                        is_capt && push!(capture_ids, id)
+                    end
                 end
+                # sort here to avoid depending on undefined Dict iteration order.
+                capture_ids = sort!(unique(capture_ids))
+        - source: "code"
+          path: "JuliaLowering/src/closure_conversion.jl"
+          loc: "303-320"
+          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/closure_conversion.jl#L303-L320"
+          snippet: |
+            function is_boxed(binfo::BindingInfo)
+                # True for
+                # * :argument when it's not reassigned
+                # * :static_parameter (these can't be reassigned)
+                defined_but_not_assigned = binfo.is_always_defined && !binfo.is_assigned
+                # For now, we box almost everything but later we'll want to do dominance
+                # analysis on the untyped IR.
+                return binfo.is_captured && !defined_but_not_assigned
+            end
+
+            function is_boxed(ctx, x)
+                is_boxed(get_binding(ctx, x))
+            end
+
+            # Is captured in the closure's `self` argument
+            function is_self_captured(ctx, x)
+                get(ctx.lambda_bindings.locals_capt, _binding_id(x), false)
+            end
+    - summary: "Linear IR generation reads binding flags directly from BindingInfo to construct Slot metadata."
+      component: "JuliaLowering/src/linear_ir.jl"
+      evidence:
         - source: "code"
           path: "JuliaLowering/src/linear_ir.jl"
-          loc: "1045-1088"
-          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/linear_ir.jl#L1045-L1088"
+          loc: "1045-1091"
+          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/linear_ir.jl#L1045-L1091"
           snippet: |
             struct Slot
                 name::String
@@ -250,7 +304,6 @@ analysis:
                 lambda_args = ex[1]
                 static_parameters = ex[2]
                 ret_var = numchildren(ex) == 4 ? ex[4] : nothing
-                # TODO: Add assignments for reassigned arguments to body
                 lambda_bindings = ex.lambda_bindings
                 ctx = LinearIRContext(outer_ctx, ex.is_toplevel_thunk, lambda_bindings, ret_var)
                 compile_body(ctx, ex[3])
@@ -258,7 +311,6 @@ analysis:
                 slot_rewrites = Dict{IdTag,Int}()
                 for arg in children(lambda_args)
                     if kind(arg) == K"Placeholder"
-                        # Unused functions arguments like: `_` or `::T`
                         push!(slots, Slot(arg.name_val, :argument, false, false, false, false, false))
                     else
                         @assert kind(arg) == K"BindingId"
@@ -271,20 +323,35 @@ analysis:
                         slot_rewrites[id] = length(slots)
                     end
                 end
+                # Sorting the lambda locals is required to remove dependence on Dict iteration order.
+                for (id, is_capt) in sort(collect(pairs(lambda_bindings.locals_capt)), by=first)
+                    if !is_capt
+                        binfo = get_binding(ctx.bindings, id)
+                        if binfo.kind == :local
+                            push!(slots, Slot(binfo.name, :local, false,
+                                              binfo.is_read, binfo.is_assigned_once,
+                                              binfo.is_used_undef, binfo.is_called))
+                            slot_rewrites[id] = length(slots)
+                        end
+                    end
+                end
   secondary_effects:
-    - effect: "Capture boxing decisions can change because capture/read/assignment flags are now updated directly on BindingInfo during scope/variable analysis." 
+    - effect: "Capture boxing decisions may change because is_assigned flag is now a boolean rather than n_assigned counter, and flags are computed globally on BindingInfo rather than per-lambda."
       mechanism: |
-        record_lambda_var!(ctx, scope, b, capt=true)  [scope_analysis.jl:161-171]
-          sets b.is_captured = capt
-        analyze_variables!(ctx, ex)  [scope_analysis.jl:584-648]
-          sets b.is_assigned/b.is_assigned_once and b.is_read
-        is_boxed(binfo)  [closure_conversion.jl:303-310]
-          uses binfo.is_captured and binfo.is_always_defined/is_assigned
+        record_lambda_var!(ctx, scope, b, capt=true)  [scope_analysis.jl:161-174]
+          sets b.is_captured = capt on BindingInfo
+          propagates to parent lambdas recursively
+        analyze_variables!(ctx, ex)  [scope_analysis.jl:590-681]
+          sets b.is_assigned and b.is_assigned_once via add_assign!()
+          sets b.is_read = true for K"BindingId" nodes
+        is_boxed(binfo)  [closure_conversion.jl:303-311]
+          checks: binfo.is_captured && !(binfo.is_always_defined && !binfo.is_assigned)
+          determines if variable needs Core.Box wrapping
       evidence:
         - source: "rg"
-          path: "rg record_lambda_var! JuliaLowering/src"
-          loc: "stdout"
-          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/scope_analysis.jl#L161-L338"
+          path: "JuliaLowering/src"
+          loc: "record_lambda_var! callers"
+          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/scope_analysis.jl#L161-L174"
           snippet: |
             JuliaLowering/src/scope_analysis.jl
             113:        record_lambda_var!(ctx, scope, get_binding(ctx, bid), capt=false)
@@ -299,76 +366,145 @@ analysis:
       downstream_surfaces:
         - "Closure conversion capture layout (boxed vs unboxed captures)"
         - "Opaque closure capture decisions"
+        - "Linear IR slot flags (is_single_assign, is_maybe_undef)"
       likelihood: "medium"
       impact: "medium"
-    - effect: "Soft scope toggling affects whether neutral scopes assign to existing globals or introduce ambiguous locals, changing name resolution in REPL-like contexts." 
+    - effect: "Soft scope toggling affects whether neutral scopes assign to existing globals or introduce ambiguous locals, changing name resolution in REPL-like contexts."
       mechanism: |
         contains_softscope_marker(ex)  [scope_analysis.jl:87-90]
-          toggles ctx.enable_soft_scopes
-        enter_scope!(ctx, ex)  [scope_analysis.jl:229-306]
-          uses scope.is_permeable + enable_soft_scopes to choose global vs local binding
+          walks AST to detect K"softscope" nodes
+          sets ctx.enable_soft_scopes = true if found
+        enter_scope!(ctx, ex)  [scope_analysis.jl:229-310]
+          computes scope.is_permeable for neutral scope blocks
+          when enable_soft_scopes && is_permeable && is_defined_and_owned_global:
+            declares in top_scope as :global (lines 280-282)
+          otherwise:
+            declares as :local with is_ambiguous_local=true (line 284)
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/scope_analysis.jl"
+          loc: "273-288"
+          url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/scope_analysis.jl#L273-L288"
+          snippet: |
+            if b === nothing
+                if is_toplevel_thunk && !ctx.scope_layers[vk.layer].is_macro_expansion
+                    push!(ctx.soft_assignable_globals, vk)
+                    declare_in_scope!(ctx, top_scope(ctx), ex, :global)
+                elseif scope.is_permeable && is_defined_and_owned_global(
+                    ctx.scope_layers[vk.layer].mod, Symbol(vk.name))
+                    # special soft scope rules: existing global variables are assigned to
+                    if ctx.enable_soft_scopes
+                        push!(ctx.soft_assignable_globals, vk)
+                        declare_in_scope!(ctx, top_scope(ctx), ex, :global)
+                    else
+                        declare_in_scope!(ctx, scope, ex, :local; is_ambiguous_local=true)
+                    end
+                else
+                    declare_in_scope!(ctx, scope, ex, :local)
+                end
       downstream_surfaces:
         - "REPL top-level assignment behavior"
         - "Macro expansions that inject scope_block nodes"
+        - "JuliaLowering.activate!() usability in interactive sessions"
       likelihood: "high"
       impact: "medium"
+    - effect: "Scopes are now retained until the end of the pass in ctx.scopes, enabling downstream tools like JETLS to query available names at cursor positions."
+      mechanism: |
+        ScopeInfo stored in ctx.scopes vector  [scope_analysis.jl:20-41]
+          contains vars::Dict{NameKey,IdTag} mapping names to bindings
+          parent_id and lambda_id enable scope tree traversal
+        Scopes not deleted after scope_stack pop  [scope_analysis.jl:387,406]
+          allows post-pass inspection of all lexical scopes
+      evidence:
+        - source: "pr_body"
+          path: "PR description"
+          loc: "Enhancements section"
+          url: "https://github.com/JuliaLang/julia/pull/60316"
+          snippet: |
+            Scopes are retained until the end of the pass, so consumers like JETLS can
+            answer questions like "what names are available at my cursor?" Recreating
+            this previously-discarded information was a bit hacky!
+      downstream_surfaces:
+        - "JETLS.jl scope analysis"
+        - "Language server completion providers"
+        - "IDE tooling for Julia"
+      likelihood: "high"
+      impact: "low"
   compatibility:
     internal_api:
-      - item: "BindingInfo now carries vinfo-style flags and is mutable; consumers that previously relied on immutable BindingInfo or LambdaBindingInfo need to read fields from BindingInfo instead."
+      - item: "BindingInfo changed from immutable struct to mutable struct. Fields n_assigned removed, replaced with boolean is_assigned and is_assigned_once."
         evidence:
           - source: "code"
             path: "JuliaLowering/src/bindings.jl"
-            loc: "4-24"
-            url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/bindings.jl#L4-L24"
+            loc: "4-25"
+            url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/bindings.jl#L4-L25"
             snippet: |
               mutable struct BindingInfo
-                  const id::IdTag                 # Unique integer identifying this binding
+                  const id::IdTag
                   const name::String
-                  const kind::Symbol              # :local :global :argument :static_parameter
-                  const node_id::Int              # ID of some K"BindingId" node in the syntax graph
-                  const mod::Union{Nothing,Module} # Set when `kind === :global`
-                  type::Union{Nothing,SyntaxTree} # Type, for bindings declared like x::T = 10
-                  is_const::Bool            # Constant, cannot be reassigned
-                  is_ssa::Bool              # Single assignment, defined before use
-                  is_internal::Bool         # True for internal bindings generated by the compiler
-                  is_ambiguous_local::Bool  # Local, but would be global in soft scope (ie, the REPL)
-
-                  # flisp: vinfo
-                  is_nospecialize::Bool # @nospecialize on this argument (only valid for kind == :argument)
+                  const kind::Symbol
+                  const node_id::Int
+                  const mod::Union{Nothing,Module}
+                  type::Union{Nothing,SyntaxTree}
+                  is_const::Bool
+                  is_ssa::Bool
+                  is_internal::Bool
+                  is_ambiguous_local::Bool
+                  is_nospecialize::Bool
                   is_read::Bool
                   is_called::Bool
-                  is_assigned::Bool # the implicit assignment to arguments doesn't count
+                  is_assigned::Bool
                   is_assigned_once::Bool
                   is_captured::Bool
                   is_always_defined::Bool
                   is_used_undef::Bool
+              end
+      - item: "LambdaBindingInfo struct removed entirely. LambdaBindings.bindings Dict{IdTag,LambdaBindingInfo} replaced with locals_capt Dict{IdTag,Bool}."
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/bindings.jl"
+            loc: "161-175"
+            url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/bindings.jl#L161-L175"
+            snippet: |
+              struct LambdaBindings
+                  self::IdTag
+                  scope_id::ScopeId
+                  locals_capt::Dict{IdTag,Bool}
+              end
+      - item: "API function lookup_binding renamed to get_binding. update_binding! removed in favor of direct field mutation on mutable BindingInfo."
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/bindings.jl"
+            loc: "104-110"
+            url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/bindings.jl#L104-L110"
+            snippet: |
+              function get_binding(bindings::Bindings, x)
+                  bindings.info[_binding_id(x)]
+              end
+
+              function get_binding(ctx::AbstractLoweringContext, x)
+                  get_binding(ctx.bindings, x)
+              end
+      - item: "Functions lookup_lambda_binding, update_lambda_binding!, has_lambda_binding removed. Callers should use LambdaBindings.locals_capt directly."
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/closure_conversion.jl"
+            loc: "317-320"
+            url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/closure_conversion.jl#L317-L320"
+            snippet: |
+              # Is captured in the closure's `self` argument
+              function is_self_captured(ctx, x)
+                  get(ctx.lambda_bindings.locals_capt, _binding_id(x), false)
+              end
     behavioral:
-      - item: "Assignments in neutral scopes can now target existing globals when a softscope marker is present, instead of always creating a new local binding."
+      - item: "Assignments in neutral scopes can now target existing globals when a softscope marker is present, instead of always creating a new local binding. This fixes REPL usability with JuliaLowering.activate!()."
         evidence:
           - source: "test"
             path: "JuliaLowering/test/scopes.jl"
-            loc: "147-171"
-            url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/test/scopes.jl#L147-L171"
+            loc: "147-172"
+            url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/test/scopes.jl#L147-L172"
             snippet: |
               @testset "basic softscope (uses internal lowering nodes, not surface syntax)" begin
-                  # wrap expression in scope block of `scope_type` (:neutral or :hard)
-                  function wrapscope(ex, scope_type)
-                      g = JuliaLowering.ensure_attributes(ex._graph, scope_type=Symbol)
-                      ex = JuliaLowering.reparent(g, ex)
-                      makenode(g, ex, K"scope_block", [ex._id], [:scope_type=>scope_type])
-                  end
-                  function use_soft(ex::SyntaxTree)
-                      @ast ex._graph ex [K"block" (::K"softscope") ex]
-                  end
-
-                  assign_z_2 = parsestmt(SyntaxTree, "begin z = 2 end", filename="foo.jl")
-                  Base.eval(test_mod, :(z=1))
-                  @test test_mod.z == 1
-                  # hard scopes will always create a new binding; softscope mode is ignored
-                  JuliaLowering.eval(test_mod, wrapscope(assign_z_2, :hard))
-                  @test test_mod.z == 1
-                  JuliaLowering.eval(test_mod, use_soft(wrapscope(assign_z_2, :hard)))
-                  @test test_mod.z == 1
                   # neutral (eg, for loops) and hard (eg, let) scopes create a new binding for z
                   JuliaLowering.eval(test_mod, wrapscope(assign_z_2, :neutral))
                   @test test_mod.z == 1
@@ -376,78 +512,63 @@ analysis:
                   JuliaLowering.eval(test_mod, use_soft(wrapscope(assign_z_2, :neutral)))
                   @test test_mod.z == 2
               end
+      - item: "Static parameters can now be shadowed by explicit globals and locals in nested scopes, more permissively than flisp which only allowed global shadowing."
+        evidence:
+          - source: "pr_body"
+            path: "PR description"
+            loc: "Shadowing behaviour section"
+            url: "https://github.com/JuliaLang/julia/pull/60316"
+            snippet: |
+              This PR allows static parameters to be shadowed by globals and locals as long
+              as they're explicit (and not in the same scope). flisp allows this with globals,
+              and the explicit locals that desugar to `local-def` forms.
   performance:
     compile_time:
-      - summary: "ESTIMATED: an additional AST walk to detect softscope markers via contains_softscope_marker, plus extra bookkeeping for assignment resolution, adds O(n) work per lowering pass where n is the AST size."
+      - summary: "ESTIMATED: Additional O(n) AST walk via contains_softscope_marker() before scope resolution, where n is AST node count. Early termination on K\"softscope\" detection."
         evidence:
           - source: "code"
             path: "JuliaLowering/src/scope_analysis.jl"
-            loc: "83-90"
-            url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/scope_analysis.jl#L83-L90"
+            loc: "87-90"
+            url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/scope_analysis.jl#L87-L90"
             snippet: |
-              ScopeResolutionContext(
-                  graph,
-                  ctx.bindings,
-                  ctx.mod,
-                  Vector{ScopeInfo}(),
-                  Vector{ScopeId}(),
-                  ctx.scope_layers,
-                  Set{NameKey}(),
-                  contains_softscope_marker(ex),
-                  ctx.expr_compat_mode)
-
               function contains_softscope_marker(ex)
                   kind(ex) == K"softscope" ||
                       needs_resolution(ex) && any(contains_softscope_marker, children(ex))
               end
-    runtime:
-      - summary: "No direct runtime codegen changes; effects are limited to lowering-time binding classification and metadata for closure conversion."
+      - summary: "ESTIMATED: Simpler LambdaBindings structure (single Dict vs Dict of structs) may slightly improve allocation and lookup performance during scope analysis."
         evidence:
           - source: "code"
-            path: "JuliaLowering/src/scope_analysis.jl"
-            loc: "590-648"
-            url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/scope_analysis.jl#L590-L648"
+            path: "JuliaLowering/src/bindings.jl"
+            loc: "161-175"
+            url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/bindings.jl#L161-L175"
             snippet: |
-              # Update ctx.bindings metadata based on binding usage
-              function analyze_variables!(ctx, ex)
-                  k = kind(ex)
-                  if k == K"BindingId"
-                      b = get_binding(ctx, ex.var_id)
-                      b.is_read = true
-                      # The type of typed locals is invisible in the previous pass,
-                      # but is filled in here.
-                      scope = ctx.scopes[ctx.lambda_bindings.scope_id]
-                      record_lambda_var!(ctx, scope, b, capt=true)
-                      @assert b.kind === :global || b.is_ssa || haskey(ctx.lambda_bindings.locals_capt, b.id)
-                  elseif k == K"="
-                      lhs = ex[1]
-                      if kind(lhs) != K"Placeholder"
-                          b = get_binding(ctx, lhs)
-                          add_assign!(b)
-                          scope = ctx.scopes[ctx.lambda_bindings.scope_id]
-                          record_lambda_var!(ctx, scope, b, capt=true)
-                          if !isnothing(b.type)
-                              # Assignments introduce a variable's type later during closure
-                              # conversion, but we must model that explicitly here.
-                              analyze_variables!(ctx, b.type)
-                          end
-                      end
-                      analyze_variables!(ctx, ex[2])
-                  elseif k == K"call"
-                      name = ex[1]
-                      if kind(name) == K"BindingId"
-                          get_binding(ctx, name.var_id).is_called = true
-                      end
-                      foreach(e->analyze_variables!(ctx, e), children(ex))
-                  end
+              # Old: Dict{IdTag,LambdaBindingInfo} with 4-field immutable struct
+              # New: Dict{IdTag,Bool} - just capture status
+              locals_capt::Dict{IdTag,Bool}
+    runtime:
+      - summary: "No direct runtime codegen changes. Effects limited to lowering-time binding classification and metadata propagation to closure conversion and linear IR generation."
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/linear_ir.jl"
+            loc: "1074-1077"
+            url: "https://github.com/JuliaLang/julia/blob/903568acd680da424c4513332a8914a436471ceb/JuliaLowering/src/linear_ir.jl#L1074-L1077"
+            snippet: |
+              # Slot flags derived from BindingInfo, same information content as before
+              push!(slots, Slot(binfo.name, :argument, binfo.is_nospecialize,
+                                binfo.is_read, binfo.is_assigned_once,
+                                binfo.is_used_undef, binfo.is_called))
   risk:
     level: "medium"
     rationale:
-      - "Scope resolution semantics (soft scope vs local shadowing) are user-visible in REPL-like contexts and can affect name binding outcomes."
-      - "BindingInfo flag propagation feeds closure conversion boxing decisions, which can affect capture layout and IR expectations."
+      - "Soft scope semantics are user-visible in REPL contexts and change name binding outcomes for assignments in for-loops and try-catch blocks."
+      - "BindingInfo flag propagation (now global rather than per-lambda) feeds closure conversion boxing decisions, which affects capture layout and runtime allocation."
+      - "Internal API breaking changes (removed LambdaBindingInfo, renamed lookup_binding) may affect downstream tooling that inspects lowering internals."
+      - "Static parameter shadowing rules relaxed compared to flisp, potentially allowing code that previously errored."
   open_questions:
-    - "Should expr_compat_mode and hygiene exemptions for globals be completed to match flisp behavior, as hinted by TODOs in the PR description?"
-    - "Are downstream tools relying on the old LambdaBindings per-lambda vinfo flags, and do they need explicit migration guidance?"
+    - "Should expr_compat_mode and hygiene exemptions for globals be completed to match flisp behavior, as noted in PR TODOs?"
+    - "Are downstream tools (JET, JETLS, IRTools) relying on the old LambdaBindingInfo per-lambda vinfo flags?"
+    - "The PR notes a desugaring bug where the same #self# binding is used for multiple methods - is this tracked separately?"
   recommendations:
-    - "Audit downstream uses of BindingInfo/LambdaBindings in JuliaLowering to ensure any external tooling reads flags from BindingInfo and respects updated capture semantics."
+    - "Audit downstream uses of BindingInfo/LambdaBindings in JuliaLowering to ensure external tooling reads flags from BindingInfo and uses locals_capt for capture status."
     - "Consider adding targeted regression tests that exercise softscope markers in nested macro expansions to lock in permeable-scope behavior."
+    - "Tools like JETLS.jl should be updated to use the now-retained ctx.scopes for name resolution queries rather than reconstructing scope information."

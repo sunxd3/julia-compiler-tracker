@@ -15,6 +15,13 @@ scope:
     - "JuliaLowering/src/ast.jl"
     - "JuliaLowering/src/compat.jl"
     - "JuliaLowering/src/desugaring.jl"
+    - "JuliaLowering/src/macro_expansion.jl"
+    - "JuliaLowering/src/utils.jl"
+    - "JuliaLowering/test/ast.jl"
+    - "JuliaLowering/test/compat.jl"
+    - "JuliaLowering/test/macros.jl"
+    - "JuliaLowering/test/runtests.jl"
+    - "JuliaLowering/test/utils.jl"
     - "JuliaSyntax/src/JuliaSyntax.jl"
     - "JuliaSyntax/src/porcelain/syntax_graph.jl"
     - "JuliaSyntax/src/porcelain/syntax_node.jl"
@@ -26,20 +33,27 @@ scope:
     - "JuliaLowering"
   pipeline_stages:
     - "Parsing"
-    - "ASTDataStructures"
+    - "Lowering"
 analysis:
   intent:
     summary: "Move the ECS-style SyntaxGraph/SyntaxTree infrastructure and related helpers/tests from JuliaLowering into JuliaSyntax, clarifying the distinction between SyntaxNode and SyntaxTree while keeping JuliaLowering functionality wired through JuliaSyntax."
     issue_links: []
+    quoted_from_pr: |
+      This is purely a code movement PR. @c42f has noted that `SyntaxTree` may eventually
+      replace `SyntaxNode` and should be part of JuliaSyntax. Doing this code movement
+      before https://github.com/JuliaLang/julia/pull/59870 would have been a mess, though,
+      since the API to `SyntaxTree` is still under development.
   direct_changes:
     - summary: "Defines SyntaxGraph and SyntaxTree in JuliaSyntax porcelain, documenting SyntaxTree as an unstable ECS-style AST and providing core graph/attribute machinery there."
-      component: "JuliaSyntax/porcelain"
+      component: "JuliaSyntax"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "JuliaSyntax/src/porcelain/syntax_graph.jl"
-          loc: "1-199"
-          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/src/porcelain/syntax_graph.jl#L1-L199"
+          loc: "1-68"
+          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/src/porcelain/syntax_graph.jl#L1-L68"
           snippet: |
+            const NodeId = Int
+
             """
             Directed graph with arbitrary attributes on nodes. Used here for representing
             one or several syntax trees.
@@ -55,6 +69,28 @@ analysis:
             SyntaxGraph() = SyntaxGraph{Dict{Symbol,Any}}(Vector{UnitRange{Int}}(),
                                                           Vector{NodeId}(), Dict{Symbol,Any}())
 
+            function ensure_attributes!(graph::SyntaxGraph; kws...)
+                for (k,v) in pairs(kws)
+                    @assert k isa Symbol
+                    @assert v isa Type
+                    if haskey(graph.attributes, k)
+                        v0 = valtype(graph.attributes[k])
+                        v == v0 || throw(ErrorException("Attribute type mismatch $v != $v0"))
+                    elseif graph.attributes isa NamedTuple
+                        throw(ErrorException("""
+                            ensure_attributes!: $k is not an existing attribute, and the graph's attributes are frozen. \
+                            Consider calling non-mutating `ensure_attributes` instead."""))
+                    else
+                        graph.attributes[k] = Dict{NodeId,v}()
+                    end
+                end
+                graph
+            end
+        - source: "diff"
+          path: "JuliaSyntax/src/porcelain/syntax_graph.jl"
+          loc: "189-198"
+          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/src/porcelain/syntax_graph.jl#L189-L198"
+          snippet: |
             """
                 struct SyntaxTree
 
@@ -68,10 +104,10 @@ analysis:
     - summary: "JuliaLowering now imports SyntaxGraph/SyntaxTree and related helpers directly from JuliaSyntax, relying on JuliaSyntax-provided constructors and traversal utilities."
       component: "JuliaLowering"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "JuliaLowering/src/JuliaLowering.jl"
-          loc: "15-28"
-          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaLowering/src/JuliaLowering.jl#L15-L28"
+          loc: "15-23"
+          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaLowering/src/JuliaLowering.jl#L15-L23"
           snippet: |
             using .JuliaSyntax: highlight, Kind, @KSet_str, is_leaf, children, numchildren,
                 head, kind, flags, has_flags, filename, first_byte, last_byte, byte_range,
@@ -82,39 +118,10 @@ analysis:
                 setattr, setattr!, syntax_graph, is_compatible_graph,
                 check_compatible_graph, copy_node, copy_ast, provenance, sourceref,
                 reparent, makeleaf, makenode, mapchildren, mapleaf, flattened_provenance
-        - source: "code"
-          path: "JuliaSyntax/src/porcelain/syntax_graph.jl"
-          loc: "570-615"
-          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/src/porcelain/syntax_graph.jl#L570-L615"
-          snippet: |
-            #-------------------------------------------------------------------------------
-            # AST creation utilities
-
-            # TODO: "proto", if SyntaxTree, is rarely different from srcref. reorganize to:
-            # newnode/newleaf(ctx, srcref, k::Kind[, attrs])
-            # makenode/makeleaf(ctx, old::SyntaxTree[, attrs])
-
-            _node_id(graph::SyntaxGraph, ex::SyntaxTree) = (check_compatible_graph(graph, ex); ex._id)
-
-            function makeleaf(graph::SyntaxGraph, srcref, proto::Union{Kind, SyntaxTree})
-                id = newnode!(graph)
-                ex = SyntaxTree(graph, id)
-                copy_attrs!(ex, proto, true)
-                ex.source = _unpack_srcref(graph, srcref)
-                return ex
-            end
-
-            function makenode(ctx, srcref, proto, children, attrs=nothing)
-                graph = syntax_graph(ctx)
-                ex = isnothing(attrs) ? makeleaf(graph, srcref, proto) :
-                    makeleaf(graph, srcref, proto, attrs)
-                setchildren!(graph, ex._id, children isa SyntaxList ? children.ids : children)
-                return ex
-            end
-    - summary: "JuliaLowering supplies SyntaxTree-to-Expr conversion hooks by overriding JuliaSyntax leaf/child fixups and routing Base.Expr to JuliaSyntax.to_expr." 
-      component: "JuliaLowering/compat"
+    - summary: "JuliaLowering supplies SyntaxTree-to-Expr conversion hooks by overriding JuliaSyntax._expr_leaf_val and fixup_Expr_child for SyntaxTree type, routing Base.Expr to JuliaSyntax.to_expr."
+      component: "JuliaLowering"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "JuliaLowering/src/compat.jl"
           loc: "591-628"
           url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaLowering/src/compat.jl#L591-L628"
@@ -133,8 +140,6 @@ analysis:
                 else
                     val = get(ex, :value, nothing)
                     if kind(ex) == K"Value" && val isa Expr || val isa LineNumberNode
-                        # Expr AST embedded in a SyntaxTree should be quoted rather than
-                        # becoming part of the output AST.
                         QuoteNode(val)
                     else
                         val
@@ -157,193 +162,143 @@ analysis:
             end
 
             Base.Expr(ex::SyntaxTree) = JuliaSyntax.to_expr(ex)
-        - source: "code"
+        - source: "diff"
           path: "JuliaSyntax/src/integration/expr.jl"
-          loc: "220-261"
-          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/src/integration/expr.jl#L220-L261"
+          loc: "690-697"
+          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/src/integration/expr.jl#L690-L697"
           snippet: |
-            _expr_leaf_val(node::SyntaxNode, _...) = node.val
-            _expr_leaf_val(cursor::RedTreeCursor, txtbuf::Vector{UInt8}, txtbuf_offset::UInt32) =
-                parse_julia_literal(txtbuf, head(cursor), byte_range(cursor) .+ txtbuf_offset)
-            # Extended in JuliaLowering to support `node_to_expr(::SyntaxTree, ...)`
-
-            function node_to_expr(cursor, source, txtbuf::Vector{UInt8}, txtbuf_offset::UInt32=UInt32(0))
-                if !should_include_node(cursor)
-                    return nothing
-                end
-
-                nodehead = head(cursor)
-                k = kind(cursor)
-                srcrange::UnitRange{UInt32} = byte_range(cursor)
-                if is_leaf(cursor)
-                    if is_error(k)
-                        return k == K"error" ?
-                            Expr(:error) :
-                            Expr(:error, "$(_token_error_descriptions[k]): `$(source[srcrange])`")
-                    elseif k == K"VERSION"
-                        nv = numeric_flags(flags(nodehead))
-                        return VersionNumber(1, nv ÷ 10, nv % 10)
-                    else
-                        scoped_val = _expr_leaf_val(cursor, txtbuf, txtbuf_offset)
-                        val = @isexpr(scoped_val, :scope_layer) ? scoped_val.args[1] : scoped_val
-                        if val isa Union{Int128,UInt128,BigInt}
-                            str = replace(source[srcrange], '_'=>"")
-                            macname = val isa Int128  ? Symbol("@int128_str")  :
-                                    val isa UInt128 ? Symbol("@uint128_str") :
-                                    Symbol("@big_str")
-                            return Expr(:macrocall, GlobalRef(Core, macname), nothing, str)
-                        elseif is_identifier(k)
-                            val2 = lower_identifier_name(val, k)
-                            return @isexpr(scoped_val, :scope_layer) ?
-                                Expr(:scope_layer, val2, scoped_val.args[2]) : val2
-                        else
-                            return scoped_val
-                        end
-                    end
-                end
-        - source: "rg"
-          path: "rg output"
-          loc: "fixup_Expr_child"
-          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/src/integration/expr.jl#L148"
-          snippet: |
-            JuliaSyntax/src/integration/expr.jl
-            148:function fixup_Expr_child(::Type, head::SyntaxHead, @nospecialize(arg), first::Bool)
-
-            JuliaLowering/src/compat.jl
-            614:function JuliaSyntax.fixup_Expr_child(::Type{<:SyntaxTree}, head::SyntaxHead,
-    - summary: "SyntaxGraph/SyntaxTree tests now live under JuliaSyntax and are only run for VERSION >= v\"1.12\", with parsing/error and copy_ast behavior asserted there."
-      component: "JuliaSyntax/tests"
+            function to_expr(node)
+                source = sourcefile(node)
+                txtbuf_offset, txtbuf = _unsafe_wrap_substring(sourcetext(source))
+                wrapper_head = SyntaxHead(K"wrapper",EMPTY_FLAGS)
+                return fixup_Expr_child(
+                    typeof(node), wrapper_head,
+                    node_to_expr(node, source, txtbuf, UInt32(txtbuf_offset)), false)
+            end
+    - summary: "JuliaSyntax conditionally includes syntax_graph.jl only for VERSION >= v1.12, gating the new ECS AST infrastructure to modern Julia versions."
+      component: "JuliaSyntax"
       evidence:
-        - source: "test"
-          path: "JuliaSyntax/test/runtests.jl"
-          loc: "18-24"
-          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/test/runtests.jl#L18-L24"
+        - source: "diff"
+          path: "JuliaSyntax/src/JuliaSyntax.jl"
+          loc: "99-105"
+          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/src/JuliaSyntax.jl#L99-L105"
           snippet: |
-            include("parse_stream.jl")
-            include("parser.jl")
-            include("green_node.jl")
-            include("syntax_node.jl")
+            # Tree data structures
+            include("porcelain/green_node.jl")
+            include("porcelain/syntax_node.jl")
+            include("integration/expr.jl")
             if VERSION >= v"1.12"
-                include("syntax_graph.jl")
-            end
-        - source: "test"
-          path: "JuliaSyntax/test/syntax_graph.jl"
-          loc: "45-101"
-          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/test/syntax_graph.jl#L45-L101"
-          snippet: |
-            @testset "SyntaxTree parsing" begin
-                # Errors should fall through
-                @test parsestmt(SyntaxTree, "@"; ignore_errors=true) isa SyntaxTree
-                @test parsestmt(SyntaxTree, "@@@"; ignore_errors=true) isa SyntaxTree
-                @test parsestmt(SyntaxTree, "(a b c)"; ignore_errors=true) isa SyntaxTree
-                @test parsestmt(SyntaxTree, "'a b c'"; ignore_errors=true) isa SyntaxTree
-            end
-
-            @testset "SyntaxTree utils" begin
-                "For filling required attrs in graphs created by hand"
-                function testgraph(edge_ranges, edges, more_attrs...)
-                    kinds = Dict(map(i->(i=>K"block"), eachindex(edge_ranges)))
-                    sources = Dict(map(i->(i=>LineNumberNode(i)), eachindex(edge_ranges)))
-                    SyntaxGraph(
-                        edge_ranges,
-                        edges,
-                        Dict(:kind => kinds, :source => sources, more_attrs...))
-                end
-
-                @testset "copy_ast" begin
-                    g = testgraph([1:1, 2:2, 0:-1, 3:3, 4:4, 0:-1, 5:5, 6:6, 0:-1],
-                                  [2, 3, 5, 6, 8, 9],
-                                  :source => Dict(enumerate([
-                                      map(i->i+3, 1:6)...
-                                      map(LineNumberNode, 7:9)...])))
-                    st = SyntaxTree(g, 1)
-                    stcopy = copy_ast(g, st)
-                    @test length(g.edge_ranges) === 18
-                    @test st._id != stcopy._id
-                    @test st ≈ stcopy
-                    @test st.source !== stcopy.source
-                    @test st.source[1] !== stcopy.source[1]
-                    @test st.source[1][1] !== stcopy.source[1][1]
-
-                    stcopy2 = copy_ast(g, st; copy_source=false)
-                    @test length(g.edge_ranges) === 21
-                    @test st._id != stcopy2._id
-                    @test st ≈ stcopy2
-                    @test st.source === stcopy2.source
-                    @test st.source[1] === stcopy2.source[1]
-                    @test st.source[1][1] === stcopy2.source[1][1]
-
-                    new_g = ensure_attributes!(SyntaxGraph(); attrdefs(g)...)
-                    stcopy3 = copy_ast(new_g, st)
-                    @test length(new_g.edge_ranges) === 9
-                    @test st ≈ stcopy3
-
-                    new_g = ensure_attributes!(SyntaxGraph(); attrdefs(g)...)
-                    @test_throws ErrorException copy_ast(new_g, st; copy_source=false)
-                end
+                include("porcelain/syntax_graph.jl")
             end
   secondary_effects:
     - effect: "Downstream tooling that previously reached for JuliaLowering.SyntaxGraph/SyntaxTree will need to import these definitions from JuliaSyntax (or rely on any re-exports), since the owning module is now JuliaSyntax porcelain."
       mechanism: |
         JuliaLowering loads SyntaxGraph/SyntaxTree utilities from JuliaSyntax  [JuliaLowering.jl:15-23]
-          -> SyntaxGraph/SyntaxTree are now defined in JuliaSyntax porcelain  [syntax_graph.jl:1-199]
-          -> JuliaSyntax includes syntax_graph.jl only on VERSION >= v"1.12"  [JuliaSyntax.jl:99-105]
+          -> SyntaxGraph/SyntaxTree are now defined in JuliaSyntax porcelain  [syntax_graph.jl:1-198]
+          -> JuliaSyntax includes syntax_graph.jl only on VERSION >= v"1.12"  [JuliaSyntax.jl:103-105]
+          -> Downstream packages must import from JuliaSyntax namespace
       downstream_surfaces:
         - "JuliaLowering internal consumers importing SyntaxGraph/SyntaxTree"
         - "Downstream packages (IRTools/AST tooling) that used JuliaLowering.SyntaxTree"
         - "JuliaSyntax-based parsing utilities when running on 1.12+"
       likelihood: "high"
       impact: "low"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/JuliaLowering.jl"
+          loc: "18-19"
+          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaLowering/src/JuliaLowering.jl#L18-L19"
+          snippet: |
+            SyntaxGraph, SyntaxTree, SyntaxList, NodeId, SourceRef, SourceAttrType,
+            ensure_attributes, ensure_attributes!, delete_attributes, newnode!, hasattr,
     - effect: "SyntaxTree-to-Expr conversion now hinges on JuliaSyntax.to_expr with SyntaxTree-specific overrides, which can affect how dot calls and scope layers are reconstructed for tooling that converts SyntaxTree back to Expr."
       mechanism: |
         Base.Expr(ex::SyntaxTree) calls JuliaSyntax.to_expr(ex)  [compat.jl:628]
-          -> to_expr(...) uses fixup_Expr_child(typeof(node), ...) for wrapper handling  [integration/expr.jl:690-696]
+          -> to_expr(...) uses fixup_Expr_child(typeof(node), ...) for wrapper handling  [integration/expr.jl:694-696]
           -> JuliaSyntax.fixup_Expr_child(::Type{<:SyntaxTree}, ...) overrides dot/quote fixups  [compat.jl:614-626]
-          -> node_to_expr(...) calls _expr_leaf_val(...) to extract leaf values  [integration/expr.jl:225-245]
+          -> node_to_expr(...) calls _expr_leaf_val(...) to extract leaf values  [integration/expr.jl:244]
           -> JuliaSyntax._expr_leaf_val(::SyntaxTree, ...) overrides symbol/Value handling  [compat.jl:591-611]
       downstream_surfaces:
         - "Macro tools that call Base.Expr(::SyntaxTree)"
         - "JuliaLowering @SyntaxTree macro expansions that round-trip through Expr"
       likelihood: "medium"
       impact: "low"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/compat.jl"
+          loc: "628"
+          url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaLowering/src/compat.jl#L628"
+          snippet: |
+            Base.Expr(ex::SyntaxTree) = JuliaSyntax.to_expr(ex)
   compatibility:
     internal_api:
-      - field: "JuliaSyntax.SyntaxGraph / JuliaSyntax.SyntaxTree"
-        change: "Ownership moved into JuliaSyntax porcelain (loaded conditionally for VERSION >= v\"1.12\"), while JuliaLowering now imports these APIs rather than defining them locally."
-        affected_tools:
-          - tool: "JuliaLowering"
-            usage: "Imports SyntaxGraph/SyntaxTree and AST helpers from JuliaSyntax in JuliaLowering.jl."
-          - tool: "Downstream compiler tooling"
-            usage: "Packages that imported JuliaLowering.SyntaxTree/SyntaxGraph should update imports to JuliaSyntax or gate on VERSION."
+      - summary: "JuliaSyntax.SyntaxGraph and JuliaSyntax.SyntaxTree ownership moved into JuliaSyntax porcelain (loaded conditionally for VERSION >= v1.12), while JuliaLowering now imports these APIs rather than defining them locally."
+        evidence:
+          - source: "diff"
+            path: "JuliaSyntax/src/JuliaSyntax.jl"
+            loc: "103-105"
+            url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/src/JuliaSyntax.jl#L103-L105"
+            snippet: |
+              if VERSION >= v"1.12"
+                  include("porcelain/syntax_graph.jl")
+              end
     behavioral:
-      - change: "SyntaxTree parsing error tolerance and copy_ast behavior are now validated in JuliaSyntax's test suite (1.12+), preserving existing behavior after the move."
+      - summary: "SyntaxTree parsing error tolerance and copy_ast behavior are preserved after the move, validated by tests in JuliaSyntax's test suite (1.12+)."
         evidence:
           - source: "test"
             path: "JuliaSyntax/test/syntax_graph.jl"
-            loc: "45-101"
-            url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/test/syntax_graph.jl#L45-L101"
+            loc: "45-51"
+            url: "https://github.com/JuliaLang/julia/blob/f40b11726530f33fef72a8fc62aaf38990139ba5/JuliaSyntax/test/syntax_graph.jl#L45-L51"
             snippet: |
-              @test parsestmt(SyntaxTree, "@"; ignore_errors=true) isa SyntaxTree
-              @test parsestmt(SyntaxTree, "@@@"; ignore_errors=true) isa SyntaxTree
-              @test parsestmt(SyntaxTree, "(a b c)"; ignore_errors=true) isa SyntaxTree
-              @test parsestmt(SyntaxTree, "'a b c'"; ignore_errors=true) isa SyntaxTree
-
-              stcopy = copy_ast(g, st)
-              @test length(g.edge_ranges) === 18
-              @test st._id != stcopy._id
+              @testset "SyntaxTree parsing" begin
+                  # Errors should fall through
+                  @test parsestmt(SyntaxTree, "@"; ignore_errors=true) isa SyntaxTree
+                  @test parsestmt(SyntaxTree, "@@@"; ignore_errors=true) isa SyntaxTree
+                  @test parsestmt(SyntaxTree, "(a b c)"; ignore_errors=true) isa SyntaxTree
+                  @test parsestmt(SyntaxTree, "'a b c'"; ignore_errors=true) isa SyntaxTree
+              end
   performance:
     compile_time:
-      - impact: "ESTIMATED: No material compile-time impact; this PR primarily relocates code without altering algorithms."
+      - summary: "ESTIMATED: No material compile-time impact; this PR primarily relocates code without altering algorithms."
+        evidence:
+          - source: "discussion"
+            path: "PR description"
+            loc: "body"
+            snippet: "This is purely a code movement PR."
     runtime:
-      - impact: "ESTIMATED: No runtime performance change expected; behavior is code movement and API re-homing."
+      - summary: "ESTIMATED: No runtime performance change expected; behavior is code movement and API re-homing."
+        evidence:
+          - source: "discussion"
+            path: "PR description"
+            loc: "body"
+            snippet: "This is purely a code movement PR."
+  tests:
+    changed_files:
+      - "JuliaSyntax/test/syntax_graph.jl"
+      - "JuliaSyntax/test/syntax_node.jl"
+      - "JuliaSyntax/test/runtests.jl"
+      - "JuliaLowering/test/ast.jl"
+      - "JuliaLowering/test/compat.jl"
+      - "JuliaLowering/test/macros.jl"
+      - "JuliaLowering/test/runtests.jl"
+      - "JuliaLowering/test/utils.jl"
+    new_behavior_assertions:
+      - "SyntaxTree parsing with errors falls through gracefully (parsestmt with ignore_errors=true)"
+      - "copy_ast correctly copies nodes within same graph and across graphs"
+      - "SyntaxGraph attribute freeze/unfreeze preserves data"
+      - "ensure_attributes/delete_attributes work on both frozen and unfrozen graphs"
+    coverage_gaps:
+      - "No explicit tests for downstream package import path changes"
+      - "No tests verifying JuliaLowering re-export behavior"
   risk:
     level: "low"
     rationale:
       - "Change is mostly code motion and namespace adjustments; functional behavior is locked in by ported tests."
       - "Potential for minor API breakage if downstream tooling imported JuliaLowering.SyntaxGraph/SyntaxTree without updating imports."
+      - "Version gating (VERSION >= v1.12) ensures backwards compatibility with older Julia versions."
   open_questions:
     - "Do any downstream packages depend on JuliaLowering re-exporting SyntaxGraph/SyntaxTree, or should compatibility shims be added?"
     - "Should SyntaxGraph be available in JuliaSyntax for versions earlier than 1.12 to ease backporting?"
   recommendations:
-    - "Downstream tooling should import SyntaxGraph/SyntaxTree from JuliaSyntax and guard on VERSION >= v\"1.12\" if needed."
+    - "Downstream tooling should import SyntaxGraph/SyntaxTree from JuliaSyntax and guard on VERSION >= v1.12 if needed."
     - "Add release notes highlighting the module move for any external users of SyntaxTree/SyntaxGraph APIs."

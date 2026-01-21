@@ -26,8 +26,8 @@ analysis:
       evidence:
         - source: "code"
           path: "Compiler/src/typeinfer.jl"
-          loc: "815-824"
-          url: "https://github.com/JuliaLang/julia/blob/aa2be168da5b3b01acabe483353b00cd6090261e/Compiler/src/typeinfer.jl#L815-L824"
+          loc: "815-825"
+          url: "https://github.com/JuliaLang/julia/blob/aa2be168da5b3b01acabe483353b00cd6090261e/Compiler/src/typeinfer.jl#L815-L825"
           snippet: |
             function compute_edges!(sv::InferenceState)
                 edges = sv.edges
@@ -43,10 +43,11 @@ analysis:
   secondary_effects:
     - effect: "Reduces type-instability noise in inference tooling (e.g., SnoopCompile) by forcing a concrete union type for `user_edges` before `append!` is invoked."
       mechanism: |
-        finishinfer!(...)  [Compiler/src/typeinfer.jl:640-668]
-          -> compute_edges!(sv)  [Compiler/src/typeinfer.jl:815-824]
-            user_edges = sv.src.edges::Union{Nothing, SimpleVector, Vector{Any}}
-            append!(edges, user_edges)
+        finishinfer!(me, interp, cycleid, opt_cache)  [Compiler/src/typeinfer.jl:633]
+          -> line 668: istoplevel || compute_edges!(me)
+          -> compute_edges!(sv)  [Compiler/src/typeinfer.jl:815-825]
+            line 820: user_edges = sv.src.edges::Union{Nothing, SimpleVector, Vector{Any}}
+            line 822: append!(edges, user_edges)
       downstream_surfaces:
         - "Inference diagnostics (type-instability reports)"
         - "SnoopCompile backedge noise"

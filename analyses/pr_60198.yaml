@@ -1,7 +1,7 @@
 schema_version: "1.0"
 pr:
   number: 60198
-  title: "JuliaSyntax tokenize.jl:  don‘t hardcode unicode ops range"
+  title: "JuliaSyntax tokenize.jl: don't hardcode unicode ops range"
   url: "https://github.com/JuliaLang/julia/pull/60198"
   author: "pthariensflame"
   labels:
@@ -18,17 +18,26 @@ scope:
     - "Parsing"
 analysis:
   intent:
-    summary: "Use the JuliaSyntax BEGIN_UNICODE_OPS/END_UNICODE_OPS token range instead of a hardcoded Unicode operator span when deciding which operators can take suffixes."
+    summary: "Replace hardcoded Unicode operator range K\"¬\" <= k <= K\"∜\" with the semantic sentinel tokens K\"BEGIN_UNICODE_OPS\" <= k <= K\"END_UNICODE_OPS\" in optakessuffix(), ensuring suffix eligibility stays aligned with the operator kind table if Unicode operators are added/removed in the future."
     issue_links:
       - "https://github.com/JuliaLang/JuliaSyntax.jl/pull/404"
   direct_changes:
-    - summary: "optakessuffix now checks the BEGIN_UNICODE_OPS/END_UNICODE_OPS token range rather than a literal Unicode codepoint span, keeping suffix eligibility aligned with the operator kind table."
+    - summary: "optakessuffix() now uses BEGIN_UNICODE_OPS/END_UNICODE_OPS sentinel tokens instead of hardcoded K\"¬\" and K\"∜\" to exclude Unicode operators from taking suffixes."
       component: "JuliaSyntax tokenization"
       evidence:
+        - source: "diff"
+          path: "JuliaSyntax/src/julia/tokenize.jl"
+          loc: "176"
+          url: "https://github.com/JuliaLang/julia/blob/9b7f64d6d0b73560d253745dd218a557aa901727/JuliaSyntax/src/julia/tokenize.jl#L176"
+          snippet: |
+            # BEFORE (line 176):
+            #         K"¬" <= k <= K"∜"
+            # AFTER (line 176):
+                    K"BEGIN_UNICODE_OPS" <= k <= K"END_UNICODE_OPS"
         - source: "code"
           path: "JuliaSyntax/src/julia/tokenize.jl"
-          loc: "153-177"
-          url: "https://github.com/JuliaLang/julia/blob/9b7f64d6d0b73560d253745dd218a557aa901727/JuliaSyntax/src/julia/tokenize.jl#L153-L177"
+          loc: "153-178"
+          url: "https://github.com/JuliaLang/julia/blob/9b7f64d6d0b73560d253745dd218a557aa901727/JuliaSyntax/src/julia/tokenize.jl#L153-L178"
           snippet: |
             function optakessuffix(k)
                 (K"BEGIN_OPS" <= k <= K"END_OPS") &&
@@ -57,43 +66,23 @@ analysis:
                 )
             end
         - source: "code"
-          path: "JuliaSyntax/src/julia/tokenize.jl"
-          loc: "153-177"
-          url: "https://github.com/JuliaLang/julia/blob/9af9b15844705c0d82fcf3ba4878e5e0e2983982/JuliaSyntax/src/julia/tokenize.jl#L153-L177"
+          path: "JuliaSyntax/src/julia/kinds.jl"
+          loc: "1007-1012"
+          url: "https://github.com/JuliaLang/julia/blob/9b7f64d6d0b73560d253745dd218a557aa901727/JuliaSyntax/src/julia/kinds.jl#L1007-L1012"
           snippet: |
-            function optakessuffix(k)
-                (K"BEGIN_OPS" <= k <= K"END_OPS") &&
-                !(
-                    k == K"..." ||
-                    K"BEGIN_ASSIGNMENTS" <= k <= K"END_ASSIGNMENTS" ||
-                    k == K"?"   ||
-                    k == K"<:"  ||
-                    k == K">:"  ||
-                    k == K"&&"  ||
-                    k == K"||"  ||
-                    k == K"in"  ||
-                    k == K"isa" ||
-                    k == K"≔"   ||
-                    k == K"⩴"   ||
-                    k == K":"   ||
-                    k == K".."  ||
-                    k == K"$"   ||
-                    k == K"::"  ||
-                    k == K"where" ||
-                    k == K"."   ||
-                    k == K"!"   ||
-                    k == K".'"  ||
-                    k == K"->"  ||
-                    K"¬" <= k <= K"∜"
-                )
-            end
-    - summary: "Tokenizer tests already assert that suffixed operators round-trip through tokenization, providing a concrete behavior baseline for this change."
+            "BEGIN_UNICODE_OPS"
+                "¬"
+                "√"
+                "∛"
+                "∜"
+            "END_UNICODE_OPS"
+    - summary: "Existing tokenizer tests verify suffixed operators round-trip correctly, providing a baseline for the change."
       component: "JuliaSyntax tests"
       evidence:
         - source: "test"
           path: "JuliaSyntax/test/tokenize.jl"
-          loc: "883-892"
-          url: "https://github.com/JuliaLang/julia/blob/9b7f64d6d0b73560d253745dd218a557aa901727/JuliaSyntax/test/tokenize.jl#L883-L892"
+          loc: "888-892"
+          url: "https://github.com/JuliaLang/julia/blob/9b7f64d6d0b73560d253745dd218a557aa901727/JuliaSyntax/test/tokenize.jl#L888-L892"
           snippet: |
             @testset "suffixed op" begin
                 s = "+¹"
@@ -101,25 +90,40 @@ analysis:
                 @test untokenize(collect(tokenize(s))[1], s) == s
             end
   secondary_effects:
-    - effect: "When the BEGIN_UNICODE_OPS/END_UNICODE_OPS list is extended in kinds.jl, optakessuffix will automatically treat new Unicode operator kinds as suffix-capable without needing another hardcoded span update."
+    - effect: "When BEGIN_UNICODE_OPS/END_UNICODE_OPS range is extended in kinds.jl, optakessuffix will automatically treat new Unicode operator kinds as suffix-ineligible without another hardcoded update."
       mechanism: |
-        optakessuffix(k) uses BEGIN_UNICODE_OPS/END_UNICODE_OPS [tokenize.jl:153-176]
-          -> emit(l, kind) sets RawToken suffix when optakessuffix(kind) is true [tokenize.jl:430-439]
-          -> parser predicates like is_plain_equals() branch on is_suffixed(token) [parser.jl:225-231]
+        optakessuffix(k)  [tokenize.jl:153-178]
+          returns false for K"BEGIN_UNICODE_OPS" <= k <= K"END_UNICODE_OPS"
+        -> emit(l, kind)  [tokenize.jl:430-443]
+          checks optakessuffix(kind) at line 432; if true, reads suffix chars
+          sets RawToken.suffix = true when suffix chars present
+        -> ParseStream lookahead  [parse_stream.jl:377-381]
+          raw.suffix && (f |= SUFFIXED_FLAG)  converts raw flag to SyntaxToken flag
+        -> is_suffixed(x)  [julia_parse_stream.jl:119]
+          has_flags(x, SUFFIXED_FLAG)  queries the flag
+        -> parser predicates  [parser.jl:224-226, 287, 296-298, etc.]
+          is_plain_equals(t), is_unary_op(t), is_both_unary_and_binary(t)
+          all check !is_suffixed(t) to determine operator behavior
       downstream_surfaces:
-        - "JuliaSyntax tokenization / parse flags"
+        - "JuliaSyntax tokenization suffix flag"
+        - "Parser operator classification predicates"
       likelihood: "medium"
       impact: "low"
   compatibility:
     internal_api: []
-    behavioral: []
+    behavioral:
+      - field: "optakessuffix() exclusion range"
+        change: "Now uses sentinel tokens K\"BEGIN_UNICODE_OPS\"/K\"END_UNICODE_OPS\" instead of K\"¬\"/K\"∜\" literals"
+        impact: "None for current code - range coverage is identical (¬, √, ∛, ∜). Future-proofs against kinds.jl changes."
   performance:
     compile_time: []
     runtime: []
   risk:
     level: "low"
     rationale:
-      - "The change replaces a hardcoded Unicode operator range with existing token kind sentinels, so it is unlikely to affect current operator classification."
+      - "The change is semantically equivalent: BEGIN_UNICODE_OPS starts at K\"¬\" and END_UNICODE_OPS ends at K\"∜\", covering the exact same four operators."
+      - "No tests were added or modified, indicating the behavior is unchanged."
+      - "The PR is a straightforward refactor ported from the upstream JuliaSyntax.jl repository (PR #404)."
   open_questions: []
   recommendations:
-    - "If the BEGIN_UNICODE_OPS list changes in the future, consider adding or updating tokenizer tests that exercise suffixed operators in the new range."
+    - "If new Unicode operators are added to the BEGIN_UNICODE_OPS range in kinds.jl, verify whether they should be suffix-eligible or not."

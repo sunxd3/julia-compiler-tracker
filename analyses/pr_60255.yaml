@@ -59,8 +59,8 @@ analysis:
       evidence:
         - source: "code"
           path: "JuliaLowering/src/macro_expansion.jl"
-          loc: "325-360"
-          url: "https://github.com/JuliaLang/julia/blob/68553c5863b81a27335aff82898405dd86392c8b/JuliaLowering/src/macro_expansion.jl#L325-L360"
+          loc: "325-346"
+          url: "https://github.com/JuliaLang/julia/blob/68553c5863b81a27335aff82898405dd86392c8b/JuliaLowering/src/macro_expansion.jl#L325-L346"
           snippet: |
             # Compat: attempt to invoke an old-style macro if there's no applicable
             # method for new-style macro arguments.

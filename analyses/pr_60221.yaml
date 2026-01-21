@@ -8,7 +8,7 @@ pr:
     - "parser"
     - "bugfix"
   merged_at: "2025-12-19T12:34:45Z"
-  merge_commit_sha: "6e246b21c8f834390e8e911fef9a0c844a7d970e"
+  merge_commit_sha: "28bf44bd0a9c4d87660e523115705f2e8533a8a0"
   diff_url: "https://github.com/JuliaLang/julia/pull/60221.diff"
 scope:
   files_touched:
@@ -20,97 +20,123 @@ scope:
     - "Parsing"
 analysis:
   intent:
-    summary: "Fix parsing ambiguity where a newline after a parenthesized function name/argument list was incorrectly treated as a continuation for a call or property access, ensuring anonymous function signatures parse correctly."
+    summary: "Fix parsing regression where anonymous function signatures like `function (x)\\nbody\\nend` with a newline after the closing parenthesis were incorrectly parsed as call continuations rather than anonymous function parameter lists. This regression was introduced by PR #60335."
     issue_links:
       - "https://github.com/JuliaLang/julia/issues/60202"
   direct_changes:
-    - summary: "When parsing a function signature that starts with parentheses, explicitly detect whether a newline immediately follows the closing `)` and avoid skipping it when deciding if the construct is a call or an anonymous-function parameter list."
+    - summary: "Add explicit newline detection after closing parenthesis in function signature parsing to prevent incorrect call continuation interpretation when a newline separates the parameter list from the function body."
       component: "JuliaSyntax parser"
       evidence:
         - source: "code"
           path: "JuliaSyntax/src/julia/parser.jl"
-          loc: "2211-2244"
-          url: "https://github.com/JuliaLang/julia/blob/6e246b21c8f834390e8e911fef9a0c844a7d970e/JuliaSyntax/src/julia/parser.jl#L2211-L2244"
+          loc: "2221-2237"
+          url: "https://github.com/JuliaLang/julia/blob/28bf44bd0a9c4d87660e523115705f2e8533a8a0/JuliaSyntax/src/julia/parser.jl#L2221-L2237"
           snippet: |
-            # When an initial parenthesis is present, we need to distinguish
-            # between
-            # * The function name in parens, followed by (args...)
-            # * An anonymous function argument list in parens
-            # * The whole function declaration, in parens
-            bump(ps, TRIVIA_FLAG)
-            is_empty_tuple = peek(ps, skip_newlines=true) == K")"
-            opts = parse_brackets(ps, K")") do had_commas, had_splat, num_semis, num_subexprs
-                _parsed_call = was_eventually_call(ps)
-                _maybe_grouping_parens = !had_commas && !had_splat && num_semis == 0 && num_subexprs == 1
-                # Check if there's a newline between `)` and the next `(` or `.`.
-                # We need to find where `)` is and check what immediately follows it.
-                # If peek(1, skip_newlines=false) is `)`, we're directly before it.
-                # Otherwise there's whitespace/newline before `)`.
-                next_token_pos = if peek(ps, 1, skip_newlines=false) == K")"
-                    # Directly before ), token after ) is at 2
-                    2
-                else
-                    # There's whitespace before ), so ) is at 2
-                    # and what follows ) is at 3
-                    3
-                end
-                token_after_paren = peek(ps, next_token_pos, skip_newlines=false)
-                # If token_after_paren is a newline, this is an anonymous function
-                has_newline_after_paren = _maybe_grouping_parens && token_after_paren == K"NewlineWs"
-                # Get the next significant token to determine if we need to parse a call
-                next_kind = peek(ps, 2, skip_newlines=_maybe_grouping_parens && !has_newline_after_paren)
-                _needs_parse_call = next_kind ∈ KSet"( ."
-                _is_anon_func = (!_needs_parse_call && !_parsed_call) || had_commas
-                return (needs_parameters      = _is_anon_func,
-                        is_anon_func          = _is_anon_func,
-                        parsed_call           = _parsed_call,
-                        needs_parse_call      = _needs_parse_call,
-                        maybe_grouping_parens = _maybe_grouping_parens)
+            # Check if there's a newline between `)` and the next `(` or `.`.
+            # We need to find where `)` is and check what immediately follows it.
+            # If peek(1, skip_newlines=false) is `)`, we're directly before it.
+            # Otherwise there's whitespace/newline before `)`.
+            next_token_pos = if peek(ps, 1, skip_newlines=false) == K")"
+                # Directly before ), token after ) is at 2
+                2
+            else
+                # There's whitespace before ), so ) is at 2
+                # and what follows ) is at 3
+                3
             end
-    - summary: "Add parser tests that lock in the corrected behavior for anonymous functions when a newline appears between the closing parameter paren and the function body or a following empty tuple expression."
+            token_after_paren = peek(ps, next_token_pos, skip_newlines=false)
+            # If token_after_paren is a newline, this is an anonymous function
+            has_newline_after_paren = _maybe_grouping_parens && token_after_paren == K"NewlineWs"
+            # Get the next significant token to determine if we need to parse a call
+            next_kind = peek(ps, 2, skip_newlines=_maybe_grouping_parens && !has_newline_after_paren)
+        - source: "diff"
+          path: "JuliaSyntax/src/julia/parser.jl"
+          loc: "2218-2237"
+          url: "https://github.com/JuliaLang/julia/pull/60221/files#diff-parser"
+          snippet: |
+            # BEFORE (4 lines replaced):
+            # Skip intervening newlines only when the parentheses hold a single
+            # expression, which is the ambiguous case between a name like (::T)
+            # and an anonymous function parameter list.
+            next_kind = peek(ps, 2, skip_newlines=_maybe_grouping_parens)
+
+            # AFTER (17 lines): The new code checks if K"NewlineWs" immediately
+            # follows the closing paren. If so, skip_newlines=false prevents
+            # treating the next token as a call/property continuation.
+    - summary: "Add parser tests that lock in the corrected behavior for anonymous functions when a newline appears between the closing parameter parenthesis and the function body."
       component: "JuliaSyntax tests"
       evidence:
         - source: "test"
           path: "JuliaSyntax/test/parser.jl"
-          loc: "613-616"
-          url: "https://github.com/JuliaLang/julia/blob/6e246b21c8f834390e8e911fef9a0c844a7d970e/JuliaSyntax/test/parser.jl#L613-L616"
+          loc: "614-615"
+          url: "https://github.com/JuliaLang/julia/blob/28bf44bd0a9c4d87660e523115705f2e8533a8a0/JuliaSyntax/test/parser.jl#L614-L615"
           snippet: |
-            "function (x) body end"=>  "(function (tuple-p x) (block body))"
             "function (x)\n    body\nend"=>  "(function (tuple-p x) (block body))"
             "function (x)\n() end" =>  "(function (tuple-p x) (block (tuple-p)))"
-            "function (x,y) end"   =>  "(function (tuple-p x y) (block))"
   secondary_effects:
-    - effect: "Anonymous function signatures are favored when a newline directly follows a parenthesized head, preventing accidental parsing as a call or property access continuation."
+    - effect: "Anonymous function signatures are correctly recognized when a newline immediately follows the closing parenthesis, preventing accidental parsing as a call or property access continuation."
       mechanism: |
-        parse_resword() dispatches to parse_function_signature() for `function`  [parser.jl:1977-1981]
-          -> parse_function_signature() uses parse_brackets() to inspect the parenthesized head  [parser.jl:2211-2244]
-          -> token_after_paren == K"NewlineWs" gates skip_newlines=false when peeking the next token  [parser.jl:2233-2237]
-          -> _needs_parse_call becomes false, so _is_anon_func becomes true  [parser.jl:2238-2240]
+        parse_resword() [parser.jl:1977-1980]
+          dispatches to parse_function_signature(ps, true) for K"function"
+        -> parse_function_signature() [parser.jl:2186] when peek(ps) == K"("
+          bumps the opening paren and calls parse_brackets()
+        -> parse_brackets callback [parser.jl:2218-2244]
+          _maybe_grouping_parens = single subexpr, no commas/splat/semis
+          next_token_pos = peek(1) == K")" ? 2 : 3  [parser.jl:2225-2231]
+          token_after_paren = peek(next_token_pos, skip_newlines=false)  [parser.jl:2233]
+          has_newline_after_paren = _maybe_grouping_parens && token_after_paren == K"NewlineWs"  [parser.jl:2235]
+          next_kind = peek(2, skip_newlines=_maybe_grouping_parens && !has_newline_after_paren)  [parser.jl:2237]
+          _needs_parse_call = next_kind in KSet"( ."  [parser.jl:2238]
+          _is_anon_func = (!_needs_parse_call && !_parsed_call) || had_commas  [parser.jl:2239]
+        -> If has_newline_after_paren is true, skip_newlines becomes false,
+           so next_kind won't skip over the newline to see a subsequent `(` or `.`,
+           causing _needs_parse_call=false and _is_anon_func=true
       downstream_surfaces:
-        - "JuliaSyntax parse trees for function definitions"
+        - "JuliaSyntax parse trees for anonymous function definitions"
         - "Macro tooling or formatters that depend on JuliaSyntax AST shape"
       likelihood: "high"
       impact: "medium"
+    - effect: "User code that previously failed to parse now parses correctly, matching Julia 1.12.1 behavior."
+      mechanism: |
+        The original issue (#60202) showed:
+          function zip_missing(::Tuple{}, longer)
+              map(function (second_one)
+                  (missing, second_one)
+              end, longer)
+          end
+        This failed in Julia 1.14 with "Invalid signature in function definition"
+        because `function (second_one)\n(missing, ...)` was parsed as a call
+        continuation (second_one)(...) rather than anonymous func with tuple body.
+      downstream_surfaces:
+        - "User code with anonymous functions in callbacks (map, filter, etc.)"
+        - "Legacy code migrating from Julia 1.12.x to 1.14+"
+      likelihood: "high"
+      impact: "high"
   compatibility:
     internal_api:
-      - field: "JuliaSyntax parser decisions in parse_function_signature"
-        change: "Now treats a newline immediately after a parenthesized head as evidence for anonymous-function parameters, altering the emitted AST for those inputs."
+      - field: "parse_brackets callback return values in parse_function_signature"
+        change: "No API change; the callback still returns the same named tuple fields. Internal decision logic for is_anon_func is refined but output shape unchanged."
         affected_tools:
           - tool: "JuliaSyntax consumers"
-            usage: "Downstream tools that rely on JuliaSyntax AST output for formatting or linting will observe different trees for `function (x)\n...` constructs."
+            usage: "Downstream tools consuming JuliaSyntax.parseall() or JuliaSyntax.parsestmt() will see corrected AST for previously-misparsed anonymous functions."
     behavioral:
-      - change: "`function (x)\n() end` and similar newline-separated forms parse as anonymous-function definitions with the expected body, rather than being interpreted as a call continuation."
+      - change: "Code like `function (x)\\n() end` now correctly parses as an anonymous function with a tuple body `(block (tuple-p))` rather than being rejected or misparsed as a call."
+        risk: "low"
+      - change: "Code that accidentally relied on the incorrect parsing behavior (unlikely) would now see different AST output."
         risk: "low"
   performance:
     compile_time:
-      - impact: "ESTIMATED: a couple of extra peek operations per function signature with parenthesized heads; expected negligible cost."
+      - impact: "ESTIMATED: negligible overhead; adds 2-3 additional peek() operations per function signature with parenthesized heads. No measurable impact expected."
     runtime: []
   risk:
     level: "low"
     rationale:
-      - "Change is confined to JuliaSyntax parsing of function signatures and guarded by new tests."
-      - "No changes to lowering, inference, or codegen stages."
+      - "Change is confined to JuliaSyntax parsing of function signatures within parse_function_signature()"
+      - "New tests lock in the corrected behavior for edge cases"
+      - "No changes to lowering, type inference, optimization, or codegen stages"
+      - "Restores behavior consistent with Julia 1.12.x for affected constructs"
   open_questions:
-    - "Should comments or other trivia between `)` and the following token be treated like newlines for this ambiguity resolution?"
+    - "Should comments or other trivia between `)` and the following token be treated like newlines for this ambiguity resolution? Current implementation only checks for K\"NewlineWs\"."
   recommendations:
-    - "Downstream parser consumers should add or update tests for newline-separated anonymous function signatures to reflect the new AST shape."
+    - "Downstream AST consumers should verify their tests cover newline-separated anonymous function signatures to ensure compatibility with the corrected parse tree shapes."
+    - "Code formatters that rely on JuliaSyntax should test formatting of `function (x)\\nbody\\nend` style anonymous functions."

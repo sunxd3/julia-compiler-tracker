@@ -10,7 +10,6 @@ pr:
     - "backport 1.13"
   merged_at: "2025-11-25T23:20:50Z"
   merge_commit_sha: "2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71"
-  diff_url: "https://github.com/JuliaLang/julia/pull/60246.diff"
 scope:
   files_touched:
     - "JuliaSyntax/src/integration/expr.jl"
@@ -24,14 +23,18 @@ analysis:
     summary: "Restore <=1.11 Expr parsing for postfix-quote short-form assignments so `x' = y` does not wrap the RHS in a block, matching historical Expr/flisp behavior and avoiding extra LineNumberNode insertion."
     issue_links:
       - "https://github.com/JuliaLang/julia/issues/59911"
+    quoted_from_pr: |
+      `'` is generally treated as its own thing in Expr and flisp, but treated as a special type
+      of call in JuliaSyntax. This change makes `x' = y` parse to the <=1.11 `(= (|'| x) y)`
+      instead of wrapping the body in a block like we do when parsing `f(x) = y`.
   direct_changes:
-    - summary: >-
-        Short-form function parsing now skips wrapping the RHS in `Expr(:block, ...)`
-        when the LHS is a postfix quote (`Expr(Symbol("'"), ...)`), preserving the
-        simpler `Expr(:(=), Expr(Symbol("'"), x), y)` shape.
+    - summary: |
+        Added check `!@isexpr(a1, Symbol("'"))` to skip wrapping RHS in Expr(:block) when
+        LHS is a postfix-quote expression. Previously, all short-form functions got their
+        RHS wrapped in a block to hold LineNumberNode; now postfix-quote is exempted.
       component: "JuliaSyntax Expr integration"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "JuliaSyntax/src/integration/expr.jl"
           loc: "528-536"
           url: "https://github.com/JuliaLang/julia/blob/2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71/JuliaSyntax/src/integration/expr.jl#L528-L536"
@@ -45,9 +48,9 @@ analysis:
                             args[2] = Expr(:block, a2)
                         end
                         retexpr.head = :(=)
-    - summary: >-
-        Added a test asserting that `x' = 1` parses to a plain
-        `Expr(:(=), Expr(Symbol("'"), :x), 1)` without a block wrapper.
+    - summary: |
+        Added test asserting that `x' = 1` parses to a plain `Expr(:(=), Expr(Symbol("'"), :x), 1)`
+        without block wrapper, placed in the "Short form function line numbers" testset.
       component: "JuliaSyntax tests"
       evidence:
         - source: "test"
@@ -60,39 +63,158 @@ analysis:
                 Expr(:(=),
                      Expr(Symbol("'"), :x),
                      1)
+  pipeline_impact:
+    - stage: "Parsing"
+      effect: |
+        JuliaSyntax Expr conversion for postfix-quote short-form assignments now produces
+        simpler Expr trees without block wrapper. This is a parsing-only change that affects
+        how SyntaxNode/SyntaxTree converts to Expr.
+      evidence:
+        - source: "diff"
+          path: "JuliaSyntax/src/integration/expr.jl"
+          loc: "533"
+          url: "https://github.com/JuliaLang/julia/blob/2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71/JuliaSyntax/src/integration/expr.jl#L533"
+          snippet: |
+            if !@isexpr(a2, :block) && !@isexpr(a1, Symbol("'"))
   secondary_effects:
-    - effect: "`x' = y` no longer produces an `Expr(:block, LineNumberNode, y)` RHS when round-tripping SyntaxNode -> Expr; tooling that expected a block+LineNumberNode for short-form functions will see a simpler RHS." 
+    - effect: |
+        Postfix-quote short-form assignments no longer produce `Expr(:block, LineNumberNode, y)` RHS
+        when round-tripping SyntaxNode -> Expr. Tooling that expected block+LineNumberNode for
+        all short-form functions will now see simpler RHS for postfix-quote cases.
       mechanism: |
-        node_to_expr(cursor, ...)  [JuliaSyntax/src/integration/expr.jl:225-299]
-          -> parseargs!(retexpr, ...)  [JuliaSyntax/src/integration/expr.jl:200-215]
-          -> _node_to_expr(retexpr, ...)  [JuliaSyntax/src/integration/expr.jl:319-536]
-            when k == K"function" and SHORT_FORM_FUNCTION_FLAG is set
-            and a1 is Expr(Symbol("'"), ...), the RHS is NOT wrapped in Expr(:block, ...)
+        node_to_expr(cursor, source, ...)  [expr.jl:225]
+          -> parseargs!(retexpr, ...)  [expr.jl:200-215]
+          -> _node_to_expr(retexpr, ...)  [expr.jl:319-536]
+            when k == K"function" && SHORT_FORM_FUNCTION_FLAG
+            checks: !@isexpr(a2, :block) && !@isexpr(a1, Symbol("'"))  [line 533]
+            if LHS is Expr(Symbol("'"), ...), skip Expr(:block) wrapping
       downstream_surfaces:
-        - "JuliaSyntax.node_to_expr output consumed by JuliaLowering (comment notes extension)"
-        - "Macro and tooling code that inspects short-form function RHS for LineNumberNode placement"
+        - "JuliaSyntax.node_to_expr output consumed by JuliaLowering"
+        - "Macro and tooling code inspecting short-form function RHS"
+        - "Code coverage and debugging tools using LineNumberNode placement"
       likelihood: "medium"
       impact: "low"
+      evidence:
+        - source: "diff"
+          path: "JuliaSyntax/src/integration/expr.jl"
+          loc: "528-548"
+          url: "https://github.com/JuliaLang/julia/blob/2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71/JuliaSyntax/src/integration/expr.jl#L528-L548"
+          snippet: |
+            elseif k == K"function"
+                if length(args) > 1
+                    if has_flags(nodehead, SHORT_FORM_FUNCTION_FLAG)
+                        a1 = args[1]
+                        a2 = args[2]
+                        if !@isexpr(a2, :block) && !@isexpr(a1, Symbol("'"))
+                            args[2] = Expr(:block, a2)
+                        end
+                        retexpr.head = :(=)
+                    else
+                        a1 = args[1]
+                        if @isexpr(a1, :tuple)
+                            if length(a1.args) == 1 && (a11 = a1.args[1]; @isexpr(a11, :...))
+                                args[1] = a11
+                            end
+                        end
+                    end
+                    arg2 = args[2]
+                    isa(arg2, Expr) && pushfirst!(arg2.args, loc)
+                end
+    - effect: |
+        JuliaLowering Expr->SyntaxTree conversion (compat.jl) handles postfix-quote separately
+        and does NOT treat it as "eventually_call", so the round-trip remains consistent.
+      mechanism: |
+        _insert_convert_expr(e, graph, src)  [compat.jl:186]
+          for e.head === Symbol("'"):  [compat.jl:292-295]
+            st_k = K"call"
+            child_exprs = Any[e.head, e.args[1]]
+          Note: is_eventually_call(e)  [compat.jl:148-150] does NOT match Symbol("'"):
+            return e isa Expr && (e.head === :call ||
+                e.head in (:escape, :where, :(::)) && is_eventually_call(e.args[1]))
+          So Expr(:(=), Expr(Symbol("'"), :x), 1) is NOT converted as short-form function.
+      downstream_surfaces:
+        - "JuliaLowering expr_to_syntaxtree used for legacy macro output"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/compat.jl"
+          loc: "292-295"
+          url: "https://github.com/JuliaLang/julia/blob/2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71/JuliaLowering/src/compat.jl#L292-L295"
+          snippet: |
+            elseif e.head === Symbol("'")
+                @assert nargs === 1
+                st_k = K"call"
+                child_exprs = Any[e.head, e.args[1]]
   compatibility:
     internal_api:
-      - field: "JuliaSyntax.node_to_expr(::SyntaxNode, ...)"
-        change: "For postfix-quote short-form functions, RHS stays as the raw expression instead of a `Expr(:block, ...)` wrapper."
-        affected_tools:
-          - tool: "JuliaLowering"
-            usage: "JuliaLowering extends `node_to_expr(::SyntaxTree, ...)`, relying on JuliaSyntax Expr shapes for downstream lowering."
+      - summary: |
+          JuliaSyntax.node_to_expr for postfix-quote short-form functions now returns
+          RHS directly instead of wrapping in Expr(:block). Code matching Expr structure
+          `Expr(:(=), lhs, Expr(:block, ...))` for all short-form functions may need update.
+        evidence:
+          - source: "diff"
+            path: "JuliaSyntax/src/integration/expr.jl"
+            loc: "533"
+            url: "https://github.com/JuliaLang/julia/blob/2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71/JuliaSyntax/src/integration/expr.jl#L533"
+            snippet: |
+              if !@isexpr(a2, :block) && !@isexpr(a1, Symbol("'"))
     behavioral:
-      - change: "Expr shape for `x' = y` now matches <=1.11 (no block wrapper) which can affect macro pattern matches on short-form functions."
-        impact: "low"
+      - summary: |
+          Expr shape for `x' = y` now matches <=1.11 flisp behavior (no block wrapper).
+          Before: Expr(:(=), Expr(Symbol("'"), :x), Expr(:block, LineNumberNode(1), 1))
+          After:  Expr(:(=), Expr(Symbol("'"), :x), 1)
+          This can affect macro pattern matches on short-form function bodies.
+        evidence:
+          - source: "issue"
+            path: "issues/59911"
+            url: "https://github.com/JuliaLang/julia/issues/59911"
+            snippet: |
+              Julia 1.12.0/1.12.1 behavior:
+              quote a' = b end
+              # Produces: a' = begin b end (wrapped in block)
+
+              Julia < 1.12.0 behavior:
+              quote a' = b end
+              # Produces: a' = b (simple assignment)
   performance:
     compile_time:
-      - impact: "ESTIMATED: negligible; a single extra predicate check in short-form function handling."
+      - summary: "ESTIMATED: negligible; single extra predicate check `!@isexpr(a1, Symbol(\"'\"))` in short-form function handling during Expr conversion."
+        evidence:
+          - source: "diff"
+            path: "JuliaSyntax/src/integration/expr.jl"
+            loc: "533"
+            url: "https://github.com/JuliaLang/julia/blob/2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71/JuliaSyntax/src/integration/expr.jl#L533"
+            snippet: |
+              if !@isexpr(a2, :block) && !@isexpr(a1, Symbol("'"))
     runtime:
-      - impact: "No runtime impact; change is limited to parsing/Expr construction."
+      - summary: "No runtime impact; change is limited to parsing/Expr construction at compile time."
+        evidence:
+          - source: "diff"
+            path: "JuliaSyntax/src/integration/expr.jl"
+            loc: "528-536"
+            url: "https://github.com/JuliaLang/julia/blob/2bd75bbe1d0b0cb293f59c2186a7d6a23b305c71/JuliaSyntax/src/integration/expr.jl#L528-L536"
+            snippet: |
+              elseif k == K"function"
+  tests:
+    changed_files:
+      - "JuliaSyntax/test/expr.jl"
+    new_behavior_assertions:
+      - "parsestmt(\"x' = 1\") == Expr(:(=), Expr(Symbol(\"'\"), :x), 1) - verifies no block wrapper for postfix-quote short-form"
+    coverage_gaps:
+      - "No test for complex RHS like `x' = begin a; b end` to verify existing block RHS is preserved"
+      - "No test for other postfix operators (e.g., custom postfix ops) to verify they still get block wrapper"
   risk:
     level: "low"
     rationale:
-      - "Localized JuliaSyntax Expr conversion change with explicit regression test for postfix-quote short-form assignment."
+      - "Localized change: single predicate check added in JuliaSyntax Expr conversion"
+      - "Restores historical <=1.11 behavior, improving compatibility"
+      - "Explicit regression test added for postfix-quote short-form assignment"
+      - "JuliaLowering compat.jl already handles Symbol(\"'\") separately, so round-trip is consistent"
+      - "Marked for backport to 1.12 and 1.13, indicating maintainer confidence"
   open_questions:
-    - "Should similar postfix operators or syntactic sugar (other than `'`) also avoid RHS block-wrapping for short-form assignments?"
+    - "Should similar postfix operators (other than `'`) also avoid RHS block-wrapping for short-form assignments?"
+    - "Does removing LineNumberNode from postfix-quote function bodies affect code coverage tools?"
   recommendations:
-    - "Notify downstream tooling that matches `Expr(:(=), lhs, Expr(:block, ...))` for short-form functions to also accept a non-block RHS when lhs is postfix-quote."
+    - "Notify downstream tooling that matches `Expr(:(=), lhs, Expr(:block, ...))` for short-form functions to also accept non-block RHS when lhs is postfix-quote."
+    - "Consider adding test cases for complex RHS expressions to verify block preservation when RHS is already a block."
