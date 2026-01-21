@@ -1,0 +1,550 @@
+schema_version: "1.0"
+
+pr:
+  number: 60079
+  title: "disable compiling for typeinf world during incremental compile"
+  url: "https://github.com/JuliaLang/julia/pull/60079"
+  author: "vtjnash"
+  labels: []
+  merged_at: "2025-11-09T19:05:58Z"
+  merge_commit_sha: "53d89061df1f373f381b59c89f06fb43bd245336"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60079.diff"
+
+scope:
+  files_touched:
+    - "src/aotcompile.cpp"
+  components:
+    - "AOTCompiler"
+    - "CodeGeneration"
+  pipeline_stages:
+    - "Codegen"
+    - "NativeCodeGeneration"
+
+analysis:
+  intent:
+    summary: |
+      This PR optimizes incremental compilation (pkgimage generation) by skipping
+      redundant compilation for the type inference world. The rationale is that during
+      incremental compilation with external linkage (pkgimages), results for the typeinf
+      world cannot be stored or loaded in the serialized data, making compilation for
+      that world wasteful.
+
+      Before this change, jl_create_native_impl would compile code for both the main world
+      AND jl_typeinf_world during pkgimage generation. After this change, only the main
+      world is compiled, reducing compilation time and avoiding unnecessary work.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Skip typeinf world compilation when external_linkage is enabled"
+      component: "AOTCompiler"
+      evidence:
+        - source: "diff"
+          path: "src/aotcompile.cpp"
+          loc: "710-714"
+          url: "https://github.com/JuliaLang/julia/blob/53d89061df1f373f381b59c89f06fb43bd245336/src/aotcompile.cpp#L710-L714"
+          snippet: |
+            int compiler_world = 1;
+            if (trim || jl_array_data(worlds, size_t)[0] == 0 || external_linkage)
+                compiler_world = 0;
+            jl_array_data(worlds, size_t)[compiler_world] = world; // might overwrite previous
+            worlds->dimsize[0] = 1 + compiler_world;
+
+    - summary: "Function context: jl_create_native_impl builds native code for AOT compilation"
+      component: "AOTCompiler"
+      evidence:
+        - source: "code"
+          path: "src/aotcompile.cpp"
+          loc: "680-767"
+          url: "https://github.com/JuliaLang/julia/blob/53d89061df1f373f381b59c89f06fb43bd245336/src/aotcompile.cpp#L680-L767"
+          snippet: |
+            // this builds the object file portion of the sysimage files for fast startup
+            // `external_linkage` create linkages between pkgimages.
+            extern "C" JL_DLLEXPORT_CODEGEN
+            void *jl_create_native_impl(LLVMOrcThreadSafeModuleRef llvmmod, int trim, int external_linkage, size_t world,
+                                       jl_array_t *mod_array, jl_array_t *worklist, int all, jl_array_t *module_init_order)
+            {
+                JL_TIMING(INFERENCE, INFERENCE);
+                auto ct = jl_current_task;
+                if (!jl_compile_and_emit_func) {
+                    jl_error("inference not available for generating compiled output");
+                }
+                jl_array_t *worlds = jl_alloc_array_1d(jl_array_ulong_type, 2);
+                fargs[0] = jl_compile_and_emit_func;
+                fargs[1] = (jl_value_t*)worlds;
+                jl_array_data(worlds, size_t)[0] = jl_typeinf_world;
+                int compiler_world = 1;
+                if (trim || jl_array_data(worlds, size_t)[0] == 0 || external_linkage)
+                    compiler_world = 0;
+                jl_array_data(worlds, size_t)[compiler_world] = world; // might overwrite previous
+                worlds->dimsize[0] = 1 + compiler_world;
+
+  secondary_effects:
+    - effect: "Reduced compilation time for pkgimage generation"
+      mechanism: |
+        When compiler_world = 0, the worlds array size is 1 instead of 2, meaning:
+        - worlds->dimsize[0] = 1 (instead of 2)
+        - Only the main world is compiled, not both main world and typeinf_world
+
+        The jl_compile_and_emit_func Julia callback iterates over the worlds array and
+        generates code for each world. With fewer worlds to compile, less work is done.
+
+        Call chain with file:line evidence:
+        jl_create_native_impl() [src/aotcompile.cpp:683]
+          -> builds worlds array with size = 1 + compiler_world [src/aotcompile.cpp:706-714]
+          -> calls jl_apply(fargs, 8) which invokes jl_compile_and_emit_func [src/aotcompile.cpp:723]
+          -> Julia-side compile_and_emit_native() [Compiler/src/precompile.jl:341]
+          -> typeinf_ext_toplevel(tocompile, worlds, trim_mode) [Compiler/src/precompile.jl:415]
+          -> for this_world in reverse!(sort!(worlds)) loop [Compiler/src/typeinfer.jl:1668]
+             - Creates NativeInterpreter for each world
+             - Calls compile!() for each world
+      downstream_surfaces:
+        - "Package precompilation time (pkgimages)"
+        - "CI/CD systems building Julia packages"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Reduced memory usage during pkgimage compilation"
+      mechanism: |
+        The Julia-side compilation loop in typeinf_ext_toplevel creates resources per world:
+
+        Compiler/src/typeinfer.jl:1667-1674:
+        for this_world in reverse!(sort!(worlds))
+            workqueue = CompilationQueue(workqueue;
+                interp = NativeInterpreter(this_world; inf_params)
+            )
+            append!(workqueue, methods)
+            compile!(codeinfos, workqueue; invokelatest_queue)
+        end
+
+        With 1 world instead of 2:
+        - One fewer NativeInterpreter allocated
+        - One fewer CompilationQueue iteration
+        - Fewer intermediate CodeInfo objects in memory
+        - Smaller codeinfos Vector returned to C code
+
+        ESTIMATED: Memory reduction proportional to world count reduction (up to 50% for
+        pkgimage compilation memory overhead).
+      downstream_surfaces:
+        - "Peak memory usage during package precompilation"
+        - "Memory-constrained CI environments"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "typeinf_world results cannot be serialized in incremental mode"
+      mechanism: |
+        The PR body explains: "We cannot store or load results for this world"
+
+        In staticdata.c, jl_typeinf_world is only serialized for non-incremental builds:
+
+        Writing (staticdata.c:3247):
+        write_uint(f, jl_typeinf_world);
+        This is in the block for worklist == NULL (sysimage, not pkgimage)
+
+        Reading (staticdata.c:3856):
+        jl_typeinf_world = read_uint(f);
+        This is in the !s.incremental block
+
+        When s.incremental=true (pkgimages), jl_typeinf_world is neither written nor read.
+        Therefore compiling code for that world is wasted effort since results cannot persist.
+
+        Call chain showing incremental path:
+        jl_save_system_image_to_stream() [staticdata.c:2990]
+          -> sets s.incremental = !(worklist == NULL)
+          -> for pkgimages: worklist != NULL, so s.incremental = true
+          -> jl_create_native() called with external_linkage=1 [staticdata.c:3362]
+          -> write_uint(f, jl_typeinf_world) SKIPPED (only for non-incremental)
+      downstream_surfaces:
+        - "Package serialization format"
+        - "pkgimage loading"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "codeinst_may_be_runnable check for typeinf_world"
+      mechanism: |
+        The function codeinst_may_be_runnable in staticdata.c uses jl_typeinf_world:
+
+        staticdata.c:612-619:
+        static int codeinst_may_be_runnable(jl_code_instance_t *ci, int incremental) {
+            size_t max_world = jl_atomic_load_relaxed(&ci->max_world);
+            if (max_world == ~(size_t)0)
+                return 1;
+            if (incremental)
+                return 0;  // <-- incremental mode returns 0 for bounded worlds
+            return jl_atomic_load_relaxed(&ci->min_world) <= jl_typeinf_world && jl_typeinf_world <= max_world;
+        }
+
+        For incremental compilation, this function returns 0 for code instances with bounded
+        max_world. The typeinf_world check is ONLY used for non-incremental mode, reinforcing
+        that typeinf_world data is irrelevant during incremental compilation.
+      downstream_surfaces:
+        - "Code instance validation during serialization"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "jl_typeinf_world global variable unchanged"
+      mechanism: |
+        The global jl_typeinf_world is defined in gf.c:1030:
+        JL_DLLEXPORT size_t jl_typeinf_world = 1;
+
+        And set via jl_set_typeinf_func in gf.c:1032-1036:
+        JL_DLLEXPORT void jl_set_typeinf_func(jl_value_t *f)
+        {
+            jl_typeinf_func = (jl_value_t*)f;
+            jl_typeinf_world = jl_get_tls_world_age();
+        }
+
+        This PR does NOT change when or how jl_typeinf_world is set. It only changes
+        whether code is compiled for that world during pkgimage generation.
+      downstream_surfaces:
+        - "Type inference world age semantics unchanged"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "jl_create_native_impl behavior"
+        change: "When external_linkage=1, worlds array size is now 1 instead of 2"
+        affected_tools: []
+      - field: "jl_compile_and_emit_func callback"
+        change: "Receives smaller worlds array during pkgimage compilation"
+        affected_tools: []
+      - field: "jl_emit_native (GPUCompiler API)"
+        change: "Unaffected - jl_emit_native receives pre-generated codeinfos directly"
+        affected_tools:
+          - tool: "GPUCompiler.jl"
+            usage: |
+              GPUCompiler uses jl_emit_native (aotcompile.cpp:773) which receives codeinfos
+              directly, bypassing jl_create_native_impl entirely. The comment at line 770 states:
+              "also be used by extern consumers like GPUCompiler.jl to obtain a module containing
+              all reachable & inferrable functions."
+              Since GPUCompiler does not use jl_create_native, it is completely unaffected.
+    behavioral:
+      - field: "pkgimage compilation"
+        change: "No longer compiles for typeinf_world; this is a performance optimization only"
+        affected_tools: []
+
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: Significant reduction in pkgimage compilation time"
+        details: |
+          Before: jl_compile_and_emit_func called with worlds=[typeinf_world, main_world]
+          After: jl_compile_and_emit_func called with worlds=[main_world]
+
+          The compilation work is significantly reduced because the typeinf_ext_toplevel
+          loop (Compiler/src/typeinfer.jl:1668) iterates once instead of twice:
+
+          for this_world in reverse!(sort!(worlds))
+              workqueue = CompilationQueue(workqueue;
+                  interp = NativeInterpreter(this_world; inf_params)  # <-- expensive
+              )
+              append!(workqueue, methods)
+              compile!(codeinfos, workqueue; invokelatest_queue)      # <-- expensive
+          end
+
+          Each iteration:
+          1. Creates a NativeInterpreter (allocates inference caches, etc.)
+          2. Runs compile!() which does type inference and codegen for all methods
+          3. Appends results to codeinfos
+
+          With 1 world instead of 2, this entire expensive loop runs half as many times.
+
+          For typical packages, the typeinf_world compilation was redundant overhead since:
+          1. Results cannot be serialized in incremental mode
+          2. The compiled code would be discarded after generation
+
+          ESTIMATED: 10-30% reduction in pkgimage compilation time. The actual savings
+          depend on the ratio of compilation time to other precompilation overhead (IO, etc.).
+    runtime:
+      - impact: "None"
+        details: |
+          This change only affects AOT compilation behavior. At runtime, pkgimages load and
+          execute the same way. The typeinf_world compilation was never persisted anyway
+          for incremental builds, so runtime behavior is unchanged.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Simple one-line conditional change"
+      - "Removes redundant work that was never persisted"
+      - "No semantic changes to compiled code"
+      - "Condition matches existing patterns (trim, jl_typeinf_world==0)"
+      - "Author (vtjnash) is a core Julia compiler developer"
+      - "The PR clearly explains why this work was pointless"
+      - "No test changes needed since this is an optimization only"
+
+  open_questions:
+    - question: "Does this affect sysimage compilation?"
+      resolved: true
+      answer: |
+        No. Sysimage compilation sets external_linkage=0, so the condition is unchanged:
+        - trim || jl_typeinf_world == 0 || external_linkage
+        - For sysimage: external_linkage=0, so behavior depends on trim and typeinf_world
+
+        This is confirmed by staticdata.c:3375:
+        *_native_data = jl_create_native(NULL, jl_options.trim, 0, ...)
+        The third argument (external_linkage) is explicitly 0 for sysimage builds.
+
+    - question: "Could skipping typeinf_world compilation cause issues for the compiler itself?"
+      resolved: true
+      answer: |
+        No. The compiler code that runs during precompilation uses the current world age,
+        not the typeinf_world. The typeinf_world is used when TYPE INFERENCE itself needs
+        to run (via jl_typeinf_func), but that's separate from AOT code generation.
+
+        The jl_compile_and_emit_func callback generates native code, which is independent
+        of the type inference world semantics. Skipping compilation for typeinf_world
+        just means we don't generate LLVM IR for that world age - but that IR was never
+        serialized to the pkgimage anyway.
+
+    - question: "Could methods valid only at typeinf_world be missing from pkgimages?"
+      resolved: true
+      answer: |
+        This is not a concern because:
+        1. Methods defined at typeinf_world are compiler internal methods (e.g., type inference)
+        2. Package code cannot define methods at typeinf_world (it's before user packages load)
+        3. The pkgimage serialization already excludes typeinf_world data (staticdata.c:3247
+           shows write_uint(f, jl_typeinf_world) is only for non-incremental builds)
+        4. Runtime type inference still works because it uses jl_typeinf_func which is
+           invoked with the typeinf_world age (gf.c:453), not AOT-compiled code
+
+        The key insight: typeinf_world methods are used by the compiler DURING inference,
+        not by user code. Package precompilation captures user code, not compiler internals.
+
+    - question: "Does this affect external tools that call jl_create_native directly?"
+      resolved: true
+      answer: |
+        Very few external tools call jl_create_native directly. The main external API is
+        jl_emit_native (aotcompile.cpp:773), which is used by GPUCompiler.jl and similar
+        tools. jl_emit_native receives pre-generated codeinfos and does not involve the
+        worlds array logic at all.
+
+        If any tool does call jl_create_native with external_linkage=1, it would now
+        compile for fewer worlds, which is the intended optimization. This is consistent
+        with the semantic meaning of external_linkage (creating linkages between pkgimages).
+
+  recommendations:
+    - "No action required for downstream packages"
+    - "This is a transparent performance optimization"
+    - "Package precompilation times may improve slightly"
+
+changelog_entry:
+  category: "Compiler/AOT"
+  breaking: false
+  summary: |
+    Optimized incremental compilation (pkgimage generation) by skipping redundant
+    compilation for the type inference world, since results for that world cannot
+    be stored or loaded in pkgimages.
+  downstream_impact: |
+    This is a transparent performance optimization. Package precompilation times may
+    be slightly reduced. No changes to runtime behavior or package semantics.
+
+downstream_package_impact:
+  Turing_jl: "none - transparent AOT compilation optimization, no runtime impact"
+  Enzyme_jl: "none - transparent AOT compilation optimization, no runtime impact"
+  GPUCompiler: "none - transparent AOT compilation optimization, no runtime impact"
+  JET: "none - transparent AOT compilation optimization, no runtime impact"
+  IRTools: "none - transparent AOT compilation optimization, no runtime impact"
+  Cassette: "none - transparent AOT compilation optimization, no runtime impact"
+
+code_path_trace:
+  jl_create_native_worlds_array:
+    description: "How the worlds array is constructed and passed to Julia"
+    steps:
+      - location: "src/aotcompile.cpp:706-714"
+        url: "https://github.com/JuliaLang/julia/blob/53d89061df1f373f381b59c89f06fb43bd245336/src/aotcompile.cpp#L706-L714"
+        code: |
+          jl_array_t *worlds = jl_alloc_array_1d(jl_array_ulong_type, 2);
+          fargs[0] = jl_compile_and_emit_func;
+          fargs[1] = (jl_value_t*)worlds;
+          jl_array_data(worlds, size_t)[0] = jl_typeinf_world;
+          int compiler_world = 1;
+          if (trim || jl_array_data(worlds, size_t)[0] == 0 || external_linkage)
+              compiler_world = 0;
+          jl_array_data(worlds, size_t)[compiler_world] = world; // might overwrite previous
+          worlds->dimsize[0] = 1 + compiler_world;
+        explanation: |
+          1. Allocate worlds array with capacity for 2 elements
+          2. Set worlds[0] = jl_typeinf_world initially
+          3. If compiler_world=0 (trim OR typeinf_world==0 OR external_linkage):
+             - worlds[0] = world (overwriting typeinf_world)
+             - worlds->dimsize[0] = 1 (single world)
+          4. If compiler_world=1:
+             - worlds[1] = world
+             - worlds->dimsize[0] = 2 (both worlds)
+
+  pkgimage_compilation_call:
+    description: "Where jl_create_native is called for pkgimage generation"
+    steps:
+      - location: "src/staticdata.c:3358-3362"
+        url: "https://github.com/JuliaLang/julia/blob/53d89061df1f373f381b59c89f06fb43bd245336/src/staticdata.c#L3358-L3362"
+        code: |
+          if (worklist) {
+              if (_native_data != NULL) {
+                  if (suppress_precompile)
+                      newly_inferred = NULL;
+                  *_native_data = jl_create_native(NULL, 0, 1, jl_atomic_load_acquire(&jl_world_counter), NULL, suppress_precompile ? (jl_array_t*)jl_an_empty_vec_any : worklist, 0, module_init_order);
+              }
+        explanation: |
+          When worklist != NULL (incremental/pkgimage compilation):
+          - external_linkage parameter = 1
+          - This triggers the new condition to skip typeinf_world compilation
+
+  sysimage_compilation_call:
+    description: "Where jl_create_native is called for sysimage generation"
+    steps:
+      - location: "src/staticdata.c:3374-3375"
+        url: "https://github.com/JuliaLang/julia/blob/53d89061df1f373f381b59c89f06fb43bd245336/src/staticdata.c#L3374-L3375"
+        code: |
+          else if (_native_data != NULL) {
+              *_native_data = jl_create_native(NULL, jl_options.trim, 0, jl_atomic_load_acquire(&jl_world_counter), mod_array, NULL, jl_options.compile_enabled == JL_OPTIONS_COMPILE_ALL, module_init_order);
+          }
+        explanation: |
+          When worklist == NULL (sysimage compilation):
+          - external_linkage parameter = 0
+          - Behavior depends only on trim and jl_typeinf_world == 0
+          - Unchanged from before this PR
+
+  typeinf_world_serialization:
+    description: "Why typeinf_world data is not serialized in incremental mode"
+    steps:
+      - location: "src/staticdata.c:3244-3248"
+        url: "https://github.com/JuliaLang/julia/blob/53d89061df1f373f381b59c89f06fb43bd245336/src/staticdata.c#L3244-L3248"
+        code: |
+          size_t world = jl_atomic_load_acquire(&jl_world_counter);
+          write_uint(f, world);
+          write_uint(f, jl_typeinf_world);
+        explanation: |
+          This code is in the non-incremental path (worklist == NULL).
+          For incremental builds, this write_uint for jl_typeinf_world is SKIPPED.
+          The serialization format for pkgimages does not include typeinf_world.
+
+  julia_side_compilation_loop:
+    description: "How Julia processes the worlds array during compilation"
+    steps:
+      - location: "Compiler/src/precompile.jl:341-425"
+        url: "https://github.com/JuliaLang/julia/blob/53d89061df1f373f381b59c89f06fb43bd245336/Compiler/src/precompile.jl#L341-L425"
+        code: |
+          function compile_and_emit_native(worlds::Vector{UInt},
+                                           trim_mode::UInt8,
+                                           external_linkage::Bool,
+                                           newmodules,
+                                           mod_array,
+                                           all::Bool,
+                                           module_init_order::Vector{Any})
+              latestworld = worlds[end]
+              # ... collect methods to compile ...
+              codeinfos = try
+                  typeinf_ext_toplevel(tocompile, worlds, trim_mode)
+              catch exc
+                  # Handle trimming failures
+                  isa(exc, Core.TrimFailure) || rethrow()
+                  invokelatest(exit, 1)
+              end
+              return codeinfos
+          end
+        explanation: |
+          This is the Julia function registered as jl_compile_and_emit_func.
+          It receives the worlds Vector from C code and passes it to typeinf_ext_toplevel.
+          The latestworld = worlds[end] extracts the main world regardless of array size.
+
+      - location: "Compiler/src/typeinfer.jl:1657-1687"
+        url: "https://github.com/JuliaLang/julia/blob/53d89061df1f373f381b59c89f06fb43bd245336/Compiler/src/typeinfer.jl#L1657-L1687"
+        code: |
+          function typeinf_ext_toplevel(methods::Vector{Any}, worlds::Vector{UInt}, trim_mode::UInt8)
+              inf_params = InferenceParams(; force_enable_inference = trim_mode != TRIM_NO)
+
+              invokelatest_queue = CompilationQueue(;
+                  interp = NativeInterpreter(get_world_counter(); inf_params)
+              )
+
+              codeinfos = []
+              workqueue = CompilationQueue(; interp = nothing)
+              for this_world in reverse!(sort!(worlds))    # <-- KEY LOOP
+                  workqueue = CompilationQueue(workqueue;
+                      interp = NativeInterpreter(this_world; inf_params)
+                  )
+                  append!(workqueue, methods)
+                  compile!(codeinfos, workqueue; invokelatest_queue)
+              end
+              # ... handle invokelatest_queue ...
+              return codeinfos
+          end
+        explanation: |
+          THE KEY INSIGHT: This function iterates over each world in the worlds Vector.
+          Before the PR: worlds = [typeinf_world, main_world], loop runs twice
+          After the PR (incremental): worlds = [main_world], loop runs once
+
+          Each iteration creates a NativeInterpreter and calls compile!(), which is expensive.
+          Reducing from 2 iterations to 1 cuts this compilation work in half.
+
+test_coverage:
+  existing_tests: "No test changes needed - this is an internal optimization that does not change observable behavior"
+  rationale: |
+    The PR removes redundant work (compiling for a world whose results cannot be serialized).
+    The correctness of pkgimage generation is already tested by existing precompilation tests.
+    No new tests are needed because:
+    1. No semantic change to compiled code
+    2. No change to pkgimage format
+    3. No change to runtime behavior
+    4. Performance improvements are hard to test reliably
+
+reviewer_notes:
+  initial_reviewer: "automated_analysis"
+  initial_date: "2026-01-21"
+  verification_method: |
+    1. Read PR metadata from pr-archive/JuliaLang_julia/pr_60079.json
+    2. Cloned Julia repo and checked out PR 60079 (commit 53d89061df)
+    3. Read full context of jl_create_native_impl function in src/aotcompile.cpp
+    4. Searched for all uses of jl_typeinf_world across the codebase
+    5. Searched for all uses of external_linkage to understand the parameter
+    6. Traced the call chain from staticdata.c to jl_create_native
+    7. Verified that jl_typeinf_world is only serialized for non-incremental builds
+    8. Analyzed codeinst_may_be_runnable to confirm incremental mode ignores bounded worlds
+  findings:
+    - "Simple one-line change adding || external_linkage to existing condition"
+    - "Removes redundant compilation for a world whose results cannot be persisted"
+    - "No semantic changes - purely a performance optimization"
+    - "Well-motivated by the fact that typeinf_world is not serialized in incremental mode"
+    - "Consistent with Julia's approach of optimizing AOT compilation paths"
+  confidence: "high"
+  rationale: |
+    This is a straightforward performance optimization. The PR correctly identifies that
+    compiling for jl_typeinf_world during pkgimage generation is wasteful because:
+    1. The staticdata.c serialization code skips writing jl_typeinf_world for incremental builds
+    2. codeinst_may_be_runnable returns 0 for bounded worlds in incremental mode
+    3. The compiled code would be generated but never persisted
+
+    The change aligns with existing condition patterns (trim, typeinf_world==0) and is authored
+    by vtjnash, a core Julia compiler developer with deep knowledge of the AOT compilation system.
+
+  secondary_reviewer: "independent_analysis"
+  secondary_date: "2026-01-21"
+  secondary_verification_method: |
+    1. Fetched and checked out merge commit 53d89061df from Julia repository
+    2. Read the actual diff: single-line change adding "|| external_linkage" to condition
+    3. Traced the complete call chain from C to Julia:
+       - jl_create_native_impl (aotcompile.cpp:683) builds worlds array
+       - Calls jl_compile_and_emit_func (aotcompile.cpp:723)
+       - Which is compile_and_emit_native (Compiler/src/precompile.jl:341)
+       - Which calls typeinf_ext_toplevel (Compiler/src/typeinfer.jl:1657)
+    4. Found the KEY code: typeinf_ext_toplevel:1668 has loop "for this_world in reverse!(sort!(worlds))"
+       - This loop iterates once per world, creating NativeInterpreter and calling compile!()
+       - With 1 world instead of 2, loop runs half as many times
+    5. Verified GPUCompiler uses jl_emit_native (aotcompile.cpp:773), NOT jl_create_native
+       - Therefore completely unaffected by this change
+    6. Searched for all callers of jl_create_native to confirm only staticdata.c uses it
+    7. Verified staticdata.c:3362 passes external_linkage=1 for pkgimages
+    8. Verified staticdata.c:3375 passes external_linkage=0 for sysimages
+  secondary_findings:
+    - "Julia-side loop at typeinfer.jl:1668 is the key performance bottleneck"
+    - "Each loop iteration creates NativeInterpreter and runs compile!() - expensive operations"
+    - "GPUCompiler.jl is NOT affected - uses separate jl_emit_native API"
+    - "Memory usage also reduced due to fewer NativeInterpreters and CodeInfo objects"
+    - "Original analysis was accurate but lacked Julia-side code path details"
+  secondary_confidence: "high"
+  enhancements_made:
+    - "Added Julia-side code path trace showing typeinf_ext_toplevel loop"
+    - "Added memory usage secondary effect"
+    - "Clarified GPUCompiler API separation in compatibility section"
+    - "Updated performance estimate based on understanding the Julia-side loop"
+    - "Added line-linked URLs for Julia Compiler code"
