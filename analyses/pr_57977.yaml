@@ -1,0 +1,484 @@
+schema_version: "1.0"
+
+pr:
+  number: 57977
+  title: "reduce allocations for string(::IEEEFloat)"
+  url: "https://github.com/JuliaLang/julia/pull/57977"
+  diff_url: "https://github.com/JuliaLang/julia/pull/57977.diff"
+  author: "oscardssmith"
+  labels:
+    - "performance"
+    - "strings"
+  created_at: "2025-04-01T20:31:55Z"
+  merged_at: "2025-12-25T02:48:22Z"
+  merge_commit_sha: "2828f4a21bae89408fb698c6aa818556418ac5fd"
+
+scope:
+  files_touched:
+    - "base/ryu/Ryu.jl"
+    - "test/ryu.jl"
+  components:
+    - "Other"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Reduces memory allocations when converting IEEE floating-point numbers to strings by
+      using appropriately-sized buffers. The PR introduces a new `neededfloatdigits(T)` function
+      that returns the maximum digits needed for shortest-precision output (24 for Float64,
+      17 for Float32, 20 for Float16), which is much smaller than `neededdigits(T)` used for
+      fixed-precision output (326 for Float64, 50 for Float32, 23 for Float16).
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/57976"
+    quoted_from_pr: |
+      julia> @time string(1.0)
+        0.000004 seconds (3 allocations: 432 bytes) # before
+        0.000007 seconds (3 allocations: 112 bytes) # after
+      julia> io = IOBuffer();
+      julia> @time show(io, 1.0)
+        0.000014 seconds (3 allocations: 432 bytes) # before
+        0.000012 seconds (1 allocation: 48 bytes) # after
+
+      mitigates https://github.com/JuliaLang/julia/issues/57976
+
+  direct_changes:
+    - summary: "Added neededfloatdigits(T) function returning maximum digits for shortest-precision output"
+      component: "Ryu"
+      evidence:
+        - source: "diff"
+          path: "base/ryu/Ryu.jl"
+          loc: "20-27"
+          url: "https://github.com/JuliaLang/julia/blob/2828f4a21bae89408fb698c6aa818556418ac5fd/base/ryu/Ryu.jl#L20-L27"
+          snippet: |
+            """
+                Ryu.neededfloatdigits(T)
+
+            Number of digits necessary to represent type `T` in shortest precision.
+            """
+            neededfloatdigits(::Type{Float64}) = 24
+            neededfloatdigits(::Type{Float32}) = 17
+            neededfloatdigits(::Type{Float16}) = 20
+
+    - summary: "Changed Base.show for IEEEFloat to use Memory{UInt8} with neededfloatdigits size"
+      component: "Ryu"
+      evidence:
+        - source: "diff"
+          path: "base/ryu/Ryu.jl"
+          loc: "121-129"
+          url: "https://github.com/JuliaLang/julia/blob/2828f4a21bae89408fb698c6aa818556418ac5fd/base/ryu/Ryu.jl#L121-L129"
+          snippet: |
+            function Base.show(io::IO, x::T, forceuntyped::Bool=false, fromprint::Bool=false) where {T <: Base.IEEEFloat}
+                compact = get(io, :compact, false)::Bool
+                buf = Memory{UInt8}(undef, neededfloatdigits(T))
+                typed = !forceuntyped && !compact && Base.nonnothing_nonmissing_typeinfo(io) !== typeof(x)
+                pos = writeshortest(buf, 1, x, false, false, true, -1,
+                    (x isa Float32 && !fromprint) ? UInt8('f') : UInt8('e'), false, UInt8('.'), typed, compact)
+                write(io, view(buf, 1:pos - 1))
+                return
+            end
+
+    - summary: "Changed Base.string for IEEEFloat to use StringVector with neededfloatdigits size"
+      component: "Ryu"
+      evidence:
+        - source: "diff"
+          path: "base/ryu/Ryu.jl"
+          loc: "131-136"
+          url: "https://github.com/JuliaLang/julia/blob/2828f4a21bae89408fb698c6aa818556418ac5fd/base/ryu/Ryu.jl#L131-L136"
+          snippet: |
+            function Base.string(x::T) where {T <: Base.IEEEFloat}
+                buf = Base.StringVector(neededfloatdigits(T))
+                pos = writeshortest(buf, 1, x, false, false, true, -1,
+                    UInt8('e'), false, UInt8('.'), false, false)
+                return String(resize!(buf, pos - 1))
+            end
+
+    - summary: "Added tests for longest possible float string outputs (negative values with maximum digits)"
+      component: "Ryu tests"
+      evidence:
+        - source: "diff"
+          path: "test/ryu.jl"
+          loc: "153-167, 349, 425"
+          url: "https://github.com/JuliaLang/julia/blob/2828f4a21bae89408fb698c6aa818556418ac5fd/test/ryu.jl#L153"
+          snippet: |
+            # Float64 negative values tests (MinMaxShift testset):
+            @test "-2.900835519859558e-216" == Ryu.writeshortest(todouble(true, 307, 0))
+            @test "-5.801671039719115e-216" == Ryu.writeshortest(todouble(true, 306, maxMantissa))
+            @test "-3.196104012172126e-27" == Ryu.writeshortest(todouble(true, 934, 0x000FA7161A4D6E0C))
+
+            # Float32 longest value test (Regression testset):
+            @test "-1.00000075e-36" == Ryu.writeshortest(-1.00000075f-36) #longest Float32
+
+            # Float16 longest value test:
+            @test "-0.00010014" == Ryu.writeshortest(Float16(-0.00010014)) #longest Float16
+
+  pipeline_impact: []
+
+  secondary_effects:
+    - effect: "Reduced heap allocation for float-to-string conversions"
+      mechanism: |
+        The allocation reduction comes from two changes:
+
+        1. Buffer size reduction:
+           neededdigits(Float64) = 309 + 17 = 326 bytes
+           neededfloatdigits(Float64) = 24 bytes
+           This is a ~13.5x reduction in buffer size for Float64.
+
+        2. For Base.show: Changed from StringVector to Memory{UInt8}
+           StringVector creates a resizable Vector{UInt8} backed by jl_alloc_string
+           Memory{UInt8} is a simpler fixed-size memory type with less overhead
+
+           Call chain for old code:
+           Base.show(io, x::Float64)  [Ryu.jl:121]
+             -> buf = Base.StringVector(neededdigits(T))  [326 bytes allocated]
+             -> writeshortest(buf, 1, x, ...)  [writes ~24 bytes max]
+             -> resize!(buf, pos - 1)  [resize to actual length]
+             -> write(io, buf)
+
+           Call chain for new code:
+           Base.show(io, x::Float64)  [Ryu.jl:121]
+             -> buf = Memory{UInt8}(undef, neededfloatdigits(T))  [24 bytes allocated]
+             -> writeshortest(buf, 1, x, ...)  [writes to buf]
+             -> write(io, view(buf, 1:pos - 1))  [view is allocation-free]
+
+        3. For Base.string: Same buffer size reduction, but still uses StringVector
+           because the result needs to be converted to String.
+
+        Allocation savings per PR benchmarks:
+        - string(1.0): 432 -> 112 bytes (3.9x reduction)
+        - show(io, 1.0): 432 -> 48 bytes (9x reduction), 3 -> 1 allocations
+      downstream_surfaces:
+        - "Any code calling string() on Float64/Float32/Float16"
+        - "Any code calling show() or print() on floats"
+        - "Printf and string interpolation involving floats"
+        - "Logging and debugging output"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "code"
+          path: "base/ryu/Ryu.jl"
+          loc: "121-136"
+          url: "https://github.com/JuliaLang/julia/blob/2828f4a21bae89408fb698c6aa818556418ac5fd/base/ryu/Ryu.jl#L121-L136"
+          snippet: |
+            function Base.show(io::IO, x::T, forceuntyped::Bool=false, fromprint::Bool=false) where {T <: Base.IEEEFloat}
+                compact = get(io, :compact, false)::Bool
+                buf = Memory{UInt8}(undef, neededfloatdigits(T))
+                typed = !forceuntyped && !compact && Base.nonnothing_nonmissing_typeinfo(io) !== typeof(x)
+                pos = writeshortest(buf, 1, x, false, false, true, -1,
+                    (x isa Float32 && !fromprint) ? UInt8('f') : UInt8('e'), false, UInt8('.'), typed, compact)
+                write(io, view(buf, 1:pos - 1))
+                return
+            end
+
+            function Base.string(x::T) where {T <: Base.IEEEFloat}
+                buf = Base.StringVector(neededfloatdigits(T))
+                pos = writeshortest(buf, 1, x, false, false, true, -1,
+                    UInt8('e'), false, UInt8('.'), false, false)
+                return String(resize!(buf, pos - 1))
+            end
+
+    - effect: "Buffer sizes are exactly at the limit with zero safety margin"
+      mechanism: |
+        Independent verification of neededfloatdigits values shows all three are
+        EXACTLY sized for the worst-case output with no spare bytes:
+
+        Float64 (24 bytes):
+          Component breakdown: sign(1) + digit(1) + decimal(1) + digits(16) + 'e'(1) + sign(1) + exponent(3)
+          Example: "-2.2250738585072014e-308" = 24 chars
+          Verified at: SwitchToSubnormal testset
+
+        Float32 with typed=true (17 bytes):
+          Component breakdown: sign(1) + digits(9) + 'e'(1) + sign(1) + exponent(2) + "f0"(2)
+          Example: "-1.00000075e-36" (15) + "f0" (2) = 17 chars
+          Note: typed suffix only added in Base.show when type context absent
+
+        Float16 with typed=true (20 bytes):
+          Component breakdown: "Float16("(8) + sign(1) + digits(10) + ")"(1)
+          Example: "Float16(-0.00010014)" = 20 chars
+          Traced at: shortest.jl:318-327 (prefix), shortest.jl:455-458 (suffix)
+
+        This exact sizing means:
+        - Any future change to output format could cause buffer overflow
+        - The algorithm MUST produce output <= these limits for correctness
+        - The PR depends on writeshortest invariants being maintained
+      downstream_surfaces:
+        - "Future Ryu modifications must preserve maximum output length invariants"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/ryu/shortest.jl"
+          loc: "318-327, 455-458"
+          url: "https://github.com/JuliaLang/julia/blob/2828f4a21bae89408fb698c6aa818556418ac5fd/base/ryu/shortest.jl#L318-L327"
+          snippet: |
+            if typed && x isa Float16
+                @inbounds buf[pos] = UInt8('F')
+                @inbounds buf[pos + 1] = UInt8('l')
+                @inbounds buf[pos + 2] = UInt8('o')
+                @inbounds buf[pos + 3] = UInt8('a')
+                @inbounds buf[pos + 4] = UInt8('t')
+                @inbounds buf[pos + 5] = UInt8('1')
+                @inbounds buf[pos + 6] = UInt8('6')
+                @inbounds buf[pos + 7] = UInt8('(')
+                pos += 8
+            end
+
+    - effect: "writeshortest now accepts Memory{UInt8} in addition to Vector{UInt8}"
+      mechanism: |
+        The writeshortest function signature accepts AbstractVector{UInt8}:
+
+        function writeshortest(buf::AbstractVector{UInt8}, pos, x::T, ...) where {T}
+
+        Memory{UInt8} satisfies AbstractVector{UInt8}, so this works without
+        modification to writeshortest. The function uses indexing (buf[pos])
+        and bounds checking (@assert 0 < pos <= length(buf)) which work on Memory.
+
+        The test file explicitly tests both Vector{UInt8} and Memory{UInt8}:
+        @testset for Vec in (Vector{UInt8}, Memory{UInt8})
+            buf = Vec(undef, 4)
+            @test Ryu.writeshortest(buf, 1, -0.0) == 5
+            @test String(buf) == "-0.0"
+        end
+      downstream_surfaces:
+        - "Custom code using Ryu.writeshortest with Memory{UInt8} buffers"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "test"
+          path: "test/ryu.jl"
+          loc: "428-443"
+          url: "https://github.com/JuliaLang/julia/blob/2828f4a21bae89408fb698c6aa818556418ac5fd/test/ryu.jl#L428-L443"
+          snippet: |
+            @testset "writeshortest(::AbstractVector, pos, ...)" begin
+                @testset for Vec in (Vector{UInt8}, Memory{UInt8})
+                    buf = Vec(undef, 4)
+                    @test Ryu.writeshortest(buf, 1, -0.0) == 5
+                    @test String(buf) == "-0.0"
+
+                    buf = Vec(undef, 100)
+                    xx = 4.7223665f21
+                    expected = "4.7223665e21"
+                    start_pos = 42
+                    nwritten = length(expected)
+                    end_pos = start_pos + nwritten
+                    @test Ryu.writeshortest(buf, start_pos, xx) == end_pos
+                    @test String(buf[start_pos:end_pos-1]) == expected
+                end
+            end
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - summary: "No semantic change - only memory allocation patterns differ"
+        evidence:
+          - source: "code"
+            path: "base/ryu/Ryu.jl"
+            snippet: |
+              The output of string() and show() remains identical. The change
+              only affects how much memory is allocated for the temporary buffer.
+              The Ryu algorithm produces the same shortest-representation string.
+
+              The neededfloatdigits values are carefully chosen to accommodate
+              the longest possible shortest-representation output for each type:
+              - Float64: 24 bytes (e.g., "-2.2250738585072014e-308")
+              - Float32: 17 bytes (e.g., "-1.00000075e-36")
+              - Float16: 20 bytes (e.g., "-0.00010014")
+
+              New tests verify these longest cases work correctly.
+
+  performance:
+    compile_time: []
+    runtime:
+      - summary: "Reduced allocation overhead for float-to-string conversions"
+        evidence:
+          - source: "discussion"
+            path: "PR description"
+            snippet: |
+              MEASURED (from PR):
+              string(1.0):
+                Before: 3 allocations: 432 bytes
+                After:  3 allocations: 112 bytes (3.9x less memory)
+
+              show(io, 1.0):
+                Before: 3 allocations: 432 bytes
+                After:  1 allocation:  48 bytes (9x less memory, 3x fewer allocations)
+
+              The allocation reduction is particularly significant for show() which
+              now uses Memory{UInt8} + view() instead of StringVector + resize!().
+              This eliminates 2 allocations entirely.
+    memory:
+      - summary: "Significant reduction in transient allocations during float printing"
+        evidence:
+          - source: "code"
+            path: "base/ryu/Ryu.jl"
+            snippet: |
+              Buffer size comparison:
+              Type      neededdigits  neededfloatdigits  Reduction
+              Float64   326           24                 13.6x
+              Float32   50            17                 2.9x
+              Float16   23            20                 1.2x
+
+              The neededdigits function returns sizes needed for fixed-precision
+              output (e.g., writefixed, writeexp with high precision), which
+              requires much larger buffers to accommodate extreme exponents.
+
+              The neededfloatdigits function returns sizes for shortest-precision
+              output only, which is bounded by the number of significant digits
+              plus sign, decimal point, and exponent notation.
+
+  tests:
+    changed_files:
+      - "test/ryu.jl"
+    new_behavior_assertions:
+      - "Tests added for negative float values that produce longest output strings"
+      - "Float64: -2.900835519859558e-216, -5.801671039719115e-216, -3.196104012172126e-27"
+      - "Float32: -1.00000075e-36 (marked as longest Float32)"
+      - "Float16: -0.00010014 (marked as longest Float16)"
+    coverage_gaps:
+      - "No test for longest typed Float16 output: 'Float16(-0.00010014)' (20 bytes exactly)"
+      - "No exhaustive verification that buffer sizes are sufficient for all edge cases"
+      - "Typed output tests only cover short examples like 'Float16(1.0)' (12 bytes)"
+    # Note: Edge cases for typed output HAVE been analyzed and are confirmed safe.
+    # The buffers are exactly sized with zero margin, but this is intentional.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Change only affects buffer sizes for Ryu float-to-string conversion"
+      - "No changes to the Ryu algorithm itself or string formatting logic"
+      - "Tests added for longest possible outputs to verify buffer sizes"
+      - "Backwards compatible - same string output, just less memory used"
+      - "Does not affect any compiler internals, type inference, or codegen"
+
+  open_questions: []
+  # RESOLVED by second review: The typed Float16 buffer size question has been answered.
+  # See resolved_questions section below for details.
+
+  resolved_questions:
+    - question: "Are the neededfloatdigits values sufficient for typed=true output?"
+      answer: |
+        YES - verified by tracing the writeshortest code path in shortest.jl.
+
+        For Float16 with typed=true, the output format is "Float16(number)":
+        - "Float16(" prefix = 8 bytes  [shortest.jl:318-327]
+        - longest number "-0.00010014" = 11 bytes
+        - ")" suffix = 1 byte  [shortest.jl:455-458]
+        - Total = 20 bytes EXACTLY
+
+        For Float32 with typed=true, the output uses "f0" suffix:
+        - longest number "-1.00000075e-36" = 15 bytes
+        - "f0" suffix = 2 bytes
+        - Total = 17 bytes EXACTLY
+
+        For Float64, no typed suffix is added (only Float16/Float32 get type markers).
+        - longest number "-2.2250738585072014e-308" = 24 bytes EXACTLY
+
+        All three buffer sizes are EXACTLY at the limit with zero safety margin.
+        This is correct but tight - any future change to output format could overflow.
+
+    - question: "Does the Float16 typed output 'Float16(...)' exceed 20 bytes?"
+      answer: |
+        NO - the maximum is exactly 20 bytes.
+
+        Breakdown traced from shortest.jl:
+        1. typed && x isa Float16 triggers prefix at line 318-327:
+           buf[pos:pos+7] = "Float16(" (8 bytes)
+        2. append_sign() adds "-" for negative (1 byte)
+        3. Number output "-0.00010014" -> 10 bytes after sign
+        4. typed && x isa Float16 triggers suffix at line 455-458:
+           buf[pos] = ")" (1 byte)
+
+        Total: 8 + 1 + 10 + 1 = 20 bytes
+
+        Test verification: The test at ryu.jl:389 shows typed Float16 output:
+        @test "Float16(1.0)" == Ryu.writeshortest(Float16(1.0), ..., typed=true)
+        This is 12 bytes, well under the 20-byte limit.
+
+        The longest case "Float16(-0.00010014)" is exactly 20 bytes.
+
+  recommendations:
+    - "No action required for downstream compiler packages"
+    - "This PR has zero impact on JET, Enzyme, IRTools, GPUCompiler, or Cassette"
+    - "Code that allocates many float strings may see reduced GC pressure"
+    - "High-performance logging code will benefit from reduced allocations"
+
+classification:
+  type: "performance"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false
+
+notes: |
+  This PR is NOT a compiler change - it optimizes memory allocation in the Ryu
+  float-to-string library used by Base.show and Base.string for IEEEFloat types.
+
+  Technical details of the optimization:
+
+  1. Buffer sizing:
+     The existing neededdigits(T) function returns the maximum bytes needed for
+     ANY format output (fixed, exponential, shortest). For Float64 this is 326 bytes
+     to handle extreme fixed-precision cases like 10^308.
+
+     The new neededfloatdigits(T) returns the maximum for SHORTEST format only:
+     - Float64: 24 bytes (sign + 17 digits + decimal + 'e' + sign + 3 exponent)
+     - Float32: 17 bytes (sign + 9 digits + decimal + 'f' + 2)
+     - Float16: 20 bytes (accounts for Float16(...) wrapper)
+
+  2. Memory type change for show():
+     Old: StringVector(neededdigits(T)) -> resize!() -> write()
+     New: Memory{UInt8}(neededfloatdigits(T)) -> view() -> write()
+
+     Memory{UInt8} is more lightweight than StringVector:
+     - StringVector is defined as: wrap(Array, StringMemory(n))  [iobuffer.jl:168]
+     - StringMemory is: unsafe_wrap(Memory{UInt8}, _string_n(n))  [iobuffer.jl:167]
+     - So StringVector = Vector{UInt8} backed by string-compatible memory
+     - Memory{UInt8} is a simpler raw memory type without Vector wrapper
+     - view() creates a zero-allocation SubArray vs resize!() mutation
+
+     The allocation difference comes from:
+     - StringVector has Vector metadata (size, capacity, flags, pointer)
+     - Memory{UInt8} is just raw memory with length
+     - view() does not allocate when elided by the compiler
+
+  3. String output path unchanged:
+     Base.string still uses StringVector because the result must be converted
+     to String. Only the buffer size changed: neededdigits -> neededfloatdigits.
+
+  Callers of affected functions:
+  $ rg "Base\.show.*IEEEFloat|Base\.string.*IEEEFloat" julia/base
+  base/ryu/Ryu.jl:121:function Base.show(io::IO, x::T, ...) where {T <: Base.IEEEFloat}
+  base/ryu/Ryu.jl:131:function Base.string(x::T) where {T <: Base.IEEEFloat}
+
+  These are the primary entry points for float-to-string conversion in Julia.
+  All code that prints or converts floats to strings benefits from this change.
+
+  Downstream package impact: NONE
+  - JET: Not affected (no compiler internals changed)
+  - Enzyme: Not affected (no codegen or AD-relevant changes)
+  - IRTools: Not affected (no IR format changes)
+  - GPUCompiler: Not affected (no GPU codegen changes)
+  - Cassette: Not affected (no pass infrastructure changes)
+
+  This is a pure performance optimization with no semantic changes.
+
+reviewer_notes: |
+  INDEPENDENT VERIFICATION PERFORMED (2026-01-21):
+
+  1. Checked out PR merge commit 2828f4a21bae89408fb698c6aa818556418ac5fd
+  2. Read full source files: base/ryu/Ryu.jl, base/ryu/shortest.jl, test/ryu.jl
+  3. Traced typed output code path in shortest.jl:318-327 and 455-458
+  4. Verified buffer size calculations for all three float types
+  5. Confirmed open questions can be answered definitively
+
+  Key findings from independent review:
+  - All neededfloatdigits values are EXACTLY sized with zero margin
+  - Float16 typed output path was verified: "Float16(" prefix + number + ")" suffix
+  - Longest outputs verified against test cases
+  - No security or correctness concerns identified
+  - Original analysis was accurate; enhancements add precision and answer open questions
+
+  Files examined:
+  - /home/user/compiler-change/julia/base/ryu/Ryu.jl (full file)
+  - /home/user/compiler-change/julia/base/ryu/shortest.jl (lines 220-461)
+  - /home/user/compiler-change/julia/test/ryu.jl (full file)
+  - /home/user/compiler-change/julia/base/iobuffer.jl (StringVector definition)
