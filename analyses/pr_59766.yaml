@@ -216,13 +216,13 @@ analysis:
                 end
                 Experimental.show_error_hints(io, ex)
             end
-    - summary: "Codegen type checks for global assignment now use setglobal!/swapglobal!/replaceglobal!/modifyglobal!/setglobalonce! as the TypeError function name." 
+    - summary: "Codegen type checks for global assignment now use setglobal!/swapglobal!/replaceglobal!/modifyglobal!/setglobalonce! as the TypeError function name."
       component: "Codegen"
       evidence:
         - source: "code"
           path: "src/codegen.cpp"
-          loc: "3224-3263"
-          url: "https://github.com/JuliaLang/julia/blob/3cebd25dbb9b3b7a0d3357402950a8a5dcfc696a/src/codegen.cpp#L3224-L3263"
+          loc: "3224-3267"
+          url: "https://github.com/JuliaLang/julia/blob/3cebd25dbb9b3b7a0d3357402950a8a5dcfc696a/src/codegen.cpp#L3224-L3267"
           snippet: |
             jl_binding_t *bnd = jl_get_module_binding(mod, sym, 1);
             jl_binding_partition_t *bpart = jl_get_binding_partition_all(bnd, ctx.min_world, ctx.max_world);
@@ -265,13 +265,13 @@ analysis:
                                         fname,
                                         mod,
                                         sym);
-    - summary: "modifyglobal! and memoryrefmodify! now route through jl_check_binding_assign_value when operating on bindings, ensuring consistent TypeError behavior." 
+    - summary: "modifyglobal! and memoryrefmodify! now route through jl_check_binding_assign_value when operating on bindings, ensuring consistent TypeError behavior."
       component: "Runtime"
       evidence:
         - source: "code"
           path: "src/datatype.c"
-          loc: "1995-2026"
-          url: "https://github.com/JuliaLang/julia/blob/3cebd25dbb9b3b7a0d3357402950a8a5dcfc696a/src/datatype.c#L1995-L2026"
+          loc: "1995-2028"
+          url: "https://github.com/JuliaLang/julia/blob/3cebd25dbb9b3b7a0d3357402950a8a5dcfc696a/src/datatype.c#L1995-L2028"
           snippet: |
             inline jl_value_t *modify_value(jl_value_t *ty, _Atomic(jl_value_t*) *p, jl_value_t *parent, jl_value_t *op, jl_value_t *rhs, int isatomic, jl_binding_t *b, jl_module_t *mod, jl_sym_t *name)
             {
@@ -322,6 +322,36 @@ analysis:
                     assert(data - (char*)m.mem->ptr < sizeof(jl_value_t*) * m.mem->length);
                     return modify_value(eltype, (_Atomic(jl_value_t*)*)data, owner, op, rhs, isatomic, NULL, NULL, NULL);
                 }
+    - summary: "Header file API changes: jl_module_globalref annotated JL_GLOBALLY_ROOTED, jl_type_error_global exported, modify_value and jl_check_binding_assign_value signatures updated."
+      component: "Runtime / Headers"
+      evidence:
+        - source: "code"
+          path: "src/julia.h"
+          loc: "2019"
+          url: "https://github.com/JuliaLang/julia/blob/3cebd25dbb9b3b7a0d3357402950a8a5dcfc696a/src/julia.h#L2019"
+          snippet: |
+            JL_DLLEXPORT jl_value_t *jl_module_globalref(jl_module_t *m, jl_sym_t *var) JL_GLOBALLY_ROOTED;
+        - source: "code"
+          path: "src/julia.h"
+          loc: "2089-2092"
+          url: "https://github.com/JuliaLang/julia/blob/3cebd25dbb9b3b7a0d3357402950a8a5dcfc696a/src/julia.h#L2089-L2092"
+          snippet: |
+            JL_DLLEXPORT void JL_NORETURN jl_type_error_global(const char *fname,
+                                                           jl_module_t *mod, jl_sym_t *sym,
+                                                           jl_value_t *ty JL_MAYBE_UNROOTED,
+                                                           jl_value_t *got JL_MAYBE_UNROOTED);
+        - source: "code"
+          path: "src/julia_internal.h"
+          loc: "885"
+          url: "https://github.com/JuliaLang/julia/blob/3cebd25dbb9b3b7a0d3357402950a8a5dcfc696a/src/julia_internal.h#L885"
+          snippet: |
+            jl_value_t *modify_value(jl_value_t *ty, _Atomic(jl_value_t*) *p, jl_value_t *parent, jl_value_t *op, jl_value_t *rhs, int isatomic, jl_binding_t *b, jl_module_t *mod, jl_sym_t *name);
+        - source: "code"
+          path: "src/julia_internal.h"
+          loc: "898"
+          url: "https://github.com/JuliaLang/julia/blob/3cebd25dbb9b3b7a0d3357402950a8a5dcfc696a/src/julia_internal.h#L898"
+          snippet: |
+            jl_value_t *jl_check_binding_assign_value(jl_binding_t *b JL_PROPAGATES_ROOT, jl_module_t *mod, jl_sym_t *var, jl_value_t *rhs JL_MAYBE_UNROOTED, const char *msg);
     - summary: "Tests now assert TypeError for invalid setglobal! assignments, matching inference and runtime behavior."
       component: "Tests"
       evidence:
@@ -356,24 +386,40 @@ analysis:
     - effect: "Error reporting for global assignment type mismatches now includes the concrete binding in the TypeError context (GlobalRef), aligning interpreter and codegen error messages."
       mechanism: |
         jl_checked_assignment(b, mod, var, rhs) [module.c:1904-1909]
-          -> jl_check_binding_assign_value(b, mod, var, rhs, "setglobal!") [module.c:1889-1899]
-            -> jl_type_error_global("setglobal!", mod, var, old_ty, rhs) [module.c:1897-1899]
-              -> jl_type_error_global builds TypeError with GlobalRef context [rtutils.c:124-130]
-                -> showerror recognizes Core.GlobalRef context for message formatting [base/errorshow.jl:92-103]
+          -> jl_check_binding_assign_value(b, mod, var, rhs, "setglobal!") [module.c:1889-1902]
+            -> jl_type_error_global("setglobal!", mod, var, old_ty, rhs) [module.c:1897-1898]
+              -> jl_type_error_global builds TypeError with GlobalRef context [rtutils.c:124-131]
+                -> showerror recognizes Core.GlobalRef context for message formatting [base/errorshow.jl:94-96]
       downstream_surfaces:
         - "User-facing error text for setglobal!/swapglobal!/replaceglobal!/modifyglobal!/setglobalonce!"
         - "Tests or tooling matching on TypeError.context"
       likelihood: high
       impact: medium
-    - effect: "Inference exception modeling for setglobal! now propagates TypeError for non-intersecting assignments, reducing mismatches between inference and runtime/codegen." 
+    - effect: "Inference exception modeling for setglobal! now propagates TypeError for non-intersecting assignments, reducing mismatches between inference and runtime/codegen."
       mechanism: |
-        abstract_eval_setglobal!(...) [abstractinterpretation.jl:2480-2496]
-          -> global_assignment_rt_exct(...) [abstractinterpretation.jl:3752-3761]
-            -> global_assignment_binding_rt_exct(...) [abstractinterpretation.jl:3764-3778]
+        abstract_eval_setglobal!(...) [abstractinterpretation.jl:2480-2497]
+          -> global_assignment_rt_exct(...) [abstractinterpretation.jl:3752-3762]
+            -> global_assignment_binding_rt_exct(...) [abstractinterpretation.jl:3764-3781]
                returns TypeError when !hasintersect(wnewty, ty) or !(wnewty <: ty)
       downstream_surfaces:
         - "Base.infer_exception_type for global assignments"
         - "Core.Compiler effect analysis (setglobal! throw classification)"
+      likelihood: high
+      impact: low
+    - effect: "swapglobal!/replaceglobal!/setglobalonce! inference automatically inherits TypeError exception modeling via delegation to abstract_eval_setglobal!."
+      mechanism: |
+        abstract_eval_swapglobal!(...) [abstractinterpretation.jl:2523-2529]
+          -> scm = abstract_eval_setglobal!(...) [abstractinterpretation.jl:2525]
+          -> returns CallMeta with Union{scm.exct, gcm.exct} including TypeError
+
+        abstract_eval_setglobalonce!(...) [abstractinterpretation.jl:2555-2568]
+          -> cm = abstract_eval_setglobal!(...) [abstractinterpretation.jl:2558]
+          -> returns CallMeta(Bool, cm.exct, ...) preserving TypeError
+
+        abstract_eval_replaceglobal! follows same delegation pattern
+      downstream_surfaces:
+        - "Base.infer_exception_type for swapglobal!/replaceglobal!/setglobalonce!"
+        - "Consistent exception modeling across all global assignment builtins"
       likelihood: high
       impact: low
   compatibility:
@@ -383,13 +429,21 @@ analysis:
         affected_tools:
           - "Code or tooling that pattern-matches on TypeError.context type in Julia base or packages."
       - field: "jl_check_binding_assign_value"
-        change: "Signature now includes a const char *msg to supply the builtin name for TypeError." 
+        change: "Signature now includes a const char *msg to supply the builtin name for TypeError."
         affected_tools:
           - "C extensions/embedders calling jl_check_binding_assign_value directly must update the call signature."
       - field: "jl_type_error_global"
         change: "New exported runtime helper for binding-aware TypeError creation."
         affected_tools:
           - "C code paths that want consistent global assignment error reporting."
+      - field: "jl_module_globalref"
+        change: "Now annotated with JL_GLOBALLY_ROOTED, indicating returned GlobalRef is permanently rooted."
+        affected_tools:
+          - "C extensions can now rely on returned value being GC-safe without immediate rooting."
+      - field: "modify_value"
+        change: "Signature changed to include jl_binding_t *b parameter for binding-aware type checking."
+        affected_tools:
+          - "Internal callers of modify_value (modify_nth_field, jl_memoryrefmodify, jl_checked_modify) updated to pass NULL or binding."
     behavioral:
       - change: "setglobal!/swapglobal!/replaceglobal!/modifyglobal!/setglobalonce! now throw TypeError (with binding context) instead of ErrorException for type mismatches."
         impact: "User code that caught ErrorException for these cases will now see TypeError; error message format includes global binding name."

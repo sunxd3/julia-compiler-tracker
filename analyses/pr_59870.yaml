@@ -14,6 +14,7 @@ scope:
     - "JuliaSyntax/src/JuliaSyntax.jl"
     - "JuliaSyntax/src/integration/hooks.jl"
     - "JuliaLowering/src/JuliaLowering.jl"
+    - "JuliaLowering/src/hooks.jl"
     - "JuliaLowering/src/closure_conversion.jl"
     - "JuliaLowering/src/runtime.jl"
     - "JuliaLowering/test/closures_ir.jl"
@@ -301,6 +302,62 @@ analysis:
             function __init__()
                 _register_kinds()
             end
+    - summary: "JuliaLowering provides hooks to replace Core._lower with a Julia-based lowering pipeline, enabling opt-in replacement of flisp lowering."
+      component: "JuliaLowering"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/hooks.jl"
+          loc: "1-62"
+          url: "https://github.com/JuliaLang/julia/blob/b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c/JuliaLowering/src/hooks.jl#L1-L62"
+          snippet: |
+            """
+            Becomes `Core._lower()` upon activating JuliaLowering.
+
+            Returns an svec with the lowered code (usually expr) as its first element, and
+            (until integration is less experimental) whatever we want after it
+            """
+            function core_lowering_hook(@nospecialize(code), mod::Module,
+                                        file="none", line=0, world=typemax(Csize_t), warn=false)
+                if !(code isa SyntaxTree || code isa Expr)
+                    return Core.svec(code)
+                end
+                file = file isa Ptr{UInt8} ? unsafe_string(file) : file
+                line = !(line isa Int) ? Int(line) : line
+
+                local st0 = nothing
+                try
+                    st0 = code isa Expr ? expr_to_syntaxtree(code, LineNumberNode(line, file)) : code
+                    if kind(st0) in KSet"toplevel module"
+                        return Core.svec(code)
+                    elseif kind(st0) === K"doc" && numchildren(st0) >= 2 && kind(st0[2]) === K"module"
+                        return Core.svec(Expr(st0[2]))
+                    end
+                    ctx1, st1 = expand_forms_1(  mod,  st0, true, world)
+                    ctx2, st2 = expand_forms_2(  ctx1, st1)
+                    ctx3, st3 = resolve_scopes(  ctx2, st2)
+                    ctx4, st4 = convert_closures(ctx3, st3)
+                    ctx5, st5 = linearize_ir(    ctx4, st4)
+                    ex = to_lowered_expr(st5)
+                    return Core.svec(ex, st5, ctx5)
+                catch exc
+                    @info("JuliaLowering threw given input:", code=code, st0=st0, file=file, line=line, mod=mod)
+                    rethrow(exc)
+                end
+            end
+
+            const _has_v1_13_hooks = isdefined(Core, :_lower)
+
+            function activate!(enable=true)
+                if !_has_v1_13_hooks
+                    error("Cannot use JuliaLowering without `Core._lower` binding or in $VERSION < 1.13")
+                end
+
+                if enable
+                    Core._setlowerer!(core_lowering_hook)
+                else
+                    Core._setlowerer!(Base.fl_lower)
+                end
+            end
     - summary: "JuliaLowering IR tests now assert closure capture boxing vs unboxing behavior, including the unboxed capture case."
       component: "JuliaLowering/Tests"
       evidence:
@@ -351,6 +408,62 @@ analysis:
                 6   slot₂/x
                 7   (= slot₄/z %₆)
                 8   (return %₆)
+    - summary: "JuliaLowering IR tests verify OpaqueClosure lowering emits new_opaque_closure and opaque_closure_method IR correctly."
+      component: "JuliaLowering/Tests"
+      evidence:
+        - source: "test"
+          path: "JuliaLowering/test/closures_ir.jl"
+          loc: "472-519"
+          url: "https://github.com/JuliaLang/julia/blob/b9f40beae6f4d0b5fed5b9d5d6805b79e6ac091c/JuliaLowering/test/closures_ir.jl#L472-L519"
+          snippet: |
+            ########################################
+            # Opaque closure
+            let y = 1
+                Base.Experimental.@opaque (x, z::T)->2x + y - z
+            end
+            #---------------------
+            1   1
+            2   (= slot₁/y (call core.Box))
+            3   slot₁/y
+            4   (call core.setfield! %₃ :contents %₁)
+            5   TestMod.T
+            6   (call core.apply_type core.Tuple core.Any %₅)
+            7   (call core.apply_type core.Union)
+            8   --- opaque_closure_method  core.nothing 2 false SourceLocation::2:31
+                slots: [slot₁/#self#(!read) slot₂/x slot₃/z slot₄/y(!read)]
+                1   TestMod.-
+                2   TestMod.+
+                3   TestMod.*
+                4   (call %₃ 2 slot₂/x)
+                5   (call core.getfield slot₁/#self# 1)
+                6   (call core.isdefined %₅ :contents)
+                7   (gotoifnot %₆ label₉)
+                8   (goto label₁₁)
+                9   (newvar slot₄/y)
+                10  slot₄/y
+                11  (call core.getfield %₅ :contents)
+                12  (call %₂ %₄ %₁₁)
+                13  (call %₁ %₁₂ slot₃/z)
+                14  (return %₁₃)
+            9   slot₁/y
+            10  (new_opaque_closure %₆ %₇ core.Any true %₈ %₉)
+            11  (return %₁₀)
+
+            ########################################
+            # Opaque closure with `...`
+            let
+                Base.Experimental.@opaque (x, ys...)->ys
+            end
+            #---------------------
+            1   (call core.apply_type core.Vararg core.Any)
+            2   (call core.apply_type core.Tuple core.Any %₁)
+            3   (call core.apply_type core.Union)
+            4   --- opaque_closure_method  core.nothing 2 true SourceLocation::2:31
+                slots: [slot₁/#self#(!read) slot₂/x(!read) slot₃/ys]
+                1   slot₃/ys
+                2   (return %₁)
+            5   (new_opaque_closure %₂ %₃ core.Any true %₄)
+            6   (return %₅)
     - summary: "Closure conversion uses is_boxed to decide capture boxing and to drive closure field metadata."
       component: "JuliaLowering"
       evidence:
@@ -461,6 +574,38 @@ analysis:
         - "OpaqueClosure/closure layout inspection"
       likelihood: "low"
       impact: "low"
+    - effect: "JuliaLowering can replace the runtime lowering when explicitly activated via activate!(), running the full lowering pipeline (macro expansion, desugaring, scope analysis, closure conversion, linearize_ir) for users who opt in."
+      mechanism: |
+        activate!(true)  [JuliaLowering/src/hooks.jl:52-62]
+          -> Core._setlowerer!(core_lowering_hook)  [JuliaLowering/src/hooks.jl:58]
+          -> core_lowering_hook(code, mod, file, line, world, warn)  [JuliaLowering/src/hooks.jl:7-44]
+            -> expand_forms_1(mod, st0, true, world)  -- macro expansion
+            -> expand_forms_2(ctx1, st1)  -- desugaring
+            -> resolve_scopes(ctx2, st2)  -- scope analysis
+            -> convert_closures(ctx3, st3)  -- closure conversion
+            -> linearize_ir(ctx4, st4)  -- IR linearization
+            -> to_lowered_expr(st5)  -- convert to Expr output
+      downstream_surfaces:
+        - "All code lowering in Julia runtime"
+        - "Method definition lowering"
+        - "Macro expansion"
+        - "Closure/lambda lowering"
+      likelihood: "medium"
+      impact: "high"
+    - effect: "JuliaLowering's OpaqueClosure handling emits new_opaque_closure and opaque_closure_method IR nodes, affecting tools inspecting or transforming lowered closure IR."
+      mechanism: |
+        _convert_closures(ctx, ex) for K"_opaque_closure"  [JuliaLowering/src/closure_conversion.jl:513-541]
+          -> closure_type_fields(ctx, ex, closure_binds, true)  -- is_opaque=true path
+          -> emits K"new_opaque_closure" IR node with:
+            - arg type tuple, return bounds, allow_partial flag
+            - K"opaque_closure_method" containing the converted lambda body
+            - captured variable arguments
+      downstream_surfaces:
+        - "OpaqueClosure introspection tooling"
+        - "Compiler optimizations on opaque closures"
+        - "JET/Enzyme when analyzing opaque closure methods"
+      likelihood: "low"
+      impact: "medium"
     - effect: "Sysimage build and CI coverage expand because JuliaSyntax sources are included in Base and new test groups are added."
       mechanism: |
         sysimage.mk adds JuliaSyntax sources to BASE_SRCS  [sysimage.mk:78-86]
@@ -481,9 +626,12 @@ analysis:
         affected_tools:
           - "CI scripts that enumerate test groups or parse test/choosetests.jl output."
     behavioral:
-      - impact: "Default parser remains the reference parser unless enable_in_core! is called; behavior changes are opt-in."
+      - impact: "Default parser remains the reference flisp parser unless JuliaSyntax.enable_in_core!() is called; behavior changes are opt-in."
         evidence:
           - "JuliaSyntax exposes enable_in_core! which toggles Core._parse; no default activation in Base."
+      - impact: "Default lowering remains the reference flisp lowering unless JuliaLowering.activate!() is called; behavior changes are opt-in."
+        evidence:
+          - "JuliaLowering exposes activate! which calls Core._setlowerer!(); requires Julia 1.13+ with Core._lower binding."
   performance:
     compile_time:
       - impact: "ESTIMATED: sysimage build may increase because JuliaSyntax sources are compiled into Base."
@@ -499,5 +647,7 @@ analysis:
     - "Should the registered JuliaSyntax/JuliaLowering packages track this in-tree code or remain separate for older Julia versions?"
   recommendations:
     - "Downstream tooling that consumes JuliaSyntax or JuliaLowering should add CI against Julia nightly to detect API drift early."
-    - "If enabling JuliaSyntax via enable_in_core!, run parser compatibility tests for macros/REPL to validate behavior changes."
+    - "If enabling JuliaSyntax via enable_in_core!(), run parser compatibility tests for macros/REPL to validate behavior changes."
+    - "If enabling JuliaLowering via activate!(), run comprehensive lowering tests as this replaces the entire lowering pipeline (macro expansion through IR linearization)."
     - "CI owners should account for the new JuliaSyntax/JuliaLowering test groups when estimating runtimes."
+    - "Tools inspecting closure IR (JET, Enzyme, IRTools) should verify compatibility with JuliaLowering's new_opaque_closure and opaque_closure_method IR nodes."

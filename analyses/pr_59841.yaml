@@ -25,8 +25,9 @@ scope:
     - "TypeInference"
 analysis:
   intent:
-    summary: "Add and expand documentation for Libdl.LazyLibrary (manual + docstrings), clarify lazy-loading guidance, and fix the LazyLibrary dependency initializer to copy the provided dependency vector."
-    issue_links: []
+    summary: "Add and expand documentation for Libdl.LazyLibrary (manual + docstrings), clarify lazy-loading guidance, fix the LazyLibrary dependency initializer introduced in PR #59233 (replace double-convert through Vector{Any} with simple copy), and remove confusing notes from the C calling manual."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59233"
   direct_changes:
     - summary: "Expanded LazyLibrary/LazyLibraryPath/BundledLazyLibraryPath/add_dependency! docstrings with examples and compatibility notes, and clarified LazyLibrary constructor semantics." 
       component: "Libdl"
@@ -228,10 +229,11 @@ analysis:
             !!! warning
                 The `on_load_callback` should be minimal and must not call `wait()` on any tasks.
                 It is called exactly once by the thread that loads the library.
-            ```
-            const mylibvar = LazyLibrary("mylib")
-            @ccall $(@dlsym(dlopen(mylibvar), "myfunc"))()::Cvoid
-            ```
+
+            #### Conversion from `__init__()` Pattern
+
+            Before `LazyLibrary`, library paths were often computed in `__init__()` functions.
+            This pattern can be replaced with `LazyLibrary` for better performance and thread safety.
     - summary: "Registered `add_dependency!` as a public Libdl API and included it in the Libdl docs index." 
       component: "Libdl"
       evidence:
@@ -263,7 +265,38 @@ analysis:
             Libdl.BundledLazyLibraryPath
             Libdl.add_dependency!
             ```
-    - summary: "Clarified inference commentary for foreigncall evaluation without altering runtime behavior." 
+    - summary: "Fixed InitialDependencies struct to be parameterized and use copy() instead of double-convert through Vector{Any} (fixing inefficiency from PR #59233)."
+      component: "Libdl"
+      evidence:
+        - source: "code"
+          path: "base/libdl.jl"
+          loc: "374-378"
+          url: "https://github.com/JuliaLang/julia/blob/298f8ad81dffebef3fd34f4153f33b366f2583f4/base/libdl.jl#L374-L378"
+          snippet: |
+            # Small helper struct to initialize a LazyLibrary with its initial set of dependencies
+            struct InitialDependencies{T}
+                dependencies::Vector{T}
+            end
+            (init::InitialDependencies)() = copy(init.dependencies)
+        - source: "code"
+          path: "base/libdl.jl"
+          loc: "446-458"
+          url: "https://github.com/JuliaLang/julia/blob/298f8ad81dffebef3fd34f4153f33b366f2583f4/base/libdl.jl#L446-L458"
+          snippet: |
+            function LazyLibrary(path; flags = default_rtld_flags, dependencies = LazyLibrary[],
+                                 on_load_callback = nothing)
+                return new(
+                    path,
+                    UInt32(flags),
+                    Base.OncePerProcess{Vector{LazyLibrary}}(
+                        InitialDependencies{LazyLibrary}(dependencies)  # <-- Now parameterized, no collect()
+                    ),
+                    on_load_callback,
+                    Base.ReentrantLock(),
+                    C_NULL,
+                )
+            end
+    - summary: "Clarified inference commentary for foreigncall evaluation without altering runtime behavior."
       component: "Compiler.AbstractInterpretation"
       evidence:
         - source: "code"
@@ -323,6 +356,21 @@ analysis:
                             # We expect there to be no missing or extraneous deps
                             deps_mismatch = !isempty(missing_deps) || !isempty(extraneous_deps)
   secondary_effects:
+    - effect: "InitialDependencies{T} parameterization improves type stability and avoids allocation from Vector{Any} conversion during dependency initialization."
+      mechanism: |
+        LazyLibrary constructor  [base/libdl.jl:446-458]
+          creates OncePerProcess with InitialDependencies{LazyLibrary}(dependencies)
+        -> OncePerProcess.initializer()  [base/lock.jl:745-759]
+          calls InitialDependencies callable when dependencies() is first invoked
+        -> InitialDependencies()  [base/libdl.jl:378]
+          returns copy(init.dependencies) directly as Vector{LazyLibrary}
+          BEFORE: convert(Vector{LazyLibrary}, Vector{Any}) required allocation + type check
+          AFTER: copy(Vector{LazyLibrary}) is a simple memcpy, fully type-stable
+      downstream_surfaces:
+        - "LazyLibrary dependency initialization"
+        - "JLL wrapper module loading"
+      likelihood: "high"
+      impact: "low"
     - effect: "Downstream packages can treat `add_dependency!` as a documented public API for dynamic dependency wiring (e.g., libblastrampoline_jll)."
       mechanism: |
         Libdl module marks add_dependency! as public  [stdlib/Libdl/src/Libdl.jl:10-19]
@@ -377,8 +425,21 @@ analysis:
                   push!(on_load_callbacks, on_load_callback)
               end
     behavioral:
-      - item: "LazyLibrary dependency initializer now copies the provided vector without re-wrapping through Any."
-        change: "InitialDependencies is now parameterized on element type and its callable returns copy(init.dependencies)."
+      - item: "LazyLibrary dependency initializer now copies the provided vector without re-wrapping through Any (fixes PR #59233 implementation)."
+        change: |
+          BEFORE (PR #59233): InitialDependencies stored Vector{Any} and converted on call:
+            struct InitialDependencies
+                dependencies::Vector{Any}
+            end
+            (init::InitialDependencies)() = convert(Vector{LazyLibrary}, init.dependencies)
+            # Constructor: InitialDependencies(collect(dependencies))
+
+          AFTER (this PR): InitialDependencies{T} is parameterized and returns a simple copy:
+            struct InitialDependencies{T}
+                dependencies::Vector{T}
+            end
+            (init::InitialDependencies)() = copy(init.dependencies)
+            # Constructor: InitialDependencies{LazyLibrary}(dependencies)
         evidence:
           - source: "code"
             path: "base/libdl.jl"
@@ -390,9 +451,29 @@ analysis:
                   dependencies::Vector{T}
               end
               (init::InitialDependencies)() = copy(init.dependencies)
+          - source: "diff"
+            path: "base/libdl.jl"
+            loc: "374-378,449-452"
+            url: "https://github.com/JuliaLang/julia/pull/59841.diff"
+            snippet: |
+              # Diff showing the change:
+              -struct InitialDependencies
+              -    dependencies::Vector{Any}
+              -end
+              -(init::InitialDependencies)() = convert(Vector{LazyLibrary}, init.dependencies)
+              +struct InitialDependencies{T}
+              +    dependencies::Vector{T}
+              +end
+              +(init::InitialDependencies)() = copy(init.dependencies)
+
+              # Constructor change:
+              -            Base.OncePerProcess{Vector{LazyLibrary}}(
+              -                InitialDependencies(collect(dependencies))
+              +            Base.OncePerProcess{Vector{LazyLibrary}}(
+              +                InitialDependencies{LazyLibrary}(dependencies)
   performance:
     compile_time:
-      - item: "ESTIMATED: no measurable change; documentation-only edits plus a simple vector copy in dependency initialization."
+      - item: "ESTIMATED: no measurable compile-time change; documentation-only edits plus minor struct parameterization."
         evidence:
           - source: "code"
             path: "base/libdl.jl"
@@ -404,7 +485,7 @@ analysis:
               end
               (init::InitialDependencies)() = copy(init.dependencies)
     runtime:
-      - item: "ESTIMATED: no runtime behavior change; LazyLibrary loading semantics are unchanged aside from clearer documentation."
+      - item: "ESTIMATED: slight runtime improvement during first LazyLibrary dependency access; eliminates Vector{Any}->Vector{LazyLibrary} conversion overhead (replaced with simple copy). Negligible in practice since dependencies are typically small vectors accessed once."
         evidence:
           - source: "docs"
             path: "doc/src/manual/calling-c-and-fortran-code.md"

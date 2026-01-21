@@ -8,6 +8,7 @@ pr:
   merged_at: "2025-10-24T14:56:29Z"
   merge_commit_sha: "3aea6638141da3169d9384ba1c20997bcd774486"
   diff_url: "https://github.com/JuliaLang/julia/pull/59921.diff"
+  base_branch: "release-1.12"
 scope:
   files_touched:
     - "Compiler/src/abstractinterpretation.jl"
@@ -17,17 +18,30 @@ scope:
     - "TypeInference"
 analysis:
   intent:
-    summary: "Avoid invalidations in the inference path for nonlinearized foreigncall names by giving boxed closure variables concrete Future types."
+    summary: "Prevent invalidations of `isready()` when loading Distributed by giving boxed closure variables concrete `Future` types instead of `Any`."
     issue_links:
       - "https://github.com/JuliaLang/julia/pull/59165"
+    context: |
+      This PR targets the release-1.12 branch specifically because the function
+      `abstract_eval_nonlinearized_foreigncall_name` is deleted entirely on master
+      by PR #59165. This is a targeted fix for 1.12 only.
   direct_changes:
-    - summary: "Annotate the captured locals `ai` and `res` inside `abstract_eval_nonlinearized_foreigncall_name` as `Future`, preventing them from being boxed as `Any` in the evalargs closure."
+    - summary: "Add type annotations to captured locals `ai` and `res` in the evalargs closure to prevent them from being boxed as `Any`."
       component: "Compiler.AbstractInterpretation"
       evidence:
+        - source: "diff"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "3460"
+          url: "https://github.com/JuliaLang/julia/blob/3aea6638141da3169d9384ba1c20997bcd774486/Compiler/src/abstractinterpretation.jl#L3460"
+          snippet: |
+            # BEFORE:
+            local ai, res
+            # AFTER:
+            local ai::Future, res::Future
         - source: "code"
           path: "Compiler/src/abstractinterpretation.jl"
-          loc: "3451-3486"
-          url: "https://github.com/JuliaLang/julia/blob/3aea6638141da3169d9384ba1c20997bcd774486/Compiler/src/abstractinterpretation.jl#L3451-L3486"
+          loc: "3451-3491"
+          url: "https://github.com/JuliaLang/julia/blob/3aea6638141da3169d9384ba1c20997bcd774486/Compiler/src/abstractinterpretation.jl#L3451-L3491"
           snippet: |
             function abstract_eval_nonlinearized_foreigncall_name(
                     interp::AbstractInterpreter, @nospecialize(e), sstate::StatementState, sv::InferenceState
@@ -38,7 +52,7 @@ analysis:
                     callresult = Future{CallMeta}()
                     i::Int = 1
                     nextstate::UInt8 = 0x0
-                    local ai::Future, res::Future
+                    local ai::Future, res::Future  # <-- THE FIX: typed as Future instead of Any
                     function evalargs(interp, sv)
                         if nextstate === 0x1
                             @goto state1
@@ -47,7 +61,7 @@ analysis:
                         end
                         while i <= n
                             ai = abstract_eval_nonlinearized_foreigncall_name(interp, e.args[i], sstate, sv)
-                            if !isready(ai)
+                            if !isready(ai)  # <-- isready call on ai::Future
                                 nextstate = 0x1
                                 return false
                                 @label state1
@@ -56,7 +70,7 @@ analysis:
                             i += 1
                         end
                         res = abstract_call(interp, ArgInfo(e.args, argtypes), sstate, sv)
-                        if !isready(res)
+                        if !isready(res)  # <-- isready call on res::Future
                             nextstate = 0x2
                             return false
                             @label state2
@@ -70,95 +84,102 @@ analysis:
                     return Future(abstract_eval_basic_statement(interp, e, sstate, sv))
                 end
             end
-    - summary: "Call sites for `abstract_eval_nonlinearized_foreigncall_name`, showing its use from the foreigncall path and recursive evaluation."
+    - summary: "The `Future` struct and `isready` function that the typed locals dispatch on."
+      component: "Compiler.InferenceState"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/inferencestate.jl"
+          loc: "1140-1151"
+          url: "https://github.com/JuliaLang/julia/blob/3aea6638141da3169d9384ba1c20997bcd774486/Compiler/src/inferencestate.jl#L1140-L1151"
+          snippet: |
+            struct Future{T}
+                later::Union{Nothing,RefValue{T}}
+                now::Union{Nothing,T}
+                function Future{T}() where {T}
+                    later = RefValue{T}()
+                    @assert !isassigned(later) "Future{T}() is not allowed for inlinealloc T"
+                    new{T}(later, nothing)
+                end
+                Future{T}(x) where {T} = new{T}(nothing, x)
+                Future(x::T) where {T} = new{T}(nothing, x)
+            end
+            isready(f::Future) = f.later === nothing || isassigned(f.later)
+    - summary: "Call sites for `abstract_eval_nonlinearized_foreigncall_name` showing its use from foreigncall evaluation."
       component: "Compiler.AbstractInterpretation"
       evidence:
         - source: "rg"
           path: "Compiler/src/abstractinterpretation.jl"
-          loc: "3447-3499"
+          loc: "3493-3503"
+          url: "https://github.com/JuliaLang/julia/blob/3aea6638141da3169d9384ba1c20997bcd774486/Compiler/src/abstractinterpretation.jl#L3493-L3503"
           snippet: |
-            3447:abstract_eval_nonlinearized_foreigncall_name(
-            3451:function abstract_eval_nonlinearized_foreigncall_name(
-            3468:                ai = abstract_eval_nonlinearized_foreigncall_name(interp, e.args[i], sstate, sv)
-            3497:        abstract_eval_nonlinearized_foreigncall_name(interp, callee.args[2], sstate, sv)
-            3499:            abstract_eval_nonlinearized_foreigncall_name(interp, callee.args[3], sstate, sv)
-    - summary: "Existing inference test that exercises foreigncall IR, providing a baseline behavior example (no change expected from this PR)."
-      component: "Compiler.AbstractInterpretation"
-      evidence:
-        - source: "test"
-          path: "Compiler/test/inference.jl"
-          loc: "3318-3322"
-          url: "https://github.com/JuliaLang/julia/blob/3aea6638141da3169d9384ba1c20997bcd774486/Compiler/test/inference.jl#L3318-L3322"
-          snippet: |
-            bar_inlining_apply() = Core._apply_iterate(iterate, Core._apply_iterate, (iterate,), (foo_inlining_apply,), ((1,),))
-            let ci = code_typed(bar_inlining_apply, Tuple{})[1].first
-                @test length(ci.code) == 2
-                @test ci.code[1].head === :foreigncall
-            end
+            function abstract_eval_foreigncall(interp::AbstractInterpreter, e::Expr, sstate::StatementState, sv::AbsIntState)
+                callee = e.args[1]
+                if isexpr(callee, :call) && length(callee.args) > 1 && callee.args[1] == GlobalRef(Core, :tuple)
+                    # NOTE these expressions are not properly linearized
+                    abstract_eval_nonlinearized_foreigncall_name(interp, callee.args[2], sstate, sv)
+                    if length(callee.args) > 2
+                        abstract_eval_nonlinearized_foreigncall_name(interp, callee.args[3], sstate, sv)
+                    end
+                else
+                    abstract_eval_value(interp, callee, sstate, sv)
+                end
   secondary_effects:
-    - effect: "Lower chance of inference invalidations triggered by the evalargs task closure for nonlinearized foreigncall names, because captured slots are concretely typed as `Future` instead of `Any`."
+    - effect: "Eliminates method table backedge invalidations triggered by loading Distributed on Julia 1.12."
       mechanism: |
-        abstract_eval_foreigncall(...)  [abstractinterpretation.jl:3493-3503]
-          -> abstract_eval_nonlinearized_foreigncall_name(...)  [abstractinterpretation.jl:3497-3499]
-             defines evalargs closure with captured locals ai/res  [abstractinterpretation.jl:3460-3486]
-             -> captured slots now typed as Future (ai::Future, res::Future)
-        This reduces boxed-Any slot types in the closure environment, stabilizing inference for the evalargs task.
+        The invalidation chain BEFORE this fix:
+        1. `local ai, res` (untyped) -> Julia boxes captured variables as `Any` in closure
+        2. `evalargs` closure captures `ai::Any` and `res::Any`
+        3. Calls `isready(ai)` dispatch on signature `Tuple{typeof(isready), Any}`
+        4. MethodInstance for `evalargs` records backedge on `Tuple{typeof(isready), Any}`
+        5. Loading Distributed adds: `isready(pool::Distributed.WorkerPool)`
+        6. New method invalidates ALL MethodInstances with backedges on `Tuple{typeof(isready), Any}`
+        7. Result: evalargs closure gets invalidated, along with 249 children
+
+        AFTER this fix:
+        1. `local ai::Future, res::Future` -> captured as `Future` type
+        2. Calls `isready(ai)` dispatch on `Tuple{typeof(isready), Future}`
+        3. Adding `isready(::WorkerPool)` does NOT invalidate `isready(::Future)` backedges
+        4. No invalidation cascade
       downstream_surfaces:
-        - "Core.Compiler.AbstractInterpreter task scheduling"
-        - "Inference cache stability for foreigncall name evaluation"
-      likelihood: "medium"
+        - "Core.Compiler inference task scheduling"
+        - "Inference cache stability when loading Distributed stdlib"
+        - "Any package that adds methods to `isready` for custom types"
+      likelihood: "high"
       impact: "medium"
+      evidence:
+        - source: "pr_description"
+          snippet: |
+            This prevents invalidations of `isready()` from loading Distributed on 1.12:
+            inserting isready(pool::Distributed.WorkerPool) @ Distributed ~/.julia/juliaup/julia-1.12.1+0.x64.linux.gnu/share/julia/stdlib/v1.12/Distributed/src/workerpool.jl:168 invalidated:
+               mt_backedges: 1: signature Tuple{typeof(isready), Any} triggered MethodInstance for (::Compiler.var"#evalargs#abstract_eval_nonlinearized_foreigncall_name##0"{Expr, Compiler.StatementState, Compiler.Future{Compiler.CallMeta}, Vector{Any}, Int64})(::Compiler.AbstractInterpreter, ::Compiler.InferenceState) (0 children)
+                             2: signature Tuple{typeof(isready), Any} triggered MethodInstance for (::Compiler.var"#evalargs#abstract_eval_nonlinearized_foreigncall_name##0"{Expr, Compiler.StatementState, Compiler.Future{Compiler.CallMeta}, Vector{Any}, Int64})(::Compiler.NativeInterpreter, ::Compiler.InferenceState) (0 children)
+                             3: signature Tuple{typeof(isready), Any} triggered MethodInstance for (::Compiler.var"#evalargs#abstract_eval_nonlinearized_foreigncall_name##0"{Expr, Compiler.StatementState, Compiler.Future{Compiler.CallMeta}, Vector{Any}, Int64})(::Compiler.AbstractInterpreter, ::Compiler.InferenceState) (249 children)
   compatibility:
     internal_api: []
     behavioral:
-      - change: "No user-visible semantic change expected; this is a type-annotation in an internal inference helper."
+      - change: "No user-visible semantic change. The evalargs closure behavior is identical; only its compiled representation changes to avoid invalidation."
         evidence:
-          - source: "code"
-            path: "Compiler/src/abstractinterpretation.jl"
-            loc: "3451-3486"
-            url: "https://github.com/JuliaLang/julia/blob/3aea6638141da3169d9384ba1c20997bcd774486/Compiler/src/abstractinterpretation.jl#L3451-L3486"
+          - source: "analysis"
             snippet: |
-              callresult = Future{CallMeta}()
-              i::Int = 1
-              nextstate::UInt8 = 0x0
-              local ai::Future, res::Future
-              function evalargs(interp, sv)
-                  if nextstate === 0x1
-                      @goto state1
-                  elseif nextstate === 0x2
-                      @goto state2
-                  end
-                  while i <= n
-                      ai = abstract_eval_nonlinearized_foreigncall_name(interp, e.args[i], sstate, sv)
-                      if !isready(ai)
-                          nextstate = 0x1
-                          return false
-                          @label state1
-                      end
-                      argtypes[i] = ai[].rt
-                      i += 1
-                  end
-                  res = abstract_call(interp, ArgInfo(e.args, argtypes), sstate, sv)
-                  if !isready(res)
-                      nextstate = 0x2
-                      return false
-                      @label state2
-                  end
-                  callresult[] = res[]
-                  return true
-              end
+              The type annotation `ai::Future` and `res::Future` does not change runtime behavior:
+              - `abstract_eval_nonlinearized_foreigncall_name` always returns `Future` (line 3487, 3489)
+              - `abstract_call` always returns `Future` (type signature)
+              - The annotation just makes this explicit to the compiler for closure capture typing
   performance:
     compile_time:
-      - impact: "ESTIMATED: no measurable compile-time cost; adds only concrete type annotations for captured locals."
+      - impact: "ESTIMATED: No measurable compile-time cost. Single type annotation evaluated once per closure creation."
     runtime:
-      - impact: "ESTIMATED: reduces invalidation churn from inference tasks that traverse nonlinearized foreigncall names."
+      - impact: "ESTIMATED: Significant reduction in invalidation churn when loading Distributed or any package that extends `isready`. The PR description shows 249 child MethodInstances were being invalidated before this fix."
   risk:
     level: "low"
     rationale:
-      - "Single-line type annotation in an internal inference helper; no control-flow changes."
-      - "No tests were modified; change is intended to stabilize inference state for existing behavior."
+      - "Single-line type annotation change with no control flow modifications."
+      - "The types being annotated (`Future`) exactly match what the functions already return."
+      - "No tests were modified because the behavioral semantics are unchanged."
+      - "Targeted at release-1.12 only; function is removed on master by PR #59165."
   open_questions:
-    - "Should a regression test be added to assert that `abstract_eval_nonlinearized_foreigncall_name` no longer invalidates `isready` when loading Distributed?"
+    - "Should a regression test be added to verify that loading Distributed no longer invalidates `isready` backedges from this closure?"
+    - "Are there other closures in the Compiler with similar untyped captured locals that could benefit from type annotations?"
   recommendations:
-    - "Consider adding a targeted inference invalidation test around foreigncall name evaluation to prevent regressions."
-    - "If future refactors remove the evalargs closure (as suggested in the PR description), verify that task scheduling still preserves this concrete typing."
+    - "For release-1.12 maintenance: audit other Compiler closures for untyped captured locals that call generic functions like `isready`, `wait`, etc."
+    - "The PR author notes: 'I think ideally it wouldn't use a closure at all' - on master this was addressed by PR #59165 which removes the function entirely."

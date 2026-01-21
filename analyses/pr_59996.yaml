@@ -1,13 +1,21 @@
 schema_version: "1.0"
 pr:
   number: 59996
-  title: "[backports-release-1.10] fix accidental save (and restore) of sigmask…"
+  title: "[backports-release-1.10] fix accidental save (and restore) of sigmask when interpreting try (#59878)"
   url: "https://github.com/JuliaLang/julia/pull/59996"
   author: "kpamnany"
+  original_author: "vtjnash"
   labels: []
   merged_at: "2025-11-04T17:36:29Z"
   merge_commit_sha: "e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5"
   diff_url: "https://github.com/JuliaLang/julia/pull/59996.diff"
+  backport_of:
+    pr_number: 59878
+    url: "https://github.com/JuliaLang/julia/pull/59878"
+    labels:
+      - "system:mac"
+      - "backport 1.10"
+      - "backport 1.11"
 scope:
   files_touched:
     - "src/interpreter.c"
@@ -17,47 +25,123 @@ scope:
     - "Interpreter"
 analysis:
   intent:
-    summary: "Stop the interpreter's try/enter path from saving and restoring the signal mask via jl_setjmp, which was observed to be accidental and potentially slow after #59878."
+    summary: "Stop the interpreter's try/enter path from saving and restoring the signal mask via sigsetjmp. The change was from jl_setjmp(__eh.eh_ctx, 1) to jl_setjmp(__eh.eh_ctx, 0), aligning with the JL_TRY macro and all other jl_setjmp call sites in the codebase."
     issue_links:
       - "https://github.com/JuliaLang/julia/pull/59878"
       - "https://github.com/ericphanson/LicenseCheck.jl/issues/11"
   direct_changes:
-    - summary: "Interpreter :enter now calls jl_setjmp with a 0 save-flag, preventing sigsetjmp from saving/restoring the signal mask during interpreter-managed try blocks."
+    - summary: "Changed jl_setjmp second argument from 1 to 0 in interpreter :enter handling, preventing sigsetjmp from saving/restoring the signal mask during interpreter-managed try blocks."
       component: "Interpreter"
       evidence:
-        - source: "code"
-          path: "src/interpreter.c"
-          loc: "525-545"
-          url: "https://github.com/JuliaLang/julia/blob/e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5/src/interpreter.c#L525-L545"
-          snippet: |
-            size_t catch_ip = jl_unbox_long(jl_exprarg(stmt, 0)) - 1;
-            while (catch_ip < ns) {
-                jl_value_t *phicnode = jl_array_ptr_ref(stmts, catch_ip);
-                if (!jl_is_phicnode(phicnode))
-                    break;
-                jl_array_t *values = (jl_array_t*)jl_fieldref_noalloc(phicnode, 0);
-                for (size_t i = 0; i < jl_array_len(values); ++i) {
-                    jl_value_t *val = jl_array_ptr_ref(values, i);
-                    assert(jl_is_ssavalue(val));
-                    size_t upsilon = ((jl_ssavalue_t*)val)->id - 1;
-                    assert(jl_is_upsilonnode(jl_array_ptr_ref(stmts, upsilon)));
-                    s->locals[jl_source_nslots(s->src) + upsilon] = jl_box_ssavalue(catch_ip + 1);
-                }
-                s->locals[jl_source_nslots(s->src) + catch_ip] = NULL;
-                catch_ip += 1;
-            }
-            // store current top of exception stack for restore in pop_exception.
-            s->locals[jl_source_nslots(s->src) + ip] = jl_box_ulong(jl_excstack_state());
-            if (!jl_setjmp(__eh.eh_ctx, 0)) {
-                return eval_body(stmts, s, next_ip, toplevel);
-            }
-        - source: "rg"
+        - source: "diff"
           path: "src/interpreter.c"
           loc: "543"
           url: "https://github.com/JuliaLang/julia/blob/e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5/src/interpreter.c#L543"
           snippet: |
-            543:                if (!jl_setjmp(__eh.eh_ctx, 0)) {
-    - summary: "Existing interpreter tests exercise :enter/:leave (try/catch) paths, which are the control-flow sites affected by the setjmp behavior change."
+            # The actual change (from PR patch):
+            -                if (!jl_setjmp(__eh.eh_ctx, 1)) {
+            +                if (!jl_setjmp(__eh.eh_ctx, 0)) {
+        - source: "code"
+          path: "src/interpreter.c"
+          loc: "513-554"
+          url: "https://github.com/JuliaLang/julia/blob/e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5/src/interpreter.c#L513-L554"
+          snippet: |
+            else if (head == jl_enter_sym) {
+                jl_enter_handler(&__eh);
+                // This is a bit tricky, but supports the implementation of PhiC nodes.
+                // They are conceptually slots, but the slot to store to doesn't get explicitly
+                // mentioned in the store (aka the "UpsilonNode") (this makes them integrate more
+                // nicely with the rest of the SSA representation). In a compiler, we would figure
+                // out which slot to store to at compile time when we encounter the statement. We
+                // can't quite do that here, but we do something similar: We scan the catch entry
+                // block (the only place where PhiC nodes may occur) to find all the Upsilons we
+                // can possibly encounter. Then, we remember which slot they store to (we abuse the
+                // SSA value result array for this purpose). TODO: We could do this only the first
+                // time we encounter a given enter.
+                size_t catch_ip = jl_unbox_long(jl_exprarg(stmt, 0)) - 1;
+                while (catch_ip < ns) {
+                    jl_value_t *phicnode = jl_array_ptr_ref(stmts, catch_ip);
+                    if (!jl_is_phicnode(phicnode))
+                        break;
+                    jl_array_t *values = (jl_array_t*)jl_fieldref_noalloc(phicnode, 0);
+                    for (size_t i = 0; i < jl_array_len(values); ++i) {
+                        jl_value_t *val = jl_array_ptr_ref(values, i);
+                        assert(jl_is_ssavalue(val));
+                        size_t upsilon = ((jl_ssavalue_t*)val)->id - 1;
+                        assert(jl_is_upsilonnode(jl_array_ptr_ref(stmts, upsilon)));
+                        s->locals[jl_source_nslots(s->src) + upsilon] = jl_box_ssavalue(catch_ip + 1);
+                    }
+                    s->locals[jl_source_nslots(s->src) + catch_ip] = NULL;
+                    catch_ip += 1;
+                }
+                // store current top of exception stack for restore in pop_exception.
+                s->locals[jl_source_nslots(s->src) + ip] = jl_box_ulong(jl_excstack_state());
+                if (!jl_setjmp(__eh.eh_ctx, 0)) {  // <-- CHANGED: was 1, now 0
+                    return eval_body(stmts, s, next_ip, toplevel);
+                }
+                else if (s->continue_at) { // means we reached a :leave expression
+                    ip = s->continue_at;
+                    s->continue_at = 0;
+                    continue;
+                }
+                else { // a real exception
+                    ip = catch_ip;
+                    continue;
+                }
+            }
+    - summary: "On Unix-like platforms, jl_setjmp maps to sigsetjmp where the second argument controls signal mask save/restore. The JL_TRY macro already uses 0 (no signal mask save)."
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/julia.h"
+          loc: "2131-2139"
+          url: "https://github.com/JuliaLang/julia/blob/e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5/src/julia.h#L2131-L2139"
+          snippet: |
+            #else
+            // determine actual entry point name
+            #if defined(sigsetjmp)
+            #define jl_setjmp_f    __sigsetjmp
+            #define jl_setjmp_name "__sigsetjmp"
+            #else
+            #define jl_setjmp_f    sigsetjmp
+            #define jl_setjmp_name "sigsetjmp"
+            #endif
+            #define jl_setjmp(a,b) sigsetjmp(a,b)
+        - source: "code"
+          path: "src/julia.h"
+          loc: "2159-2164"
+          url: "https://github.com/JuliaLang/julia/blob/e8f64ec5b13140b7632a53d6e4ce58cb7e19b2f5/src/julia.h#L2159-L2164"
+          snippet: |
+            #define JL_TRY                                                    \
+                int i__tr, i__ca; jl_handler_t __eh;                          \
+                size_t __excstack_state = jl_excstack_state();                \
+                jl_enter_handler(&__eh);                                      \
+                if (!jl_setjmp(__eh.eh_ctx,0))                                \
+                    for (i__tr=1; i__tr; i__tr=0, jl_eh_restore_state(&__eh))
+    - summary: "All other jl_setjmp call sites in the codebase already use 0 as the second argument, confirming this was an inconsistency."
+      component: "Runtime"
+      evidence:
+        - source: "rg"
+          path: "src/"
+          loc: "multiple files"
+          snippet: |
+            # Every jl_setjmp call in the codebase uses 0:
+            src/gc-debug.c:536:    if (jl_setjmp(buf, 0)) {
+            src/signal-handling.c:267:    if (!jl_setjmp(buf, 0)) {
+            src/task.c:283:    if (jl_setjmp(lastt->ctx.copy_ctx.uc_mcontext, 0))
+            src/task.c:494:            if (jl_setjmp(lastt->ctx.copy_ctx.uc_mcontext, 0)) {
+            src/task.c:1359:    if (jl_setjmp(lastt->ctx.uc_mcontext, 0))
+            src/task.c:1446:    if (jl_setjmp(lastt->ctx.uc_mcontext, 0))
+            src/task.c:1532:    if (jl_setjmp(ptls->base_ctx.uc_mcontext, 0))
+            src/task.c:1598:    if (lastt && jl_setjmp(lastt->ctx.uc_mcontext, 0))
+            src/task.c:1605:    if (jl_setjmp(lastt->ctx.uc_mcontext, 0))
+            src/task.c:1723:        if (jl_setjmp(ptls->copy_stack_ctx.uc_mcontext, 0))
+            src/julia.h:2163:    if (!jl_setjmp(__eh.eh_ctx,0))  # JL_TRY macro
+            src/interpreter.c:543:                if (!jl_setjmp(__eh.eh_ctx, 0)) {  # after fix
+            src/signals-unix.c:891:                        if (jl_setjmp(buf, 0)) {
+            src/stackwalk.c:89:    if (!jl_setjmp(buf, 0)) {
+            src/rtutils.c:1480:    if (!jl_setjmp(buf, 0)) {
+    - summary: "Existing interpreter tests exercise :enter/:leave (try/catch) paths which are the control-flow sites affected by the setjmp behavior change."
       component: "Interpreter"
       evidence:
         - source: "test"
@@ -74,7 +158,7 @@ analysis:
                     QuoteNode(:b),
                     GlobalRef(@__MODULE__, :test29262),
                     # block 2
-                    Expr(:enter, 11),
+                    Expr(:enter, 11),  # <-- triggers jl_enter_handler and jl_setjmp
                     # block 3
                     Core.UpsilonNode(),
                     Core.UpsilonNode(),
@@ -85,9 +169,9 @@ analysis:
                     # block 5
                     Expr(:throw_undef_if_not, :expected, false),
                     # block 6
-                    Core.PhiCNode(Any[Core.SSAValue(5), Core.SSAValue(7), Core.SSAValue(9)]), # NULL, :a, :b
-                    Core.PhiCNode(Any[Core.SSAValue(6)]), # NULL
-                    Expr(:leave, 1),
+                    Core.PhiCNode(Any[Core.SSAValue(5), Core.SSAValue(7), Core.SSAValue(9)]),
+                    Core.PhiCNode(Any[Core.SSAValue(6)]),
+                    Expr(:leave, 1),  # <-- triggers jl_longjmp back to the setjmp point
                     # block 7
                     ReturnNode(Core.SSAValue(11)),
                 ]
@@ -102,31 +186,50 @@ analysis:
                 @test :b === @eval $m
             end
   secondary_effects:
-    - effect: "Interpreter try/enter no longer saves/restores the signal mask on entry, reducing overhead and avoiding unintended signal-mask restoration when unwinding interpreter frames."
+    - effect: "Interpreter try/enter no longer saves/restores the signal mask on entry, reducing overhead and avoiding unintended signal-mask restoration when unwinding interpreter frames on Unix-like systems."
       mechanism: |
-        eval_body() handles Expr(:enter) in the interpreter loop and installs a handler, then
-        calls jl_setjmp(__eh.eh_ctx, 0) to establish the non-local return point.  [src/interpreter.c:525-545]
-        jl_setjmp(a, b) is defined to use sigsetjmp(a, b) on non-Windows platforms, so the
-        second argument controls whether the signal mask is saved/restored.  [src/julia.h:2131-2139]
+        eval_body() handles Expr(:enter) in the interpreter loop  [src/interpreter.c:513]
+          -> jl_enter_handler(&__eh) installs the exception handler
+          -> jl_setjmp(__eh.eh_ctx, 0) establishes non-local return point  [src/interpreter.c:543]
+        jl_setjmp(a, b) macro expands based on platform:
+          - Unix: sigsetjmp(a, b)  [src/julia.h:2139]
+            - b=0: do NOT save signal mask
+            - b=1: save signal mask (was the bug)
+          - Windows: jl_setjmp(a) ignores second argument  [src/julia.h:2117,2122]
+          - Emscripten: setjmp(a) ignores second argument  [src/julia.h:2126]
+        siglongjmp restores signal mask only if sigsetjmp was called with 1.
       downstream_surfaces:
         - "Interpreter execution of try/catch and scope entry (Expr(:enter)/Expr(:leave))"
-        - "C-level signal mask interactions during interpreter unwinding"
+        - "C-level signal mask interactions during interpreter unwinding (Unix only)"
       likelihood: "high"
       impact: "low"
+    - effect: "On Windows and Emscripten, this change has no effect because jl_setjmp ignores the second argument."
+      mechanism: |
+        On Windows, jl_setjmp is defined as:
+          #define jl_setjmp(a,b) jl_setjmp(a)   [src/julia.h:2117 or 2122]
+        On Emscripten:
+          #define jl_setjmp(a,b) setjmp(a)      [src/julia.h:2126]
+        Both ignore the second argument entirely.
+      downstream_surfaces:
+        - "No impact on Windows or Emscripten builds"
+      likelihood: "high"
+      impact: "none"
   compatibility:
     internal_api: []
     behavioral:
-      - "Interpreter no longer preserves the signal mask across try/leave boundaries (aligned with sigsetjmp(..., 0) usage); observable only for code relying on signal mask side effects during interpreted control flow."
+      - "Interpreter no longer preserves the signal mask across try/leave boundaries on Unix-like systems (aligned with sigsetjmp(..., 0) usage). Observable only for code relying on signal mask side effects during interpreted control flow, which is extremely rare."
   performance:
     compile_time: []
     runtime:
-      - "ESTIMATED: Slightly lower overhead per interpreter-entered try block by avoiding sigsetjmp signal-mask save/restore."
+      - "ESTIMATED: Measurable overhead reduction per interpreter-entered try block on Unix by avoiding sigsetjmp signal-mask save/restore syscalls. The original PR was discovered during performance investigation of LicenseCheck.jl. Note: Original PR #59878 was labeled 'system:mac', suggesting macOS-specific observation."
   risk:
     level: "low"
     rationale:
-      - "Change is localized to interpreter :enter handling and mirrors common jl_setjmp(..., 0) usage elsewhere in the runtime."
+      - "Change aligns interpreter :enter handling with the JL_TRY macro pattern (julia.h:2163) which already uses jl_setjmp(..., 0)."
+      - "All other jl_setjmp call sites in the codebase (15+ locations) already use 0 as the second argument."
+      - "On Windows and Emscripten, the second argument is ignored, so behavior is unchanged on those platforms."
       - "No new tests added; behavior is exercised by existing interpreter_exec tests covering :enter/:leave control flow."
   open_questions:
-    - "Should a targeted regression test be added to ensure interpreter try/leave does not alter the signal mask?"
+    - "Should a targeted regression test be added to ensure interpreter try/leave does not alter the signal mask on Unix?"
   recommendations:
-    - "If future signal-handling regressions appear, add a small interpreter test that asserts signal mask stability across Expr(:enter)/Expr(:leave) in interpreted code."
+    - "If future signal-handling regressions appear on Unix, add a small interpreter test that asserts signal mask stability across Expr(:enter)/Expr(:leave) in interpreted code."

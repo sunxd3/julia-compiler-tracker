@@ -25,20 +25,35 @@ analysis:
     issue_links:
       - "https://github.com/ericphanson/LicenseCheck.jl/issues/11#issuecomment-3417207015"
   direct_changes:
-    - summary: "Interpreter :enter handling now calls jl_setjmp with save_sigmask=0 for both scoped and unscoped try blocks."
+    - summary: "Interpreter :enter handling now calls jl_setjmp with save_sigmask=0 (was 1) for both scoped and unscoped try blocks, matching compiled code behavior."
       component: "Interpreter"
       evidence:
+        - source: "diff"
+          path: "src/interpreter.c"
+          loc: "548,556"
+          url: "https://github.com/JuliaLang/julia/pull/59878.diff"
+          snippet: |
+            # Before (from second parent of merge commit):
+            -                if (!jl_setjmp(__eh.eh_ctx, 1)) {  # line 548, scoped try
+            -                if (!jl_setjmp(__eh.eh_ctx, 1)) {  # line 556, unscoped try
+
+            # After (merge commit cc49ff5):
+            +                if (!jl_setjmp(__eh.eh_ctx, 0)) {  # line 548, scoped try
+            +                if (!jl_setjmp(__eh.eh_ctx, 0)) {  # line 556, unscoped try
         - source: "code"
           path: "src/interpreter.c"
-          loc: "540-560"
-          url: "https://github.com/JuliaLang/julia/blob/cc49ff5e586bbf6af9f8bcad769083f74a4e7796/src/interpreter.c#L540-L560"
+          loc: "540-561"
+          url: "https://github.com/JuliaLang/julia/blob/cc49ff5e586bbf6af9f8bcad769083f74a4e7796/src/interpreter.c#L540-L561"
           snippet: |
             s->locals[jl_source_nslots(s->src) + ip] = jl_box_ulong(jl_excstack_state(ct));
             if (jl_enternode_scope(stmt)) {
                 jl_value_t *scope = eval_value(jl_enternode_scope(stmt), s);
+                // GC preserve the scope, since it is not rooted in the `jl_handler_t *`
+                // and may be removed from jl_current_task by any nested block and then
+                // replaced later
                 JL_GC_PUSH1(&scope);
                 ct->scope = scope;
-                if (!jl_setjmp(__eh.eh_ctx, 0)) {
+                if (!jl_setjmp(__eh.eh_ctx, 0)) {  // <-- changed from 1 to 0
                     ct->eh = &__eh;
                     eval_body(stmts, s, next_ip, toplevel);
                     jl_unreachable();
@@ -46,13 +61,13 @@ analysis:
                 JL_GC_POP();
             }
             else {
-                if (!jl_setjmp(__eh.eh_ctx, 0)) {
+                if (!jl_setjmp(__eh.eh_ctx, 0)) {  // <-- changed from 1 to 0
                     ct->eh = &__eh;
                     eval_body(stmts, s, next_ip, toplevel);
                     jl_unreachable();
                 }
             }
-    - summary: "Unix jl_setjmp resolves to sigsetjmp(a, b), so the second argument controls signal-mask saving." 
+    - summary: "Unix jl_setjmp resolves to sigsetjmp(a, b), where b=0 means don't save signal mask, b=1 means save it."
       component: "Runtime"
       evidence:
         - source: "code"
@@ -69,6 +84,39 @@ analysis:
             #define jl_setjmp_name "sigsetjmp"
             #endif
             #define jl_setjmp(a,b) sigsetjmp(a,b)
+            // Per POSIX: sigsetjmp(buf, savemask) saves signal mask iff savemask != 0
+            // siglongjmp restores mask only if it was saved
+    - summary: "Compiled code path in codegen.cpp already passes 0 to setjmp, so this PR makes interpreter consistent with compiled code."
+      component: "Codegen"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "9373-9380"
+          url: "https://github.com/JuliaLang/julia/blob/cc49ff5e586bbf6af9f8bcad769083f74a4e7796/src/codegen.cpp#L9373-L9380"
+          snippet: |
+            CallInst *sj;
+            if (ctx.emission_context.TargetTriple.isOSWindows())
+                sj = ctx.builder.CreateCall(prepare_call(setjmp_func), {ehbuff});
+            else
+                sj = ctx.builder.CreateCall(prepare_call(setjmp_func), {ehbuff, ConstantInt::get(Type::getInt32Ty(ctx.builder.getContext()), 0)});
+                // <-- compiled code already uses 0, interpreter was accidentally using 1
+            // We need to mark this on the call site as well. See issue #6757
+            sj->setCanReturnTwice();
+    - summary: "JL_TRY macro also uses 0 for consistency."
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/julia.h"
+          loc: "2419-2425"
+          url: "https://github.com/JuliaLang/julia/blob/cc49ff5e586bbf6af9f8bcad769083f74a4e7796/src/julia.h#L2419-L2425"
+          snippet: |
+            #define JL_TRY                                                      \
+                int i__try, i__catch; jl_handler_t __eh; jl_task_t *__eh_ct;    \
+                __eh_ct = jl_current_task;                                      \
+                size_t __excstack_state = jl_excstack_state(__eh_ct);           \
+                jl_enter_handler(__eh_ct, &__eh);                               \
+                if (!jl_setjmp(__eh.eh_ctx, 0))                                 \  // <-- also uses 0
+                    for (i__try=1, __eh_ct->eh = &__eh; i__try; i__try=0, /* TRY BLOCK; */ jl_eh_restore_state_noexcept(__eh_ct, &__eh))
     - summary: "Interpreter try/finally coverage in tests (used as a concrete before/after example of interpreter try behavior)."
       component: "Tests"
       evidence:
@@ -93,24 +141,50 @@ analysis:
                 @test read(`$(Base.julia_cmd()) --startup-file=no --compile=min -e $code`, String) == "42"
             end
   secondary_effects:
-    - effect: "Interpreter-executed try blocks no longer save/restore the POSIX signal mask when entering the handler." 
+    - effect: "Interpreter-executed try blocks no longer save/restore the POSIX signal mask when entering the handler."
       mechanism: |
-        eval_body(...) enter handling  [src/interpreter.c:540-560]
-          -> jl_setjmp(__eh.eh_ctx, 0)  [src/interpreter.c:548,556]
-          -> jl_setjmp macro maps to sigsetjmp(a, b) on Unix  [src/julia.h:2379-2388]
-          -> b=0 prevents saving/restoring the signal mask (inferred from sigsetjmp semantics)
+        Call chain with file:line references:
+        1. eval_body() encounters EnterNode  [src/interpreter.c:509]
+           -> jl_enter_handler(ct, &__eh)  [src/interpreter.c:509]
+        2. jl_enter_handler() saves task state  [src/rtutils.c:264-277]
+           -> saves eh->prev, eh->gcstack, eh->scope, eh->gc_state, etc.
+           -> does NOT involve signal mask
+        3. jl_setjmp(__eh.eh_ctx, 0)  [src/interpreter.c:548 or 556]
+           -> BEFORE: arg=1 caused sigsetjmp to save current signal mask
+           -> AFTER:  arg=0 skips signal mask save
+        4. On exception via siglongjmp  [src/julia.h:2390-2392]
+           -> BEFORE: would restore saved signal mask
+           -> AFTER:  no mask restoration (mask wasn't saved)
       downstream_surfaces:
         - "Signal handling behavior during interpreter-executed try/catch"
         - "Interpreter performance for code with frequent try blocks"
         - "macOS-specific signal mask behavior (label system:mac)"
-      likelihood: "medium"
+      likelihood: "high"
       impact: "low"
+    - effect: "Interpreter try/catch now behaves consistently with compiled try/catch regarding signal mask."
+      mechanism: |
+        Before this PR, there was a discrepancy:
+        - Compiled code: codegen.cpp:9377 emits setjmp with arg=0 (no mask save)
+        - Interpreter: interpreter.c:548,556 had arg=1 (did save mask)
+
+        This could cause subtle behavioral differences when the same code
+        ran interpreted vs compiled, especially on macOS where signal mask
+        handling is stricter.
+      downstream_surfaces:
+        - "Code that switches between interpreted and compiled execution"
+        - "Debugging sessions using --compile=min"
+        - "Package testing under interpreter (e.g., coverage runs)"
+      likelihood: "medium"
+      impact: "medium"
   compatibility:
     internal_api: []
     behavioral:
       - change: "Interpreter exceptions no longer restore a saved signal mask when unwinding through :enter blocks."
         severity: "low"
-        notes: "Behavioral change limited to interpreter execution paths; compiled code paths are unchanged."
+        notes: "This actually fixes a behavioral inconsistency - interpreted code now matches compiled code behavior."
+      - change: "Code running with --compile=min now has identical signal mask behavior to compiled code."
+        severity: "low"
+        notes: "Before: interpreter could restore signal mask on exception; After: consistent with compiled code (no mask restore)."
   performance:
     compile_time: []
     runtime:
@@ -121,20 +195,39 @@ analysis:
     rationale:
       - "Change is a small argument tweak in interpreter-only control-flow setup."
       - "Scoped/unscoped try paths both updated consistently to avoid divergence."
-  open_questions: []
+      - "Makes interpreter consistent with compiled code (codegen.cpp:9377 already uses 0)."
+      - "Aligns with JL_TRY macro behavior (julia.h:2424 also uses 0)."
+  open_questions:
+    - "Was the original arg=1 intentional or a copy-paste error? PR body says 'accidental save' suggesting the latter."
   recommendations:
-    - "Consider adding a regression test that validates signal mask state around interpreter-executed try/catch on macOS." 
+    - "Consider adding a regression test that validates signal mask state around interpreter-executed try/catch on macOS."
     - "If regressions appear, audit other jl_setjmp call sites that still pass save_sigmask=1 in interpreter paths."
+    - "Downstream tools that test under --compile=min may see more consistent behavior between interpreted and compiled paths."
   evidence_search:
-    - summary: "rg results for jl_setjmp(__eh.eh_ctx) call sites"
+    - summary: "rg results for jl_setjmp(__eh.eh_ctx) call sites in C runtime"
       evidence:
         - source: "rg"
-          path: "rg: jl_setjmp(__eh.eh_ctx)"
+          path: "rg 'jl_setjmp\\(__eh\\.eh_ctx' src/"
           loc: "output"
           snippet: |
-            src/julia.h
-            2424:    if (!jl_setjmp(__eh.eh_ctx, 0))                                 
-
-            src/interpreter.c
-            548:                if (!jl_setjmp(__eh.eh_ctx, 0)) {
-            556:                if (!jl_setjmp(__eh.eh_ctx, 0)) {
+            src/interpreter.c:548:                if (!jl_setjmp(__eh.eh_ctx, 0)) {
+            src/interpreter.c:556:                if (!jl_setjmp(__eh.eh_ctx, 0)) {
+            src/julia.h:2424:    if (!jl_setjmp(__eh.eh_ctx, 0))
+    - summary: "rg results confirming codegen also uses 0 for setjmp"
+      evidence:
+        - source: "rg"
+          path: "rg 'setjmp_func.*ConstantInt' src/codegen.cpp"
+          loc: "output"
+          snippet: |
+            src/codegen.cpp:9377:                    sj = ctx.builder.CreateCall(prepare_call(setjmp_func), {ehbuff, ConstantInt::get(Type::getInt32Ty(ctx.builder.getContext()), 0)});
+    - summary: "rg results for sigsetjmp/siglongjmp usage"
+      evidence:
+        - source: "rg"
+          path: "rg 'sigsetjmp|siglongjmp' src/"
+          loc: "output"
+          snippet: |
+            src/julia.h:2380:#if defined(sigsetjmp)
+            src/julia.h:2384:#define jl_setjmp_f    sigsetjmp
+            src/julia.h:2385:#define jl_setjmp_name "sigsetjmp"
+            src/julia.h:2387:#define jl_setjmp(a,b) sigsetjmp(a,b)
+            src/julia.h:2392:#define jl_longjmp(a,b) siglongjmp(a,b)

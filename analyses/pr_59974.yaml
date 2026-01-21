@@ -50,57 +50,43 @@ analysis:
       evidence:
         - source: "code"
           path: "Compiler/src/typeinfer.jl"
-          loc: "907-910"
-          url: "https://github.com/JuliaLang/julia/blob/f4847bf687ab0fa37fdcd237512d5ec6486ae788/Compiler/src/typeinfer.jl#L907-L910"
+          loc: "907-911"
+          url: "https://github.com/JuliaLang/julia/blob/f4847bf687ab0fa37fdcd237512d5ec6486ae788/Compiler/src/typeinfer.jl#L907-L911"
           snippet: |
             function add_cycle_backedge!(caller::InferenceState, frame::InferenceState)
                 backedge = (caller, caller.currpc)
                 contains_is(frame.cycle_backedges, backedge) || push!(frame.cycle_backedges, backedge)
                 return frame
             end
-    - summary: "Cycle backedges are now recorded when returning results from cyclic inference, including the deferred task path."
+    - summary: "Cycle backedges are now recorded at two points in typeinf_edge: (1) in the deferred task callback when inference is not yet complete, and (2) at the immediate return path for already-detected cycles."
       component: "Compiler/src/typeinfer.jl"
       evidence:
         - source: "code"
           path: "Compiler/src/typeinfer.jl"
-          loc: "1096-1130"
-          url: "https://github.com/JuliaLang/julia/blob/f4847bf687ab0fa37fdcd237512d5ec6486ae788/Compiler/src/typeinfer.jl#L1096-L1130"
+          loc: "1111"
+          url: "https://github.com/JuliaLang/julia/blob/f4847bf687ab0fa37fdcd237512d5ec6486ae788/Compiler/src/typeinfer.jl#L1111"
           snippet: |
-            let mresult = Future{MethodCallResult}()
-                push!(caller.tasks, function get_infer_result(interp, caller)
-                    update_valid_age!(caller, frame.world.valid_worlds)
-                    local isinferred = is_inferred(frame)
-                    local edge = isinferred ? edge_ci : nothing
-                    local effects = isinferred ? frame.result.ipo_effects : # effects are adjusted already within `finish` for ipo_effects
-                        adjust_effects(effects_for_cycle(frame.ipo_effects), method)
-                    local bestguess = frame.bestguess
-                    local exc_bestguess = refine_exception_type(frame.exc_bestguess, effects)
-                    local volatile_inf_result = if isinferred && edge_ci isa CodeInstance
-                        result.ci_as_edge = edge_ci # set the edge for the inliner usage
-                        VolatileInferenceResult(result)
-                    end
-                    isinferred || add_cycle_backedge!(caller, frame)
-                    mresult[] = MethodCallResult(interp, caller, method, bestguess, exc_bestguess, effects,
-                        edge, edgecycle, edgelimited, volatile_inf_result)
-                    return true
-                end)
-                return mresult
-            end
-            update_valid_age!(caller, frame.world.valid_worlds)
-            effects = adjust_effects(effects_for_cycle(frame.ipo_effects), method)
-            bestguess = frame.bestguess
-            exc_bestguess = refine_exception_type(frame.exc_bestguess, effects)
+            isinferred || add_cycle_backedge!(caller, frame)
+        - source: "code"
+          path: "Compiler/src/typeinfer.jl"
+          loc: "1129"
+          url: "https://github.com/JuliaLang/julia/blob/f4847bf687ab0fa37fdcd237512d5ec6486ae788/Compiler/src/typeinfer.jl#L1129"
+          snippet: |
             add_cycle_backedge!(caller, frame)
-            return Future(MethodCallResult(interp, caller, method, bestguess, exc_bestguess, effects, nothing, edgecycle, edgelimited))
   secondary_effects:
     - effect: "All call sites in a recursion cycle are re-visited when cycle effects are finalized, avoiding stale cached results (e.g., Union{})."
       mechanism: |
-        resolve_call_cycle!(interp, mi, caller)  [typeinfer.jl:928-951]
+        resolve_call_cycle!(interp, mi, parent)  [typeinfer.jl:928-951]
+          detects cycle and calls merge_call_chain! to unify cycleid values
           -> merge_call_chain!(interp, parent, frame)  [typeinfer.jl:893-905]
-          -> typeinf_edge(...)
-             adds backedges for each cycle participant via add_cycle_backedge!  [typeinfer.jl:1096-1130]
-          -> adjust_cycle_frame!(sv, cycle_valid_worlds, cycle_valid_effects)
-             walks sv.cycle_backedges to update call-site flags  [typeinfer.jl:316-328]
+             only updates frame.cycleid, no longer adds backedges here
+        typeinf_edge(...)  [typeinfer.jl:1096-1130]
+          when returning results, adds backedges via add_cycle_backedge!
+          -> add_cycle_backedge!(caller, frame)  [typeinfer.jl:907-911]
+             records (caller, caller.currpc) in frame.cycle_backedges
+        finish_cycle(interp, frames, cycleid, time_before)  [typeinfer.jl:250-312]
+          -> adjust_cycle_frame!(caller, cycle_valid_worlds, cycle_valid_effects)  [typeinfer.jl:316-328]
+             walks sv.cycle_backedges to update call-site effect flags
       downstream_surfaces:
         - "Inference caching and cycle revalidation"
         - "Effects propagation through recursive call graphs"
@@ -108,36 +94,59 @@ analysis:
       impact: "medium"
     - effect: "World-age updates for cycle callers are now tied to explicit inference result usage rather than cycle-merge bookkeeping."
       mechanism: |
-        add_cycle_backedge! no longer updates valid age (typeinfer.jl:907-910)
-          -> update_valid_age!(caller, frame.world.valid_worlds) remains in typeinf_edge
-             before recording backedges (typeinfer.jl:1096-1130)
+        Before this PR:
+          add_cycle_backedge! called update_valid_age!(caller, frame.world.valid_worlds)
+        After this PR:
+          add_cycle_backedge! no longer updates valid age [typeinfer.jl:907-911]
+          update_valid_age!(caller, frame.world.valid_worlds) remains in typeinf_edge
+          at lines 1098 (deferred task) and 1125 (immediate return) before recording backedges
       downstream_surfaces:
         - "Inference world-range tracking for recursive edges"
       likelihood: "medium"
       impact: "low"
+    - effect: "Cycle backedges are used by update_cycle_worklists! during abstract interpretation to propagate type refinements."
+      mechanism: |
+        update_cycle_worklists!(callback, frame)  [abstractinterpretation.jl:4135-4141]
+          for (caller, caller_pc) in frame.cycle_backedges
+            if callback(caller, caller_pc)
+              push!(caller.ip, block_for_inst(caller.cfg, caller_pc))
+        This function is called during type inference iteration to ensure
+        that when a cycle frame's types change, all callers are re-queued
+        for re-analysis at their call sites.
+      downstream_surfaces:
+        - "Type inference worklist management"
+        - "Cycle convergence during abstract interpretation"
+      likelihood: "high"
+      impact: "medium"
   compatibility:
-    internal_api: []
+    internal_api:
+      - field: "InferenceState.cycle_backedges"
+        change: "Field population timing changed: backedges now added at result consumption (typeinf_edge return) rather than during merge_call_chain! cycle detection"
+        affected_tools:
+          - "Tools inspecting InferenceState internals during inference"
     behavioral:
       - change: "Recursive inference cycles now guarantee call-site backedges are recorded when results are consumed, reducing chances of caching bottom (Union{}) without re-visitation."
         affected_surfaces:
           - "Core.Compiler inference cache"
   performance:
     compile_time:
-      - impact: "ESTIMATED: negligible; backedges are still created lazily, but now only at result consumption sites."
+      - impact: "ESTIMATED: negligible; backedges are still created lazily, but now only at result consumption sites. Avoids duplicate backedge creation during merge_call_chain! walk."
     runtime:
       - impact: "ESTIMATED: indirect improvements when recursive inference no longer caches Union{} and forces re-inference on call sites."
   risk:
     level: "medium"
     rationale:
-      - "Touches recursion-cycle handling in type inference; changes which call sites are revalidated in cycles."
+      - "Touches recursion-cycle handling in type inference; changes when and where cycle backedges are recorded."
       - "Behavioral change is localized to recursive/cyclic call graphs, but could affect inference stability."
+      - "PR has backport labels for 1.10 and 1.11, indicating it fixes a real regression."
   open_questions:
     - "Do we have a minimal reproducer for the cycle-within-cycle case described in #59943 to add as a regression test?"
+    - "Are there edge cases where deferred task backedge recording (line 1111) might miss some cycle participants?"
   recommendations:
     - "Consider adding a focused regression test alongside existing cycle tests in Compiler/test/inference.jl to lock in the multi-cycle revisit behavior."
     - "Downstream tooling that inspects inference cache stability should re-run tests that involve recursive inference (e.g., analysis of code_typed for recursive functions)."
   evidence_tests:
-    - summary: "Existing regression test for recursion cycles and cached Union{} return types."
+    - summary: "Existing regression test for recursion cycles and cached Union{} return types (issue #21653)."
       path: "Compiler/test/inference.jl"
       loc: "1124-1133"
       url: "https://github.com/JuliaLang/julia/blob/f4847bf687ab0fa37fdcd237512d5ec6486ae788/Compiler/test/inference.jl#L1124-L1133"
