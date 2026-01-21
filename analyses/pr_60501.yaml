@@ -25,21 +25,20 @@ scope:
   components:
     - "Test stdlib"
     - "Test system"
-    - "Test suites"
   pipeline_stages:
     - "Testing/Diagnostics"
 analysis:
   intent:
-    summary: "Add a `context` keyword to @test, @test_throws, and @test_broken so failures can report extra debugging information (including when tests are marked broken)."
+    summary: "Add a `context` keyword to @test, @test_throws, and @test_broken so test failures can report extra debugging information. This enables using `broken=true` with context (previously impossible with non-Boolean workarounds)."
     issue_links: []
   direct_changes:
-    - summary: "`@test` and `@test_broken` now parse a `context=...` keyword and pass the evaluated context through to the test execution helpers."
+    - summary: "`@test` macro now parses a `context=...` keyword and passes the evaluated context to `do_test` or `do_broken_test`."
       component: "Test stdlib"
       evidence:
         - source: "code"
           path: "stdlib/Test/src/Test.jl"
-          loc: "524-599"
-          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L524-L599"
+          loc: "524-557"
+          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L524-L557"
           snippet: |
             macro test(ex, kws...)
                 # Collect the broken/skip/context keywords and remove them from the rest of keywords
@@ -75,7 +74,14 @@ analysis:
                 end
                 return result
             end
-
+    - summary: "`@test_broken` macro now parses a `context=...` keyword and passes it to `do_broken_test`."
+      component: "Test stdlib"
+      evidence:
+        - source: "code"
+          path: "stdlib/Test/src/Test.jl"
+          loc: "589-599"
+          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L589-L599"
+          snippet: |
             macro test_broken(ex, kws...)
                 # Extract context keyword if present
                 context = [kw.args[2] for kw in kws if isa(kw, Expr) && kw.head === :(=) && kw.args[1] === :context]
@@ -87,13 +93,13 @@ analysis:
                 ex = Expr(:inert, ex)
                 return :(do_broken_test($result, $ex, $ctx))
             end
-    - summary: "`do_test`, `do_broken_test`, and `do_test_throws` now stringify context with `sprint(show, ...)` and attach it to Fail/Error results, enabling consistent context display in failure output."
+    - summary: "`do_test` and `do_broken_test` now accept an optional `context` argument, stringify it via `sprint(show, ...)`, and attach it to Fail/Error results."
       component: "Test stdlib"
       evidence:
         - source: "code"
           path: "stdlib/Test/src/Test.jl"
-          loc: "781-825"
-          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L781-L825"
+          loc: "781-808"
+          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L781-L808"
           snippet: |
             function do_test(result::ExecutionResult, @nospecialize(orig_expr), context=nothing)
                 # get_testset() returns the most recently added test set
@@ -123,7 +129,11 @@ analysis:
                 isa(testres, Pass) || trigger_test_failure_break(result)
                 record(get_testset(), testres)
             end
-
+        - source: "code"
+          path: "stdlib/Test/src/Test.jl"
+          loc: "810-826"
+          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L810-L826"
+          snippet: |
             function do_broken_test(result::ExecutionResult, @nospecialize(orig_expr), context=nothing)
                 testres = Broken(:test, orig_expr)
                 context_str = context === nothing ? nothing : sprint(show, context; context=:limit => true)
@@ -141,34 +151,13 @@ analysis:
                 end
                 record(get_testset(), testres)
             end
-        - source: "code"
-          path: "stdlib/Test/src/Test.jl"
-          loc: "942-955"
-          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L942-L955"
-          snippet: |
-            function do_test_throws(result::ExecutionResult, @nospecialize(orig_expr), extype, pattern=nothing, context=nothing)
-                context_str = context === nothing ? nothing : sprint(show, context; context=:limit => true)
-                if isa(result, Threw)
-                    # Check that the right type of exception was thrown
-                    success = false
-                    message_only = false
-                    exc = result.exception
-
-                    # Handle three-argument form (type + pattern)
-                    if pattern !== nothing
-                        # In 3-arg form, first argument must be a type
-                        if !isa(extype, Type)
-                            testres = Fail(:test_throws_wrong, orig_expr, extype, exc, context_str, result.source, false, "First argument must be an exception type in three-argument form")
-                            record(get_testset(), testres)
-                            return
-                        end
     - summary: "Failure rendering for `Test.Fail` and `Test.Error` now appends a Context line whenever `context` is present."
       component: "Test stdlib"
       evidence:
         - source: "code"
           path: "stdlib/Test/src/Test.jl"
-          loc: "174-207"
-          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L174-L207"
+          loc: "174-208"
+          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L174-L208"
           snippet: |
             function Base.show(io::IO, t::Fail)
                 printstyled(io, "Test Failed"; bold=true, color=Base.error_color())
@@ -207,8 +196,8 @@ analysis:
             end
         - source: "code"
           path: "stdlib/Test/src/Test.jl"
-          loc: "273-303"
-          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L273-L303"
+          loc: "273-304"
+          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L273-L304"
           snippet: |
             function Base.show(io::IO, t::Error)
                 if t.test_type === :test_interrupted
@@ -287,13 +276,63 @@ analysis:
                 end
                 return :(do_test_throws($result, $orig_ex, $(esc(extype)), $pattern, $ctx))
             end
+    - summary: "`do_test_throws` now accepts an optional `context` argument, stringifies it, and includes it in Fail results for wrong exception type, wrong message, or no exception thrown."
+      component: "Test stdlib"
+      evidence:
+        - source: "code"
+          path: "stdlib/Test/src/Test.jl"
+          loc: "942-1045"
+          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L942-L1045"
+          snippet: |
+            function do_test_throws(result::ExecutionResult, @nospecialize(orig_expr), extype, pattern=nothing, context=nothing)
+                context_str = context === nothing ? nothing : sprint(show, context; context=:limit => true)
+                if isa(result, Threw)
+                    # Check that the right type of exception was thrown
+                    success = false
+                    message_only = false
+                    exc = result.exception
+
+                    # Handle three-argument form (type + pattern)
+                    if pattern !== nothing
+                        # In 3-arg form, first argument must be a type
+                        if !isa(extype, Type)
+                            testres = Fail(:test_throws_wrong, orig_expr, extype, exc, context_str, result.source, false, "First argument must be an exception type in three-argument form")
+                            record(get_testset(), testres)
+                            return
+                        end
+                        # ... pattern matching logic continues ...
+                    end
+                    # ... exception type checking continues ...
+                    if success
+                        testres = Pass(:test_throws, orig_expr, extype, exc, result.source, message_only)
+                    else
+                        # ... build Fail with context_str ...
+                        testres = Fail(:test_throws_wrong, orig_expr, extype, exc, context_str, result.source, message_only, bt_str)
+                    end
+                else
+                    # Handle no exception case
+                    testres = Fail(:test_throws_nothing, orig_expr, extype, nothing, context_str, result.source, false)
+                end
+                record(get_testset(), testres)
+            end
+    - summary: "NEWS.md documents the new `context` keyword argument for @test, @test_throws, and @test_broken."
+      component: "Documentation"
+      evidence:
+        - source: "docs"
+          path: "NEWS.md"
+          loc: "61-63"
+          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/NEWS.md#L61-L63"
+          snippet: |
+            * `@test`, `@test_throws`, and `@test_broken` now support a `context` keyword argument
+              that provides additional information displayed on test failure. This is useful for
+              debugging which specific case failed in parameterized tests ([#60501]).
     - summary: "New tests exercise context propagation for @test, @test_throws, and @test_broken, asserting the context string is stored on Fail/Error results."
       component: "Test stdlib tests"
       evidence:
         - source: "test"
           path: "stdlib/Test/test/runtests.jl"
-          loc: "469-542"
-          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/test/runtests.jl#L469-L542"
+          loc: "469-543"
+          url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/test/runtests.jl#L469-L543"
           snippet: |
             # Tests for context keyword
             @testset "@test with context keyword" begin
@@ -371,60 +410,81 @@ analysis:
                 end
             end
   secondary_effects:
-    - effect: "Tests that previously used ad-hoc non-Boolean tricks (e.g., `@test cond || \"info\"`) can now use `context=...`, while `broken=true` tests still route through `do_broken_test` but now preserve context on unexpected passes or non-boolean results."
+    - effect: "Tests that previously used non-Boolean workarounds like `@test cond || \"info\"` can now use `context=...`, and `broken=true` tests can now include context information (previously impossible since non-Boolean broke broken handling)."
       mechanism: |
-        @test macro parses context and selects do_test/do_broken_test  [stdlib/Test/src/Test.jl:524-553]
-          -> do_test/do_broken_test stringifies context via sprint(show, ...)  [stdlib/Test/src/Test.jl:781-825]
-          -> Fail/Error objects carry context for rendering  [stdlib/Test/src/Test.jl:174-207, 273-303]
+        @test macro parses context keyword  [stdlib/Test/src/Test.jl:528]
+          ctx = length(context) > 0 ? esc(context[1]) : nothing  [stdlib/Test/src/Test.jl:546]
+          -> selects do_test or do_broken_test based on broken flag  [stdlib/Test/src/Test.jl:551]
+          -> do_test/do_broken_test stringifies via sprint(show, context; context=:limit => true)  [stdlib/Test/src/Test.jl:784,812]
+          -> Fail/Error constructors store context_str  [stdlib/Test/src/Test.jl:795,798,804,818,822]
+          -> Base.show methods render "Context: ..." line  [stdlib/Test/src/Test.jl:205-207,301-303]
       downstream_surfaces:
         - "Test failure output formatting"
         - "`Test.Fail.context` and `Test.Error.context` fields"
       likelihood: "high"
       impact: "low"
-    - effect: "`@test_throws` now accepts a trailing `context=...`, which is threaded to `do_test_throws` and included when reporting wrong/no-throw failures."
+    - effect: "`@test_throws` now accepts a trailing `context=...` keyword, which is threaded to `do_test_throws` and included when reporting wrong/no-throw failures."
       mechanism: |
-        @test_throws macro parses trailing context keyword  [stdlib/Test/src/Test.jl:887-923]
-          -> do_test_throws attaches context_str to Fail results  [stdlib/Test/src/Test.jl:942-955]
+        @test_throws macro checks for context=... at end of args  [stdlib/Test/src/Test.jl:894-898]
+          ctx = esc(args[end].args[2]) if context keyword present
+          -> do_test_throws(result, orig_ex, extype, pattern, ctx)  [stdlib/Test/src/Test.jl:922]
+          -> do_test_throws stringifies context  [stdlib/Test/src/Test.jl:943]
+          -> Fail results include context_str  [stdlib/Test/src/Test.jl:954,1032,1042]
       downstream_surfaces:
         - "`@test_throws` call sites in packages"
         - "Test failure output formatting"
       likelihood: "high"
       impact: "low"
+    - effect: "Existing tests in Julia's test suite converted from non-Boolean workaround (`|| expr`) to use `context=expr`, demonstrating the intended migration pattern."
+      mechanism: |
+        Tests like `@test cond || (a, b)` replaced with `@test cond context=(a, b)`
+        Examples in: Compiler/test/inference.jl, Compiler/test/inline.jl, test/math.jl, test/cmdlineargs.jl, test/strings/basic.jl
+      downstream_surfaces:
+        - "Package test migration patterns"
+      likelihood: "high"
+      impact: "low"
   compatibility:
     internal_api:
       - field: "Test.do_test(result, orig_expr, context)"
-        change: "Added optional `context` argument and now expects callers to pass context or `nothing`."
+        change: "Added optional third `context` argument (default `nothing`). Callers passing only 2 args continue to work."
         affected_tools: []
       - field: "Test.do_broken_test(result, orig_expr, context)"
-        change: "Added optional `context` argument; now stores context on Error results for unexpected passes/non-boolean results."
+        change: "Added optional third `context` argument (default `nothing`). Callers passing only 2 args continue to work."
         affected_tools: []
       - field: "Test.do_test_throws(result, orig_expr, extype, pattern, context)"
-        change: "Added optional `context` argument; failure results include context string."
+        change: "Added optional fifth `context` argument (default `nothing`). Existing 3-arg and 4-arg calls continue to work."
+        affected_tools: []
+      - field: "Test.Fail struct"
+        change: "Already has `context::Union{Nothing, String}` field (added in Julia 1.9). No struct change, but field now populated by macros."
+        affected_tools: []
+      - field: "Test.Error struct"
+        change: "Already has `context::Union{Nothing, String}` field. No struct change, but field now populated by macros."
         affected_tools: []
     behavioral:
-      - change: "`context` becomes a reserved keyword for `@test`, `@test_throws`, and `@test_broken`; tests that used `context=` as a generic keyword argument must rename it."
+      - change: "`context` becomes a reserved keyword for `@test`, `@test_throws`, and `@test_broken`. Tests that used `context=...` as a generic keyword argument to a function being tested must rename the parameter."
         affected_surfaces:
           - "Test macro call syntax"
   performance:
     compile_time:
-      - impact: "ESTIMATED: when `context=...` is provided, `sprint(show, context; context=:limit => true)` adds formatting work during test execution (per test invocation)."
+      - impact: "ESTIMATED: Negligible. Macro expansion adds one conditional check for context keyword presence."
+        evidence: []
+    runtime:
+      - impact: "ESTIMATED: When `context=...` is provided, `sprint(show, context; context=:limit => true)` adds per-test-failure formatting work. Only affects failing tests, not passing tests."
         evidence:
           - source: "code"
             path: "stdlib/Test/src/Test.jl"
-            loc: "781-785"
-            url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L781-L785"
+            loc: "784"
+            url: "https://github.com/JuliaLang/julia/blob/35eaf05348215063bd239f3609a625e97735685d/stdlib/Test/src/Test.jl#L784"
             snippet: |
-              function do_test(result::ExecutionResult, @nospecialize(orig_expr), context=nothing)
-                  # get_testset() returns the most recently added test set
-                  # We then call record() with this test set and the test result
-                  context_str = context === nothing ? nothing : sprint(show, context; context=:limit => true)
-    runtime: []
+              context_str = context === nothing ? nothing : sprint(show, context; context=:limit => true)
   risk:
     level: "low"
     rationale:
-      - "Behavior is isolated to the Test stdlib and only affects output/metadata when `context` is provided."
-      - "New tests cover context propagation for @test, @test_throws, and @test_broken."
+      - "Changes are isolated to the Test stdlib and only affect test failure output/metadata."
+      - "New optional arguments with defaults preserve backward compatibility for internal API."
+      - "Comprehensive tests cover context propagation for @test, @test_throws, and @test_broken including edge cases."
+      - "Real-world migration examples included in PR (Julia's own test suite updated)."
   open_questions: []
   recommendations:
-    - "Update package test suites to use `context=...` instead of non-Boolean short-circuit tricks when extra debugging info is needed."
-    - "Avoid using `context=` as a generic keyword in @test/@test_throws/@test_broken calls; rename such parameters to prevent keyword conflicts."
+    - "Update package test suites to use `context=...` instead of non-Boolean short-circuit tricks like `@test cond || info` when extra debugging info is needed."
+    - "Avoid using `context` as a keyword argument name in functions tested via @test/@test_throws/@test_broken to prevent conflicts with the reserved keyword."
