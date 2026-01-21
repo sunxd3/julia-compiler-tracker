@@ -1,0 +1,217 @@
+schema_version: "1.0"
+
+pr:
+  number: 59729
+  title: "Demonstrate `rethrow()` as best practice in try/catch docs"
+  url: "https://github.com/JuliaLang/julia/pull/59729"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59729.diff"
+  author: "BioTurboNick"
+  labels:
+    - "docs"
+    - "error handling"
+  merged_at: "2025-10-22T21:26:53Z"
+  merge_commit_sha: "65253b529e6086731485cb0c15a0a7aecce22cd0"
+
+scope:
+  files_touched:
+    - "base/docs/basedocs.jl"
+    - "doc/src/manual/control-flow.md"
+  components:
+    - "Documentation"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Add documentation demonstrating `rethrow()` as a best practice when filtering
+      exceptions by type in try/catch blocks. As stated in the PR description:
+      "Currently, exception type filtering is missing from the `try` keyword docstrings,
+      and proper demonstration of `rethrow` is missing from the Control Flow manual page."
+      This addresses an oversight in documentation where users filtering exceptions by type
+      might inadvertently swallow unexpected exceptions instead of propagating them.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Added try/catch/rethrow example to the `try` keyword docstring"
+      component: "Documentation"
+      evidence:
+        - source: "code"
+          path: "base/docs/basedocs.jl"
+          loc: "1066-1078"
+          url: "https://github.com/JuliaLang/julia/blob/65253b529e6086731485cb0c15a0a7aecce22cd0/base/docs/basedocs.jl#L1066-L1078"
+          snippet: |
+            try
+                a_dangerous_operation()
+            catch e
+                if isa(e, EOFError)
+                    @warn "The operation failed - EOF."
+                elseif isa(e, OutOfMemoryError)
+                    @warn "The operation failed - OOM."
+                else
+                    rethrow() # ensure other exceptions can bubble up the call stack
+                end
+            end
+
+    - summary: "Added `else rethrow()` clause to sqrt_second example and explanatory text in Control Flow manual"
+      component: "Documentation"
+      evidence:
+        - source: "code"
+          path: "doc/src/manual/control-flow.md"
+          loc: "788-790"
+          url: "https://github.com/JuliaLang/julia/blob/65253b529e6086731485cb0c15a0a7aecce22cd0/doc/src/manual/control-flow.md#L788-L790"
+          snippet: |
+            else
+               rethrow() # ensure other exceptions can bubble up the call stack
+            end
+
+        - source: "code"
+          path: "doc/src/manual/control-flow.md"
+          loc: "809-812"
+          url: "https://github.com/JuliaLang/julia/blob/65253b529e6086731485cb0c15a0a7aecce22cd0/doc/src/manual/control-flow.md#L809-L812"
+          snippet: |
+            julia> sqrt_second([1 nothing])
+            ERROR: MethodError: no method matching sqrt(::Nothing)
+            The function `sqrt` exists, but no method is defined for this combination of argument types.
+            [...]
+
+        - source: "code"
+          path: "doc/src/manual/control-flow.md"
+          loc: "815-818"
+          url: "https://github.com/JuliaLang/julia/blob/65253b529e6086731485cb0c15a0a7aecce22cd0/doc/src/manual/control-flow.md#L815-L818"
+          snippet: |
+            Use [`rethrow`](@ref) as above to continue unwinding the stack with the original exception so that
+            higher-level exception handlers can deal with the exception. When filtering by exception type
+            as above, it is often important to include `else rethrow()` so that other types of exceptions
+            are not hidden from the caller.
+
+    - summary: "Removed `rethrow` from list of advanced error handling functions (since it is now demonstrated earlier)"
+      component: "Documentation"
+      evidence:
+        - source: "code"
+          path: "doc/src/manual/control-flow.md"
+          loc: "842-843"
+          url: "https://github.com/JuliaLang/julia/blob/65253b529e6086731485cb0c15a0a7aecce22cd0/doc/src/manual/control-flow.md#L842-L843"
+          snippet: |
+            is desirable. Julia provides the [`backtrace`](@ref), [`catch_backtrace`](@ref)
+            and [`current_exceptions`](@ref) functions for more advanced error handling.
+
+  secondary_effects: []
+
+  related_documentation:
+    - summary: "rethrow() function definition and docstring in base/error.jl"
+      note: |
+        The documented best practice aligns with the function's docstring at base/error.jl:57-70
+        which states: "Rethrow the current exception from within a `catch` block. The rethrown
+        exception will continue propagation as if it had not been caught."
+      evidence:
+        - source: "code"
+          path: "base/error.jl"
+          loc: "57-72"
+          url: "https://github.com/JuliaLang/julia/blob/65253b529e6086731485cb0c15a0a7aecce22cd0/base/error.jl#L57-L72"
+          snippet: |
+            """
+                rethrow()
+
+            Rethrow the current exception from within a `catch` block. The rethrown
+            exception will continue propagation as if it had not been caught.
+
+            !!! note
+                The alternative form `rethrow(e)` allows you to associate an alternative
+                exception object `e` with the current backtrace. However this misrepresents
+                the program state at the time of the error so you're encouraged to instead
+                throw a new exception using `throw(e)`. In Julia 1.1 and above, using
+                `throw(e)` will preserve the root cause exception on the stack, as
+                described in [`current_exceptions`](@ref).
+            """
+            rethrow() = ccall(:jl_rethrow, Bottom, ())
+            rethrow(@nospecialize(e)) = ccall(:jl_rethrow_other, Bottom, (Any,), e)
+
+    - summary: "Existing best practice usage in retry() function"
+      note: |
+        The same pattern is already used in the retry() function at base/error.jl:314,
+        demonstrating this is an established Julia idiom.
+      evidence:
+        - source: "code"
+          path: "base/error.jl"
+          loc: "310-315"
+          url: "https://github.com/JuliaLang/julia/blob/65253b529e6086731485cb0c15a0a7aecce22cd0/base/error.jl#L310-L315"
+          snippet: |
+            catch e
+                if check !== nothing
+                    result = check(state, e)
+                    state, retry_or_not = length(result) == 2 ? result : (state, result)
+                    retry_or_not || rethrow()
+                end
+
+    - summary: "EscapeAnalysis documentation referencing rethrow"
+      note: |
+        The EscapeAnalysis devdocs at doc/src/devdocs/EscapeAnalysis.md:286-306 discuss
+        how rethrow() affects exception escape tracking, showing rethrow's importance
+        in the compiler's escape analysis.
+      evidence:
+        - source: "docs"
+          path: "doc/src/devdocs/EscapeAnalysis.md"
+          loc: "286-296"
+          url: "https://github.com/JuliaLang/julia/blob/65253b529e6086731485cb0c15a0a7aecce22cd0/doc/src/devdocs/EscapeAnalysis.md#L286-L296"
+          snippet: |
+            such as `Base.current_exceptions` and `rethrow`.
+            For example, escape analysis needs to account for potential escape of `r` in the example below:
+            ```@repl EAUtils
+            const GR = Ref{Any}();
+            @noinline function rethrow_escape!()
+                try
+                    rethrow()
+                catch err
+                    GR[] = err
+                end
+            end;
+
+  compatibility:
+    internal_api: []
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "Documentation-only change with no code modifications"
+      - "No changes to compiler, runtime, or language semantics"
+      - "Improves user understanding of exception handling best practices"
+      - "Pattern demonstrated is already used in Base (e.g., retry() function)"
+
+  open_questions: []
+
+  recommendations:
+    - "Users should adopt the `else rethrow()` pattern when filtering exceptions by type to avoid silently swallowing unexpected exceptions"
+    - "When writing catch blocks that check exception type with isa(), always include an else clause with rethrow() unless there is a deliberate intent to swallow all exceptions"
+    - "Consider reviewing existing code for try/catch blocks that filter by type but lack rethrow() for the else case"
+
+  changelog_entry: |
+    Documentation improvement: Added examples demonstrating `rethrow()` as a best practice
+    in try/catch blocks when filtering exceptions by type. The `try` keyword docstring in
+    basedocs.jl and the Control Flow manual now include examples showing the `else rethrow()`
+    pattern. This helps users understand that unhandled exception types should be propagated
+    using `rethrow()` rather than being silently ignored. This aligns with existing patterns
+    used throughout the Julia codebase (e.g., in Base.retry()).
+
+  downstream_impact:
+    affects_opaque_closure: false
+    affects_generated_functions: false
+    affects_world_age: false
+    affects_type_inference: false
+    affects_optimization: false
+    package_specific_notes: []
+
+  reviewer_notes:
+    verification_date: "2026-01-21"
+    independent_analysis: |
+      Verified by second analyst. All line numbers confirmed accurate against merge commit
+      65253b529e6086731485cb0c15a0a7aecce22cd0. Searched codebase for related rethrow usages
+      and found consistent patterns in retry() function and EscapeAnalysis documentation.
+      No discrepancies found with original analysis. Enhanced with cross-references to:
+      (1) rethrow() function definition in base/error.jl
+      (2) existing retry() pattern demonstrating same best practice
+      (3) EscapeAnalysis documentation showing compiler-level awareness of rethrow behavior
