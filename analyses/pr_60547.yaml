@@ -64,19 +64,18 @@ analysis:
                 return (phi_arg::Int, old::OldSSAValue) ->
                     _already_inserted_ssa(compact, processed_idx, phi_arg, old)
             end
-        - source: "code"
+        - source: "call_site"
           path: "Compiler/src/ssair/ir.jl"
-          loc: "1459-1466"
-          url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/Compiler/src/ssair/ir.jl#L1459-L1466"
+          loc: "1459-1464"
+          url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/Compiler/src/ssair/ir.jl#L1459-L1464"
+          note: "This file was NOT modified by the PR; shown as call site demonstrating usage of already_inserted_ssa"
           snippet: |
             function process_node!(compact::IncrementalCompact, result_idx::Int, inst::Instruction, idx::Int, processed_idx::Int, active_bb::Int, do_rename_ssa::Bool)
                 stmt = inst[:stmt]
                 (; result, ssa_rename, late_fixup, used_ssas, new_new_used_ssas) = compact
                 (; cfg_transforms_enabled, fold_constant_branches, bb_rename_succ, bb_rename_pred, result_bbs) = compact.cfg_transform
                 mark_refined! = Refiner(result.flag, result_idx)
-                already_inserted_phi_arg = already_inserted_ssa(compact, processed_idx)
-                if stmt === nothing
-                    ssa_rename[idx] = stmt
+                already_inserted_phi_arg = already_inserted_ssa(compact, processed_idx)  # <-- uses refactored function
     - summary: "Move finalizer insertion bookkeeping into `_update_finalizer_insert!` and iterate def-use lists with explicit loops instead of a captured closure."
       component: "Compiler.SSAIR"
       evidence:
@@ -84,6 +83,7 @@ analysis:
           path: "Compiler/src/ssair/passes.jl"
           loc: "1655-1701"
           url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/Compiler/src/ssair/passes.jl#L1655-L1701"
+          note: "Lines 1655-1672 define _update_finalizer_insert!; lines 1674-1701 show try_resolve_finalizer! usage with explicit loops replacing the former closure"
           snippet: |
             function _update_finalizer_insert!(ir::IRCode, lazypostdomtree::LazyPostDomtree,
                                                finalizer_idx::Int, insert_bb::Int,
@@ -118,9 +118,11 @@ analysis:
                 insert_bb != 0 || return nothing
         - source: "code"
           path: "Compiler/src/ssair/passes.jl"
-          loc: "1815-1825"
-          url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/Compiler/src/ssair/passes.jl#L1815-L1825"
+          loc: "1821-1831"
+          url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/Compiler/src/ssair/passes.jl#L1821-L1831"
+          note: "Call site in sroa_mutables! showing usage of try_resolve_finalizer!"
           snippet: |
+            finalizer_useidx = find_finalizer_useidx(defuse)
             if finalizer_useidx isa Int
                 finalizer_idx = defuse.uses[finalizer_useidx].idx
                 try_resolve_finalizer!(ir, defidx, finalizer_idx, defuse, inlining::InliningState,
@@ -172,8 +174,9 @@ analysis:
             println(io)
         - source: "code"
           path: "Compiler/src/ssair/show.jl"
-          loc: "680-776"
-          url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/Compiler/src/ssair/show.jl#L680-L776"
+          loc: "680-732"
+          url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/Compiler/src/ssair/show.jl#L680-L732"
+          note: "Two new helper functions extracted from show_ir_stmt: _print_ir_indentation (680-710) and _print_ir_new_node (712-732)"
           snippet: |
             function _print_ir_indentation(io::IO, cfg::CFG, bb_idx::Int, max_bb_idx_size::Int, bb_color,
                                            line_info_preprinter, idx::Int, i::Int; final::Bool=true)
@@ -185,19 +188,15 @@ analysis:
                     printstyled(io, "!!! ", "─"^max_bb_idx_size, color=bb_color)
                 else
                     bbrange = cfg.blocks[bb_idx].stmts
-                    # Print line info update
                     linestart = idx == first(bbrange) ? "  " : sprint(io -> printstyled(io, "│ ", color=bb_color), context=io)
                     linestart *= " "^max_bb_idx_size
-                    # idx == 0 means only indentation is printed, so we don't print linfos
-                    # multiple times if the are new nodes
                     inlining_indent = line_info_preprinter(io, linestart, i == 1 ? idx : 0)
-
                     if i == 1 && idx == first(bbrange)
                         bb_idx_str = string(bb_idx)
                         bb_pad = max_bb_idx_size - length(bb_idx_str)
                         bb_type = length(cfg.blocks[bb_idx].preds) <= 1 ? "─" : "┄"
                         printstyled(io, bb_idx_str, " ", bb_type, "─"^bb_pad, color=bb_color)
-                    elseif final && idx == last(bbrange) # print separator
+                    elseif final && idx == last(bbrange)
                         printstyled(io, "└", "─"^(1 + max_bb_idx_size), color=bb_color)
                     else
                         printstyled(io, "│ ", " "^max_bb_idx_size, color=bb_color)
@@ -207,22 +206,31 @@ analysis:
                 return nothing
             end
 
-            function show_ir_stmt(io::IO, code::Union{IRCode, CodeInfo, IncrementalCompact}, idx::Int, line_info_preprinter, line_info_postprinter,
-                                  sptypes::Vector{VarState}, used::BitSet, cfg::CFG, bb_idx::Int; pop_new_node! = Returns(nothing), only_after::Bool=false,
-                                  bb_color=:light_black, label_dynamic_calls::Bool=true)
-                stmt = _stmt(code, idx)
-                type = _type(code, idx)
-                max_bb_idx_size = length(string(length(cfg.blocks)))
-
-                if isempty(used)
-                    maxlength_idx = 0
+            function _print_ir_new_node(io::IO, node, code, sptypes::Vector{VarState}, used::BitSet, maxlength_idx::Int,
+                                        label_dynamic_calls::Bool, line_info_postprinter, cfg::CFG, bb_idx::Int,
+                                        max_bb_idx_size::Int, bb_color, line_info_preprinter, idx::Int, i::Int; final::Bool=true)
+                _print_ir_indentation(io, cfg, bb_idx, max_bb_idx_size, bb_color, line_info_preprinter, idx, i; final)
+                node_idx, new_node_inst, new_node_type = node
+                @assert new_node_inst !== UNDEF
+                show_type = should_print_ssa_type(new_node_inst)
+                with_output_color(:green, io) do io′
+                    print_stmt(io′, node_idx, new_node_inst, code, sptypes, used, maxlength_idx, false, show_type, label_dynamic_calls)
+                end
+                if new_node_type === UNDEF
+                    printstyled(io, "::#UNDEF", color=:red)
+                else
+                    line_info_postprinter(io; type = new_node_type, used = node_idx in used, show_type, idx = node_idx)
+                end
+                println(io)
+                return nothing
+            end
     - summary: "Extract inference edge task scheduling to `_schedule_edge_infer_task!` for reuse in `typeinf_edge` without capturing large closures."
       component: "Compiler.TypeInference"
       evidence:
         - source: "code"
           path: "Compiler/src/typeinfer.jl"
-          loc: "1107-1137"
-          url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/Compiler/src/typeinfer.jl#L1107-L1137"
+          loc: "1107-1138"
+          url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/Compiler/src/typeinfer.jl#L1107-L1138"
           snippet: |
             function _schedule_edge_infer_task!(caller::AbsIntState, frame::InferenceState, result::InferenceResult,
                                                 method::Method, edge_ci::Union{Nothing,CodeInstance},
@@ -289,8 +297,8 @@ analysis:
             end
         - source: "code"
           path: "base/precompilation.jl"
-          loc: "721-732"
-          url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/base/precompilation.jl#L721-L732"
+          loc: "722-733"
+          url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/base/precompilation.jl#L722-L733"
           snippet: |
             function expand_indirect_dependencies(direct_deps)
                 local indirect_deps = Dict{Base.PkgId, Set{Base.PkgId}}()
@@ -309,8 +317,8 @@ analysis:
       evidence:
         - source: "code"
           path: "base/weakkeydict.jl"
-          loc: "197-209"
-          url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/base/weakkeydict.jl#L197-L209"
+          loc: "197-210"
+          url: "https://github.com/JuliaLang/julia/blob/915a892ba340153b6d77084cb5f3d19108ea7874/base/weakkeydict.jl#L197-L210"
           snippet: |
             function iterate(t::WeakKeyDict{K,V}, state...) where {K, V}
                 @lock t begin
@@ -383,11 +391,11 @@ analysis:
   secondary_effects:
     - effect: "Lowered allocation/boxing pressure from fewer captured closures in SSA compaction and finalizer-inlining bookkeeping."
       mechanism: |
-        process_node!(...) calls already_inserted_ssa(compact, processed_idx)  [Compiler/src/ssair/ir.jl:1459-1465]
-          -> already_inserted_ssa(...) returns a thin lambda
-          -> _already_inserted_ssa(...) performs recursion without capturing local state  [Compiler/src/ssair/passes.jl:364-377]
-        try_resolve_finalizer!(...) updates insertion placement
-          -> _update_finalizer_insert!(...) handles per-use updates  [Compiler/src/ssair/passes.jl:1655-1671]
+        process_node!(...) calls already_inserted_ssa(compact, processed_idx)  [Compiler/src/ssair/ir.jl:1464 - call site, not modified]
+          -> already_inserted_ssa(...) returns a thin lambda  [Compiler/src/ssair/passes.jl:380-383]
+          -> _already_inserted_ssa(...) performs recursion without capturing local state  [Compiler/src/ssair/passes.jl:364-378]
+        try_resolve_finalizer!(...) updates insertion placement  [Compiler/src/ssair/passes.jl:1674-1757]
+          -> _update_finalizer_insert!(...) handles per-use updates  [Compiler/src/ssair/passes.jl:1655-1672]
       downstream_surfaces:
         - "Compiler SSA passes (IncrementalCompact, finalizer inlining)"
       likelihood: "high"
@@ -395,7 +403,7 @@ analysis:
     - effect: "Reduced closure allocations in inference scheduling, potentially trimming inference-time allocations for large call graphs."
       mechanism: |
         typeinf_edge(...) schedules inference tasks for edges  [Compiler/src/typeinfer.jl:1141-1241]
-          -> _schedule_edge_infer_task!(...) builds the task closure and returns a Future  [Compiler/src/typeinfer.jl:1107-1137]
+          -> _schedule_edge_infer_task!(...) builds the task closure and returns a Future  [Compiler/src/typeinfer.jl:1107-1138]
       downstream_surfaces:
         - "Core.Compiler inference task queue"
         - "Inlining source propagation"
@@ -403,8 +411,8 @@ analysis:
       impact: "low"
     - effect: "IR pretty-printer and precompilation dependency walk avoid inner closures, reducing allocations in debugging and precompile paths."
       mechanism: |
-        show_ir_stmt(...) uses _print_ir_indentation / _print_ir_new_node helpers  [Compiler/src/ssair/show.jl:680-796]
-        expand_indirect_dependencies(...) calls _visit_indirect_deps! for DFS traversal  [base/precompilation.jl:721-732]
+        show_ir_stmt(...) uses _print_ir_indentation / _print_ir_new_node helpers  [Compiler/src/ssair/show.jl:680-732]
+        expand_indirect_dependencies(...) calls _visit_indirect_deps! for DFS traversal  [base/precompilation.jl:722-733]
       downstream_surfaces:
         - "IR dumping / diagnostics (e.g., @code_typed display)"
         - "Base precompilation graph expansion"
