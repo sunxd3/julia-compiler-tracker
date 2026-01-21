@@ -129,20 +129,39 @@ analysis:
                     throw(ArgumentError("@ccall function name must be a symbol, a `.` node (e.g. `libc.printf`) or an interpolated function pointer (with `\$`)"))
                 end
             end
-    - summary: "Method definition validation now canonicalizes tuple literals, resolves dotted name/library expressions to GlobalRefs, enforces tuple arity (1–2), and errors on non-constant tuple elements."
+    - summary: "Method definition validation now canonicalizes tuple literals (including QuoteNode and literal Tuple to Expr(:tuple)), resolves dotted name/library expressions to GlobalRefs, enforces tuple arity (1–2), and errors on non-constant tuple elements."
       component: "Runtime/Frontend validation"
       evidence:
         - source: "code"
           path: "src/method.c"
-          loc: "162-233"
-          url: "https://github.com/JuliaLang/julia/blob/8441383e4d2a0af629abd8493010647e150e1b75/src/method.c#L162-L233"
+          loc: "162-244"
+          url: "https://github.com/JuliaLang/julia/blob/8441383e4d2a0af629abd8493010647e150e1b75/src/method.c#L162-L244"
           snippet: |
             if (e->head == jl_foreigncall_sym) {
                 JL_NARGSV(ccall method definition, 5); // (fptr, rt, at, nreq, (cc, effects, gc_safe))
                 jl_task_t *ct = jl_current_task;
                 jl_value_t *fptr = jl_exprarg(e, 0);
-                // Handle dot expressions in tuple arguments for ccall by converting to GlobalRef eagerly
                 jl_sym_t *tuple_sym = jl_symbol("tuple");
+                // Unwrap QuoteNode containing string or tuple
+                if (jl_is_quotenode(fptr)) {
+                    if (jl_is_string(jl_quotenode_value(fptr)) || jl_is_tuple(jl_quotenode_value(fptr)))
+                        fptr = jl_quotenode_value(fptr);
+                }
+                // Convert literal Tuple to Expr(:tuple)
+                if (jl_is_tuple(fptr)) {
+                    jl_expr_t *tupex = jl_exprn(tuple_sym, jl_nfields(fptr));
+                    jl_value_t *v = NULL;
+                    JL_GC_PUSH2(&tupex, &v);
+                    for (long i = 0; i < jl_nfields(fptr); i++) {
+                        v = jl_fieldref(fptr, i);
+                        if (!jl_is_string(v))
+                            v = jl_new_struct(jl_quotenode_type, v);
+                        jl_exprargset(tupex, i, v);
+                    }
+                    jl_exprargset(e, 0, tupex);
+                    fptr = (jl_value_t*)tupex;
+                    JL_GC_POP();
+                }
                 if (jl_is_expr(fptr) && ((jl_expr_t*)fptr)->head == tuple_sym) {
                     // verify Expr tuple can be interpreted and handle
                     jl_expr_t *tuple_expr = (jl_expr_t*)fptr;
@@ -151,47 +170,41 @@ analysis:
                         jl_error("ccall function name cannot be empty tuple");
                     if (nargs_tuple > 2)
                         jl_error("ccall function name tuple can have at most 2 elements");
-                    // Validate tuple elements are not more complicated than inference/codegen can safely handle
+                    // Validate tuple elements and resolve dot expressions to GlobalRef
                     for (size_t i = 0; i < nargs_tuple; i++) {
                         jl_value_t *arg = jl_exprarg(tuple_expr, i);
-                        // Handle dot expressions by converting to a GlobalRef
                         if (jl_is_expr(arg) && ((jl_expr_t*)arg)->head == jl_dot_sym) {
+                            // Convert dot expression to GlobalRef eagerly
                             jl_expr_t *dot_expr = (jl_expr_t*)arg;
-                            if (jl_expr_nargs(dot_expr) != 2)
-                                jl_error("ccall function name: invalid dot expression");
                             jl_value_t *mod_expr = jl_exprarg(dot_expr, 0);
                             jl_value_t *sym_expr = jl_exprarg(dot_expr, 1);
-                            if (!(jl_is_quotenode(sym_expr) && jl_is_symbol(jl_quotenode_value(sym_expr))))
-                                jl_type_error("ccall name dot expression", (jl_value_t*)jl_symbol_type, sym_expr);
                             JL_TRY {
-                                // Evaluate the module expression
                                 jl_value_t *mod_val = jl_toplevel_eval(module, mod_expr);
-                                JL_TYPECHK(ccall name dot expression, module, mod_val);
-                                JL_GC_PROMISE_ROOTED(mod_val);
-                                // Create GlobalRef from evaluated module and quoted symbol
                                 jl_sym_t *sym = (jl_sym_t*)jl_quotenode_value(sym_expr);
                                 jl_value_t *globalref = jl_module_globalref((jl_module_t*)mod_val, sym);
                                 jl_exprargset(tuple_expr, i, globalref);
                             }
                             JL_CATCH {
-                                if (jl_typetagis(jl_current_exception(ct), jl_errorexception_type))
-                                    jl_error("could not evaluate ccall function/library name (it might depend on a local variable)");
-                                else
-                                    jl_rethrow();
+                                jl_error("could not evaluate ccall function/library name");
                             }
                         }
                         else if (jl_is_quotenode(arg)) {
                             if (i == 0) {
-                                // function name must be a symbol or string, library can be anything
                                 jl_value_t *quoted_val = jl_quotenode_value(arg);
                                 if (!jl_is_symbol(quoted_val) && !jl_is_string(quoted_val))
-                                    jl_type_error("ccall function name", (jl_value_t*)jl_symbol_type, jl_quotenode_value(arg));
+                                    jl_type_error("ccall function name", (jl_value_t*)jl_symbol_type, quoted_val);
                             }
                         }
                         else if (!jl_is_globalref(arg) && jl_isa_ast_node(arg)) {
                             jl_type_error(i == 0 ? "ccall function name" : "ccall library name", (jl_value_t*)jl_symbol_type, arg);
                         }
                     }
+                }
+                // Also convert standalone String or QuoteNode(Symbol) to single-element tuple
+                else if (jl_is_string(fptr) || (jl_is_quotenode(fptr) && jl_is_symbol(jl_quotenode_value(fptr)))) {
+                    jl_expr_t *tupex = jl_exprn(tuple_sym, 1);
+                    jl_exprargset(tupex, 0, fptr);
+                    jl_exprargset(e, 0, tupex);
                 }
     - summary: "Codegen now interprets tuple syntax as name-based calls (with optional library) and uses `jl_lazy_load_and_lookup` for runtime name/library values, while non-tuple syntax is treated as a function pointer and validated accordingly."
       component: "Codegen/Runtime"
@@ -459,6 +472,55 @@ analysis:
         - "Libdl/LazyLibrary patterns for ccall"
       likelihood: "high"
       impact: "medium"
+      evidence:
+        - source: "code"
+          path: "src/julia-syntax.scm"
+          loc: "1090-1097"
+          url: "https://github.com/JuliaLang/julia/blob/8441383e4d2a0af629abd8493010647e150e1b75/src/julia-syntax.scm#L1090-L1097"
+          snippet: |
+            ;; normalize ccall first argument to tuple form with basic error checking
+            (define (normalize-ccall-name raw-name)
+              (cond
+               ;; Already a tuple - keep as-is, validation will happen in C
+               ((tuple-syntax? raw-name)
+                raw-name)
+               ;; Otherwise it is an atom or pointer expression, which will be validated later in C
+               (else (expand-forms raw-name))))
+        - source: "code"
+          path: "src/runtime_ccall.cpp"
+          loc: "66-97"
+          url: "https://github.com/JuliaLang/julia/blob/8441383e4d2a0af629abd8493010647e150e1b75/src/runtime_ccall.cpp#L66-L97"
+          snippet: |
+            // jl_load_and_lookup, but with library computed at run time on first call
+            extern "C" JL_DLLEXPORT
+            void *jl_lazy_load_and_lookup(jl_value_t *lib_val, jl_value_t *f_name)
+            {
+                void *lib_ptr;
+                const char *fname_str;
+                if (jl_is_symbol(f_name))
+                    fname_str = jl_symbol_name((jl_sym_t*)f_name);
+                else if (jl_is_string(f_name))
+                    fname_str = jl_string_data(f_name);
+                else
+                    jl_type_error("ccall function name", (jl_value_t*)jl_symbol_type, f_name);
+                if (lib_val) {
+                    if (jl_is_symbol(lib_val))
+                        lib_ptr = jl_get_library(jl_symbol_name((jl_sym_t*)lib_val));
+                    else if (jl_is_string(lib_val))
+                        lib_ptr = jl_get_library(jl_string_data(lib_val));
+                    else if (jl_libdl_dlopen_func != NULL) {
+                        lib_ptr = jl_unbox_voidpointer(jl_apply_generic(jl_libdl_dlopen_func, &lib_val, 1));
+                    } else
+                        jl_type_error("ccall", (jl_value_t*)jl_symbol_type, lib_val);
+                }
+                else {
+                    // If the user didn't supply a library name, infer via jl_dlfind
+                    lib_ptr = jl_get_library(jl_dlfind(fname_str));
+                }
+                void *ptr;
+                jl_dlsym(lib_ptr, fname_str, &ptr, 1, 1);
+                return ptr;
+            }
     - effect: "Escape analysis no longer treats tuple-based foreigncall names as escaping values, which can reduce conservative escapes and improve optimization around name literals."
       mechanism: |
         escape_foreigncall! skips add_escape_change!/add_liveness_change! when args[1] is Expr(:tuple, <name[, lib]>)
@@ -469,6 +531,39 @@ analysis:
         - "Inlining decisions affected by escape info"
       likelihood: "medium"
       impact: "low"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/ssair/EscapeAnalysis.jl"
+          loc: "1036-1043"
+          url: "https://github.com/JuliaLang/julia/blob/8441383e4d2a0af629abd8493010647e150e1b75/Compiler/src/ssair/EscapeAnalysis.jl#L1036-L1043"
+          snippet: |
+            name = args[1]
+            # NOTE array allocations might have been proven as nothrow
+            nothrow = is_nothrow(astate.ir, pc)
+            name_info = nothrow ? ⊥ : ThrownEscape(pc)
+            if !isexpr(name, :tuple)
+                add_escape_change!(astate, name, name_info)
+                add_liveness_change!(astate, name, pc)
+            end
+    - effect: "Internal compiler optimizations now emit tuple-syntax foreigncall (e.g., UnionAll lowering emits :jl_type_unionall), demonstrating compiler adoption of the new IR pattern."
+      mechanism: |
+        early_inline_special_case! in inlining.jl for UnionAll calls
+          -> emits Expr(:foreigncall, Expr(:tuple, QuoteNode(:jl_type_unionall)), Any, svec(Any, Any), ...)
+          -> sets precedent for internal compiler passes to use tuple syntax
+      downstream_surfaces:
+        - "Tools analyzing optimized IR will see tuple-syntax foreigncall for internal operations"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/ssair/inlining.jl"
+          loc: "1755-1758"
+          url: "https://github.com/JuliaLang/julia/blob/8441383e4d2a0af629abd8493010647e150e1b75/Compiler/src/ssair/inlining.jl#L1755-L1758"
+          snippet: |
+            elseif f === UnionAll && length(argtypes) == 3 && ⊑(optimizer_lattice(state.interp), argtypes[2], TypeVar)
+                unionall_call = Expr(:foreigncall, Expr(:tuple, QuoteNode(:jl_type_unionall)), Any, svec(Any, Any),
+                    0, QuoteNode(:ccall), stmt.args[2], stmt.args[3])
+                return SomeCase(unionall_call)
   compatibility:
     internal_api:
       - api: "jl_lazy_load_and_lookup"
@@ -565,6 +660,21 @@ analysis:
       - summary: "ESTIMATED: Removing non-linearized foreigncall name evaluation (and treating tuple names as literals) may reduce inference task scheduling for complex name expressions; effect likely negligible for typical code."
     runtime:
       - summary: "ESTIMATED: Name-based calls with runtime library values now route through jl_lazy_load_and_lookup, which may add a one-time symbol resolution path but preserves caching; steady-state cost unchanged after lookup."
+  tests:
+    changed_files:
+      - "test/ccall.jl"
+      - "Compiler/test/inference.jl"
+      - "Compiler/test/irpasses.jl"
+    new_behavior_assertions:
+      - "Empty tuple ccall name throws 'ccall function name cannot be empty tuple'"
+      - "Tuple with >2 elements throws 'ccall function name tuple can have at most 2 elements'"
+      - "Non-constant tuple element (expression like 1+2) throws TypeError"
+      - "Runtime tuple library name throws TypeError (e.g., compute_lib_name())"
+      - "@ccall with non-pointer interpolated symbol throws TypeError"
+      - "IR test verifies foreigncall arg1 is Expr(:tuple, :(:some_ccall)) format"
+    coverage_gaps:
+      - "No explicit test for cglobal tuple syntax interaction"
+      - "No test for jl_lazy_load_and_lookup with Libdl.dlopen fallback path"
   risk:
     level: "medium"
     rationale:
