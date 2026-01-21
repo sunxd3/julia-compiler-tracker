@@ -1,0 +1,457 @@
+schema_version: "1.0"
+
+pr:
+  number: 59916
+  title: "Use jl_effective_threads for container-aware CPU detection"
+  url: "https://github.com/JuliaLang/julia/pull/59916"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59916.diff"
+  author: "KristofferC"
+  labels:
+    - "multithreading"
+  merged_at: "2025-10-22T23:22:39Z"
+  merge_commit_sha: "612ac77721a17d70c2688c70519599a72adc72e4"
+
+scope:
+  files_touched:
+    - "base/precompilation.jl"
+    - "base/sysinfo.jl"
+    - "base/util.jl"
+    - "doc/src/base/constants.md"
+    - "src/aotcompile.cpp"
+    - "src/threading.c"
+    - "test/runtests.jl"
+  components:
+    - "Runtime"
+    - "Threading"
+    - "AOT Compilation"
+    - "Base Library"
+  pipeline_stages:
+    - "Codegen"
+
+analysis:
+  intent:
+    summary: |
+      This PR fixes Julia's CPU core detection to respect container CPU limits (Docker --cpus,
+      Kubernetes CPU limits, cgroup quotas). Previously, Julia used jl_cpu_threads() (raw hardware
+      thread count) for parallelism decisions, causing severe oversubscription in containerized
+      environments. The PR switches key subsystems to use jl_effective_threads(), which returns
+      min(jl_cpu_threads(), uv_available_parallelism()) to respect cgroup constraints.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Add new Sys.EFFECTIVE_CPU_THREADS constant exposed to Julia code"
+      component: "Base.Sys"
+      evidence:
+        - source: "code"
+          path: "base/sysinfo.jl"
+          loc: "83-97"
+          url: "https://github.com/JuliaLang/julia/blob/612ac77721a17d70c2688c70519599a72adc72e4/base/sysinfo.jl#L83-L97"
+          snippet: |
+            """
+                Sys.EFFECTIVE_CPU_THREADS::Int
+
+            The effective number of logical CPU cores available to the Julia process, taking into
+            account container limits (e.g., Docker `--cpus`, Kubernetes CPU limits, cgroup quotas).
+            This is the minimum of the hardware CPU thread count and any imposed CPU limits.
+
+            In non-containerized environments, this typically equals `Sys.CPU_THREADS`. In containerized
+            environments, it respects cgroup CPU limits and provides a more accurate measure of
+            available parallelism.
+
+            Use this constant when determining default thread pool sizes or parallelism levels to
+            ensure proper behavior in containerized deployments.
+            """
+            global EFFECTIVE_CPU_THREADS::Int = 1 # for bootstrap, changed on startup
+
+    - summary: "Initialize EFFECTIVE_CPU_THREADS via jl_effective_threads ccall"
+      component: "Base.Sys"
+      evidence:
+        - source: "code"
+          path: "base/sysinfo.jl"
+          loc: "190"
+          url: "https://github.com/JuliaLang/julia/blob/612ac77721a17d70c2688c70519599a72adc72e4/base/sysinfo.jl#L190"
+          snippet: |
+            global EFFECTIVE_CPU_THREADS = min(CPU_THREADS, Int(ccall(:jl_effective_threads, Int32, ())))
+
+    - summary: "Use jl_effective_threads for LLVM compilation thread count in AOT"
+      component: "AOT Compilation"
+      evidence:
+        - source: "code"
+          path: "src/aotcompile.cpp"
+          loc: "2013"
+          url: "https://github.com/JuliaLang/julia/blob/612ac77721a17d70c2688c70519599a72adc72e4/src/aotcompile.cpp#L2013"
+          snippet: |
+            unsigned threads = std::max(jl_effective_threads() / 2, 1);
+
+    - summary: "Use jl_effective_threads for GC thread capping and warnings"
+      component: "Threading"
+      evidence:
+        - source: "code"
+          path: "src/threading.c"
+          loc: "760"
+          url: "https://github.com/JuliaLang/julia/blob/612ac77721a17d70c2688c70519599a72adc72e4/src/threading.c#L760"
+          snippet: |
+            int cpu = jl_effective_threads();
+
+    - summary: "Use jl_effective_threads for JULIA_EXCLUSIVE mode validation"
+      component: "Threading"
+      evidence:
+        - source: "code"
+          path: "src/threading.c"
+          loc: "842"
+          url: "https://github.com/JuliaLang/julia/blob/612ac77721a17d70c2688c70519599a72adc72e4/src/threading.c#L842"
+          snippet: |
+            if (ndefault_threads > jl_effective_threads()) {
+                jl_printf(JL_STDERR, "ERROR: Too many threads requested for %s option.\n", MACHINE_EXCLUSIVE_NAME);
+                exit(1);
+            }
+
+    - summary: "Use EFFECTIVE_CPU_THREADS for precompilation task count"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "529"
+          url: "https://github.com/JuliaLang/julia/blob/612ac77721a17d70c2688c70519599a72adc72e4/base/precompilation.jl#L529"
+          snippet: |
+            default_num_tasks = Sys.iswindows() ? div(Sys.EFFECTIVE_CPU_THREADS::Int, 2) + 1 : Sys.EFFECTIVE_CPU_THREADS::Int + 1
+
+    - summary: "Use EFFECTIVE_CPU_THREADS for Base.runtests() default ncores"
+      component: "Base"
+      evidence:
+        - source: "code"
+          path: "base/util.jl"
+          loc: "683-697"
+          url: "https://github.com/JuliaLang/julia/blob/612ac77721a17d70c2688c70519599a72adc72e4/base/util.jl#L683-L697"
+          snippet: |
+            """
+                Base.runtests(tests=["all"]; ncores=ceil(Int, Sys.EFFECTIVE_CPU_THREADS / 2),
+                              exit_on_error=false, revise=false, propagate_project=true, [seed], [julia_args::Cmd])
+            ...
+            """
+            function runtests(tests = ["all"]; ncores::Int = ceil(Int, Sys.EFFECTIVE_CPU_THREADS / 2),
+                              exit_on_error::Bool=false,
+
+    - summary: "Use EFFECTIVE_CPU_THREADS for test worker process count"
+      component: "Test Infrastructure"
+      evidence:
+        - source: "code"
+          path: "test/runtests.jl"
+          loc: "119"
+          url: "https://github.com/JuliaLang/julia/blob/612ac77721a17d70c2688c70519599a72adc72e4/test/runtests.jl#L119"
+          snippet: |
+            n = min(Sys.EFFECTIVE_CPU_THREADS, length(tests))
+
+  secondary_effects:
+    - effect: "Reduced memory pressure and CPU contention in containerized environments"
+      mechanism: |
+        jl_effective_threads() [sys.c:478]
+          returns min(jl_cpu_threads(), uv_available_parallelism())
+        -> uv_available_parallelism() reads cgroup CPU quotas via libuv
+        -> Downstream consumers now spawn fewer threads/tasks to match container limits
+        -> Prevents oversubscription that causes thrashing and OOM in constrained containers
+      downstream_surfaces:
+        - "Package precompilation"
+        - "Test runner parallelism"
+        - "GC marking threads"
+        - "AOT/sysimage compilation"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "Existing code using Sys.CPU_THREADS still sees hardware thread count"
+      mechanism: |
+        Sys.CPU_THREADS remains unchanged - still returns raw jl_cpu_threads() value.
+        Only code explicitly using Sys.EFFECTIVE_CPU_THREADS or calling
+        jl_effective_threads() directly will see container-aware values.
+        This preserves backward compatibility while enabling opt-in container awareness.
+      downstream_surfaces:
+        - "User code checking Sys.CPU_THREADS"
+        - "Libraries that hardcode CPU_THREADS for parallelism"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Thread auto detection respects container limits"
+      mechanism: |
+        When --threads=auto is specified or JULIA_NUM_THREADS=auto:
+          jl_init_threading() [threading.c:727,732]
+            nthreads = jl_effective_threads()
+        -> Julia spawns threads matching container limit, not hardware count
+      downstream_surfaces:
+        - "Any Julia process started with -t auto in containers"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "JULIA_CPU_THREADS env var interaction with EFFECTIVE_CPU_THREADS"
+      mechanism: |
+        sysinfo.jl __init__() [sysinfo.jl:175-190]:
+          1. CPU_THREADS = parsed JULIA_CPU_THREADS env var (if valid) OR jl_cpu_threads()
+          2. EFFECTIVE_CPU_THREADS = min(CPU_THREADS, jl_effective_threads())
+
+        Edge case: If JULIA_CPU_THREADS is set higher than container limit:
+          - CPU_THREADS = user-specified value (e.g., 64)
+          - EFFECTIVE_CPU_THREADS = min(64, container_limit) = container_limit
+
+        This means JULIA_CPU_THREADS cannot be used to bypass container limits for
+        EFFECTIVE_CPU_THREADS, which is the correct security-conscious behavior.
+      downstream_surfaces:
+        - "Users setting JULIA_CPU_THREADS in containers"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "GC thread capping uses effective threads for warning threshold"
+      mechanism: |
+        jl_init_threading() [threading.c:760-797]:
+          int cpu = jl_effective_threads();
+          if (jl_n_markthreads + 1 >= cpu) {
+              jl_n_markthreads = cpu - 1;  // Cap GC threads
+          }
+          if (jl_n_markthreads + 1 > cpu) {
+              jl_safe_printf("WARNING: running Julia with %d GC threads on %d CPU cores\n", ...);
+          }
+
+        This ensures GC threads are capped to container limits and warnings reflect
+        the actual available parallelism, not hardware count.
+      downstream_surfaces:
+        - "GC performance in containers"
+        - "User warning messages"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "versioninfo() still displays hardware thread count (potential user confusion)"
+      mechanism: |
+        InteractiveUtils.versioninfo() [InteractiveUtils.jl:170-171]:
+          println(io, """Threads: $(Threads.nthreads(:default)) default, ... (on $(Sys.CPU_THREADS) virtual cores)""")
+
+        In a container with --cpus=4 on 64-core hardware, user sees:
+          "Threads: 4 default, 1 interactive, 4 GC (on 64 virtual cores)"
+
+        This could confuse users who see "64 virtual cores" but only get 4 threads.
+        Not changed by this PR - may warrant follow-up to show EFFECTIVE_CPU_THREADS.
+      downstream_surfaces:
+        - "User diagnostics via versioninfo()"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "Sys.EFFECTIVE_CPU_THREADS"
+        change: "New exported constant added to Base.Sys module"
+        affected_tools: []
+    behavioral:
+      - description: |
+          In containerized environments, automatic parallelism decisions now use
+          container CPU limits instead of hardware thread count. Code that explicitly
+          specifies thread counts is unaffected. Code relying on auto detection may
+          see different (lower) parallelism levels in containers.
+        migration: |
+          No migration needed. This is a behavioral improvement. If you want the old
+          behavior (hardware threads), use Sys.CPU_THREADS explicitly instead of
+          EFFECTIVE_CPU_THREADS.
+
+  performance:
+    compile_time:
+      - description: |
+          AOT compilation (sysimage building) now uses jl_effective_threads() / 2
+          threads instead of jl_cpu_threads() / 2. In containers with CPU limits,
+          this reduces LLVM compilation threads to match available resources.
+        impact: |
+          ESTIMATED: No change outside containers. In containers with e.g. --cpus=4
+          on a 64-core machine, compilation uses 2 threads instead of 32, which
+          prevents thrashing and may actually improve wall-clock time by avoiding
+          excessive context switching and memory pressure.
+    runtime:
+      - description: |
+          GC mark threads and Julia compute threads now respect container limits
+          when using auto detection. This prevents oversubscription-induced
+          performance degradation in constrained environments.
+        impact: |
+          ESTIMATED: Neutral to positive in containers. Programs that previously
+          spawned 64 threads in a 4-CPU container now spawn 4, dramatically
+          reducing contention overhead.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Uses existing jl_effective_threads() function that was already defined but underutilized"
+      - "libuv's uv_available_parallelism() is mature and handles cgroup v1/v2"
+      - "Falls back gracefully: min() ensures we never exceed hardware count"
+      - "Sys.CPU_THREADS unchanged for backward compatibility"
+      - "Changes are all in default/auto detection paths, not explicit user settings"
+
+  downstream_impact:
+    packages:
+      - name: "Distributed.jl"
+        impact: "Improved - auto worker count respects container limits"
+      - name: "ThreadsX.jl / OhMyThreads.jl"
+        impact: "Neutral - explicit thread counts unaffected, auto benefits"
+      - name: "PackageCompiler.jl"
+        impact: "Improved - sysimage compilation respects container limits"
+    surfaces:
+      - "Package precompilation in CI/CD containers"
+      - "Distributed computing in Kubernetes pods"
+      - "Julia test suites in Docker containers"
+    notes: |
+      This PR primarily improves Julia's behavior in containerized environments.
+      Downstream packages that use auto-detected parallelism will automatically
+      benefit. Packages that explicitly set thread counts are unaffected.
+
+      Libraries that want container-aware defaults should switch from
+      Sys.CPU_THREADS to Sys.EFFECTIVE_CPU_THREADS for determining parallelism.
+
+  open_questions:
+    - |
+      Should more places in Base switch to EFFECTIVE_CPU_THREADS? The PR author notes
+      "It seems to me we should use the effective thread number basically everywhere
+      when defaulting to running some threaded workload."
+    - |
+      Should versioninfo() display EFFECTIVE_CPU_THREADS instead of (or in addition to)
+      CPU_THREADS? Currently shows "on $(Sys.CPU_THREADS) virtual cores" which could
+      mislead users in containers about available parallelism.
+    - |
+      Should the precompilation 16-task cap (precompilation.jl:530) be based on
+      EFFECTIVE_CPU_THREADS rather than being a fixed limit? Currently:
+        default_num_tasks = min(default_num_tasks, 16)
+      This additional cap may be overly conservative on larger container allocations.
+
+  recommendations:
+    - "Downstream packages should consider using Sys.EFFECTIVE_CPU_THREADS for default parallelism"
+    - "CI systems running in containers will see improved resource utilization automatically"
+    - "No breaking changes - existing explicit thread configurations are preserved"
+    - "Consider documenting EFFECTIVE_CPU_THREADS in package threading guides"
+
+classification:
+  type: "runtime_enhancement"
+  compiler_relevant: true
+  breaking_change: false
+  requires_downstream_action: false
+
+# jl_effective_threads implementation for reference:
+implementation_details:
+  jl_effective_threads:
+    path: "src/sys.c"
+    loc: "478-484"
+    url: "https://github.com/JuliaLang/julia/blob/612ac77721a17d70c2688c70519599a72adc72e4/src/sys.c#L478-L484"
+    code: |
+      JL_DLLEXPORT int jl_effective_threads(void) JL_NOTSAFEPOINT
+      {
+          // We want the more conservative estimate of the two.
+          int cpu_threads = jl_cpu_threads();
+          int available_parallelism = uv_available_parallelism();
+          return available_parallelism < cpu_threads ? available_parallelism : cpu_threads;
+      }
+    notes: |
+      uv_available_parallelism() is a libuv function that returns the available
+      parallelism respecting cgroup CPU quotas (both v1 and v2). On non-containerized
+      systems, it typically returns the same as jl_cpu_threads(). The min() ensures
+      we never exceed either the hardware count or the container limit.
+
+  call_sites:
+    - location: "src/aotcompile.cpp:2013"
+      context: "compute_image_thread_count() for LLVM parallel compilation"
+      before: "jl_cpu_threads() / 2"
+      after: "jl_effective_threads() / 2"
+    - location: "src/threading.c:760"
+      context: "GC thread count capping in jl_init_threading()"
+      before: "jl_cpu_threads()"
+      after: "jl_effective_threads()"
+    - location: "src/threading.c:842"
+      context: "JULIA_EXCLUSIVE validation in jl_start_threads()"
+      before: "jl_cpu_threads()"
+      after: "jl_effective_threads()"
+    - location: "src/threading.c:727,732"
+      context: "--threads=auto handling"
+      note: "Already used jl_effective_threads() for auto, no change"
+    - location: "src/jloptions.c:725"
+      context: "--procs=auto handling"
+      note: "Already used jl_effective_threads() for auto, no change"
+
+# Independent review additions (second analyst pass):
+review_enhancements:
+  additional_evidence:
+    - description: "Detailed GC thread initialization flow"
+      call_chain: |
+        jl_init_threading() [threading.c:720-813]
+          -> int cpu = jl_effective_threads();  [line 760]
+          -> if (jl_n_markthreads == -1)  [line 763] - gcthreads not specified
+               -> jl_n_markthreads = nthreads - 1;  [line 783]
+               -> if (jl_n_markthreads + 1 >= cpu)  [line 787]
+                    -> jl_n_markthreads = cpu - 1;  [line 788] - CAP TO EFFECTIVE
+          -> if (jl_n_markthreads + 1 > cpu)  [line 795]
+               -> jl_safe_printf("WARNING: ...")  [line 796]
+
+    - description: "AOT compilation thread count with fallback chain"
+      call_chain: |
+        compute_image_thread_count() [aotcompile.cpp:1994-2049]
+          1. Check 32-bit: return 1 [line 2001-2002]
+          2. Check timing passes: return 1 [line 2004-2005]
+          3. Check module weight < 1000: return 1 [line 2008-2010]
+          4. Base: threads = max(jl_effective_threads() / 2, 1) [line 2013]  # <-- CHANGED
+          5. Cap by globals: max_threads = info.globals / 100 [line 2015]
+          6. Override: JULIA_IMAGE_THREADS env [line 2022-2033]
+          7. Fallback: JULIA_CPU_THREADS env (only reduces, never increases) [line 2037-2048]
+
+    - description: "EFFECTIVE_CPU_THREADS initialization with env override handling"
+      code_path: |
+        Sys.__init__() [sysinfo.jl:175-191]:
+          Line 177-186: Handle JULIA_CPU_THREADS env override for CPU_THREADS
+          Line 190: EFFECTIVE_CPU_THREADS = min(CPU_THREADS, jl_effective_threads())
+
+        Key insight: Even if user sets JULIA_CPU_THREADS=999, EFFECTIVE_CPU_THREADS
+        is bounded by the actual container limit via jl_effective_threads().
+
+  test_coverage:
+    - file: "test/cmdlineargs.jl"
+      lines: "397-402"
+      description: "Validates --threads auto uses jl_effective_threads"
+      code: |
+        cpu_threads = ccall(:jl_effective_threads, Int32, ())
+        @test string(cpu_threads) ==
+            read(`$exename --threads auto -e $code`, String) ==
+            read(`$exename --threads=auto -e $code`, String) ==
+            read(`$exename -tauto -e $code`, String) ==
+            read(`$exename -t auto -e $code`, String)
+
+    - file: "test/cmdlineargs.jl"
+      lines: "449-454"
+      description: "Validates --threads auto for GC thread count"
+      code: |
+        cpu_threads = ccall(:jl_effective_threads, Int32, ())
+        @test string(cpu_threads) ==
+            read(`$exename --threads auto -e $code`, String)
+
+    - file: "test/runtests.jl"
+      lines: "119-121"
+      description: "Test worker count respects EFFECTIVE_CPU_THREADS"
+      code: |
+        n = min(Sys.EFFECTIVE_CPU_THREADS, length(tests))
+        n > 1 && addprocs_with_testenv(n)
+        LinearAlgebra.BLAS.set_num_threads(1)
+
+  missed_locations_analysis:
+    note: |
+      Searched for remaining jl_cpu_threads() usages that could potentially
+      benefit from jl_effective_threads(). Found these are intentionally unchanged:
+
+    intentionally_unchanged:
+      - location: "base/sysinfo.jl:183,188"
+        reason: "CPU_THREADS is meant to report hardware count, not effective count"
+      - location: "test/cmdlineargs.jl:234"
+        reason: "Testing raw hardware thread detection, not effective threads"
+
+    potential_future_changes:
+      - location: "stdlib/InteractiveUtils/src/InteractiveUtils.jl:171"
+        issue: "versioninfo() shows CPU_THREADS which may confuse container users"
+        suggestion: "Consider showing both or EFFECTIVE_CPU_THREADS"
+
+  precompilation_safeguards:
+    description: |
+      Precompilation has multiple layers of protection against over-parallelism:
+      1. EFFECTIVE_CPU_THREADS respects container limits
+      2. Windows halves the default (due to issue #2323)
+      3. Hard cap at 16 tasks for shared resource stability
+      4. User override via JULIA_NUM_PRECOMPILE_TASKS env var
+    code: |
+      # precompilation.jl:527-532
+      default_num_tasks = Sys.iswindows() ? div(Sys.EFFECTIVE_CPU_THREADS::Int, 2) + 1 : Sys.EFFECTIVE_CPU_THREADS::Int + 1
+      default_num_tasks = min(default_num_tasks, 16) # limit for better stability
+      num_tasks = max(1, something(tryparse(Int, get(ENV, "JULIA_NUM_PRECOMPILE_TASKS", string(default_num_tasks))), 1))
