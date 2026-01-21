@@ -1,0 +1,264 @@
+schema_version: "1.0"
+
+pr:
+  number: 59782
+  title: "fix prefix IntrusiveLinkedList with Base in a REPL test util"
+  url: "https://github.com/JuliaLang/julia/pull/59782"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59782.diff"
+  author: "KristofferC"
+  labels: []
+  merged_at: "2025-10-09T07:15:16Z"
+  merge_commit_sha: "66e501bfbfe34e26b0227ab2405346266c061605"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/test/repl.jl"
+  components:
+    - "REPL.test"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      This PR fixes an UndefVarError that occurred in REPL tests when running in a distributed
+      worker process. The error manifested as:
+
+        UndefVarError: `IntrusiveLinkedList` not defined in `Main.Test36Main_REPL.REPLTests`
+
+      The issue was introduced by PR #57344, which added code that referenced `IntrusiveLinkedList`
+      without the `Base.` module prefix. When the REPL tests run in a separate module scope
+      (Main.Test36Main_REPL.REPLTests), the bare identifier is not in scope and must be qualified.
+
+      The fix is trivial: add `Base.` prefix to the type annotation.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/57344"
+      - "https://github.com/JuliaLang/julia/pull/59778"
+    context: |
+      PR #59778 (REPL syntax highlighting) surfaced this bug during CI testing.
+      The error occurred when REPL tests ran in distributed worker processes,
+      where the test module scope (Main.Test36Main_REPL.REPLTests) does not have
+      IntrusiveLinkedList in scope without the Base. prefix.
+
+  direct_changes:
+    - summary: "Added Base. prefix to IntrusiveLinkedList type annotation in kill_timer test utility"
+      component: "stdlib/REPL/test/repl.jl"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/test/repl.jl"
+          loc: "35"
+          url: "https://github.com/JuliaLang/julia/blob/66e501bfbfe34e26b0227ab2405346266c061605/stdlib/REPL/test/repl.jl#L35"
+          snippet: |
+            test_task.queue === nothing || Base.list_deletefirst!(test_task.queue::Base.IntrusiveLinkedList{Task}, test_task)
+          diff_context: |
+            @@ -32,7 +32,7 @@ function kill_timer(delay)
+                     # **DON'T COPY ME.**
+                     # The correct way to handle timeouts is to close the handle:
+                     # e.g. `close(stdout_read); close(stdin_write)`
+            -        test_task.queue === nothing || Base.list_deletefirst!(test_task.queue::IntrusiveLinkedList{Task}, test_task)
+            +        test_task.queue === nothing || Base.list_deletefirst!(test_task.queue::Base.IntrusiveLinkedList{Task}, test_task)
+                     schedule(test_task, "hard kill repl test"; error=true)
+                     print(stderr, "WARNING: attempting hard kill of repl test after exceeding timeout\n")
+                 end
+
+    - summary: "Context: The kill_timer function is a test utility that forcibly terminates REPL tests after a timeout"
+      component: "stdlib/REPL/test/repl.jl (full function)"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/test/repl.jl"
+          loc: "24-40"
+          url: "https://github.com/JuliaLang/julia/blob/66e501bfbfe34e26b0227ab2405346266c061605/stdlib/REPL/test/repl.jl#L24-L40"
+          snippet: |
+            function kill_timer(delay)
+                # Give ourselves a generous timer here, just to prevent
+                # this causing e.g. a CI hang when there's something unexpected in the output.
+                # This is really messy and leaves the process in an undefined state.
+                # the proper and correct way to do this in real code would be to destroy the
+                # IO handles: `close(stdout_read); close(stdin_write)`
+                test_task = current_task()
+                function kill_test(t)
+                    # **DON'T COPY ME.**
+                    # The correct way to handle timeouts is to close the handle:
+                    # e.g. `close(stdout_read); close(stdin_write)`
+                    test_task.queue === nothing || Base.list_deletefirst!(test_task.queue::Base.IntrusiveLinkedList{Task}, test_task)
+                    schedule(test_task, "hard kill repl test"; error=true)
+                    print(stderr, "WARNING: attempting hard kill of repl test after exceeding timeout\n")
+                end
+                return Timer(kill_test, delay)
+            end
+
+  secondary_effects:
+    - effect: "No secondary effects - test-only change"
+      mechanism: |
+        This PR modifies only test code in stdlib/REPL/test/repl.jl.
+
+        The change corrects a scoping issue where IntrusiveLinkedList was not properly qualified.
+        When REPL tests run via distributed workers (Test36Main_REPL.REPLTests module context),
+        identifiers must be fully qualified to be resolved.
+
+        The IntrusiveLinkedList type is defined in base/linked_list.jl:3:
+          mutable struct IntrusiveLinkedList{T}
+              head::Union{T, Nothing}
+              tail::Union{T, Nothing}
+              IntrusiveLinkedList{T}() where {T} = new{T}(nothing, nothing)
+          end
+
+        Similar patterns exist throughout Base and stdlib that properly qualify the type:
+          - base/lock.jl:255: ct.queue::IntrusiveLinkedList{Task}  (in Base scope, no prefix needed)
+          - base/stream.jl:460: q::Base.IntrusiveLinkedList{Task}  (uses Base prefix)
+          - stdlib/Sockets/src/addrinfo.jl:93: q::Base.IntrusiveLinkedList{Task}  (uses Base prefix)
+
+        The key insight: code in base/ can use the bare name since they're in Base scope,
+        but code in stdlib/ tests needs the prefix since they run in isolated module scopes.
+      downstream_surfaces:
+        - "None - test infrastructure only"
+      likelihood: "none"
+      impact: "none"
+
+  compatibility:
+    internal_api: []
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "Test-only change with zero impact on production code"
+      - "Single character change (adds 'Base.' prefix)"
+      - "Fixes a test failure introduced by PR #57344"
+      - "No compiler, runtime, or API changes"
+      - "Cannot affect user-facing behavior"
+
+  downstream_impact:
+    packages: []
+    surfaces: []
+    notes: |
+      This PR has ZERO impact on any downstream packages or Julia users.
+
+      It fixes a test infrastructure bug that was causing REPL tests to fail when run
+      in certain distributed worker configurations. The IntrusiveLinkedList type is
+      an internal data structure used by Julia's task scheduler for managing waiting
+      tasks in linked lists.
+
+      The function being fixed (kill_timer) is explicitly marked with warnings:
+      "DON'T COPY ME" - it's a hacky test utility for forcibly killing hung tests.
+
+  open_questions: []
+
+  recommendations:
+    - "No action required for any downstream packages"
+    - "Test-only fix that ensures REPL test suite passes in all configurations"
+
+classification:
+  type: "bugfix"
+  scope: "test-only"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false
+
+notes: |
+  This PR is a minimal test fix with no code impact beyond the test file itself.
+
+  BACKGROUND ON IntrusiveLinkedList:
+
+  IntrusiveLinkedList is Julia's internal linked list implementation for task scheduling.
+  It's "intrusive" because the list node data (next pointer, queue reference) is embedded
+  directly in the element type (Task) rather than in wrapper nodes.
+
+  From base/linked_list.jl:
+    mutable struct IntrusiveLinkedList{T}
+        # Invasive list requires that T have a field `.next >: U{T, Nothing}` and `.queue >: U{ILL{T}, Nothing}`
+        head::Union{T, Nothing}
+        tail::Union{T, Nothing}
+    end
+
+  The list_deletefirst! function removes a task from its queue:
+    function list_deletefirst!(q::IntrusiveLinkedList{T}, val::T) where T
+        val.queue === q || return
+        # ... traverses list to find and remove val ...
+        val.next = nothing
+        val.queue = nothing
+        return q
+    end
+
+  This is used throughout Julia's runtime for task management:
+    - Condition variable wait queues
+    - Thread work queues (IntrusiveLinkedListSynchronized)
+    - Task scheduling
+
+  WHY THE BUG OCCURRED:
+
+  PR #57344 added code to the kill_timer test utility that manipulates task queues directly.
+  The code was written as:
+    test_task.queue::IntrusiveLinkedList{Task}
+
+  This works when the code runs in Base's scope, but REPL tests execute in an isolated
+  module (Main.Test36Main_REPL.REPLTests). In that scope, IntrusiveLinkedList is not
+  imported - it must be qualified as Base.IntrusiveLinkedList.
+
+  The error message from CI was:
+    Error in Timer:
+    UndefVarError: `IntrusiveLinkedList` not defined in `Main.Test36Main_REPL.REPLTests`
+
+  SIMILAR PATTERNS IN CODEBASE:
+
+  A grep for IntrusiveLinkedList shows the pattern:
+    - In base/ files: bare IntrusiveLinkedList (in Base scope)
+    - In stdlib/ files: Base.IntrusiveLinkedList (must qualify)
+    - In test/ files: Base.IntrusiveLinkedList (must qualify)
+
+  Examples from stdlib/Sockets/src/addrinfo.jl:93:
+    q = ct.queue; q === nothing || Base.list_deletefirst!(q::Base.IntrusiveLinkedList{Task}, ct)
+
+  The fix follows this established pattern.
+
+reviewer_verification:
+  date: "2026-01-21"
+  status: "verified"
+  independent_findings:
+    - finding: "Confirmed code change is test-only"
+      evidence: |
+        Verified at stdlib/REPL/test/repl.jl line 35:
+          test_task.queue === nothing || Base.list_deletefirst!(test_task.queue::Base.IntrusiveLinkedList{Task}, test_task)
+    - finding: "Verified usage pattern across codebase"
+      evidence: |
+        grep for IntrusiveLinkedList shows consistent qualification patterns:
+
+        In base/ (no prefix needed - same scope):
+          base/lock.jl:255: ct.queue::IntrusiveLinkedList{Task}
+          base/task.jl:1018: q::IntrusiveLinkedList{Task}
+          base/condition.jl:143: q::IntrusiveLinkedList{Task}
+
+        In stdlib/ (prefix required - different scope):
+          stdlib/Sockets/src/addrinfo.jl:93: q::Base.IntrusiveLinkedList{Task}
+          stdlib/Sockets/src/addrinfo.jl:226: q::Base.IntrusiveLinkedList{Task}
+          stdlib/Sockets/src/Sockets.jl:459: q::Base.IntrusiveLinkedList{Task}
+          stdlib/REPL/test/repl.jl:35: test_task.queue::Base.IntrusiveLinkedList{Task}
+
+        In test/ (prefix required):
+          test/threads_exec.jl:655: Base.IntrusiveLinkedList{Integer}
+    - finding: "Confirmed IntrusiveLinkedList definition location"
+      evidence: |
+        base/linked_list.jl:3-8:
+          mutable struct IntrusiveLinkedList{T}
+              head::Union{T, Nothing}
+              tail::Union{T, Nothing}
+              IntrusiveLinkedList{T}() where {T} = new{T}(nothing, nothing)
+          end
+    - finding: "Verified PR #59778 context"
+      evidence: |
+        PR #59778 adds REPL syntax highlighting using StyledStrings and JuliaSyntaxHighlighting.
+        The IntrusiveLinkedList bug was discovered during CI testing of that feature, when REPL
+        tests executed in distributed worker processes with isolated module scopes.
+  conclusion: |
+    The original analysis is accurate and complete. This is a trivial test-only fix with zero
+    downstream impact. The change adds "Base." prefix to properly qualify IntrusiveLinkedList
+    in a module scope where it is not directly accessible. No compiler or runtime code is affected.
+
+    Confidence: HIGH - change verified against source code and usage patterns confirmed.
+  additional_notes: |
+    No additional secondary effects discovered. The kill_timer function is a test utility
+    explicitly marked with "DON'T COPY ME" warnings - it is intentionally hacky code for
+    forcibly terminating hung tests by manipulating internal task queue structures directly.
