@@ -1,0 +1,598 @@
+schema_version: "1.0"
+pr:
+  number: 59521
+  title: "Backports for Julia 1.11.8"
+  url: "https://github.com/JuliaLang/julia/pull/59521"
+  author: "gbaraldi"
+  labels:
+    - "release"
+    - "don't squash"
+  merged_at: "2025-11-03T16:53:49Z"
+  merge_commit_sha: "95639de392cff96b2b83f89d83adb250fbe9f8c9"
+  state: "merged"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59521.diff"
+  note: "Backports PR collecting multiple changes for Julia 1.11.8 release branch."
+scope:
+  files_touched:
+    - "base/loading.jl"
+    - "base/sort.jl"
+    - "base/strings/string.jl"
+    - "src/aotcompile.cpp"
+    - "src/cgutils.cpp"
+    - "src/codegen-stubs.c"
+    - "src/gc.c"
+    - "src/gf.c"
+    - "src/julia_internal.h"
+    - "src/llvm-late-gc-lowering.cpp"
+    - "src/null_sysimage.c"
+    - "src/processor.cpp"
+    - "src/processor.h"
+    - "src/staticdata.c"
+    - "src/threading.c"
+    - "test/compiler/codegen.jl"
+    - "test/sorting.jl"
+  components:
+    - "Runtime.Codegen"
+    - "Runtime.GC"
+    - "Runtime.MethodDispatch"
+    - "Runtime.Sysimage"
+    - "Base.Loading"
+    - "Base.Sort"
+    - "LLVM.LateGCLowering"
+  pipeline_stages:
+    - "Codegen"
+    - "Runtime"
+    - "GCLowering"
+    - "Sysimage"
+analysis:
+  intent:
+    summary: "Backport collection for Julia 1.11.8 containing fixes for LLVM context cleanup, non-boxed LLVM type conversion, GC write barrier volatility, method dispatch owner checks, stdlib loading concurrency, and SubArray sorting edge cases."
+    backported_prs:
+      - number: 57523
+        title: "Remove usages of weak symbols"
+      - number: 57604
+        title: "@nospecialize for string_index_err"
+      - number: 56890
+        title: "Enable getting non-boxed LLVM type from Julia Type"
+      - number: 58127
+        title: "[DOC] Update installation docs: /downloads/ => /install/"
+      - number: 58202
+        title: "[release-1.11] malloc: use jl_get_current_task to fix null check"
+      - number: 58554
+        title: "remove workaround for controlling terminal behavior in repl_cmd"
+      - number: 58584
+        title: "Make Ptr values static-show w/ type-information"
+      - number: 59062
+        title: "remove a testset from MMAP that might cause CI to now fail on Windows"
+      - number: 59300
+        title: "Update the developer docs to reflect the use of JuliaSyntax.jl"
+      - number: 59329
+        title: "aotcompile: destroy LLVM context after serializing combined module"
+      - number: 59418
+        title: "Fix startup when history file is bad"
+      - number: 59559
+        title: "codegen: mark write barrier field load as volatile"
+      - number: 59572
+        title: "Only apply Base.Sort.SubArrayOptimization when iszero(v.offset1)"
+  direct_changes:
+    - summary: "Add jl_struct_to_llvm_impl function to get non-boxed LLVM type representations for Julia types, bypassing the boxing heuristic for abstract types."
+      component: "Runtime.Codegen"
+      backported_from: 56890
+      evidence:
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "625-658"
+          snippet: |
+            static Type *_julia_type_to_llvm(jl_codegen_params_t *ctx, LLVMContext &ctxt, jl_value_t *jt, bool *isboxed, bool no_boxing)
+            {
+                // this function converts a Julia Type into the equivalent LLVM type
+                if (isboxed) *isboxed = false;
+                if (jt == (jl_value_t*)jl_bottom_type)
+                    return getVoidTy(ctxt);
+                if (jl_is_concrete_immutable(jt) || no_boxing) {
+                    if (jl_datatype_nbits(jt) == 0)
+                        return getVoidTy(ctxt);
+                    Type *t = _julia_struct_to_llvm(ctx, ctxt, jt, isboxed);
+                    assert(t != NULL);
+                    return t;
+                }
+                if (isboxed) *isboxed = true;
+                return JuliaType::get_prjlvalue_ty(ctxt);
+            }
+
+            extern "C" JL_DLLEXPORT_CODEGEN
+            Type *jl_struct_to_llvm_impl(jl_value_t *jt, LLVMContextRef ctxt, bool *isboxed)
+            {
+                return _julia_type_to_llvm(NULL, *unwrap(ctxt), jt, isboxed, true);
+            }
+        - source: "code"
+          path: "src/codegen-stubs.c"
+          loc: "100"
+          snippet: |
+            JL_DLLEXPORT void *jl_struct_to_llvm_fallback(jl_value_t *jt, LLVMContextRef llvmctxt, bool_t *isboxed) UNAVAILABLE
+
+    - summary: "Mark GC write barrier tag loads as volatile to prevent LLVM from treating them as constants, since GC mark bits change at runtime."
+      component: "LLVM.LateGCLowering"
+      backported_from: 59559
+      evidence:
+        - source: "code"
+          path: "src/llvm-late-gc-lowering.cpp"
+          loc: "2250-2268"
+          url: "https://github.com/JuliaLang/julia/blob/95639de392cff96b2b83f89d83adb250fbe9f8c9/src/llvm-late-gc-lowering.cpp#L2250-L2268"
+          snippet: |
+            Value *LateLowerGCFrame::EmitLoadTag(IRBuilder<> &builder, Type *T_size, Value *V)
+            {
+                auto addr = EmitTagPtr(builder, T_size, T_size, V);
+                auto &M = *builder.GetInsertBlock()->getModule();
+                LoadInst *load = builder.CreateAlignedLoad(T_size, addr, M.getDataLayout().getPointerABIAlignment(0), V->getName() + ".tag");
+                load->setOrdering(AtomicOrdering::Unordered);
+                // Mark as volatile to prevent optimizers from treating GC tag loads as constants
+                // since GC mark bits can change during runtime (issue #59547)
+                load->setVolatile(true);
+                load->setMetadata(LLVMContext::MD_tbaa, tbaa_tag);
+                MDBuilder MDB(load->getContext());
+                auto *NullInt = ConstantInt::get(T_size, 0);
+                // We can be sure that the tag is at least 16 (1<<4)
+                // Hopefully this is enough to convince LLVM that the value is still not NULL
+                // after masking off the tag bits
+                auto *NonNullInt = ConstantExpr::getAdd(NullInt, ConstantInt::get(T_size, 16));
+                load->setMetadata(LLVMContext::MD_range, MDB.createRange(NonNullInt, NullInt));
+                return load;
+            }
+        - source: "code"
+          path: "src/llvm-late-gc-lowering.cpp"
+          loc: "2577-2594"
+          url: "https://github.com/JuliaLang/julia/blob/95639de392cff96b2b83f89d83adb250fbe9f8c9/src/llvm-late-gc-lowering.cpp#L2577-L2594"
+          description: "Write barrier lowering that calls EmitLoadTag for parent and child objects"
+          snippet: |
+            IRBuilder<> builder(CI);
+            builder.SetCurrentDebugLocation(CI->getDebugLoc());
+            auto parBits = builder.CreateAnd(EmitLoadTag(builder, T_size, parent), GC_OLD_MARKED);
+            setName(parBits, "parent_bits", debug_info);
+            auto parOldMarked = builder.CreateICmpEQ(parBits, ConstantInt::get(T_size, GC_OLD_MARKED));
+            setName(parOldMarked, "parent_old_marked", debug_info);
+            auto mayTrigTerm = SplitBlockAndInsertIfThen(parOldMarked, CI, false);
+            builder.SetInsertPoint(mayTrigTerm);
+            setName(mayTrigTerm->getParent(), "may_trigger_wb", debug_info);
+            Value *anyChldNotMarked = NULL;
+            for (unsigned i = 1; i < CI->arg_size(); i++) {
+                Value *child = CI->getArgOperand(i);
+                Value *chldBit = builder.CreateAnd(EmitLoadTag(builder, T_size, child), GC_MARKED);
+                setName(chldBit, "child_bit", debug_info);
+                Value *chldNotMarked = builder.CreateICmpEQ(chldBit, ConstantInt::get(T_size, 0),"child_not_marked");
+                setName(chldNotMarked, "child_not_marked", debug_info);
+                anyChldNotMarked = anyChldNotMarked ? builder.CreateOr(anyChldNotMarked, chldNotMarked) : chldNotMarked;
+            }
+
+    - summary: "Add owner check in method dispatch to skip code instances owned by external abstract interpreters (not jl_nothing), ensuring only native Julia code is invoked."
+      component: "Runtime.MethodDispatch"
+      evidence:
+        - source: "code"
+          path: "src/gf.c"
+          loc: "2923-2936"
+          snippet: |
+            STATIC_INLINE jl_value_t *_jl_invoke(jl_value_t *F, jl_value_t **args, uint32_t nargs, jl_method_instance_t *mfunc, size_t world)
+            {
+                // manually inlined copy of jl_method_compiled
+                jl_code_instance_t *codeinst = jl_atomic_load_relaxed(&mfunc->cache);
+                while (codeinst) {
+                    if (jl_atomic_load_relaxed(&codeinst->min_world) <= world && world <= jl_atomic_load_relaxed(&codeinst->max_world)
+                        && codeinst->owner == jl_nothing) {
+                        jl_callptr_t invoke = jl_atomic_load_acquire(&codeinst->invoke);
+                        if (invoke != NULL) {
+                            jl_value_t *res = invoke(F, args, nargs, codeinst);
+                            return verify_type(res);
+                        }
+                    }
+                    codeinst = jl_atomic_load_relaxed(&codeinst->next);
+                }
+
+    - summary: "Fix LLVM ThreadSafeContext lifetime by properly moving lock and context ownership into the lambda before destruction."
+      component: "Runtime.Codegen"
+      backported_from: 59329
+      evidence:
+        - source: "code"
+          path: "src/aotcompile.cpp"
+          loc: "1788-1799"
+          snippet: |
+            auto lock = TSCtx.getLock();
+            auto dataM = data->M.getModuleUnlocked();
+
+            data_outputs = compile(*dataM, "text", threads, [data, &lock, &TSCtx](Module &) {
+                // Delete data when add_output thinks it's done with it
+                // Saves memory for use when multithreading
+                auto lock2 = std::move(lock);
+                delete data;
+                // Drop last reference to shared LLVM::Context
+                auto TSCtx2 = std::move(TSCtx);
+            });
+
+    - summary: "Remove weak symbol workarounds for sysimage linking, replacing with explicit null_sysimage.c providing dummy symbols when not statically linked."
+      component: "Runtime.Sysimage"
+      backported_from: 57523
+      evidence:
+        - source: "code"
+          path: "src/null_sysimage.c"
+          loc: "1-15"
+          snippet: |
+            // This file is a part of Julia. License is MIT: https://julialang.org/license
+
+            #include <stddef.h>
+            #include "processor.h"
+
+            /**
+             * These symbols support statically linking the sysimage with libjulia-internal.
+             *
+             * Here we provide dummy definitions that are used when these are not linked
+             * together (the default build configuration). The 0 value of jl_system_image_size
+             * is used as a sentinel to indicate that the sysimage should be loaded externally.
+             **/
+            char jl_system_image_data = 0;
+            size_t jl_system_image_size = 0;
+            jl_image_pointers_t jl_image_pointers = { 0 };
+        - source: "code"
+          path: "src/staticdata.c"
+          loc: "620-644"
+          snippet: |
+            static void jl_load_sysimg_so(void)
+            {
+                assert(sysimage.fptrs.ptrs); // jl_init_processor_sysimg should already be run
+
+                size_t *plen;
+                const char *sysimg_data;
+
+                if (jl_system_image_size == 0) {
+                    // in the usual case, the sysimage was not statically linked to libjulia-internal
+                    // look up the external sysimage symbols via the dynamic linker
+                    jl_dlsym(jl_sysimg_handle, "jl_system_image_size", (void **)&plen, 1);
+                    jl_dlsym(jl_sysimg_handle, "jl_system_image_data", (void **)&sysimg_data, 1);
+                } else {
+                    // the sysimage was statically linked directly against libjulia-internal
+                    // use the internal symbols
+                    plen = &jl_system_image_size;
+                    sysimg_data = &jl_system_image_data;
+                }
+
+                jl_restore_system_image_data(sysimg_data, *plen);
+            }
+
+    - summary: "Fix SubArray sorting optimization to not apply when offset1 is non-zero, as it breaks algorithms that track absolute indices like ScratchQuickSort."
+      component: "Base.Sort"
+      backported_from: 59572
+      evidence:
+        - source: "code"
+          path: "base/sort.jl"
+          loc: "555-569"
+          url: "https://github.com/JuliaLang/julia/blob/95639de392cff96b2b83f89d83adb250fbe9f8c9/base/sort.jl#L555-L569"
+          snippet: |
+            function _sort!(v::UnwrappableSubArray, a::SubArrayOptimization, o::Ordering, kw)
+                @getkw lo hi
+                # @assert v.stride1 == 1
+                parent = v.parent
+                if parent isa Array && !(parent isa Vector) && hi - lo < 100 || !iszero(v.offset1)
+                    # vec(::Array{T, ≠1}) allocates and is therefore somewhat expensive.
+                    # We don't want that for small inputs.
+
+                    # Additionally, if offset1 is non-zero, then this optimization is incompatible with
+                    # algorithms that track absolute first and last indices (e.g. ScratchQuickSort)
+                    _sort!(v, a.next, o, kw)
+                else
+                    _sort!(vec(parent), a.next, o, kw)
+                end
+            end
+        - source: "test"
+          path: "test/sorting.jl"
+          loc: "1071-1074"
+          url: "https://github.com/JuliaLang/julia/blob/95639de392cff96b2b83f89d83adb250fbe9f8c9/test/sorting.jl#L1071-L1074"
+          snippet: |
+            @testset "partialsort! for UnwrappableSubArray with non-zero offset on 1.11 (#59569)" begin
+                a = reshape(6000:-1:1, 1000, :) |> collect;
+                @test partialsort!(view(copy(a), :, 6), 500:501) == [500, 501]
+            end
+
+    - summary: "Add null pointer comparison fix for non-standard address spaces where null is not represented as zero."
+      component: "Runtime.Codegen"
+      evidence:
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "1398-1418"
+          snippet: |
+            static bool has_known_null_nullptr(Type *T)
+            {
+                if (auto PT = dyn_cast<PointerType>(T)) {
+                    auto addrspace = PT->getAddressSpace();
+                    if (addrspace == AddressSpace::Generic || (AddressSpace::FirstSpecial <= addrspace && addrspace <= AddressSpace::LastSpecial)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            // ctx.builder.CreateIsNotNull(v) lowers incorrectly in non-standard
+            // address spaces where null is not zero
+            // TODO: adapt to https://github.com/llvm/llvm-project/pull/131557 once merged
+            static Value *null_pointer_cmp(jl_codectx_t &ctx, Value *v)
+            {
+                ++EmittedNullchecks;
+                Type *T = v->getType();
+                if (has_known_null_nullptr(T) || !isa<PointerType>(T)) // i64/i32 are considered pointer like here
+                    return ctx.builder.CreateIsNotNull(v);
+                else
+                    return ctx.builder.CreateICmpNE(v, ctx.builder.CreateAddrSpaceCast(
+                        Constant::getNullValue(ctx.builder.getPtrTy(0)), T));
+            }
+
+    - summary: "Rename Windows _aligned_msize to _aligned_msizejl to avoid potential symbol conflicts."
+      component: "Runtime.GC"
+      evidence:
+        - source: "code"
+          path: "src/gc.c"
+          loc: "4170-4185"
+          snippet: |
+            #define SAVED_PTR(x) ((void *)((DWORD_PTR)((char *)x - sizeof(void *)) & \
+                                           ~(sizeof(void *) - 1)))
+            static size_t _aligned_msizejl(void *p)
+            {
+                void *alloc_ptr = *(void**)SAVED_PTR(p);
+                return _msize(alloc_ptr) - ((char*)p - (char*)alloc_ptr);
+            }
+
+            size_t memory_block_usable_size(void *p, int isaligned) JL_NOTSAFEPOINT
+            {
+            #if defined(_OS_WINDOWS_)
+                if (isaligned)
+                    return _aligned_msizejl(p);
+                else
+                    return _msize(p);
+
+    - summary: "Add @nospecialize to string_index_err to reduce compilation overhead for error paths."
+      component: "Base.Strings"
+      backported_from: 57604
+      evidence:
+        - source: "code"
+          path: "base/strings/string.jl"
+          loc: "7-12"
+          snippet: |
+            struct StringIndexError <: Exception
+                string::AbstractString
+                index::Int
+            end
+            @noinline string_index_err((@nospecialize s::AbstractString), i::Integer) =
+                throw(StringIndexError(s, Int(i)))
+
+  secondary_effects:
+    - effect: "External abstract interpreters (e.g., Enzyme, GPUCompiler) must ensure their code instances have owner != jl_nothing to avoid being incorrectly invoked by native dispatch"
+      mechanism: |
+        _jl_invoke() [src/gf.c:2923-2936]
+          iterates through mfunc->cache linked list
+          -> checks: codeinst->owner == jl_nothing
+          -> only invokes if owner is jl_nothing (native Julia)
+          -> skips to next codeinst if owner is not jl_nothing
+
+        jl_code_instance_t.owner field definition [src/julia.h:416]:
+          jl_value_t *owner; // Compiler token this belongs to, `jl_nothing` is reserved for native
+
+        Other callers checking owner field:
+          - jl_compile_method_internal() [src/gf.c:2377] - skips if owner != jl_nothing
+          - jl_maybe_compile_and_run() [src/gf.c:2576] - only records native codeinsts
+          - precompile_utils.c:185 - skips non-native codeinsts for precompilation
+      downstream_surfaces:
+        - "Enzyme.jl"
+        - "GPUCompiler.jl"
+        - "JET.jl"
+        - "Custom AbstractInterpreters"
+      likelihood: medium
+      impact: low
+
+    - effect: "GC write barrier behavior now correctly handles concurrent mark bit changes due to volatile loads"
+      mechanism: |
+        EmitLoadTag() [src/llvm-late-gc-lowering.cpp:2250-2268]
+          creates aligned load of GC tag
+          now sets: load->setVolatile(true)
+          -> prevents LLVM from hoisting/CSE-ing tag loads
+          -> ensures correct behavior when GC modifies mark bits concurrently
+
+        GC constants [src/julia_internal.h:332-335]:
+          #define GC_CLEAN  0 // freshly allocated
+          #define GC_MARKED 1 // reachable and young
+          #define GC_OLD    2 // if it is reachable it will be marked as old
+          #define GC_OLD_MARKED (GC_OLD | GC_MARKED) // reachable and old (value=3)
+
+        Write barrier lowering call chain [src/llvm-late-gc-lowering.cpp:2577-2594]:
+          CleanupIR() processes write_barrier intrinsics
+          -> parBits = builder.CreateAnd(EmitLoadTag(..., parent), GC_OLD_MARKED)  [line 2579]
+          -> parOldMarked = builder.CreateICmpEQ(parBits, GC_OLD_MARKED)  [line 2581]
+          -> chldBit = builder.CreateAnd(EmitLoadTag(..., child), GC_MARKED)  [line 2589]
+          -> chldNotMarked = builder.CreateICmpEQ(chldBit, 0)  [line 2591]
+          -> if parent old+marked and child not marked, queue GC root
+
+        Additional callers of EmitLoadTag():
+          - line 2471: safepoint emission for GC tag check
+          - line 2579: parent tag in write barrier
+          - line 2589: child tag in write barrier
+      downstream_surfaces:
+        - "GC correctness in multithreaded code"
+        - "Concurrent mark-sweep behavior"
+        - "Write barrier optimization correctness"
+      likelihood: high
+      impact: high
+
+    - effect: "New jl_struct_to_llvm API enables downstream tools to get unboxed LLVM type representations"
+      mechanism: |
+        jl_struct_to_llvm_impl() [src/cgutils.cpp:655-658]
+          calls _julia_type_to_llvm(..., no_boxing=true)
+          -> bypasses boxing heuristic for abstract types
+          -> returns struct layout even for non-concrete types
+
+        Use case: GPU compilers and LLVM-based tools need unboxed representations
+        for kernel argument passing and memory layout calculations.
+      downstream_surfaces:
+        - "GPUCompiler.jl"
+        - "CUDA.jl"
+        - "AMDGPU.jl"
+        - "Custom LLVM codegen tools"
+      likelihood: medium
+      impact: medium
+
+    - effect: "Sysimage loading now uses sentinel value (jl_system_image_size == 0) instead of weak symbols"
+      mechanism: |
+        null_sysimage.c provides:
+          jl_system_image_size = 0 (sentinel)
+          jl_system_image_data = 0
+          jl_image_pointers = { 0 }
+
+        jl_load_sysimg_so() [src/staticdata.c:623-643]
+          if (jl_system_image_size == 0)
+            -> dlsym for external sysimage
+          else
+            -> use statically linked symbols
+
+        This removes reliance on weak symbol behavior which varies across platforms.
+      downstream_surfaces:
+        - "Static compilation workflows"
+        - "Custom Julia builds"
+        - "PackageCompiler.jl"
+      likelihood: low
+      impact: low
+
+    - effect: "Null pointer comparison in codegen now handles non-standard address spaces correctly"
+      mechanism: |
+        null_pointer_cmp() [src/cgutils.cpp:1420-1429]
+          checks if address space has known null representation
+          -> for standard address spaces: uses CreateIsNotNull
+          -> for non-standard address spaces: uses CreateICmpNE with addrspace cast
+
+        Callers of null_pointer_cmp() [found via rg search]:
+          - null_pointer_check() [cgutils.cpp:1440] - raises exception if null
+          - null_load_check() [cgutils.cpp:1447] - undef var error if null
+          - emit_guarded_test() [cgutils.cpp:1495] - guarded null test
+          - emit_nullcheck_guard2() [cgutils.cpp:1506-1507] - two-value null check
+          - emit_bitcast() [cgutils.cpp:1523] - boxed value null check
+          - emit_unionmove() [cgutils.cpp:1615] - union null check
+          - emit_isa() [cgutils.cpp:1639] - isa null check
+
+        This affects GPU backends (CUDA, AMDGPU) that use non-zero null pointers.
+      downstream_surfaces:
+        - "CUDA.jl"
+        - "AMDGPU.jl"
+        - "GPUCompiler.jl"
+        - "oneAPI.jl"
+      likelihood: medium
+      impact: medium
+
+    - effect: "SubArray sorting with non-zero offset1 now correctly uses fallback path"
+      mechanism: |
+        _sort!() for UnwrappableSubArray [base/sort.jl:555-569]
+          checks: parent isa Array && !(parent isa Vector) && hi - lo < 100 || !iszero(v.offset1)
+          -> if offset1 is non-zero, uses fallback: _sort!(v, a.next, o, kw)
+          -> otherwise may use optimized: _sort!(vec(parent), a.next, o, kw)
+
+        Test case [test/sorting.jl:1071-1074]:
+          @testset "partialsort! for UnwrappableSubArray with non-zero offset on 1.11 (#59569)" begin
+              a = reshape(6000:-1:1, 1000, :) |> collect;
+              @test partialsort!(view(copy(a), :, 6), 500:501) == [500, 501]
+          end
+
+        The view(a, :, 6) creates a SubArray with non-zero offset1 (5000 elements offset).
+        Without this fix, ScratchQuickSort could compute wrong indices.
+      downstream_surfaces:
+        - "Any code using partialsort! on column views"
+        - "DataFrames sorting on column slices"
+      likelihood: medium
+      impact: medium
+
+  compatibility:
+    internal_api:
+      - field: "jl_struct_to_llvm"
+        change: "New exported function for getting non-boxed LLVM type representations"
+        definition: |
+          extern "C" JL_DLLEXPORT_CODEGEN
+          Type *jl_struct_to_llvm_impl(jl_value_t *jt, LLVMContextRef ctxt, bool *isboxed)
+        affected_tools:
+          - tool: "GPUCompiler.jl"
+            usage: "May use jl_struct_to_llvm for kernel argument layout without boxing"
+          - tool: "LLVM.jl interop"
+            usage: "Direct LLVM type queries for struct layouts"
+          - tool: "Enzyme.jl"
+            usage: "Type layout queries for differentiation"
+
+      - field: "jl_code_instance_t.owner"
+        change: "Now checked in _jl_invoke dispatch path - code instances with owner != jl_nothing are skipped"
+        definition: |
+          // From src/julia.h:416
+          jl_value_t *owner; // Compiler token this belongs to, `jl_nothing` is reserved for native
+        affected_tools:
+          - tool: "Enzyme.jl"
+            usage: "Creates code instances with custom owner for AD transforms"
+          - tool: "GPUCompiler.jl"
+            usage: "Creates code instances with custom owner for GPU kernels"
+          - tool: "JET.jl"
+            usage: "May create code instances for static analysis"
+
+      - field: "jl_system_image_size"
+        change: "Now exported from processor.h, used as sentinel for static linking detection"
+        definition: |
+          // From src/null_sysimage.c
+          size_t jl_system_image_size = 0;  // 0 = not statically linked
+        affected_tools:
+          - tool: "PackageCompiler.jl"
+            usage: "May need to account for new linking behavior when creating sysimages"
+
+      - field: "null_pointer_cmp"
+        change: "New internal helper for null checks in non-standard address spaces"
+        definition: |
+          static Value *null_pointer_cmp(jl_codectx_t &ctx, Value *v)
+        affected_tools:
+          - tool: "GPUCompiler.jl"
+            usage: "GPU address spaces may have non-zero null representations"
+
+    behavioral:
+      - change: "SubArray sorting with non-zero offset1 now uses fallback path"
+        description: "Prevents incorrect results from ScratchQuickSort when SubArray has non-zero offset"
+        user_visible: true
+
+      - change: "GC tag loads are now volatile"
+        description: "May have minor performance impact but ensures correctness"
+        user_visible: false
+
+  performance:
+    compile_time:
+      - impact: "@nospecialize on string_index_err reduces specialization"
+        description: "Reduces compilation for error paths with diverse string types"
+        estimate: "ESTIMATED: Minor reduction in compile time for string-heavy code"
+
+    runtime:
+      - impact: "Volatile GC tag loads prevent optimization"
+        description: |
+          load->setVolatile(true) prevents LLVM from:
+          - Hoisting tag loads out of loops
+          - Common subexpression elimination of tag loads
+          - Constant propagation of tag values
+
+          ESTIMATED: <1% overhead in GC-heavy workloads
+        estimate: "ESTIMATED: Negligible to minor overhead"
+
+      - impact: "SubArray sorting fallback for non-zero offset1"
+        description: "Uses slower path when offset1 != 0, but ensures correctness"
+        estimate: "ESTIMATED: Only affects edge case SubArrays"
+
+  risk:
+    level: medium
+    rationale:
+      - "GC write barrier volatile change affects low-level memory semantics critical for correctness"
+      - "Owner check in dispatch path affects external abstract interpreters"
+      - "Multiple independent changes (13 backported PRs) increase testing surface"
+      - "Non-standard address space null comparison affects GPU backends"
+      - "SubArray sorting fix affects edge cases with non-zero offset"
+
+  open_questions:
+    - "Is the volatile tag load change sufficient to fix issue #59547 in all concurrent GC scenarios?"
+    - "Do all external abstract interpreters correctly set owner != jl_nothing for their code instances?"
+    - "Are there other non-standard address spaces beyond GPU that need the null_pointer_cmp fix?"
+
+  recommendations:
+    - "External abstract interpreter authors should verify their code instances have correct owner field set to non-nothing value"
+    - "GPU compiler tooling should evaluate using new jl_struct_to_llvm API for unboxed type representations"
+    - "SubArray users with complex view operations (non-zero offset) should verify sorting behavior with partialsort!"
+    - "Custom Julia builds using static linking should test sysimage loading with the new sentinel approach"
+    - "Multithreaded GC-heavy workloads should be tested to verify volatile tag load fix correctness"
