@@ -1,0 +1,495 @@
+schema_version: "1.0"
+pr:
+  number: 59793
+  title: "[1.12] Backport (improve sysimage.mk more completely (#57758))"
+  url: "https://github.com/JuliaLang/julia/pull/59793"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59793.diff"
+  author: "vchuravy"
+  labels:
+    - "building"
+    - "regression 1.12"
+  merged_at: "2025-10-12T02:31:11Z"
+  merge_commit_sha: "c72ea41475ac83927d147db334c15e1011fba9c7"
+  backport_of: 57758
+  fixes_issue: "https://github.com/JuliaLang/julia/issues/57675"
+
+scope:
+  files_touched:
+    - "Makefile"
+    - "sysimage.mk"
+  components:
+    - "BuildSystem"
+    - "SysimageGeneration"
+  pipeline_stages:
+    - "Build"
+    - "Bootstrap"
+
+analysis:
+  intent:
+    summary: |
+      Backport of PR #57758 to the 1.12 release branch. This PR restores support for debug
+      builds (`make -j debug`) which were broken by PR #57500. It also restructures the
+      sysimage build process by introducing a new `base_builder` macro and intermediate
+      `sysbase` artifacts, improving build organization and enabling both release and debug
+      variants to be built correctly.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/57675"
+      - "https://github.com/JuliaLang/julia/pull/57758"
+
+  direct_changes:
+    - summary: "Simplify julia-sysimg rules in Makefile by removing intermediate targets"
+      component: "Makefile"
+      evidence:
+        - source: "code"
+          path: "Makefile"
+          loc: "113-114"
+          url: "https://github.com/JuliaLang/julia/blob/c72ea41475ac83927d147db334c15e1011fba9c7/Makefile#L113-L114"
+          snippet: |
+            julia-sysimg-release julia-sysimg-debug : julia-sysimg-% : julia-src-% $(TOP_LEVEL_PKG_LINK_TARGETS) julia-stdlib julia-base julia-cli-% julia-src-% | $(build_private_libdir)
+            	@$(MAKE) $(QUIET_MAKE) -C $(BUILDROOT) -f sysimage.mk sysimg-$*
+          removed_code: |
+            julia-sysimg-ji : $(TOP_LEVEL_PKG_LINK_TARGETS) julia-stdlib julia-base julia-cli-$(JULIA_BUILD_MODE) julia-src-$(JULIA_BUILD_MODE) | $(build_private_libdir)
+            	@$(MAKE) $(QUIET_MAKE) -C $(BUILDROOT) -f sysimage.mk sysimg-ji JULIA_EXECUTABLE='$(JULIA_EXECUTABLE)'
+
+            julia-sysimg-bc : $(TOP_LEVEL_PKG_LINK_TARGETS) julia-stdlib julia-base julia-cli-$(JULIA_BUILD_MODE) julia-src-$(JULIA_BUILD_MODE) | $(build_private_libdir)
+            	@$(MAKE) $(QUIET_MAKE) -C $(BUILDROOT) -f sysimage.mk sysimg-bc JULIA_EXECUTABLE='$(JULIA_EXECUTABLE)'
+
+            julia-sysimg-release julia-sysimg-debug : julia-sysimg-% : julia-sysimg-ji julia-src-%
+
+    - summary: "Rename sysimg-ji target from sys.ji to sysbase.ji"
+      component: "sysimage.mk"
+      evidence:
+        - source: "code"
+          path: "sysimage.mk"
+          loc: "10"
+          url: "https://github.com/JuliaLang/julia/blob/c72ea41475ac83927d147db334c15e1011fba9c7/sysimage.mk#L10"
+          snippet: |
+            sysimg-ji: $(build_private_libdir)/sysbase.ji
+          previous_code: |
+            sysimg-ji: $(build_private_libdir)/sys.ji
+
+    - summary: "Add new base_builder macro for basecompiler build variants"
+      component: "sysimage.mk"
+      evidence:
+        - source: "code"
+          path: "sysimage.mk"
+          loc: "76-96"
+          url: "https://github.com/JuliaLang/julia/blob/c72ea41475ac83927d147db334c15e1011fba9c7/sysimage.mk#L76-L96"
+          snippet: |
+            define base_builder
+            $$(build_private_libdir)/basecompiler$1-o.a $$(build_private_libdir)/basecompiler$1-bc.a : $$(build_private_libdir)/basecompiler$1-%.a : $(COMPILER_SRCS)
+            	@$$(call PRINT_JULIA, cd $$(JULIAHOME)/base && \
+            	WINEPATH="$$(call cygpath_w,$$(build_bindir));$$$$WINEPATH" \
+            	JULIA_NUM_THREADS=1 \
+            		$$(call spawn, $3) $2 -C "$$(JULIA_CPU_TARGET)" $$(HEAPLIM) --output-$$* $$(call cygpath_w,$$@).tmp \
+            		--startup-file=no --warn-overwrite=yes -g$$(BOOTSTRAP_DEBUG_LEVEL) Base_compiler.jl --buildroot $$(RELBUILDROOT) --dataroot $$(RELDATADIR))
+            	@mv $$@.tmp $$@
+            $$(build_private_libdir)/sysbase$1.ji: $$(build_private_libdir)/basecompiler$1.$$(SHLIB_EXT) $$(JULIAHOME)/VERSION $$(BASE_SRCS) $$(STDLIB_SRCS)
+            	@$$(call PRINT_JULIA, cd $$(JULIAHOME)/base && \
+            	if ! JULIA_BINDIR=$$(call cygpath_w,$$(build_bindir)) \
+            	     WINEPATH="$$(call cygpath_w,$$(build_bindir));$$$$WINEPATH" \
+            		 JULIA_NUM_THREADS=1 \
+            			$$(call spawn, $$(JULIA_EXECUTABLE)) -g1 $2 -C "$$(JULIA_CPU_TARGET)" $$(HEAPLIM) --output-ji $$(call cygpath_w,$$@).tmp $$(JULIA_SYSIMG_BUILD_FLAGS) \
+            			--startup-file=no --warn-overwrite=yes --sysimage $$(call cygpath_w,$$<) sysimg.jl --buildroot $$(RELBUILDROOT) --dataroot $$(RELDATADIR); then \
+            		echo '*** This error might be fixed by running `make clean`. If the error persists$$(COMMA) try `make cleanall`. ***'; \
+            		false; \
+            	fi )
+            	@mv $$@.tmp $$@
+            .SECONDARY: $$(build_private_libdir)/basecompiler$1-o.a $$(build_private_libdir)/basecompiler$1-bc.a $$(build_private_libdir)/sysbase$1.ji # request Make to keep these files around
+            endef
+
+    - summary: "Update sysimg_builder macro to include sysbase build rules"
+      component: "sysimage.mk"
+      evidence:
+        - source: "code"
+          path: "sysimage.mk"
+          loc: "98-126"
+          url: "https://github.com/JuliaLang/julia/blob/c72ea41475ac83927d147db334c15e1011fba9c7/sysimage.mk#L98-L126"
+          snippet: |
+            define sysimg_builder
+            $$(build_private_libdir)/sysbase$1-o.a $$(build_private_libdir)/sysbase$1-bc.a : $$(build_private_libdir)/sysbase$1-%.a : $$(build_private_libdir)/basecompiler$1.$$(SHLIB_EXT) $$(JULIAHOME)/VERSION $$(BASE_SRCS) $$(STDLIB_SRCS)
+            	@$$(call PRINT_JULIA, cd $$(JULIAHOME)/base && \
+            	if ! JULIA_BINDIR=$$(call cygpath_w,$$(build_bindir)) \
+            	     WINEPATH="$$(call cygpath_w,$$(build_bindir));$$$$WINEPATH" \
+            		 JULIA_NUM_THREADS=1 \
+            			$$(call spawn, $$(JULIA_EXECUTABLE)) -g1 $2 -C "$$(JULIA_CPU_TARGET)" $$(HEAPLIM) --output-$$* $$(call cygpath_w,$$@).tmp $$(JULIA_SYSIMG_BUILD_FLAGS) \
+            			--startup-file=no --warn-overwrite=yes --sysimage $$(call cygpath_w,$$<) sysimg.jl --buildroot $$(RELBUILDROOT) --dataroot $$(RELDATADIR); then \
+            		echo '*** This error might be fixed by running `make clean`. If the error persists$$(COMMA) try `make cleanall`. ***'; \
+            		false; \
+            	fi )
+            	@mv $$@.tmp $$@
+            $$(build_private_libdir)/sys$1-o.a $$(build_private_libdir)/sys$1-bc.a : $$(build_private_libdir)/sys$1-%.a : $$(build_private_libdir)/sysbase$1.$$(SHLIB_EXT) $$(JULIAHOME)/contrib/generate_precompile.jl
+            	@$$(call PRINT_JULIA, cd $$(JULIAHOME)/base && \
+            	if ! JULIA_BINDIR=$$(call cygpath_w,$(build_bindir)) \
+            		 WINEPATH="$$(call cygpath_w,$$(build_bindir));$$$$WINEPATH" \
+            		 JULIA_LOAD_PATH='@stdlib' \
+            		 JULIA_PROJECT= \
+            		 JULIA_DEPOT_PATH=':' \
+            		 JULIA_NUM_THREADS=1 \
+            			$$(call spawn, $3) $2 -C "$$(JULIA_CPU_TARGET)" $$(HEAPLIM) --output-$$* $$(call cygpath_w,$$@).tmp $$(JULIA_SYSIMG_BUILD_FLAGS) \
+            			--startup-file=no --warn-overwrite=yes --depwarn=error --sysimage $$(call cygpath_w,$$<) $$(call cygpath_w,$$(JULIAHOME)/contrib/generate_precompile.jl) $(JULIA_PRECOMPILE); then \
+            		echo '*** This error is usually fixed by running `make clean`. If the error persists$$(COMMA) try `make cleanall`. ***'; \
+            		false; \
+            	fi )
+            	@mv $$@.tmp $$@
+            .SECONDARY: $$(build_private_libdir)/sys$1-o.a $(build_private_libdir)/sys$1-bc.a # request Make to keep these files around
+            .SECONDARY: $$(build_private_libdir)/sysbase$1-o.a $(build_private_libdir)/sysbase$1-bc.a # request Make to keep these files around
+            endef
+
+    - summary: "Instantiate base_builder and sysimg_builder for both release and debug"
+      component: "sysimage.mk"
+      evidence:
+        - source: "code"
+          path: "sysimage.mk"
+          loc: "127-130"
+          url: "https://github.com/JuliaLang/julia/blob/c72ea41475ac83927d147db334c15e1011fba9c7/sysimage.mk#L127-L130"
+          snippet: |
+            $(eval $(call base_builder,,-O1,$(JULIA_EXECUTABLE_release)))
+            $(eval $(call base_builder,-debug,-O0,$(JULIA_EXECUTABLE_debug)))
+            $(eval $(call sysimg_builder,,-O3,$(JULIA_EXECUTABLE_release)))
+            $(eval $(call sysimg_builder,-debug,-O0,$(JULIA_EXECUTABLE_debug)))
+
+    - summary: "Critical linking logic that relies on -debug suffix in target name"
+      component: "sysimage.mk"
+      evidence:
+        - source: "code"
+          path: "sysimage.mk"
+          loc: "17-21"
+          url: "https://github.com/JuliaLang/julia/blob/c72ea41475ac83927d147db334c15e1011fba9c7/sysimage.mk#L17-L21"
+          snippet: |
+            $(build_private_libdir)/%.$(SHLIB_EXT): $(build_private_libdir)/%-o.a
+            	@$(call PRINT_LINK, $(CXX) $(LDFLAGS) -shared $(fPIC) -L$(build_private_libdir) -L$(build_libdir) -L$(build_shlibdir) -o $@ \
+            		$(WHOLE_ARCHIVE) $< $(NO_WHOLE_ARCHIVE) \
+            		$(if $(findstring -debug,$(notdir $@)),-ljulia-internal-debug -ljulia-debug,-ljulia-internal -ljulia) \
+            		$$([ $(OS) = WINNT ] && echo '' $(LIBM) -lssp --disable-auto-import --disable-runtime-pseudo-reloc))
+          note: |
+            This pattern rule is the KEY to understanding the debug build fix. Line 20 uses
+            $(findstring -debug,$(notdir $@)) to decide whether to link against debug or
+            release libraries. Before PR 59793, the basecompiler target never received the
+            -debug suffix, so this check always failed for debug builds, causing linker errors.
+
+  secondary_effects:
+    - effect: "Debug builds now work correctly"
+      mechanism: |
+        The root cause of issue #57675 was that the `basecompiler` target was not receiving
+        the `-debug` suffix, which broke the conditional check in sysimage.mk at line 20:
+
+        $(if $(findstring -debug,$(notdir $@)),-ljulia-internal-debug -ljulia-debug,-ljulia-internal -ljulia)
+
+        With the new base_builder macro instantiated as:
+          $(eval $(call base_builder,-debug,-O0,$(JULIA_EXECUTABLE_debug)))
+
+        The basecompiler-debug target is now correctly generated, producing:
+          - basecompiler-debug-o.a
+          - basecompiler-debug-bc.a
+          - basecompiler-debug.$(SHLIB_EXT)
+
+        These properly link against libjulia-internal-debug and libjulia-debug because
+        the target name now contains '-debug', matching the findstring pattern.
+      downstream_surfaces:
+        - "Julia developers building with make -j debug"
+        - "CI systems that test debug builds"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "Build process restructured into three stages"
+      mechanism: |
+        The sysimage build pipeline is now organized into three distinct stages:
+
+        Stage 1: basecompiler (from base_builder macro, lines 77-83)
+          COMPILER_SRCS -> basecompiler-o.a / basecompiler-bc.a
+          Then via generic rule (line 17-21): basecompiler-o.a -> basecompiler.$(SHLIB_EXT)
+          For debug: basecompiler-debug-o.a -> basecompiler-debug.$(SHLIB_EXT)
+
+        Stage 2: sysbase
+          From base_builder (lines 84-94): basecompiler.$(SHLIB_EXT) -> sysbase.ji
+          From sysimg_builder (lines 99-109): basecompiler.$(SHLIB_EXT) -> sysbase-o.a / sysbase-bc.a
+          Then via generic rule: sysbase-o.a -> sysbase.$(SHLIB_EXT)
+          For debug: sysbase-debug.ji, sysbase-debug-o.a -> sysbase-debug.$(SHLIB_EXT)
+
+        Stage 3: sys (final sysimage with precompilation)
+          From sysimg_builder (lines 110-123): sysbase.$(SHLIB_EXT) + generate_precompile.jl -> sys-o.a / sys-bc.a
+          Then via generic rule: sys-o.a -> sys.$(SHLIB_EXT)
+          For debug: sys-debug-o.a -> sys-debug.$(SHLIB_EXT)
+
+        This separation enables:
+        1. Independent optimization levels per stage (-O1 for basecompiler, -O3 for sys, -O0 for debug)
+        2. Clearer dependency tracking between build artifacts
+        3. Both release and debug variants can be built with correct library linking
+      downstream_surfaces:
+        - "Julia developers building from source"
+        - "Custom Julia builds with modified bootstrap"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Build performance improvement from PR 57758"
+      mechanism: |
+        Per PR 57758 discussion, the restructured build process provides performance benefits:
+        - Precompilation statements dropped from ~1,189 to ~261
+        - Execution time reduced from ~38 seconds to ~4.5 seconds for that phase
+        - Final build stage became approximately one minute faster
+
+        This is achieved by better utilizing compiled files across build stages,
+        as "compiled files load much faster, in the end, generally saving the
+        extra time needed to generate them."
+      downstream_surfaces:
+        - "Julia build times for developers"
+        - "CI pipeline durations"
+      likelihood: "high"
+      impact: "medium"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "Debug builds now produce correctly-linked binaries"
+        impact: "bugfix"
+        rationale: |
+          This fixes a regression where `make -j debug` would fail with linker errors:
+          "/usr/bin/ld: cannot find -ljulia-internal: No such file or directory"
+          "/usr/bin/ld: cannot find -ljulia: No such file or directory"
+
+      - change: "Intermediate artifact names changed"
+        impact: "neutral"
+        rationale: |
+          Internal build artifacts renamed:
+          - sys.ji -> sysbase.ji
+          - New artifacts: basecompiler-debug-*, sysbase-*, sysbase-debug-*
+
+          These are internal build products and should not affect end users.
+          Developers doing incremental builds may need to `make clean` once.
+
+  performance:
+    compile_time:
+      - change: "Faster sysimage build times"
+        impact: "improvement"
+        rationale: |
+          MEASURED (from PR 57758 description):
+          - Precompilation collection: 1,189 items -> 261 items
+          - Phase time: ~38 seconds -> ~4.5 seconds (8.4x speedup for that phase)
+          - Final stage: ~1 minute faster overall
+
+    runtime:
+      - change: "None - generated sysimage is functionally identical"
+        impact: "none"
+        rationale: "Build system changes only; the resulting Julia binary is unchanged"
+
+  downstream_package_impact:
+    - package: "PackageCompiler.jl"
+      impact: "none"
+      details: |
+        This PR affects Julia's own build system, not PackageCompiler.jl.
+        PackageCompiler.jl uses a pre-built Julia and creates sysimages differently.
+
+    - package: "Enzyme.jl"
+      impact: "none"
+      details: "No impact - Enzyme operates at the LLVM/codegen level, not build system"
+
+    - package: "GPUCompiler.jl"
+      impact: "none"
+      details: "No impact - GPU compilation is unaffected by build system changes"
+
+    - package: "JET.jl"
+      impact: "none"
+      details: "No impact - JET performs static analysis, not compilation"
+
+    - package: "Julia developers/contributors"
+      impact: "positive"
+      details: |
+        Julia developers who build from source benefit from:
+        1. Working debug builds (critical for debugging Julia internals)
+        2. Faster overall build times
+        3. Better organized build artifacts for debugging build issues
+
+  risk:
+    level: "low"
+    rationale:
+      - "This is a backport of PR 57758 which was already merged and tested on master"
+      - "The change only affects build system Makefiles, not Julia source code"
+      - "Fixes a regression in debug builds that blocked Julia development"
+      - "Labels include 'regression 1.12' indicating this is a targeted fix"
+      - "Author (vchuravy) is a core Julia developer with extensive build system expertise"
+
+  open_questions:
+    - |
+      Should developers who have partially-built trees run `make clean` after
+      pulling this change? The artifact naming changes may cause stale files.
+
+  recommendations:
+    - |
+      After pulling this change, developers should run `make clean` to ensure
+      stale build artifacts with old naming conventions are removed.
+    - |
+      Consider adding a NEWS.md entry documenting the fixed debug build regression
+      for the 1.12 release notes.
+
+build_system_context:
+  build_stages:
+    - stage: "basecompiler"
+      inputs:
+        - "COMPILER_SRCS (boot.jl, essentials.jl, etc.)"
+      outputs:
+        - "basecompiler.ji (standalone rule at line 70-74)"
+        - "basecompiler-o.a / basecompiler-bc.a (from base_builder)"
+        - "basecompiler.$(SHLIB_EXT) (from generic rule at line 17-21)"
+      optimization: "-O1 (release) / -O0 (debug)"
+      description: |
+        Minimal Julia with just enough to compile Base. Contains the compiler
+        bootstrap code from Base_compiler.jl.
+
+    - stage: "sysbase"
+      inputs:
+        - "basecompiler.$(SHLIB_EXT)"
+        - "BASE_SRCS"
+        - "STDLIB_SRCS"
+      outputs:
+        - "sysbase.ji (from base_builder at lines 84-94)"
+        - "sysbase-o.a / sysbase-bc.a (from sysimg_builder at lines 99-109)"
+        - "sysbase.$(SHLIB_EXT) (from generic rule)"
+      optimization: "Inherits from basecompiler optimization level"
+      description: |
+        Full Base library compiled, including all standard library dependencies.
+        This is the base system image without precompilation warmup.
+
+    - stage: "sys"
+      inputs:
+        - "sysbase.$(SHLIB_EXT)"
+        - "generate_precompile.jl"
+      outputs:
+        - "sys-o.a / sys-bc.a (from sysimg_builder at lines 110-123)"
+        - "sys.$(SHLIB_EXT) (from generic rule)"
+      optimization: "-O3 (release) / -O0 (debug)"
+      description: |
+        Final system image with precompiled method specializations from
+        running generate_precompile.jl to warm up common code paths.
+
+  macro_parameters:
+    base_builder:
+      - "$1: suffix (empty for release, '-debug' for debug)"
+      - "$2: optimization flag (-O1 for release, -O0 for debug)"
+      - "$3: Julia executable (JULIA_EXECUTABLE_release or JULIA_EXECUTABLE_debug)"
+
+    sysimg_builder:
+      - "$1: suffix (empty for release, '-debug' for debug)"
+      - "$2: optimization flag (-O3 for release, -O0 for debug)"
+      - "$3: Julia executable (JULIA_EXECUTABLE_release or JULIA_EXECUTABLE_debug)"
+
+  key_variables:
+    JULIA_BUILD_MODE: "Either 'release' or 'debug', determines which variant to build by default"
+    JULIA_EXECUTABLE_release: "Path to release Julia binary"
+    JULIA_EXECUTABLE_debug: "Path to debug Julia binary"
+    BOOTSTRAP_DEBUG_LEVEL: "Debug symbol level for bootstrap compilation"
+
+issue_analysis:
+  issue_57675:
+    summary: "Debug build failing on master"
+    root_cause: |
+      PR #57500 introduced changes that broke the debug build by not propagating
+      the '-debug' suffix to the basecompiler target. The conditional check at
+      sysimage.mk line 20 that determines library linking:
+
+      $(if $(findstring -debug,$(notdir $@)),-ljulia-internal-debug -ljulia-debug,-ljulia-internal -ljulia)
+
+      This pattern match failed because the target name lacked the '-debug' suffix,
+      causing it to try linking against release libraries that weren't built yet.
+    error_message: |
+      /usr/bin/ld: cannot find -ljulia-internal: No such file or directory
+      /usr/bin/ld: cannot find -ljulia: No such file or directory
+    fix_approach: |
+      Introduce base_builder macro that properly generates debug-suffixed targets:
+      $(eval $(call base_builder,-debug,-O0,$(JULIA_EXECUTABLE_debug)))
+
+      This creates basecompiler-debug targets that correctly match the -debug
+      pattern and link against the debug libraries.
+
+reviewer_notes:
+  independent_analysis_date: "2026-01-21"
+  reviewer_findings:
+    - finding: "Build system change only - no compiler impact"
+      detail: |
+        This PR exclusively modifies Makefile and sysimage.mk. There are no changes
+        to any Julia source code, compiler internals, or runtime behavior. The
+        scope is limited to build orchestration.
+
+    - finding: "Backport verified against original PR"
+      detail: |
+        PR 59793 is a cherry-pick of commit 51da5402f86c98113c78ddeced4e96527fc09a21
+        from PR 57758. The changes are identical to the original fix.
+
+    - finding: "Debug build regression was blocking development"
+      detail: |
+        Issue #57675 reports that developers could not build Julia in debug mode,
+        which is essential for debugging Julia internals. This was a critical
+        regression that needed backporting to 1.12.
+
+    - finding: "Corrected evidence locations - file has 130 lines"
+      detail: |
+        The sysimage.mk file in this PR has exactly 130 lines. Previous analysis
+        incorrectly referenced lines up to 177. All line number references have
+        been verified against the actual merge commit c72ea41475ac.
+
+    - finding: "CROSS_BOOTSTRAP_SYSBASE does not exist in this PR"
+      detail: |
+        The previous analysis incorrectly claimed this PR adds a CROSS_BOOTSTRAP_SYSBASE
+        variable for cross-compilation support. This variable does not exist in
+        PR 59793. A grep search of the entire Julia repository at this commit
+        returns no matches for 'CROSS_BOOTSTRAP_SYSBASE'. The secondary effect
+        about cross-bootstrapping has been removed as it is not supported by this PR.
+
+    - finding: "build_sysbase_$1 variable does not exist"
+      detail: |
+        The previous analysis claimed line 122 contains:
+          build_sysbase_$1 := $$(or $$(CROSS_BOOTSTRAP_SYSBASE),$$(build_private_libdir)/sysbase$1.$$(SHLIB_EXT))
+
+        This code does not exist. The sys target dependency at line 110 directly uses:
+          $$(build_private_libdir)/sysbase$1.$$(SHLIB_EXT)
+
+        There is no indirection through a build_sysbase_$1 variable.
+
+    - finding: "julia-sysbase-* targets do not exist"
+      detail: |
+        The previous analysis claimed there are julia-sysbase-release and
+        julia-sysbase-debug targets in the Makefile. These do not exist.
+        A grep search for 'julia-sysbase' returns no matches. The only
+        sysimg-related Makefile targets are julia-sysimg-release and
+        julia-sysimg-debug at line 113.
+
+  verification_steps:
+    - "Checked out merge commit c72ea41475ac83927d147db334c15e1011fba9c7"
+    - "Verified sysimage.mk has exactly 130 lines (wc -l)"
+    - "Searched for CROSS_BOOTSTRAP_SYSBASE - not found in codebase"
+    - "Searched for build_sysbase variable - not found"
+    - "Searched for julia-sysbase targets - not found"
+    - "Verified Makefile changes at line 113-114"
+    - "Verified base_builder macro at lines 76-96"
+    - "Verified sysimg_builder macro at lines 98-126"
+    - "Verified macro instantiations at lines 127-130"
+    - "Traced library linking conditional at line 20 to understand root cause"
+
+  corrections_made:
+    - area: "Evidence line numbers"
+      original: "Lines 99-119, 121-151, 174-177 referenced"
+      corrected: "Lines 76-96, 98-126, 127-130 (file has 130 lines total)"
+
+    - area: "CROSS_BOOTSTRAP_SYSBASE"
+      original: "Claimed as key variable enabling cross-compilation"
+      corrected: "Variable does not exist in this PR - removed from analysis"
+
+    - area: "Secondary effect about cross-bootstrapping"
+      original: "Claimed PR enables cross-compilation via CROSS_BOOTSTRAP_SYSBASE"
+      corrected: "Removed - this feature is not present in PR 59793"
+
+    - area: "build_sysbase_$1 variable"
+      original: "Claimed at line 122"
+      corrected: "Does not exist - sys target uses sysbase$1.$(SHLIB_EXT) directly"
+
+    - area: "julia-sysbase-* Makefile targets"
+      original: "Claimed these targets were added"
+      corrected: "These targets do not exist in the Makefile"
+
+  confidence: "high"
+  rationale: |
+    This is a straightforward build system fix that backports a well-tested change.
+    The root cause analysis clearly shows how the missing -debug suffix caused linker
+    failures, and the fix properly propagates the suffix through the build macros.
+    The change has already been validated on master through PR 57758. All code
+    snippets and line numbers have been verified against the actual merge commit.
