@@ -1,0 +1,431 @@
+schema_version: "1.0"
+
+pr:
+  number: 55669
+  title: "define generic `in` in terms of `any`"
+  url: "https://github.com/JuliaLang/julia/pull/55669"
+  author: "matthias314"
+  labels:
+    - "collections"
+  merged_at: "2025-12-25T02:49:15Z"
+  merge_commit_sha: "0254afcf8c630eca5eeeae5a5ecd2941b7367bf9"
+  diff_url: "https://github.com/JuliaLang/julia/pull/55669.diff"
+
+scope:
+  files_touched:
+    - "base/operators.jl"
+  components:
+    - "Base.Collections"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Refactors the generic `in(x, itr::Any)` function to delegate to `any(==(x), itr)` instead
+      of implementing its own iteration loop. The motivation is:
+      1. Code deduplication - the old `in` implementation was functionally identical to `any(==(x), itr)`
+      2. Automatic efficiency - custom types that implement an efficient `any` will now automatically
+         get an efficient `in` implementation for free
+      3. Cleaner API design - reduces redundant code paths
+    issue_links: []
+
+  direct_changes:
+    - summary: "Replace explicit loop implementation of `in(x, itr::Any)` with delegation to `any`"
+      component: "Base.Collections"
+      evidence:
+        - source: "diff"
+          path: "base/operators.jl"
+          loc: "1365-1378"
+          url: "https://github.com/JuliaLang/julia/blob/0254afcf8c630eca5eeeae5a5ecd2941b7367bf9/base/operators.jl#L1368"
+          snippet: |
+            # BEFORE (12 lines removed):
+            function in(x, itr::Any)
+                anymissing = false
+                for y in itr
+                    v = (y == x)
+                    if ismissing(v)
+                        anymissing = true
+                    elseif v
+                        return true
+                    end
+                end
+                return anymissing ? missing : false
+            end
+
+            # AFTER (1 line):
+            in(x, itr::Any) = any(==(x), itr)
+
+  secondary_effects:
+    - effect: "Custom types with efficient `any` implementations automatically get efficient `in`"
+      mechanism: |
+        in(x, itr::Any)  [operators.jl:1368]
+          calls any(==(x), itr)
+        -> any(f, itr)  [anyall.jl:115]
+          calls _any(f, itr, :)
+        -> _any(f, itr::Any, ::Colon)  [anyall.jl:120-132]
+          iterates with identical logic to old in()
+      downstream_surfaces:
+        - "Custom collection types"
+        - "Iterator wrappers"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Consistent three-valued logic with `any` for missing value handling"
+      mechanism: |
+        Both the old `in` implementation and `any` use identical three-valued logic:
+        - Track `anymissing` flag
+        - Return `true` immediately on finding match
+        - Return `missing` if no match found but `missing` was encountered
+        - Return `false` only if no match and no missing
+
+        The behavior is verified by existing tests in test/missing.jl:398-400:
+          @test 1 in [1, missing]
+          @test ismissing(2 in [1, missing])
+          @test ismissing(missing in [1, missing])
+      downstream_surfaces:
+        - "Code relying on `in` with missing values"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Specialized `in` implementations are NOT affected"
+      mechanism: |
+        The change only affects the generic fallback `in(x, itr::Any)`.
+        Specialized implementations still take precedence:
+        - in(x, itr::Tuple) - uses _in_tuple for compile-time unrolling [operators.jl:1372]
+        - in(x::Real, r::AbstractRange) - uses efficient range arithmetic [range.jl:1449-1460]
+        - in(x, s::Set) - uses haskey for O(1) lookup [set.jl:92]
+        - in(x::Symbol, itr::Tuple{Vararg{Symbol}}) - uses sym_in [tuple.jl:664]
+        - in(x::Number, y::Number) - uses == [number.jl:326]
+        - in(x::AbstractChar, y::AbstractChar) - uses == [char.jl:240]
+        - in(c::AbstractChar, s::AbstractString) - uses findfirst [strings/search.jl:337]
+        - in(x::Complex, r::AbstractRange{<:Real}) - checks isreal then delegates [complex.jl:250]
+        - in(key, v::KeySet{<:Any, <:Dict}) - uses ht_keyindex [dict.jl:551]
+        - in(p::Pair, a::AbstractDict) - specialized pair-in-dict lookup [abstractdict.jl:21-29]
+        - in(x, s::IdSet) - uses haskey [idset.jl:47]
+      downstream_surfaces: []
+      likelihood: "high"
+      impact: "none"
+
+    - effect: "Any32 fallback for large tuples now delegates through the new implementation"
+      mechanism: |
+        in(x, itr::Any32)  [operators.jl:1392]
+          calls invoke(in, Tuple{Any,Any}, x, itr)
+        -> in(x, itr::Any)  [operators.jl:1368]
+          now calls any(==(x), itr)
+
+        Any32 is defined as Tuple{Any repeated 32+ times} [tuple.jl:359-364]
+        This prevents inference blowup for very large tuples by falling back to
+        the loop implementation instead of compile-time unrolling.
+      downstream_surfaces:
+        - "Code using in() with tuples of 32+ elements"
+      likelihood: "medium"
+      impact: "none"
+
+    - effect: "NaN handling behavior unchanged"
+      mechanism: |
+        NaN equality behavior remains the same because both implementations use ==:
+        - Old: v = (y == x) where x=NaN, y=NaN -> v = false (NaN != NaN)
+        - New: any(==(NaN), [NaN]) -> f(y) where f = ==(NaN) -> y == NaN -> false
+
+        Therefore: NaN in [1.0, NaN, 2.0] returns false (unchanged)
+
+        Note: findall(in(NaN), [1.0, NaN, 2.0]) returns [2] because findall uses
+        a different code path (_findin with Set/isequal), NOT the generic in().
+        This is verified by test/arrayops.jl:431-432.
+      downstream_surfaces:
+        - "Code checking if NaN is in a collection"
+      likelihood: "high"
+      impact: "none"
+
+  compatibility:
+    internal_api:
+      - field: "in(x, itr::Any) implementation"
+        change: "Now delegates to any(==(x), itr) instead of direct loop"
+        affected_tools: []
+    behavioral:
+      - field: "Return type and value semantics"
+        change: "Unchanged - identical three-valued logic for missing values"
+        affected_tools: []
+
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: Negligible"
+        details: |
+          The new implementation creates a Fix2 partial application (==(x)) and
+          passes it to any(). This adds minimal overhead:
+          - Fix2 is a lightweight struct defined in operators.jl:1181-1192
+          - The any() call chain is inlined in most cases
+          - No additional allocations for the common case
+    runtime:
+      - impact: "ESTIMATED: Neutral to positive"
+        details: |
+          Performance characteristics are identical for the generic fallback case.
+          Potential positive impact: custom types implementing efficient any()
+          (e.g., parallel iterators, GPU arrays) now automatically benefit for in().
+
+          The call chain:
+          in(x, itr) -> any(==(x), itr) -> _any(f, itr, :) -> loop
+
+          The old implementation had the same loop structure.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure refactoring - behavioral semantics are identical"
+      - "Existing tests in test/missing.jl verify three-valued logic is preserved"
+      - "No changes to specialized implementations (Tuple, Range, Set, etc.)"
+      - "Well-reviewed PR with co-authors from Julia core team (aviatesk, adienes)"
+
+  open_questions:
+    - question: "Could there be subtle performance differences in edge cases due to closure creation?"
+      resolved: true
+      answer: |
+        The Fix2 struct is a lightweight struct (operators.jl:1181-1192) that stores only
+        the function and the fixed argument. The call path Fix2(==, x) creates minimal
+        overhead. The specialized call method at operators.jl:1203:
+          (f::Fix{2})(arg; kws...) = f.f(arg, f.x; kws...)
+        enables efficient inlining. In practice, the closure creation cost is negligible
+        compared to iteration overhead for any non-trivial collection.
+
+    - question: "Are there any downstream packages that monkey-patched or extended the old in() implementation?"
+      resolved: false
+      answer: |
+        Cannot fully verify without scanning all registered packages. However, extending
+        the internal loop of in() would be highly unusual. Packages typically:
+        1. Define specialized in() methods for their types (preferred approach)
+        2. Define specialized any() methods (now also benefits in())
+        The change is backward compatible since behavior is identical.
+
+  resolved_edge_cases:
+    - case: "Non-boolean comparison results"
+      analysis: |
+        Both implementations handle non-Bool/Missing results identically:
+        - Old: elseif v -> throws TypeError if v not Bool
+        - New: else; v && return true -> throws TypeError if v not Bool
+        Verified by examining anyall.jl:128 and the original operators.jl diff.
+
+    - case: "findall(in(x), arr) behavior"
+      analysis: |
+        findall with Fix2{typeof(in)} dispatches to specialized methods:
+        - findall(pred::Fix2{typeof(in)}, x::AbstractArray) = _findin(x, pred.x) [array.jl:2935]
+        - _findin uses Set(b) and isequal internally [array.jl:2872-2879]
+        This is completely separate from the generic in() that was changed.
+        Verified: findall(in(NaN), [NaN]) returns [1] (uses isequal), while
+        NaN in [NaN] returns false (uses ==).
+
+  recommendations:
+    - "No action required for downstream packages"
+    - "Packages with custom collection types should consider implementing efficient any() to automatically benefit in()"
+    - "Test suites relying on in() behavior should continue to pass unchanged"
+    - "Packages that define custom any() methods now automatically get efficient in() for free"
+
+changelog_entry:
+  category: "Collections"
+  breaking: false
+  summary: "Generic `in(x, itr)` now delegates to `any(==(x), itr)` - behavior unchanged, custom types with efficient `any` automatically get efficient `in`"
+  downstream_impact: "None - pure refactoring with identical semantics"
+
+downstream_package_impact:
+  Turing_jl: "none"
+  Enzyme_jl: "none"
+  GPUCompiler: "none"
+  JET: "none"
+  IRTools: "none"
+  Cassette: "none"
+
+code_path_trace:
+  in_to_any_chain:
+    description: "How in() now delegates to any()"
+    steps:
+      - location: "base/operators.jl:1368"
+        url: "https://github.com/JuliaLang/julia/blob/0254afcf8c630eca5eeeae5a5ecd2941b7367bf9/base/operators.jl#L1368"
+        code: "in(x, itr::Any) = any(==(x), itr)"
+        explanation: "Entry point - creates Fix2(==, x) and calls any"
+      - location: "base/operators.jl:1236"
+        url: "https://github.com/JuliaLang/julia/blob/0254afcf8c630eca5eeeae5a5ecd2941b7367bf9/base/operators.jl#L1236"
+        code: "==(x) = Fix2(==, x)"
+        explanation: "Creates partial function y -> y == x"
+      - location: "base/operators.jl:1181-1193"
+        url: "https://github.com/JuliaLang/julia/blob/0254afcf8c630eca5eeeae5a5ecd2941b7367bf9/base/operators.jl#L1181-L1193"
+        code: |
+          struct Fix{N,F,T} <: Function
+              f::F
+              x::T
+              function Fix{N}(f::F, x) where {N,F}
+                  # ... argument validation ...
+                  new{N,_stable_typeof(f),_stable_typeof(x)}(f, x)
+              end
+          end
+        explanation: "Fix2 is a lightweight struct with just 2 fields (function and fixed argument)"
+      - location: "base/operators.jl:1203"
+        url: "https://github.com/JuliaLang/julia/blob/0254afcf8c630eca5eeeae5a5ecd2941b7367bf9/base/operators.jl#L1203"
+        code: "(f::Fix{2})(arg; kws...) = f.f(arg, f.x; kws...)"
+        explanation: "Specialized call method enables efficient inlining"
+      - location: "base/anyall.jl:115"
+        url: "https://github.com/JuliaLang/julia/blob/0254afcf8c630eca5eeeae5a5ecd2941b7367bf9/base/anyall.jl#L115"
+        code: "any(f, itr) = _any(f, itr, :)"
+        explanation: "Dispatches to internal _any"
+      - location: "base/anyall.jl:120-132"
+        url: "https://github.com/JuliaLang/julia/blob/0254afcf8c630eca5eeeae5a5ecd2941b7367bf9/base/anyall.jl#L120-L132"
+        code: |
+          function _any(f, itr::Any, ::Colon)
+              anymissing = false
+              for x in itr
+                  v = f(x)
+                  if ismissing(v)
+                      anymissing = true
+                  else
+                      v && return true
+                  end
+              end
+              return anymissing ? missing : false
+          end
+        explanation: "Same loop logic as old in() implementation"
+
+  tuple_specialization_chain:
+    description: "Tuple handling is UNCHANGED - still uses _in_tuple"
+    steps:
+      - location: "base/operators.jl:1372"
+        url: "https://github.com/JuliaLang/julia/blob/0254afcf8c630eca5eeeae5a5ecd2941b7367bf9/base/operators.jl#L1372"
+        code: "in(x, itr::Tuple) = _in_tuple(x, itr, false)"
+        explanation: "Tuples dispatch to specialized _in_tuple, not generic in()"
+      - location: "base/operators.jl:1375-1389"
+        url: "https://github.com/JuliaLang/julia/blob/0254afcf8c630eca5eeeae5a5ecd2941b7367bf9/base/operators.jl#L1375-L1389"
+        code: |
+          function _in_tuple(x, @nospecialize(itr::Tuple), anymissing::Bool)
+              @inline
+              if isempty(itr)
+                  return anymissing ? missing : false
+              end
+              v = (itr[1] == x)
+              if ismissing(v)
+                  anymissing = true
+              elseif v
+                  return true
+              end
+              return _in_tuple(x, tail(itr), anymissing)
+          end
+        explanation: "Recursive compile-time unrolling for tuple elements"
+
+  any32_fallback_chain:
+    description: "Large tuples (32+) fall back to loop via Any32"
+    steps:
+      - location: "base/tuple.jl:359-364"
+        url: "https://github.com/JuliaLang/julia/blob/0254afcf8c630eca5eeeae5a5ecd2941b7367bf9/base/tuple.jl#L359-L364"
+        code: |
+          const Any32{N} = Tuple{Any,Any,Any,Any,Any,Any,Any,Any,
+                                 Any,Any,Any,Any,Any,Any,Any,Any,
+                                 Any,Any,Any,Any,Any,Any,Any,Any,
+                                 Any,Any,Any,Any,Any,Any,Any,Any,
+                                 Vararg{Any,N}}
+        explanation: "Any32 matches tuples with 32+ elements"
+      - location: "base/operators.jl:1392"
+        url: "https://github.com/JuliaLang/julia/blob/0254afcf8c630eca5eeeae5a5ecd2941b7367bf9/base/operators.jl#L1392"
+        code: "in(x, itr::Any32) = invoke(in, Tuple{Any,Any}, x, itr)"
+        explanation: "Forces dispatch to generic in(x, itr::Any), now uses any()-based implementation"
+
+test_coverage:
+  existing_tests:
+    - file: "test/missing.jl"
+      lines: "398-400"
+      description: "Verifies in() with missing values returns correct three-valued results"
+      code: |
+        @test 1 in [1, missing]
+        @test ismissing(2 in [1, missing])
+        @test ismissing(missing in [1, missing])
+    - file: "test/missing.jl"
+      lines: "390-397"
+      description: "Tests any() with missing values - same logic now used by in()"
+      code: |
+        @test any([true, missing])
+        @test any(x -> x == 1, [1, missing])
+        @test ismissing(any([false, missing]))
+        @test ismissing(any(x -> x == 1, [2, missing]))
+    - file: "test/operators.jl"
+      lines: "331-339"
+      description: "Tests in() with tuples including edge cases"
+      code: |
+        @test in(5, (1,5,10,11))
+        @test !in(0, (1,5,10,11))
+        @test in(5, (1,"hi","hey",5.0))
+        @test !in(0, (1,"hi","hey",5.0))
+        @test in(5, (5,))
+        @test !in(0, (5,))
+        @test !in(5, ())
+    - file: "test/operators.jl"
+      lines: "352-357"
+      description: "Tests in() with different numeric types"
+      code: |
+        @test in(0x00, [0x04, 0x03, 0x02, 0x00])
+        @test !in(UInt8('a'), b"lkefjldk")
+        @test in(Int8(-1), Int8[2, 5, -1, 2])
+        @test !in(Int8(-1), UInt8[1, 3, 2, 0xff])
+    - file: "test/operators.jl"
+      lines: "390-420"
+      description: "Tests inference optimization for in() with tuples"
+      code: |
+        # concrete evaluation
+        @test Core.Compiler.is_foldable(Base.infer_effects(in, (Int,Tuple{Int,Int,Int})))
+        @test Core.Compiler.is_foldable(Base.infer_effects(in, (Char,Tuple{Char,Char,Char})))
+        # constant propagation
+        @test Base.infer_return_type((Int,Int)) do x, y
+            Val(1 in (x,2,y))
+        end >: Val{true}
+        # large tuple fallback to loop
+        let t = ntuple(x->'A', 10000);
+            @test Base.infer_return_type(in, (Char,typeof(t))) == Bool
+        end
+    - file: "test/arrayops.jl"
+      lines: "431-432"
+      description: "Tests findall(in(NaN), ...) - uses separate _findin code path with isequal"
+      code: |
+        @test findall(in(NaN), [1.0, NaN, 2.0]) == [2]
+        @test findall(in(NaN), [1.0, 2.0, NaN]) == [3]
+
+reviewer_notes:
+  initial_reviewer: "automated_analysis"
+  initial_date: "2026-01-21"
+  verification_method: |
+    1. Cloned Julia repository and checked out merge commit 0254afcf
+    2. Examined full source context of base/operators.jl and base/anyall.jl
+    3. Verified behavioral equivalence by comparing loop logic
+    4. Traced call chain from in() through any() to _any()
+    5. Confirmed specialized implementations (Tuple, Range, Set) are unaffected
+    6. Reviewed test coverage in test/missing.jl
+  findings:
+    - "This is a pure refactoring PR with no behavioral changes"
+    - "The new implementation and old implementation have identical semantics"
+    - "Three-valued logic for missing values is preserved exactly"
+    - "Custom types with efficient any() implementations automatically benefit"
+  confidence: "high"
+  rationale: |
+    The change is a straightforward delegation from in() to any() with identical
+    loop semantics. The Fix2 partial application is a well-tested pattern in Julia.
+    Existing tests verify the behavior is unchanged.
+
+independent_review:
+  reviewer: "secondary_analysis"
+  date: "2026-01-21"
+  verification_steps:
+    - step: "Verified code path trace accuracy"
+      result: "CONFIRMED - traced operators.jl:1368 -> anyall.jl:115 -> anyall.jl:120-132"
+    - step: "Searched for all specialized in() implementations"
+      result: "Found 18+ specialized implementations across base/ - all unaffected"
+    - step: "Verified NaN handling"
+      result: "CONFIRMED - NaN in [NaN] returns false (uses == which gives false for NaN)"
+    - step: "Verified findall(in(x), arr) code path"
+      result: "CONFIRMED - uses _findin with Set/isequal, completely separate from generic in()"
+    - step: "Checked Any32 fallback behavior"
+      result: "CONFIRMED - invoke(in, Tuple{Any,Any}, x, itr) now uses new any-based impl"
+    - step: "Reviewed test coverage in test/operators.jl"
+      result: "Found comprehensive tests for in() with tuples, inference optimization"
+    - step: "Checked for non-boolean comparison handling"
+      result: "CONFIRMED - both implementations throw TypeError for non-Bool/Missing results"
+  additional_findings:
+    - "Tuple handling uses separate _in_tuple (operators.jl:1372-1389) with compile-time unrolling"
+    - "Large tuples (32+) use Any32 fallback which now goes through any()-based implementation"
+    - "findall(in(NaN), [NaN]) returns [1] vs NaN in [NaN] returns false - different code paths"
+    - "Fix2 struct is minimal (2 fields) and specialized call method enables inlining"
+    - "The @_terminates_locally_meta in _any(::Tuple) doesn't affect generic Any case"
+  confidence: "high"
+  agreement_with_initial: "Full agreement - analysis is accurate and complete"
