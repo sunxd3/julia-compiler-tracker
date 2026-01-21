@@ -1,0 +1,328 @@
+schema_version: "1.0"
+pr:
+  number: 59973
+  title: "Remove use of ArrayRef(std::nullopt_t) constructor"
+  url: "https://github.com/JuliaLang/julia/pull/59973"
+  author: "yuyichao"
+  labels: []
+  merged_at: "2025-12-10T20:06:04Z"
+  merge_commit_sha: "8fda82e2406559a5925b7ee4c645e0412379b243"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59973.diff"
+scope:
+  files_touched:
+    - "src/cgutils.cpp"
+    - "src/codegen.cpp"
+    - "src/llvm-codegen-shared.h"
+    - "src/llvm-late-gc-lowering.cpp"
+    - "src/llvm-multiversioning.cpp"
+    - "src/llvm-ptls.cpp"
+  components:
+    - "Codegen"
+    - "LLVM passes"
+  pipeline_stages:
+    - "Codegen"
+analysis:
+  intent:
+    summary: "Replace deprecated LLVM ArrayRef(std::nullopt_t) constructor (None) with empty brace initializer ({}) to fix deprecation warnings on LLVM 21 and improve code clarity."
+    issue_links: []
+  direct_changes:
+    - summary: "Replace MDNode::get() calls with None argument to use {} instead for empty metadata nodes"
+      component: "src/cgutils.cpp"
+      evidence:
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "310-311"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/cgutils.cpp#L310-L311"
+          snippet: |
+            jl_di_func_null_sig = dbuilder.createSubroutineType(
+                dbuilder.getOrCreateTypeArray({}));
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "583"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/cgutils.cpp#L583"
+          snippet: |
+            gv->setMetadata("julia.constgv", MDNode::get(gv->getContext(), {}));
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "701"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/cgutils.cpp#L701"
+          snippet: |
+            LI->setMetadata(LLVMContext::MD_nonnull, MDNode::get(LI->getContext(), {}));
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "1910"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/cgutils.cpp#L1910"
+          snippet: |
+            small->setMetadata(LLVMContext::MD_nonnull, MDNode::get(M->getContext(), {}));
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "3535"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/cgutils.cpp#L3535"
+          snippet: |
+            LI->setMetadata(LLVMContext::MD_nonnull, MDNode::get(ctx.builder.getContext(), {}));
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "3554"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/cgutils.cpp#L3554"
+          snippet: |
+            LI->setMetadata(LLVMContext::MD_nonnull, MDNode::get(ctx.builder.getContext(), {}));
+    - summary: "Replace AttributeList::get() calls with None argument to use {} for empty parameter attributes in JuliaFunction definitions"
+      component: "src/codegen.cpp"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "623-629"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/codegen.cpp#L623-L629"
+          snippet: |
+            static AttributeList get_attrs_noreturn(LLVMContext &C)
+            {
+                return AttributeList::get(C,
+                            Attributes(C, {Attribute::NoReturn}),
+                            AttributeSet(),
+                            {});
+            }
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "631-637"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/codegen.cpp#L631-L637"
+          snippet: |
+            static AttributeList get_attrs_basic(LLVMContext &C)
+            {
+                return AttributeList::get(C,
+                            AttributeSet(),
+                            Attributes(C, {Attribute::NonNull}),
+                            {});
+            }
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "649-652"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/codegen.cpp#L649-L652"
+          snippet: |
+            return AttributeList::get(C,
+                        AttributeSet::get(C, FnAttrs),
+                        AttributeSet::get(C, RetAttrs),
+                        {});
+    - summary: "Replace jl_cgval_t constructor calls to use explicit ArrayRef<Value*>() instead of {} due to constructor ambiguity with deleted Value* overload"
+      component: "src/codegen.cpp"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "1763-1764"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/codegen.cpp#L1763-L1764"
+          note: "The deleted constructor prevents {} from being ambiguous with Value* nullptr"
+          snippet: |
+            jl_cgval_t(Value *Vptr, bool isboxed, jl_value_t *typ, Value *tindex, MDNode *tbaa, Value* inline_roots) = delete;
+            jl_cgval_t(Value *Vptr, bool isboxed, jl_value_t *typ, Value *tindex, MDNode *tbaa, ArrayRef<Value*> inline_roots) :
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "2246"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/codegen.cpp#L2246"
+          snippet: |
+            jl_cgval_t constant(NULL, true, typ, NULL, best_tbaa(ctx.tbaa(), typ), ArrayRef<Value*>());
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "2270"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/codegen.cpp#L2270"
+          snippet: |
+            jl_cgval_t constant(NULL, true, typ, NULL, best_tbaa(ctx.tbaa(), typ), ArrayRef<Value*>());
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "2276"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/codegen.cpp#L2276"
+          snippet: |
+            static inline jl_cgval_t mark_julia_slot(Value *v, jl_value_t *typ, Value *tindex, MDNode *tbaa, ArrayRef<Value*> inline_roots={})
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "2356"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/codegen.cpp#L2356"
+          snippet: |
+            return jl_cgval_t(v, isboxed, typ, NULL, best_tbaa(ctx.tbaa(), typ), ArrayRef<Value*>());
+    - summary: "Replace tbaa_decorate invariant_load metadata with {} instead of std::nullopt"
+      component: "src/llvm-codegen-shared.h"
+      evidence:
+        - source: "code"
+          path: "src/llvm-codegen-shared.h"
+          loc: "156-164"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/llvm-codegen-shared.h#L156-L164"
+          snippet: |
+            static inline llvm::Instruction *tbaa_decorate(llvm::MDNode *md, llvm::Instruction *inst)
+            {
+                using namespace llvm;
+                inst->setMetadata(llvm::LLVMContext::MD_tbaa, md);
+                if (llvm::isa<llvm::LoadInst>(inst) && md && md == get_tbaa_const(md->getContext())) {
+                    inst->setMetadata(llvm::LLVMContext::MD_invariant_load, llvm::MDNode::get(md->getContext(), {}));
+                }
+                return inst;
+            }
+    - summary: "Replace CallInst::Create with {} for empty operand bundles (LLVM 20+ conditional compilation path)"
+      component: "src/llvm-late-gc-lowering.cpp"
+      evidence:
+        - source: "code"
+          path: "src/llvm-late-gc-lowering.cpp"
+          loc: "2199-2204"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/llvm-late-gc-lowering.cpp#L2199-L2204"
+          note: "Conditional compilation preserves None for LLVM < 20 backward compatibility"
+          snippet: |
+            // remove all operand bundles
+            #if JL_LLVM_VERSION >= 200000
+                CallInst *NewCall = CallInst::Create(CI, {}, CI->getIterator());
+            #else
+                CallInst *NewCall = CallInst::Create(CI, None, CI);
+            #endif
+    - summary: "Replace MD_invariant_load metadata creation with {} in multiversioning trampoline and slot loading"
+      component: "src/llvm-multiversioning.cpp"
+      evidence:
+        - source: "code"
+          path: "src/llvm-multiversioning.cpp"
+          loc: "521-523"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/llvm-multiversioning.cpp#L521-L523"
+          snippet: |
+            auto ptr = irbuilder.CreateLoad(F->getType(), slot);
+            ptr->setMetadata(llvm::LLVMContext::MD_tbaa, tbaa_const);
+            ptr->setMetadata(llvm::LLVMContext::MD_invariant_load, MDNode::get(F->getContext(), {}));
+        - source: "code"
+          path: "src/llvm-multiversioning.cpp"
+          loc: "877-879"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/llvm-multiversioning.cpp#L877-L879"
+          snippet: |
+            Instruction *ptr = new LoadInst(F.getType(), slot, "", false, insert_before);
+            ptr->setMetadata(llvm::LLVMContext::MD_tbaa, tbaa_const);
+            ptr->setMetadata(llvm::LLVMContext::MD_invariant_load, MDNode::get(ptr->getContext(), {}));
+    - summary: "Replace MD_invariant_load metadata creation with {} in TLS/pgcstack handling (4 locations)"
+      component: "src/llvm-ptls.cpp"
+      evidence:
+        - source: "code"
+          path: "src/llvm-ptls.cpp"
+          loc: "226-228"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/llvm-ptls.cpp#L226-L228"
+          snippet: |
+            auto offset = builder.CreateLoad(T_size, pgcstack_offset);
+            offset->setMetadata(llvm::LLVMContext::MD_tbaa, tbaa_const);
+            offset->setMetadata(llvm::LLVMContext::MD_invariant_load, MDNode::get(pgcstack->getContext(), {}));
+        - source: "code"
+          path: "src/llvm-ptls.cpp"
+          loc: "251-253"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/llvm-ptls.cpp#L251-L253"
+          snippet: |
+            auto getter = builder.CreateLoad(T_pgcstack_getter, pgcstack_func_slot);
+            getter->setMetadata(llvm::LLVMContext::MD_tbaa, tbaa_const);
+            getter->setMetadata(llvm::LLVMContext::MD_invariant_load, MDNode::get(pgcstack->getContext(), {}));
+        - source: "code"
+          path: "src/llvm-ptls.cpp"
+          loc: "266-268"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/llvm-ptls.cpp#L266-L268"
+          snippet: |
+            auto getter = builder.CreateLoad(T_pgcstack_getter, pgcstack_func_slot);
+            getter->setMetadata(llvm::LLVMContext::MD_tbaa, tbaa_const);
+            getter->setMetadata(llvm::LLVMContext::MD_invariant_load, MDNode::get(pgcstack->getContext(), {}));
+        - source: "code"
+          path: "src/llvm-ptls.cpp"
+          loc: "270-272"
+          url: "https://github.com/JuliaLang/julia/blob/8fda82e2406559a5925b7ee4c645e0412379b243/src/llvm-ptls.cpp#L270-L272"
+          snippet: |
+            auto key = builder.CreateLoad(T_size, pgcstack_key_slot);
+            key->setMetadata(llvm::LLVMContext::MD_tbaa, tbaa_const);
+            key->setMetadata(llvm::LLVMContext::MD_invariant_load, MDNode::get(pgcstack->getContext(), {}));
+  secondary_effects:
+    - effect: "No semantic or behavioral changes - this is a pure syntactic/API refactoring"
+      mechanism: |
+        The change replaces:
+          MDNode::get(ctx, None)  ->  MDNode::get(ctx, {})
+          AttributeList::get(..., None)  ->  AttributeList::get(..., {})
+          CallInst::Create(CI, None, ...)  ->  CallInst::Create(CI, {}, ...)
+          ArrayRef<const char*> ArgNames=None  ->  ArrayRef<const char*> ArgNames={}
+
+        These are equivalent at the LLVM level - both represent an empty ArrayRef.
+        The ArrayRef(std::nullopt_t) constructor is deprecated in LLVM 21 but
+        functionally identical to ArrayRef() which {} resolves to.
+      downstream_surfaces:
+        - "None - no functional change"
+      likelihood: "low"
+      impact: "low"
+    - effect: "Build compatibility with LLVM 21 preserved while maintaining backward compatibility"
+      mechanism: |
+        The {} syntax works for ArrayRef on all LLVM versions because:
+        1. {} is valid brace initialization for ArrayRef (creates empty array)
+        2. The ArrayRef(std::nullopt_t) constructor being deprecated doesn't affect {}
+        3. PR explicitly notes: "all the places that was replaced has always been
+           taking an ArrayRef so this should work on older LLVM versions as well"
+
+        Note: Some None usages remain in src/llvm-pass-helpers.cpp and src/codegen.cpp
+        for Attribute::getWithAllocSizeArgs() which takes std::optional<unsigned>,
+        not ArrayRef - these are unaffected by the ArrayRef deprecation.
+      downstream_surfaces:
+        - "Build system compatibility"
+      likelihood: "high"
+      impact: "low"
+    - effect: "jl_cgval_t constructor requires explicit ArrayRef<Value*>() due to deleted overload preventing ambiguity"
+      mechanism: |
+        The jl_cgval_t struct has a deleted constructor overload:
+          jl_cgval_t(Value*, bool, jl_value_t*, Value*, MDNode*, Value*) = delete;
+
+        This prevents {} from being used as the last argument because C++ could interpret
+        {} as either:
+          - Empty ArrayRef<Value*> (intended)
+          - Null-initialized Value* (deleted, would match the deleted overload)
+
+        The solution is to use explicit ArrayRef<Value*>() which unambiguously constructs
+        an empty ArrayRef. The mark_julia_slot() function default argument uses {} because
+        the function parameter type is already known from the declaration.
+
+        Call chain showing where ArrayRef<Value*>() is used:
+          ghostValue() [codegen.cpp:2246] -> jl_cgval_t(..., ArrayRef<Value*>())
+          mark_julia_const() [codegen.cpp:2270] -> jl_cgval_t(..., ArrayRef<Value*>())
+          mark_julia_type() [codegen.cpp:2356] -> jl_cgval_t(..., ArrayRef<Value*>())
+          update_julia_type() [codegen.cpp:2417] -> jl_cgval_t(..., ArrayRef<Value*>())
+          convert_julia_type_to_union() [codegen.cpp:2532,2795] -> jl_cgval_t(..., ArrayRef<Value*>())
+      downstream_surfaces:
+        - "Internal codegen only - no external API change"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "jl_cgval_t constructor signature"
+        change: "Uses ArrayRef<Value*>() explicitly instead of {} due to constructor overload ambiguity with the deleted Value* overload (line 1763). The deleted constructor prevents accidental misuse where {} could be interpreted as a null Value* pointer."
+        affected_tools:
+          - "None - internal codegen structure not exposed to downstream packages"
+      - field: "mark_julia_slot default argument"
+        change: "Changed from ArrayRef<Value*> inline_roots=None to ArrayRef<Value*> inline_roots={}"
+        affected_tools:
+          - "None - internal codegen function"
+      - field: "get_specsig_function default argument"
+        change: "Changed from ArrayRef<const char*> ArgNames=None to ArrayRef<const char*> ArgNames={}"
+        affected_tools:
+          - "None - internal codegen function"
+    behavioral: []
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: zero. The {} vs None difference is purely syntactic and resolved at C++ compile time, not Julia compile time. No additional runtime checks or allocations introduced."
+    runtime:
+      - impact: "ESTIMATED: zero. No change to generated LLVM IR or machine code. The empty ArrayRef construction produces identical results regardless of syntax used."
+  risk:
+    level: "low"
+    rationale:
+      - "Pure mechanical refactoring with no semantic changes"
+      - "All replacements are equivalent at the LLVM API level"
+      - "Maintains backward compatibility with older LLVM versions (tested by author)"
+      - "No changes to Julia semantics, IR representation, or runtime behavior"
+      - "Well-understood deprecation pattern in LLVM ecosystem"
+      - "Conditional compilation (#if JL_LLVM_VERSION >= 200000) preserves None for older LLVM where needed"
+      - "The deleted jl_cgval_t constructor overload ensures type safety"
+  open_questions: []
+  recommendations:
+    - "This PR is a model example of forward-compatibility maintenance. Downstream packages using Julia's LLVM pass infrastructure should similarly migrate away from ArrayRef(std::nullopt_t)/None when targeting LLVM 21+."
+    - "No action required for downstream Julia packages (Enzyme.jl, GPUCompiler.jl, etc.) as this change is internal to Julia's codegen."
+    - "Note that Attribute::getWithAllocSizeArgs() still uses None because it takes std::optional<unsigned>, not ArrayRef. This is a different deprecation concern that may need addressing separately in the future."
+reviewer_notes:
+  verified_against_source: true
+  verification_commit: "8fda82e2406559a5925b7ee4c645e0412379b243"
+  corrections_made:
+    - "Fixed evidence snippets that incorrectly showed jl_gc_roots_t() - actual code uses ArrayRef<Value*>()"
+    - "Updated line numbers to match actual source file locations"
+    - "Added missing evidence for cgutils.cpp changes (lines 1910, 3535, 3554)"
+    - "Added missing evidence for llvm-ptls.cpp fourth location (Darwin key loading)"
+    - "Added explanation of why ArrayRef<Value*>() is used instead of {} for jl_cgval_t"
+  additional_findings:
+    - "Remaining None usages in codebase (llvm-pass-helpers.cpp, codegen.cpp line 1114) use std::optional<unsigned> for Attribute::getWithAllocSizeArgs(), not ArrayRef - these are unrelated to this PR"
+    - "The deleted constructor on line 1763 is key to understanding why {} cannot be used for jl_cgval_t inline_roots parameter"
+    - "The CallInst::Create change in llvm-late-gc-lowering.cpp uses conditional compilation to maintain compatibility with LLVM < 20"
