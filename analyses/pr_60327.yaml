@@ -9,7 +9,6 @@ pr:
     - "JuliaLowering"
   merged_at: "2025-12-05T22:26:59Z"
   merge_commit_sha: "2ec05d5734ce268e75bc29126e3e2f1455e5fa49"
-  diff_url: "https://github.com/JuliaLang/julia/pull/60327.diff"
 scope:
   files_touched:
     - "JuliaLowering/src/syntax_graph.jl"
@@ -21,65 +20,64 @@ scope:
     - "Lowering"
 analysis:
   intent:
-    summary: "Allow SyntaxTree construction to tolerate parse errors (notably for ignore_errors parsing used by tooling like JETLS) instead of asserting on unexpected shapes."
+    summary: "Enable error-tolerant parsing to SyntaxTree by removing assertions that fail on malformed inputs, allowing tooling like JETLS (which uses ignore_errors=true) to receive a tree even for invalid syntax."
     issue_links: []
+    quoted_from_pr: |
+      I had assumed a valid parse since parse errors would detonate in lowering
+      anyway, but that was wrong: JETLS uses `ignore_errors=true` in parsing to
+      SyntaxTree. I plan to make some larger changes where I'll make sure
+      `RawGreenNode->SyntaxTree` is more thoroughly tested, but this is a quick
+      fix to get JETLS working.
   direct_changes:
-    - summary: "`_green_to_ast` now preserves `parens`, `var`, and `char` nodes with multiple children instead of asserting they must contain exactly one child."
+    - summary: "Remove assertion in K\"parens\" handling that required exactly one child; now returns a wrapper node when multiple children exist (e.g., parse error nodes)"
       component: "JuliaLowering/src/syntax_graph.jl"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "JuliaLowering/src/syntax_graph.jl"
-          loc: "861-883"
-          url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/src/syntax_graph.jl#L861-L883"
+          loc: "878-880"
+          url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/src/syntax_graph.jl#L878-L880"
           snippet: |
-            function _green_to_ast(parent::Kind, ex::SyntaxTree; eq_to_kw=false)
-                is_trivia(ex) && !is_error(ex) && return nothing
-                graph = syntax_graph(ex)
-                k = kind(ex)
-                if k === K"ref" ||
-                    (k in KSet"call dotcall" && (
-                        is_prefix_call(ex) || is_prefix_op_call(ex) && numchildren(ex) > 2))
-                    cs = SyntaxList(ex)
-                    for c in children(ex)
-                        c2 = _green_to_ast(k, c; eq_to_kw=length(cs)>0)
-                        !isnothing(c2) && push!(cs, c2)
-                    end
-                    makenode(graph, ex, ex, cs)
-                elseif k === K"parameters"
-                    eq_to_kw = parent != K"vect"   && parent != K"curly" &&
-                               parent != K"braces" && parent != K"ref"
-                    makenode(graph, ex, ex, _map_green_to_ast(k, children(ex); eq_to_kw))
-                elseif k === K"parens"
-                    cs = _map_green_to_ast(parent, children(ex); eq_to_kw)
-                    length(cs) === 1 ? cs[1] : makenode(graph, ex, ex, cs)
-                elseif k in KSet"var char"
-                    cs = _map_green_to_ast(parent, children(ex))
-                    length(cs) === 1 ? cs[1] : makenode(graph, ex, ex, cs)
-        - source: "rg"
-          path: "JuliaLowering/src/syntax_graph.jl"
-          loc: "826-919"
-          url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/src/syntax_graph.jl#L826-L919"
-          snippet: |
-            JuliaLowering/src/syntax_graph.jl
-            826:    out = _green_to_ast(K"None", SyntaxTree(graph, green_id))
-            861:function _green_to_ast(parent::Kind, ex::SyntaxTree; eq_to_kw=false)
-            870:            c2 = _green_to_ast(k, c; eq_to_kw=length(cs)>0)
-            877:        makenode(graph, ex, ex, _map_green_to_ast(k, children(ex); eq_to_kw))
-            879:        cs = _map_green_to_ast(parent, children(ex); eq_to_kw)
-            882:        cs = _map_green_to_ast(parent, children(ex))
-            885:        setattr!(makenode(graph, ex, ex, _map_green_to_ast(k, children(ex))),
-            895:        cs = _map_green_to_ast(k, children(ex))
-            911:        makenode(graph, ex, ex, _map_green_to_ast(k, children(ex)))
-            915:function _map_green_to_ast(parent::Kind, cs::SyntaxList; eq_to_kw=false)
-            918:        c2 = _green_to_ast(parent, c; eq_to_kw)
-    - summary: "`macro_name` handling now falls back to a regular node when the expected single Identifier or dotted Identifier shape is not present."
+            # BEFORE (assertion that failed on parse errors):
+            #   elseif k === K"parens"
+            #       cs = _map_green_to_ast(parent, children(ex); eq_to_kw)
+            #       @assert length(cs) === 1
+            #       cs[1]
+            # AFTER (graceful fallback to wrapper node):
+            elseif k === K"parens"
+                cs = _map_green_to_ast(parent, children(ex); eq_to_kw)
+                length(cs) === 1 ? cs[1] : makenode(graph, ex, ex, cs)
+    - summary: "Remove assertion in KSet\"var char\" handling that required exactly one child; now returns a wrapper node when multiple children exist"
       component: "JuliaLowering/src/syntax_graph.jl"
       evidence:
-        - source: "code"
+        - source: "diff"
+          path: "JuliaLowering/src/syntax_graph.jl"
+          loc: "881-883"
+          url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/src/syntax_graph.jl#L881-L883"
+          snippet: |
+            # BEFORE (assertion that failed on parse errors):
+            #   elseif k in KSet"var char"
+            #       cs = _map_green_to_ast(parent, children(ex))
+            #       @assert length(cs) === 1
+            #       cs[1]
+            # AFTER (graceful fallback to wrapper node):
+            elseif k in KSet"var char"
+                cs = _map_green_to_ast(parent, children(ex))
+                length(cs) === 1 ? cs[1] : makenode(graph, ex, ex, cs)
+    - summary: "Rewrite K\"macro_name\" handling to use _map_green_to_ast for child processing and fall back to wrapper node when expected Identifier/dot structure is not present"
+      component: "JuliaLowering/src/syntax_graph.jl"
+      evidence:
+        - source: "diff"
           path: "JuliaLowering/src/syntax_graph.jl"
           loc: "891-907"
           url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/src/syntax_graph.jl#L891-L907"
           snippet: |
+            # BEFORE (assertion that failed on malformed macros like lone '@'):
+            #   elseif k === K"macro_name"
+            #       @assert numchildren(ex) === 2 && kind(ex[1]) === K"@"
+            #       id = ex[2]
+            #       mname_raw = (kind(id) === K"." ? id[2] : id).name_val
+            #       ...
+            # AFTER (graceful fallback when shape is unexpected):
             elseif k === K"macro_name"
                 # M.@x parses to (. M (macro_name x))
                 # @M.x parses to (macro_name (. M x))
@@ -97,78 +95,136 @@ analysis:
                 else
                     mac_id
                 end
-    - summary: "Tests now assert that parsing with `ignore_errors=true` returns a SyntaxTree for malformed inputs like lone `@` or bad parenthesized forms."
-      component: "JuliaLowering/test/syntax_graph.jl"
-      evidence:
-        - source: "test"
-          path: "JuliaLowering/test/syntax_graph.jl"
-          loc: "43-52"
-          url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/test/syntax_graph.jl#L43-L52"
-          snippet: |
-            @testset "SyntaxTree" begin
-                # Expr conversion
-                @test Expr(parsestmt(SyntaxTree, "begin a + b ; c end", filename="none")) ==
-                    Meta.parse("begin a + b ; c end")
-
-                # Parsing to SyntaxTree: errors should fall through
-                @test parsestmt(SyntaxTree, "@"; ignore_errors=true) isa SyntaxTree
-                @test parsestmt(SyntaxTree, "@@@"; ignore_errors=true) isa SyntaxTree
-                @test parsestmt(SyntaxTree, "(a b c)"; ignore_errors=true) isa SyntaxTree
-                @test parsestmt(SyntaxTree, "'a b c'"; ignore_errors=true) isa SyntaxTree
   secondary_effects:
-    - effect: "Malformed inputs that previously tripped assertions now survive as SyntaxTree nodes, allowing editor/LS tooling to keep a tree for error recovery."
+    - effect: "Malformed inputs that previously tripped assertions now survive as SyntaxTree nodes, allowing editor/LS tooling to keep a tree for error recovery"
       mechanism: |
         JuliaSyntax.build_tree(::Type{SyntaxTree}, stream)  [syntax_graph.jl:799-815]
-          -> SyntaxTree(graph, sf, cursor)  [syntax_graph.jl:818-828]
-            -> _insert_green(...)  [syntax_graph.jl:833-855]
-            -> _green_to_ast(K"None", SyntaxTree(graph, green_id))  [syntax_graph.jl:861-911]
-               - For K"parens" and KSet"var char", length(cs) != 1 now returns makenode(...) instead of asserting
-               - For K"macro_name" with unexpected shape, returns makenode(...) instead of asserting
+          -> SyntaxTree(graph, sf, cursor)  [syntax_graph.jl:818-829]
+            -> _insert_green(graph, sf, txtbuf, offset, cursor)  [syntax_graph.jl:833-856]
+            -> _green_to_ast(K"None", SyntaxTree(graph, green_id))  [syntax_graph.jl:826]
+               - For K"parens": length(cs) !== 1 now returns makenode(...) instead of @assert
+               - For K"var char": length(cs) !== 1 now returns makenode(...) instead of @assert
+               - For K"macro_name": unexpected shape now returns makenode(...) instead of @assert
       downstream_surfaces:
         - "JETLS and other tooling parsing with ignore_errors=true"
-        - "Downstream SyntaxTree walkers that assumed single-child parens/var/char nodes"
+        - "Downstream SyntaxTree walkers that consume error-tolerant parses"
       likelihood: "high"
       impact: "medium"
-    - effect: "Macro-name rewriting is skipped for malformed macro syntax, preserving raw subtrees instead of emitting an Identifier/macroname pair."
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/syntax_graph.jl"
+          loc: "878-883"
+          url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/src/syntax_graph.jl#L878-L883"
+          snippet: |
+            elseif k === K"parens"
+                cs = _map_green_to_ast(parent, children(ex); eq_to_kw)
+                length(cs) === 1 ? cs[1] : makenode(graph, ex, ex, cs)
+            elseif k in KSet"var char"
+                cs = _map_green_to_ast(parent, children(ex))
+                length(cs) === 1 ? cs[1] : makenode(graph, ex, ex, cs)
+    - effect: "Macro-name rewriting is skipped for malformed macro syntax, preserving raw subtrees instead of emitting normalized Identifier/macroname form"
       mechanism: |
         _green_to_ast(..., k == K"macro_name")  [syntax_graph.jl:891-907]
+          -> cs = _map_green_to_ast(k, children(ex))
           -> if length(cs) !== 1 or kind(cs[1]) not in KSet". Identifier"
-               returns makenode(graph, ex, ex, cs)
+               returns makenode(graph, ex, ex, cs)  # <-- raw children preserved
           -> otherwise continues rewriting into Identifier/macro_name form
       downstream_surfaces:
         - "Macro-introspection tooling that expects normalized macro_name nodes"
       likelihood: "medium"
       impact: "low"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/syntax_graph.jl"
+          loc: "895-898"
+          url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/src/syntax_graph.jl#L895-L898"
+          snippet: |
+            cs = _map_green_to_ast(k, children(ex))
+            if length(cs) !== 1 || !(kind(cs[1]) in KSet". Identifier")
+                return makenode(graph, ex, ex, cs)
+            end
   compatibility:
     internal_api:
-      - field: "SyntaxTree shapes for K\"parens\" / KSet\"var char\""
-        change: "No longer guaranteed to collapse to a single child when parsing error nodes; callers may now see wrapper nodes with multiple children."
-        affected_tools:
-          - tool: "JETLS"
-            usage: "JETLS parses with ignore_errors=true and walks SyntaxTree nodes for diagnostics; it can now receive wrapper nodes instead of assertion failures."
-      - field: "SyntaxTree K\"macro_name\" normalization"
-        change: "Malformed macro syntax now yields a node with raw children instead of raising assertion or producing Identifier/macroname rewrite."
-        affected_tools:
-          - tool: "Macro tooling"
-            usage: "Tools that pattern-match on normalized macro_name nodes should accept unnormalized nodes when parse errors are present."
+      - summary: "SyntaxTree shapes for K\"parens\", K\"var\", and K\"char\" are no longer guaranteed to collapse to a single child when parsing error nodes; callers may now see wrapper nodes with multiple children under ignore_errors=true parsing"
+        evidence:
+          - source: "diff"
+            path: "JuliaLowering/src/syntax_graph.jl"
+            loc: "878-883"
+            url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/src/syntax_graph.jl#L878-L883"
+            snippet: |
+              elseif k === K"parens"
+                  cs = _map_green_to_ast(parent, children(ex); eq_to_kw)
+                  length(cs) === 1 ? cs[1] : makenode(graph, ex, ex, cs)
+              elseif k in KSet"var char"
+                  cs = _map_green_to_ast(parent, children(ex))
+                  length(cs) === 1 ? cs[1] : makenode(graph, ex, ex, cs)
+      - summary: "K\"macro_name\" normalization may be skipped for malformed macro syntax; tools pattern-matching on normalized macro_name nodes should accept unnormalized nodes when parse errors are present"
+        evidence:
+          - source: "diff"
+            path: "JuliaLowering/src/syntax_graph.jl"
+            loc: "895-898"
+            url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/src/syntax_graph.jl#L895-L898"
+            snippet: |
+              cs = _map_green_to_ast(k, children(ex))
+              if length(cs) !== 1 || !(kind(cs[1]) in KSet". Identifier")
+                  return makenode(graph, ex, ex, cs)
+              end
     behavioral:
-      - field: "parsestmt(SyntaxTree, ..., ignore_errors=true)"
-        change: "Returns a SyntaxTree even for inputs like '@' or '(a b c)' instead of triggering assertions during conversion."
-        affected_tools:
-          - tool: "Parser consumers"
-            usage: "Editor integrations and diagnostics that rely on error-tolerant parsing should now receive a tree instead of crashing."
+      - summary: "parsestmt(SyntaxTree, ..., ignore_errors=true) now returns a SyntaxTree for inputs like '@', '@@@', '(a b c)', \"'a b c'\" instead of triggering assertions"
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/syntax_graph.jl"
+            loc: "48-52"
+            url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/test/syntax_graph.jl#L48-L52"
+            snippet: |
+              # Parsing to SyntaxTree: errors should fall through
+              @test parsestmt(SyntaxTree, "@"; ignore_errors=true) isa SyntaxTree       # <-- lone @ no longer asserts
+              @test parsestmt(SyntaxTree, "@@@"; ignore_errors=true) isa SyntaxTree     # <-- malformed macro chain
+              @test parsestmt(SyntaxTree, "(a b c)"; ignore_errors=true) isa SyntaxTree # <-- parens with multiple items (juxtaposition error)
+              @test parsestmt(SyntaxTree, "'a b c'"; ignore_errors=true) isa SyntaxTree # <-- char literal with extra content
   performance:
     compile_time:
-      - impact: "ESTIMATED: negligible extra branching in _green_to_ast for error cases only; no new passes or traversals."
+      - summary: "ESTIMATED: negligible extra branching in _green_to_ast for error cases only; no new passes or traversals"
+        evidence:
+          - source: "diff"
+            path: "JuliaLowering/src/syntax_graph.jl"
+            loc: "878-883"
+            url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/src/syntax_graph.jl#L878-L883"
+            snippet: |
+              # Ternary adds single length check; only executes on parse errors
+              length(cs) === 1 ? cs[1] : makenode(graph, ex, ex, cs)
     runtime:
-      - impact: "ESTIMATED: no measurable runtime impact; changes are confined to parsing/SyntaxTree construction."
+      - summary: "ESTIMATED: no measurable runtime impact; changes are confined to parsing/SyntaxTree construction phase"
+        evidence:
+          - source: "diff"
+            path: "JuliaLowering/src/syntax_graph.jl"
+            loc: "861-911"
+            url: "https://github.com/JuliaLang/julia/blob/2ec05d5734ce268e75bc29126e3e2f1455e5fa49/JuliaLowering/src/syntax_graph.jl#L861-L911"
+            snippet: |
+              function _green_to_ast(parent::Kind, ex::SyntaxTree; eq_to_kw=false)
+                  is_trivia(ex) && !is_error(ex) && return nothing
+                  # ... rest of function unchanged except for error-tolerant branches
+  tests:
+    changed_files:
+      - "JuliaLowering/test/syntax_graph.jl"
+    new_behavior_assertions:
+      - "parsestmt(SyntaxTree, \"@\"; ignore_errors=true) returns SyntaxTree (tests K\"macro_name\" error tolerance)"
+      - "parsestmt(SyntaxTree, \"@@@\"; ignore_errors=true) returns SyntaxTree (tests chained macro error tolerance)"
+      - "parsestmt(SyntaxTree, \"(a b c)\"; ignore_errors=true) returns SyntaxTree (tests K\"parens\" error tolerance)"
+      - "parsestmt(SyntaxTree, \"'a b c'\"; ignore_errors=true) returns SyntaxTree (tests K\"char\" error tolerance)"
+    coverage_gaps:
+      - "No test for K\"var\" error tolerance specifically (only K\"char\" tested, but they share the same code path)"
+      - "No test verifying the shape of the returned error trees (tests only check isa SyntaxTree)"
   risk:
     level: "low"
     rationale:
-      - "Changes only affect error-handling paths in SyntaxTree conversion; normal well-formed trees follow the same fast paths."
-      - "Tests added to lock in error-tolerant parsing behavior."
+      - "Changes only affect error-handling paths in SyntaxTree conversion; normal well-formed parses follow the same fast paths"
+      - "Tests added to lock in error-tolerant parsing behavior for common malformed inputs"
+      - "Explicit motivation is to fix JETLS, a real-world consumer that depends on this behavior"
   open_questions:
     - "Do any downstream tools rely on macro_name normalization even when parse errors exist, and should they be updated to handle unnormalized nodes?"
+    - "Should there be additional tests verifying the structure of error trees, not just that they are SyntaxTree instances?"
   recommendations:
-    - "Downstream SyntaxTree consumers should treat K\"parens\", K\"var\", and K\"char\" nodes as potentially multi-child in error-tolerant parsing modes."
-    - "Consider adding dedicated error-node invariants or documentation for SyntaxTree shape under ignore_errors parsing to guide tooling."
+    - "Downstream SyntaxTree consumers should treat K\"parens\", K\"var\", and K\"char\" nodes as potentially multi-child in error-tolerant parsing modes"
+    - "Consider adding dedicated error-node invariants or documentation for SyntaxTree shape under ignore_errors parsing to guide tooling"
+    - "JETLS and similar tools should now work correctly with this fix; verify integration before updating Julia version dependencies"
