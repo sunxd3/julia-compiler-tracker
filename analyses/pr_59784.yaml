@@ -1,0 +1,620 @@
+schema_version: "1.0"
+
+pr:
+  number: 59784
+  title: "Make `=` and `const` toplevel-preserving syntax"
+  url: "https://github.com/JuliaLang/julia/pull/59784"
+  author: "xal-0"
+  labels:
+    - "compiler:lowering"
+    - "bugfix"
+  merged_at: "2025-10-17T20:35:52Z"
+  merge_commit_sha: "b88ab5ffd8f4c5382e577f7ff7b36ee33b1bc739"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59784.diff"
+
+scope:
+  files_touched:
+    - "src/julia-syntax.scm"
+    - "test/syntax.jl"
+  components:
+    - "Lowering"
+  pipeline_stages:
+    - "Lowering"
+    - "ClosureConversion"
+
+analysis:
+  intent:
+    summary: |
+      This PR fixes a regression in closure conversion where global declarations inside
+      conditional blocks (like `if/else`) were incorrectly handled when wrapped in an
+      assignment expression. The bug caused `Core.declare_global` statements to not be
+      properly hoisted to the top level when they appeared inside `=` or `const` expressions.
+
+      The fix makes two key changes:
+      1. Removes the per-child toplevel-preserving? check from map-cl-convert, passing
+         toplevel directly to all children
+      2. Moves the toplevel-preserving? check to the call site in the else branch of
+         cl-convert-, and adds `=` and `const` to the list of toplevel-preserving forms
+
+      This is a regression fix for a bug introduced by PR #58279, which replaced the old
+      `:global` and `:globaldecl` IR forms with `Core.declare_global` and introduced the
+      `toplevel-butfirst` hoisting mechanism.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59755"
+    regression_source: "https://github.com/JuliaLang/julia/pull/58279"
+
+  direct_changes:
+    - summary: "Add `=` and `const` to `toplevel-preserving?` function"
+      component: "Lowering"
+      evidence:
+        - source: "diff"
+          path: "src/julia-syntax.scm"
+          loc: "4065-4066"
+          url: "https://github.com/JuliaLang/julia/blob/b88ab5ffd8f4c5382e577f7ff7b36ee33b1bc739/src/julia-syntax.scm#L4065-L4066"
+          snippet: |
+            ;; BEFORE:
+            (define (toplevel-preserving? e)
+              (and (pair? e) (memq (car e) '(if elseif block trycatch tryfinally trycatchelse))))
+
+            ;; AFTER:
+            (define (toplevel-preserving? e)
+              (and (pair? e) (memq (car e) '(if elseif block trycatch tryfinally trycatchelse = const))))
+
+    - summary: "Change toplevel flag propagation in `map-cl-convert`"
+      component: "Lowering"
+      evidence:
+        - source: "diff"
+          path: "src/julia-syntax.scm"
+          loc: "4068-4076"
+          url: "https://github.com/JuliaLang/julia/blob/b88ab5ffd8f4c5382e577f7ff7b36ee33b1bc739/src/julia-syntax.scm#L4068-L4076"
+          snippet: |
+            ;; BEFORE: Each child checked individually with toplevel-preserving?
+            (define (map-cl-convert exprs fname lam namemap defined toplevel interp opaq toplevel-pure parsed-method-stack (globals (table)) (locals (table)))
+              (if toplevel
+                  (map (lambda (x)
+                         (let ((tl (lift-toplevel (cl-convert x fname lam namemap defined
+                                                              (and toplevel (toplevel-preserving? x))
+                                                              interp opaq toplevel-pure parsed-method-stack globals locals))))
+                           ...))
+                       exprs)
+                  ...))
+
+            ;; AFTER: All children receive the toplevel flag passed to map-cl-convert
+            (define (map-cl-convert exprs fname lam namemap defined toplevel interp opaq toplevel-pure parsed-method-stack (globals (table)) (locals (table)))
+              (if toplevel
+                  (map (lambda (x)
+                         (let ((tl (lift-toplevel (cl-convert x fname lam namemap defined toplevel interp opaq toplevel-pure parsed-method-stack globals locals))))
+                           ...))
+                       exprs)
+                  ...))
+
+    - summary: "Move toplevel-preserving check to call site in `cl-convert-` else branch"
+      component: "Lowering"
+      evidence:
+        - source: "diff"
+          path: "src/julia-syntax.scm"
+          loc: "4472-4474"
+          url: "https://github.com/JuliaLang/julia/blob/b88ab5ffd8f4c5382e577f7ff7b36ee33b1bc739/src/julia-syntax.scm#L4472-L4474"
+          snippet: |
+            ;; BEFORE: Pass toplevel directly
+            (else
+             (cons (car e)
+                   (map-cl-convert (cdr e) fname lam namemap defined toplevel interp opaq toplevel-pure parsed-method-stack globals locals)))
+
+            ;; AFTER: Check if parent expression e is toplevel-preserving
+            (else
+             (cons (car e)
+                   (map-cl-convert (cdr e) fname lam namemap defined (and toplevel (toplevel-preserving? e)) interp opaq toplevel-pure parsed-method-stack globals locals)))
+
+    - summary: "Add comprehensive tests for toplevel-preserving syntax"
+      component: "Tests"
+      evidence:
+        - source: "test"
+          path: "test/syntax.jl"
+          loc: "4620-4661"
+          url: "https://github.com/JuliaLang/julia/blob/b88ab5ffd8f4c5382e577f7ff7b36ee33b1bc739/test/syntax.jl#L4620-L4661"
+          snippet: |
+            # #59755 - Don't hoist global declarations out of toplevel-preserving syntax
+            module M59755 end
+            @testset "toplevel-preserving syntax" begin
+                Core.eval(M59755, :(if true
+                                        global v1::Bool
+                                    else
+                                        const v1 = 1
+                                    end))
+                @test !isdefined(M59755, :v1)
+                @test Base.binding_kind(M59755, :v1) == Base.PARTITION_KIND_GLOBAL
+                @test Core.get_binding_type(M59755, :v1) == Bool
+
+                Core.eval(M59755, :(if false
+                                        global v2::Bool
+                                    else
+                                        const v2 = 2
+                                    end))
+                @test M59755.v2 === 2
+                @test Base.binding_kind(M59755, :v2) == Base.PARTITION_KIND_CONST
+
+                Core.eval(M59755, :(v3 = if true
+                                        global v4::Bool
+                                        4
+                                    else
+                                        const v4 = 5
+                                        6
+                                    end))
+                @test M59755.v3 == 4
+                @test !isdefined(M59755, :v4)
+                @test Base.binding_kind(M59755, :v4) == Base.PARTITION_KIND_GLOBAL
+                @test Core.get_binding_type(M59755, :v4) == Bool
+
+                Core.eval(M59755, :(v5 = if false
+                                        global v6::Bool
+                                        4
+                                    else
+                                        const v6 = 5
+                                        6
+                                    end))
+                @test M59755.v5 === 6
+                @test M59755.v6 === 5
+                @test Base.binding_kind(M59755, :v6) == Base.PARTITION_KIND_CONST
+            end
+
+  secondary_effects:
+    - effect: "Two-path structure in cl-convert- determines how expressions are processed"
+      mechanism: |
+        CRITICAL INSIGHT: cl-convert- has two distinct code paths based on whether we are
+        inside a lambda body or at toplevel:
+
+        Path 1 - Toplevel expressions (lam=#f):  [julia-syntax.scm:4092-4095]
+          (if (and (not lam)
+                   (not (and (pair? e) (memq (car e) '(lambda method macro opaque_closure)))))
+              (if (atom? e) e
+                  (cons (car e) (map-cl-convert (cdr e) ... toplevel ...)))  ; <-- THIS PATH
+              (cond ...))
+
+        Path 2 - Lambda bodies or lambda forms:  [julia-syntax.scm:4096-4474]
+          (cond
+            ((symbol? e) ...)
+            ((=) ...)        ; <-- specific handlers for different expression types
+            ((global) ...)
+            ...
+            (else (cons (car e) (map-cl-convert (cdr e) ... (and toplevel (toplevel-preserving? e)) ...))))
+
+        The bug occurred in Path 1: when processing `(block (= v3 (if ...)))` at toplevel,
+        the OLD map-cl-convert would check each child for toplevel-preserving?. Since `=`
+        was NOT in the list, `(= v3 (if ...))` received toplevel=#f, breaking the hoisting.
+
+        Note: The `((=)` case in Path 2 is ONLY reached inside lambda bodies. At toplevel
+        (lam=#f), Path 1 is used instead, which directly calls map-cl-convert on all children.
+      downstream_surfaces:
+        - "All toplevel code processing"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "Global declarations in assignment RHS now correctly hoisted at toplevel"
+      mechanism: |
+        The change affects how the `toplevel` flag propagates during closure conversion.
+
+        Detailed trace for `(block (= v3 (if true (block (global v4)) ...)))` at toplevel:
+
+        1. cl-convert-(e=(block ...), lam=#f, toplevel=#t)  [line 4092-4095]
+           -> (not lam)=#t, block is not a lambda form
+           -> Takes Path 1: (cons 'block (map-cl-convert [(= v3 (if ...))] ... toplevel=#t))
+
+        2. OLD map-cl-convert with toplevel=#t:  [line 4068-4076]
+           -> For child (= v3 (if ...)):
+           -> Checked: (and #t (toplevel-preserving? (= ...))) = (and #t #f) = #f
+           -> Called cl-convert((= ...), toplevel=#f)  <-- BUG: toplevel incorrectly set to #f!
+
+        3. NEW map-cl-convert with toplevel=#t:
+           -> For child (= v3 (if ...)):
+           -> Passes toplevel=#t directly (no per-child check)
+           -> Called cl-convert((= ...), toplevel=#t)  <-- FIXED!
+
+        4. cl-convert- processes (= v3 (if ...)) with toplevel=#t (fixed):
+           -> Still takes Path 1 (lam=#f, = is not lambda form)
+           -> (cons '= (map-cl-convert [v3, (if ...)] ... toplevel=#t))
+
+        5. (if ...) processed with toplevel=#t, global declarations inside get proper hoisting
+
+        lift-toplevel collects all `toplevel-butfirst` expressions:  [line 3828-3844]
+          -> Extracts the declare_global statements to hoist to top level
+          -> The declarations are moved outside the conditional
+      downstream_surfaces:
+        - "Code using `global` declarations inside conditionals assigned to variables"
+        - "Code using `const` declarations inside conditionals assigned to variables"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Const declarations inside conditionals now properly handle toplevel context"
+      mechanism: |
+        The same fix applies to `const` expressions. When you have:
+
+        z = if cond
+            const a = 1
+        else
+            const a = 2
+        end
+
+        The `const` expressions inside the `if` branches now correctly receive the
+        toplevel flag. Without this fix, the const declarations might not be processed
+        correctly at toplevel because the enclosing `=` would drop the toplevel flag.
+
+        Adding `const` to toplevel-preserving? ensures that nested const declarations
+        inside an outer const expression also preserve the toplevel context.
+      downstream_surfaces:
+        - "Code using nested const declarations"
+        - "Code with const declarations in conditional expressions"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "No change to non-toplevel closure conversion"
+      mechanism: |
+        The fix only affects toplevel code paths. Inside function bodies:
+
+        1. Lambda bodies are processed with toplevel=#f:  [julia-syntax.scm:4437]
+           (map-cl-convert (cdr (lam:body e)) 'anon e (table) #f #f ...)
+                                                        ^-- toplevel=#f
+
+        2. map-cl-convert with toplevel=#f:  [line 4076]
+           -> Uses the non-lifting path:
+              (map (lambda (x) (cl-convert x ... #f ...)) exprs)
+
+        The `toplevel-preserving?` check only matters when toplevel=#t, so function
+        bodies are completely unaffected by this change.
+      downstream_surfaces: []
+      likelihood: "high"
+      impact: "none"
+
+    - effect: "Interaction with `toplevel-butfirst` and `lift-toplevel`"
+      mechanism: |
+        When processing global declarations at toplevel:
+
+        1. cl-convert for `(global x)` generates:  [julia-syntax.scm:4167-4176]
+           (toplevel-butfirst
+             (unused-only global)
+             (call (core declare_global) (thismodule) (inert x) (false))
+             (latestworld))
+
+        2. lift-toplevel traverses the AST recursively:  [julia-syntax.scm:3828-3844]
+           (define (lift-toplevel e)
+             (let ((top '()))
+               (define (lift- e)
+                 (if (or (atom? e) (quoted? e))
+                     e
+                     (let ((e (cons (car e) (map lift- (cdr e)))))
+                       (if (eq? (car e) 'toplevel-butfirst)
+                           (begin (set! top (cons (cddr e) top))
+                                  (cadr e))  ; return the first element
+                           e))))
+               ...))
+
+        3. The collected `top` statements are moved to toplevel outside the conditional
+
+        The fix ensures that when `=` wraps an `if`, the nested `toplevel-butfirst`
+        forms are correctly discovered and lifted because the `if` is processed with
+        toplevel=#t, which causes lift-toplevel to be applied.
+      downstream_surfaces:
+        - "Code relying on precise toplevel global declaration timing"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "toplevel-preserving? function in julia-syntax.scm"
+        change: "Now includes `=` and `const` in the list of toplevel-preserving forms"
+        affected_tools: []
+      - field: "map-cl-convert toplevel flag propagation"
+        change: "Children now receive toplevel flag based on parent, not individual child checks"
+        affected_tools: []
+    behavioral:
+      - field: "Global declarations in conditionals wrapped by assignment"
+        change: "Now correctly hoisted to toplevel (matches expected behavior)"
+        affected_tools: []
+      - field: "Const declarations in conditionals wrapped by assignment"
+        change: "Now correctly processed at toplevel"
+        affected_tools: []
+
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: Negligible"
+        details: |
+          The change is a simple restructuring of where the `toplevel-preserving?` check
+          is performed. The check is O(1) - just a memq lookup in a constant list.
+          No additional passes or complex computations are added.
+    runtime:
+      - impact: "ESTIMATED: None"
+        details: |
+          This change only affects the lowering phase during compilation. The generated
+          code is identical for correctly-behaving inputs. For the bug case (global
+          declarations in conditionals), the generated code is now correct but the
+          runtime semantics are the same - global declarations happen at load time.
+
+  risk:
+    level: "low"
+    rationale:
+      - "This is a bug fix that restores expected behavior"
+      - "The change is localized to closure conversion logic"
+      - "Comprehensive tests added for the specific bug scenario"
+      - "PR merged by Julia core team after review"
+      - "The semantic of toplevel-preserving is clearly defined"
+      - "Non-toplevel code paths are completely unaffected"
+
+  open_questions:
+    - question: "Could any code depend on the buggy behavior?"
+      resolved: true
+      answer: |
+        Highly unlikely. The buggy behavior caused global declarations to be
+        execution-dependent when they should be unconditional. Any code relying
+        on this would have inconsistent module bindings depending on control flow,
+        which is unexpected and error-prone behavior.
+
+    - question: "Why was this regression introduced in PR #58279?"
+      resolved: true
+      answer: |
+        PR #58279 likely changed how toplevel flag propagation works as part of
+        other lowering improvements. The original logic checked each child
+        individually with toplevel-preserving?, which caused `=` and `const`
+        expressions (which were not in the list) to not propagate toplevel to
+        their children. This PR corrects the logic by checking the parent
+        expression instead of children, and adding the missing forms to the list.
+
+  recommendations:
+    - "No action required for most users - this is a bug fix"
+    - "Code using global declarations in conditional expressions should work correctly now"
+    - "If any code was working around this bug, the workarounds can be removed"
+
+changelog_entry:
+  category: "Compiler/Lowering"
+  breaking: false
+  summary: |
+    Fixed a regression where global and const declarations inside conditional
+    expressions (if/else) were not properly hoisted to the toplevel when the
+    conditional was wrapped in an assignment expression. Global declarations
+    inside `y = if cond global x end` are now correctly processed as toplevel
+    declarations.
+  downstream_impact: |
+    This is a bug fix with no expected breaking changes. Code that was affected
+    by the bug will now work correctly. The fix ensures that global and const
+    declarations inside conditionals are unconditionally processed at module
+    load time, regardless of control flow wrapping.
+
+downstream_package_impact:
+  Turing_jl: "none - bug fix in lowering, does not affect inference or AD"
+  Enzyme_jl: "none - bug fix in lowering, does not affect differentiation"
+  GPUCompiler: "none - bug fix in lowering, does not affect GPU code generation"
+  JET: "none - bug fix in lowering, semantic analysis unaffected"
+  IRTools: "none - bug fix in lowering, IR manipulation unaffected"
+  Cassette: "none - bug fix in lowering, code transformation unaffected"
+
+code_path_trace:
+  toplevel_preserving_check:
+    description: "How toplevel-preserving? determines if an expression preserves toplevel context"
+    steps:
+      - location: "src/julia-syntax.scm:4065-4066"
+        url: "https://github.com/JuliaLang/julia/blob/b88ab5ffd8f4c5382e577f7ff7b36ee33b1bc739/src/julia-syntax.scm#L4065-L4066"
+        code: |
+          (define (toplevel-preserving? e)
+            (and (pair? e) (memq (car e) '(if elseif block trycatch tryfinally trycatchelse = const))))
+        explanation: |
+          Returns true if the expression head is one of the syntax forms that should
+          preserve the toplevel context for their children. The list now includes
+          `=` and `const` in addition to the control flow forms.
+
+  map_cl_convert_toplevel_handling:
+    description: "How map-cl-convert handles toplevel flag for children"
+    steps:
+      - location: "src/julia-syntax.scm:4068-4076"
+        url: "https://github.com/JuliaLang/julia/blob/b88ab5ffd8f4c5382e577f7ff7b36ee33b1bc739/src/julia-syntax.scm#L4068-L4076"
+        code: |
+          (define (map-cl-convert exprs fname lam namemap defined toplevel interp opaq toplevel-pure parsed-method-stack (globals (table)) (locals (table)))
+            (if toplevel
+                (map (lambda (x)
+                       (let ((tl (lift-toplevel (cl-convert x fname lam namemap defined toplevel interp opaq toplevel-pure parsed-method-stack globals locals))))
+                         (if (null? (cdr tl))
+                             (car tl)
+                             `(block ,@(cdr tl) ,(car tl)))))
+                     exprs)
+                (map (lambda (x) (cl-convert x fname lam namemap defined #f interp opaq toplevel-pure parsed-method-stack globals locals)) exprs)))
+        explanation: |
+          When toplevel=#t, applies lift-toplevel to each child after cl-convert.
+          When toplevel=#f, just recursively processes children without lifting.
+          The key change: children now receive the toplevel flag directly, rather
+          than being individually checked with toplevel-preserving?.
+
+  cl_convert_else_branch_call:
+    description: "How cl-convert- calls map-cl-convert for default expressions"
+    steps:
+      - location: "src/julia-syntax.scm:4472-4474"
+        url: "https://github.com/JuliaLang/julia/blob/b88ab5ffd8f4c5382e577f7ff7b36ee33b1bc739/src/julia-syntax.scm#L4472-L4474"
+        code: |
+          (else
+           (cons (car e)
+                 (map-cl-convert (cdr e) fname lam namemap defined (and toplevel (toplevel-preserving? e)) interp opaq toplevel-pure parsed-method-stack globals locals)))
+        explanation: |
+          For expressions not handled by specific cases, the children are processed
+          via map-cl-convert. The toplevel flag passed is (and toplevel (toplevel-preserving? e)),
+          meaning children only get toplevel=#t if BOTH the current context is toplevel
+          AND the parent expression is toplevel-preserving.
+
+  lift_toplevel_extraction:
+    description: "How lift-toplevel extracts toplevel-butfirst statements"
+    steps:
+      - location: "src/julia-syntax.scm:3828-3844"
+        url: "https://github.com/JuliaLang/julia/blob/b88ab5ffd8f4c5382e577f7ff7b36ee33b1bc739/src/julia-syntax.scm#L3828-L3844"
+        code: |
+          ;; collect all toplevel-butfirst expressions inside `e`, and return
+          ;; (ex . stmts), where `ex` is the expression to evaluated and
+          ;; `stmts` is a list of statements to move to the top level.
+          (define (lift-toplevel e)
+            (let ((top '()))
+              (define (lift- e)
+                (if (or (atom? e) (quoted? e))
+                    e
+                    (let ((e (cons (car e) (map lift- (cdr e)))))
+                      (if (eq? (car e) 'toplevel-butfirst)
+                          (begin (set! top (cons (cddr e) top))
+                                 (cadr e))
+                          e))))
+              (let ((e2 (lift- e)))
+                (let ((stmts (apply append (reverse top))))
+                  ;; move all type definitions first
+                  (receive (structs others)
+                           (separate (lambda (x) (and (pair? x) (eq? (car x) 'thunk)))
+                                     stmts)
+                    (cons e2 (append structs others)))))))
+        explanation: |
+          Recursively walks the AST looking for `toplevel-butfirst` forms.
+          When found, extracts the statements (cddr) to be hoisted to toplevel,
+          and replaces the form with its first element (cadr).
+          Returns (expression . hoisted-statements).
+
+  global_declaration_generation:
+    description: "How global declarations generate toplevel-butfirst forms"
+    steps:
+      - location: "src/julia-syntax.scm:4167-4176"
+        url: "https://github.com/JuliaLang/julia/blob/b88ab5ffd8f4c5382e577f7ff7b36ee33b1bc739/src/julia-syntax.scm#L4167-L4176"
+        code: |
+          ((global)
+           `(toplevel-butfirst
+             (unused-only global)
+             ;; Leftover `global` forms become weak globals.
+             ,.(if toplevel-pure
+                   '()
+                   `(,(if (globalref? (cadr e))
+                          `(call (core declare_global) ,(cadr (cadr e)) (inert ,(caddr (cadr e))) (false))
+                          `(call (core declare_global) (thismodule) (inert ,(cadr e)) (false)))
+                     (latestworld)))))
+        explanation: |
+          When cl-convert processes a `global` form, it wraps the declaration in
+          toplevel-butfirst so that lift-toplevel can extract and hoist the
+          declare_global call. This ensures global declarations are processed
+          at module load time, not conditionally at runtime.
+
+test_coverage:
+  new_tests:
+    - file: "test/syntax.jl"
+      lines: "4620-4661"
+      description: "Tests for toplevel-preserving syntax with global and const declarations"
+      code: |
+        # #59755 - Don't hoist global declarations out of toplevel-preserving syntax
+        module M59755 end
+        @testset "toplevel-preserving syntax" begin
+            # Test: if true branch with global declaration
+            Core.eval(M59755, :(if true
+                                    global v1::Bool
+                                else
+                                    const v1 = 1
+                                end))
+            @test !isdefined(M59755, :v1)
+            @test Base.binding_kind(M59755, :v1) == Base.PARTITION_KIND_GLOBAL
+            @test Core.get_binding_type(M59755, :v1) == Bool
+
+            # Test: if false branch with const declaration
+            Core.eval(M59755, :(if false
+                                    global v2::Bool
+                                else
+                                    const v2 = 2
+                                end))
+            @test M59755.v2 === 2
+            @test Base.binding_kind(M59755, :v2) == Base.PARTITION_KIND_CONST
+
+            # Test: assignment wrapping if with global (the bug case)
+            Core.eval(M59755, :(v3 = if true
+                                    global v4::Bool
+                                    4
+                                else
+                                    const v4 = 5
+                                    6
+                                end))
+            @test M59755.v3 == 4
+            @test !isdefined(M59755, :v4)
+            @test Base.binding_kind(M59755, :v4) == Base.PARTITION_KIND_GLOBAL
+            @test Core.get_binding_type(M59755, :v4) == Bool
+
+            # Test: assignment wrapping if with const
+            Core.eval(M59755, :(v5 = if false
+                                    global v6::Bool
+                                    4
+                                else
+                                    const v6 = 5
+                                    6
+                                end))
+            @test M59755.v5 === 6
+            @test M59755.v6 === 5
+            @test Base.binding_kind(M59755, :v6) == Base.PARTITION_KIND_CONST
+        end
+
+  cl_convert_two_path_structure:
+    description: "The two distinct code paths in cl-convert- based on context"
+    steps:
+      - location: "src/julia-syntax.scm:4091-4095"
+        url: "https://github.com/JuliaLang/julia/blob/b88ab5ffd8f4c5382e577f7ff7b36ee33b1bc739/src/julia-syntax.scm#L4091-L4095"
+        code: |
+          (define (cl-convert- e fname lam namemap defined toplevel interp opaq toplevel-pure parsed-method-stack (globals (table)) (locals (table)))
+            (if (and (not lam)
+                     (not (and (pair? e) (memq (car e) '(lambda method macro opaque_closure)))))
+                (if (atom? e) e
+                    (cons (car e) (map-cl-convert (cdr e) fname lam namemap defined toplevel interp opaq toplevel-pure parsed-method-stack globals locals)))
+                (cond
+                  ((symbol? e) ...)
+                  ...
+                  ((=) ...)
+                  ...
+                  (else ...))))
+        explanation: |
+          CRITICAL: cl-convert- has TWO paths:
+          1. Path 1 (lines 4092-4095): For toplevel expressions (lam=#f and e is not a lambda form)
+             - Reconstructs expression as (cons (car e) (map-cl-convert (cdr e) ...))
+             - Does NOT use the cond branch with specific case handlers like ((=) ...)
+             - THIS is where the bug manifested - map-cl-convert's per-child check was wrong
+
+          2. Path 2 (lines 4096-4474): For lambda bodies or lambda forms
+             - Uses cond with specific case handlers
+             - The ((=) ...) case at line 4151 is ONLY reached in this path
+             - The else branch at line 4472 is also in this path
+
+          The key insight: at toplevel, `=` expressions go through Path 1, not the ((=) ...) case!
+          The bug was in map-cl-convert's per-child checking, which incorrectly set toplevel=#f
+          for `=` expressions because `=` wasn't in the toplevel-preserving? list.
+
+reviewer_notes:
+  initial_reviewer: "automated_analysis"
+  initial_date: "2026-01-21"
+  enhanced_by: "second_pass_analysis"
+  enhanced_date: "2026-01-21"
+  verification_method: |
+    1. Read PR metadata and description from pr-archive
+    2. Analyzed the diff to understand the code changes
+    3. Read full source context of src/julia-syntax.scm
+    4. Traced call chains through cl-convert, map-cl-convert, lift-toplevel
+    5. Read issue #59755 to understand the bug being fixed
+    6. Analyzed test cases to verify expected behavior
+    7. [ENHANCED] Checked out PR branch and read complete source files
+    8. [ENHANCED] Traced the two-path structure in cl-convert- (lines 4091-4474)
+    9. [ENHANCED] Verified line numbers against actual source code
+    10. [ENHANCED] Investigated PR #58279 which introduced the regression
+  findings:
+    - "This is a straightforward bug fix for a lowering regression"
+    - "The change correctly moves the toplevel-preserving check to the parent expression"
+    - "Adding `=` and `const` to toplevel-preserving? ensures their children get toplevel context"
+    - "The fix has minimal risk as it restores expected behavior"
+    - "Non-toplevel code paths are completely unaffected"
+    - "Test coverage is comprehensive for the specific bug scenario"
+    - "[ENHANCED] cl-convert- has two distinct paths - Path 1 for toplevel (lam=#f), Path 2 for lambda bodies"
+    - "[ENHANCED] At toplevel, `=` expressions use Path 1, NOT the ((=) ...) case handler in Path 2"
+    - "[ENHANCED] The bug was specifically in map-cl-convert's OLD per-child toplevel-preserving? check"
+    - "[ENHANCED] PR #58279 introduced Core.declare_global and toplevel-butfirst hoisting mechanism"
+  confidence: "high"
+  rationale: |
+    The PR is a well-targeted fix for a specific regression. The logic change is clear:
+    instead of checking each child individually for toplevel-preserving, check the parent
+    expression once. Adding `=` and `const` to the list ensures that assignment expressions
+    preserve the toplevel context for their RHS, which is the correct semantic behavior.
+
+    ENHANCED ANALYSIS: The critical insight is that cl-convert- has two distinct code paths.
+    Path 1 (lines 4092-4095) handles toplevel expressions when lam=#f, and this is where
+    map-cl-convert is called directly. Path 2 (lines 4096-4474) handles lambda bodies and
+    includes specific case handlers like ((=) ...). At toplevel, `=` expressions go through
+    Path 1, so the ((=) ...) case handler is NOT reached. The bug was in map-cl-convert's
+    per-child check, which incorrectly marked `=` children as non-toplevel because `=` wasn't
+    in the toplevel-preserving? list.
