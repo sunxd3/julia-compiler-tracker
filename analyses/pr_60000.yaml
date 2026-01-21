@@ -1,0 +1,677 @@
+schema_version: "1.0"
+
+pr:
+  number: 60000
+  title: "Reapply 'precompile: fail in (closer to) linear time and linear error messages' with fixes"
+  url: "https://github.com/JuliaLang/julia/pull/60000"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60000.diff"
+  author: "vtjnash"
+  labels:
+    - "don't squash"
+    - "re-land"
+    - "backport 1.13"
+  created_at: "2025-10-31T05:49:58Z"
+  merged_at: "2025-11-10T17:54:14Z"
+  merge_commit_sha: "cd0d942f1144807d46c132f6fd33ce62f0c03d71"
+  included_commits:
+    - sha: "cd0d942"
+      message: "Reapply 'precompile: fail in (closer to) linear time and linear error messages'"
+    - sha: "12adf71"
+      message: "precompile: fix deps list for extensions relying on stdlibs"
+
+scope:
+  files_touched:
+    - "base/precompilation.jl"
+    - "doc/src/devdocs/precompile_hang.md"
+    - "src/jl_uv.c"
+    - "test/loading.jl"
+    - "test/precompile.jl"
+  components:
+    - "Base.Precompilation"
+    - "Runtime (jl_uv.c)"
+  pipeline_stages:
+    - "Precompilation"
+    - "Package Loading"
+
+analysis:
+  intent:
+    summary: |
+      This PR relands a previously reverted change that improves precompilation failure handling.
+      The key goals are:
+      1. Achieve linear-time failure handling (previously could be quadratic)
+      2. Produce linear-sized error messages (not repeating errors for transitive dependents)
+      3. Use --compiled-modules=strict to fail fast when dependencies fail to precompile
+      4. Fix IO handling issues that caused background precompilation problems (#59599)
+      5. Properly handle extensions with sysimage triggers
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59599"
+    quoted_from_pr: |
+      With thanks to Ian and Kristoffer for pointing out the needed fixes
+
+  direct_changes:
+    - summary: "Add --compiled-modules=strict flag for parallel precompilation"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1120-1125"
+          url: "https://github.com/JuliaLang/julia/blob/cd0d942f1144807d46c132f6fd33ce62f0c03d71/base/precompilation.jl#L1120-L1125"
+          snippet: |
+            if !isempty(deps)
+                # if deps is empty, either it doesn't have any (so compiled-modules is
+                # irrelevant) or we couldn't compute them (so we actually should attempt
+                # serial compile, as the dependencies are not in the parallel list)
+                flags = `$flags --compiled-modules=strict`
+            end
+
+    - summary: "Split IO into logio (progress) and io (errors) for proper output handling"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "608-618"
+          url: "https://github.com/JuliaLang/julia/blob/cd0d942f1144807d46c132f6fd33ce62f0c03d71/base/precompilation.jl#L608-L618"
+          snippet: |
+            logio = io
+            logcalls = nothing
+            if _from_loading
+                if isinteractive()
+                    logcalls = CoreLogging.Info # sync with Base.compilecache
+                else
+                    logio = IOContext{IO}(devnull)
+                    fancyprint = false
+                    logcalls = CoreLogging.Debug # sync with Base.compilecache
+                end
+            end
+
+    - summary: "Filter away failed dependency output if requested packages succeed"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1227-1242"
+          url: "https://github.com/JuliaLang/julia/blob/cd0d942f1144807d46c132f6fd33ce62f0c03d71/base/precompilation.jl#L1227-L1242"
+          snippet: |
+            # Determine if any of failures were a requested package
+            requested_errs = false
+            for ((dep, config), err) in failed_deps
+                if dep in requested_pkgids
+                    requested_errs = true
+                    break
+                end
+            end
+            # if every requested package succeeded, filter away output from failed packages
+            # since it didn't contribute to the overall success and can be regenerated if that package is later required
+            if !strict && !requested_errs
+                for (pkg_config, err) in failed_deps
+                    delete!(std_outputs, pkg_config)
+                end
+                empty!(failed_deps)
+            end
+
+    - summary: "Handle extension triggers in sysimage correctly"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "663-671"
+          url: "https://github.com/JuliaLang/julia/blob/cd0d942f1144807d46c132f6fd33ce62f0c03d71/base/precompilation.jl#L663-L671"
+          snippet: |
+            for trigger_uuid in trigger_uuids
+                trigger_name = Base.PkgId(trigger_uuid, env.names[trigger_uuid])
+                if trigger_uuid in keys(env.deps) || Base.in_sysimage(trigger_name)
+                    push!(triggers[ext], trigger_name)
+                else
+                    all_triggers_available = false
+                    break
+                end
+            end
+
+    - summary: "Restrict __precompile__(false) check to single requested packages from loading"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1071-1079"
+          url: "https://github.com/JuliaLang/julia/blob/cd0d942f1144807d46c132f6fd33ce62f0c03d71/base/precompilation.jl#L1071-L1079"
+          snippet: |
+            # Heuristic for when precompilation is disabled, which must not over-estimate however for any dependent
+            # since it will also block precompilation of all dependents
+            if _from_loading && single_requested_pkg && occursin(r"\b__precompile__\(\s*false\s*\)", read(sourcepath, String))
+                @lock print_lock begin
+                    Base.@logmsg logcalls "Disabled precompiling $(repr("text/plain", pkg)) since the text `__precompile__(false)` was found in file."
+                end
+                notify(was_processed[pkg_config])
+                continue
+            end
+
+    - summary: "Simplify error message construction to linear-time algorithm"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1316-1333"
+          url: "https://github.com/JuliaLang/julia/blob/cd0d942f1144807d46c132f6fd33ce62f0c03d71/base/precompilation.jl#L1316-L1333"
+          snippet: |
+            # Fail noisily now with failed_deps if any.
+            # Include all messages from compilecache since any might be relevant in the failure.
+            if !isempty(failed_deps)
+                err_str = IOBuffer()
+                for ((dep, config), err) in failed_deps
+                    write(err_str, "\n")
+                    print(err_str, "\n", dep.name, " ")
+                    join(err_str, config[1], " ")
+                    print(err_str, "\n", err)
+                end
+                n_errs = length(failed_deps)
+                pluraled = n_errs == 1 ? "" : "s"
+                err_msg = "The following $n_errs package$(pluraled) failed to precompile:$(String(take!(err_str)))\n"
+                if internal_call
+                    # Pkg does not implement correct error handling, so this sometimes handles them instead
+                    print(io, err_msg)
+                else
+                    throw(PkgPrecompileError(err_msg))
+                end
+            end
+
+    - summary: "Update 'waiting for IO' message to be more descriptive"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/jl_uv.c"
+          loc: "71-73"
+          url: "https://github.com/JuliaLang/julia/blob/cd0d942f1144807d46c132f6fd33ce62f0c03d71/src/jl_uv.c#L71-L73"
+          snippet: |
+            jl_safe_printf("\n[pid %zd] Waiting for background task / IO / timer to finish:\n"
+                           " Handle type        uv_handle_t->data\n",
+                           (size_t)uv_os_getpid());
+
+    - summary: "Add extension dependencies to triggers for proper ordering"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "693-700"
+          url: "https://github.com/JuliaLang/julia/blob/cd0d942f1144807d46c132f6fd33ce62f0c03d71/base/precompilation.jl#L693-L700"
+          snippet: |
+            # An extension effectively depends on another extension if it has a strict superset of its triggers
+            for ext_a in keys(ext_to_parent)
+                for ext_b in keys(ext_to_parent)
+                    if triggers[ext_a] ⊋ triggers[ext_b]
+                        push!(triggers[ext_a], ext_b)
+                        push!(direct_deps[ext_a], ext_b)
+                    end
+                end
+            end
+
+    - summary: "Change loadable_exts computation from direct_deps to triggers for extensions"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1118-1119"
+          url: "https://github.com/JuliaLang/julia/blob/cd0d942f1144807d46c132f6fd33ce62f0c03d71/base/precompilation.jl#L1118-L1119"
+          snippet: |
+            # for extensions, any extension that can trigger it needs to be accounted for here (even stdlibs, which are excluded from direct_deps)
+            loadable_exts = haskey(ext_to_parent, pkg) ? filter((dep)->haskey(ext_to_parent, dep), triggers[pkg]) : nothing
+        - source: "analysis"
+          note: |
+            CRITICAL FIX: Changed from direct_deps[pkg] to triggers[pkg].
+            direct_deps filters out sysimage packages, but triggers now includes them
+            via the Base.in_sysimage check at line 665. This fix (commit 12adf71) was
+            added on top of the main PR to handle extensions relying on stdlibs.
+
+    - summary: "Removed interactive error storage in Base.MainInclude.err"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1327-1332"
+          url: "https://github.com/JuliaLang/julia/blob/cd0d942f1144807d46c132f6fd33ce62f0c03d71/base/precompilation.jl#L1327-L1332"
+          snippet: |
+            if internal_call
+                # Pkg does not implement correct error handling, so this sometimes handles them instead
+                print(io, err_msg)
+            else
+                throw(PkgPrecompileError(err_msg))
+            end
+        - source: "analysis"
+          note: |
+            OLD behavior (removed):
+              if internal_call && isinteractive()
+                  println(io, "  N dependencies errored.")
+                  println(io, "  For a report of the errors see `julia> err`. To retry use `pkg> precompile`")
+                  setglobal!(Base.MainInclude, :err, PkgPrecompileError(err_msg))
+              else
+                  print(io, "\n", err_msg)
+
+            NEW behavior: Simply prints error message when internal_call=true, or throws
+            PkgPrecompileError when internal_call=false. The interactive hint to use
+            `julia> err` is no longer shown.
+
+  secondary_effects:
+    - effect: "Precompilation failures now propagate immediately with --compiled-modules=strict"
+      mechanism: |
+        Call chain:
+        _precompilepkgs() [precompilation.jl:563]
+          -> if !isempty(deps) add --compiled-modules=strict [precompilation.jl:1120-1124]
+          -> Base.compilecache() [precompilation.jl:1150]
+            -> spawns julia subprocess with --compiled-modules=strict flag
+
+        With --compiled-modules=strict, when a dependent package tries to load a dependency
+        that failed to precompile, it immediately fails rather than attempting serial
+        compilation in the subprocess. This converts quadratic work (N packages each trying
+        to compile M failed dependencies) to linear work.
+      downstream_surfaces:
+        - "All packages with complex dependency trees"
+        - "CI systems running precompilation"
+        - "Users with packages that have precompilation errors"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "Failed transitive dependency errors no longer cascade to all dependents"
+      mechanism: |
+        Call chain for error filtering:
+        _precompilepkgs() [precompilation.jl:563]
+          -> After precompilation loop completes
+          -> Check: requested_errs = any dep in requested_pkgids failed [precompilation.jl:1228-1233]
+          -> If !strict && !requested_errs: empty!(failed_deps) [precompilation.jl:1237-1241]
+          -> Error message only includes directly failed packages [precompilation.jl:1316-1331]
+
+        Previously, if package A depends on B depends on C, and C fails:
+        - OLD: Error messages for C, B, A (all three reported as failed)
+        - NEW: Only report C's failure; B and A silently skipped
+             (their precompilation can be reattempted later when C is fixed)
+
+        This produces O(1) error messages per root failure instead of O(N) where
+        N is the number of transitive dependents.
+      downstream_surfaces:
+        - "Error message parsing in CI systems"
+        - "Pkg error handling"
+        - "IDE precompilation status displays"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Non-interactive background precompilation now properly suppresses output"
+      mechanism: |
+        The PR introduces a split between `io` and `logio`:
+        - `io`: Used for error output (always goes to original stderr)
+        - `logio`: Used for progress output (suppressed when _from_loading && !isinteractive)
+
+        Key code path [precompilation.jl:608-618]:
+        if _from_loading
+            if isinteractive()
+                logcalls = CoreLogging.Info
+            else
+                logio = IOContext{IO}(devnull)  # <- Progress goes to /dev/null
+                fancyprint = false
+                logcalls = CoreLogging.Debug
+            end
+        end
+
+        This fixes issue #59599 where background precompilation could corrupt terminal
+        output with progress bars when running non-interactively.
+      downstream_surfaces:
+        - "Scripts using `using SomePackage`"
+        - "CI/CD pipelines"
+        - "Jupyter kernels and other non-TTY environments"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Extensions with stdlib triggers now properly recognized"
+      mechanism: |
+        Change at [precompilation.jl:663-671]:
+        Previously: trigger_uuid in keys(env.deps)
+        Now: trigger_uuid in keys(env.deps) || Base.in_sysimage(trigger_name)
+
+        This allows extensions to be precompiled when their triggers include
+        standard library packages that are already in the sysimage and thus
+        not listed in env.deps.
+
+        Example: An extension triggered by LinearAlgebra (in sysimage) now works correctly.
+      downstream_surfaces:
+        - "Extensions depending on stdlib packages"
+        - "Packages like Enzyme.jl, GPUArrays.jl that may have stdlib triggers"
+      likelihood: "medium"
+      impact: "medium"
+
+    - effect: "__precompile__(false) check now more precise to avoid blocking dependents"
+      mechanism: |
+        Old behavior: Any package with __precompile__(false) text would skip precompilation,
+        blocking all its dependents from parallel precompilation.
+
+        New behavior [precompilation.jl:1071-1079]:
+        The check is only performed when:
+        1. _from_loading is true (called from the loading system)
+        2. single_requested_pkg is true (only one package explicitly requested)
+        3. The regex \b__precompile__\(\s*false\s*\) matches
+
+        This prevents a single non-precompilable package from cascading to block
+        the entire dependency graph's parallel precompilation.
+      downstream_surfaces:
+        - "Packages with __precompile__(false)"
+        - "Dependencies of such packages"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "Potential bug: monitor_std thistaskwaiting logic appears inverted"
+      mechanism: |
+        Code at [precompilation.jl:928-941]:
+        local thistaskwaiting = false  # Line 915: initialized to false
+        if thistaskwaiting  # Line 928: checks if true (always false!)
+            if occursin("Waiting for background task / IO / timer", str)
+                thistaskwaiting = true  # Never reached
+                ...
+            end
+        else
+            # This branch always executes
+            !liveprinting && !fancyprint && @lock print_lock begin
+                print(io, ansi_cleartoendofline, str)
+            end
+        end
+
+        ANALYSIS: The check for "Waiting for background task" message is inside the
+        `if thistaskwaiting` block, but `thistaskwaiting` starts as false and can only
+        be set to true inside that block. This means the detection for background task
+        waiting messages may not function as intended.
+
+        POSSIBLE INTENT: The condition should likely be `if !thistaskwaiting` to check
+        for the message when waiting hasn't been detected yet, then set the flag.
+      downstream_surfaces:
+        - "Precompilation progress output for packages with background tasks"
+        - "Detection of packages stuck on IO/timers"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Silent suppression of transitive dependency failures when requested packages succeed"
+      mechanism: |
+        Code at [precompilation.jl:1235-1242]:
+        if !strict && !requested_errs
+            for (pkg_config, err) in failed_deps
+                delete!(std_outputs, pkg_config)
+            end
+            empty!(failed_deps)
+        end
+
+        When the explicitly requested packages succeed but transitive dependencies fail,
+        the failures are completely filtered out (failed_deps is emptied). This means:
+        - No error is thrown
+        - No warning is shown
+        - Failure information is discarded
+
+        EDGE CASE: If package A depends on B, and B fails, but A never actually loads B
+        (e.g., conditional dependency), A might succeed while B's failure is silently
+        ignored. The user gets no indication that B failed.
+      downstream_surfaces:
+        - "CI systems relying on exit codes"
+        - "Package health monitoring"
+        - "Users debugging transitive dependency issues"
+      likelihood: "medium"
+      impact: "medium"
+
+  pipeline_impact:
+    - "No direct impact on compiler stages (parsing, lowering, inference, optimization)"
+    - "Affects the precompilation orchestration in Base.Precompilation"
+    - "No changes to cache file format or method invalidation"
+
+  compatibility:
+    internal_api:
+      - field: "precompilepkgs return behavior on failure"
+        change: |
+          Now throws PkgPrecompileError for failed packages when not internal_call.
+          Previously had more complex error handling with potential global state modification.
+        affected_tools:
+          - "Pkg.jl (main caller of precompilepkgs)"
+          - "Scripts calling Base.Precompilation.precompilepkgs directly"
+
+      - field: "Error message format"
+        change: |
+          Error messages now say "The following N package(s) failed to precompile:"
+          followed by linear list of failures. Previously could have nested error messages
+          with stderr output interleaved.
+        affected_tools:
+          - "Any tools parsing precompilation error output"
+
+      - field: "Base.MainInclude.err no longer set for interactive errors"
+        change: |
+          OLD: In interactive sessions with internal_call=true, errors were stored in
+          Base.MainInclude.err and users were told to run `julia> err` to see them.
+
+          NEW: Error messages are simply printed to io. The interactive hint and
+          global error storage are removed.
+
+          Code removed:
+            setglobal!(Base.MainInclude, :err, PkgPrecompileError(err_msg))
+            println(io, "  For a report of the errors see `julia> err`")
+        affected_tools:
+          - "REPL workflows that relied on `julia> err` to inspect precompilation errors"
+          - "IDE integrations that may have accessed Base.MainInclude.err"
+
+      - field: "Error stored in failed_deps now uses sprint(showerror, err) format"
+        change: |
+          OLD [precompilation.jl, removed]:
+            errmsg = String(take!(get(IOBuffer, std_outputs, pkg_config)))
+            delete!(std_outputs, pkg_config)
+            failed_deps[pkg_config] = (strict || is_project_dep) ? string(sprint(showerror, err), "\n", strip(errmsg)) : ""
+
+          NEW [precompilation.jl:1177]:
+            failed_deps[pkg_config] = sprint(showerror, err)
+
+          The error message no longer includes the captured stderr output concatenated
+          with the exception. Stderr output is now kept separate in std_outputs and
+          shown in the warnings section.
+        affected_tools:
+          - "Any code inspecting failed_deps dictionary structure"
+
+    behavioral:
+      - impact: "Packages depending on failed packages no longer show separate errors"
+        description: |
+          If package A depends on B and B fails to precompile:
+          - OLD: Both A and B reported as failed with separate errors
+          - NEW: Only B reported as failed; A's failure is implicit
+
+      - impact: "Progress output suppressed in non-interactive loading scenarios"
+        description: |
+          When using `using SomePackage` in a script (non-interactive), precompilation
+          progress bars and spinner animations are now suppressed. Only errors are shown.
+
+  performance:
+    compile_time:
+      - impact: "Significant reduction in precompilation time for failing dependency trees"
+        description: |
+          ESTIMATED: O(N) -> O(1) per failure, where N = number of transitive dependents
+
+          Previously, when package C failed, packages B (depends on C) and A (depends on B)
+          would each independently attempt to compile C, resulting in:
+          - 3 attempts to compile C (C, B trying to load C, A trying to load B->C)
+
+          With --compiled-modules=strict:
+          - 1 attempt to compile C
+          - B and A immediately fail without re-attempting C's compilation
+
+    runtime: []
+
+  tests:
+    changed_files:
+      - "test/loading.jl"
+      - "test/precompile.jl"
+    new_behavior_assertions:
+      - assertion: "Base.require now throws PkgPrecompileError for broken packages"
+        evidence: |
+          @test_throws Base.Precompilation.PkgPrecompileError Base.require(Main, :FooBar2)
+          [test/precompile.jl:690]
+
+      - assertion: "Packages with dependencies they don't load still succeed"
+        evidence: |
+          # DependsOnly should succeed because it doesn't actually load FailPkg
+          output = read(DependsOnly_output, String)
+          @test count("Precompiling DependsOnly finished.", output) == 1
+          [test/precompile.jl:2678-2685]
+
+      - assertion: "Packages that load failed dependencies fail with --compiled-modules=strict"
+        evidence: |
+          # LoadsFailPkg should fail because it tries to load FailPkg with --compiled-modules=strict
+          @test count("LoadError: expected fail", output) == 1
+          @test count("✗ FailPkg", output) > 0
+          @test count("✗ LoadsFailPkg", output) > 0
+          [test/precompile.jl:2668-2676]
+
+    coverage_gaps:
+      - "No explicit test for extensions with sysimage triggers"
+      - "No stress test for quadratic->linear time improvement measurement"
+      - "No test for the monitor_std thistaskwaiting logic"
+      - "No test for silent filtering of transitive dependency failures"
+      - "No test for the removed Base.MainInclude.err interactive behavior"
+
+  risk:
+    level: "medium"
+    rationale:
+      - "Re-landing a previously reverted PR (was reverted due to issues)"
+      - "Changes core precompilation behavior that affects all Julia users"
+      - "Introduces new --compiled-modules=strict flag in parallel precompilation"
+      - "Changes error message format which could break tooling that parses output"
+      - "The fixes (from Ian and Kristoffer) suggest subtle edge cases were found"
+      - "Marked for backport to 1.13, indicating production-readiness confidence"
+      - "Well-tested with comprehensive new test case for --compiled-modules=strict"
+
+  open_questions:
+    - "What was the specific issue that caused the original PR to be reverted?"
+    - "Are there any packages with complex extension trigger patterns that might regress?"
+    - "How does this interact with distributed precompilation (multiple Julia processes)?"
+    - "Is the thistaskwaiting logic at precompilation.jl:928-941 intentionally inverted or a bug?"
+    - "Should silent filtering of transitive dependency failures warn users in some cases?"
+    - "Why was Base.MainInclude.err interactive error storage removed - was it problematic?"
+
+  recommendations:
+    - "Pkg.jl maintainers should verify error handling still works as expected"
+    - "CI systems parsing precompilation output may need updates for new error format"
+    - "Package authors with __precompile__(false) should test that dependents still work"
+    - "IDE integrations should verify progress output suppression works correctly"
+
+classification:
+  type: "behavioral"
+  compiler_relevant: false
+  breaking_change: true
+  requires_downstream_action: true
+
+notes: |
+  This PR makes significant changes to Julia's precompilation system to improve
+  performance and error reporting. While it doesn't touch compiler internals
+  (type inference, lowering, optimization, codegen), it substantially changes
+  the behavior of the package loading system.
+
+  KEY CHANGES SUMMARY:
+
+  1. --compiled-modules=strict for parallel precompilation
+     When precompiling packages in parallel, dependencies are now loaded with
+     --compiled-modules=strict. This means if a dependency's cache file is
+     missing or invalid, the dependent package immediately fails rather than
+     attempting serial recompilation. This prevents quadratic compilation work.
+
+  2. Linear-time, linear-size error messages
+     Previously, if A depends on B depends on C, and C fails, you'd get errors
+     for C, B, and A. Now you only get C's error. The others are implicitly
+     failed and can be retried when C is fixed.
+
+  3. Split output streams (io vs logio)
+     Progress output (spinners, progress bars) now goes to `logio` which is
+     /dev/null in non-interactive loading scenarios. Error output still goes
+     to `io` (original stderr). This fixes issue #59599 where background
+     precompilation could corrupt terminal output.
+
+  4. Extension triggers in sysimage
+     Extensions can now properly be triggered by stdlib packages that are in
+     the sysimage but not in env.deps.
+
+  5. Precise __precompile__(false) detection
+     The check for __precompile__(false) is now only done for directly
+     requested packages during loading, not for dependencies. This prevents
+     one non-precompilable package from blocking its entire dependency tree.
+
+  DOWNSTREAM IMPACT:
+
+  - JET, Enzyme, IRTools, GPUCompiler, Cassette: No direct impact
+    These tools don't interact with precompilation orchestration directly.
+
+  - Pkg.jl: Should verify error handling still works correctly
+    The error message format and throw behavior has changed.
+
+  - IDE integrations: Should verify progress suppression works
+    Non-interactive scenarios now suppress progress output.
+
+  - CI systems: May need to update output parsing
+    Error message format has changed to be more linear.
+
+  This is marked as "re-land" indicating it was previously reverted. The label
+  "backport 1.13" suggests confidence that the fixes address the original issues.
+
+  ADDITIONAL COMMITS IN THIS PR (don't squash label):
+  - cd0d942: Main reapply commit
+  - 12adf71: Fix for extensions relying on stdlibs (changes loadable_exts from
+             direct_deps[pkg] to triggers[pkg])
+
+  REVIEWER NOTE (Second Pass Analysis):
+  The thistaskwaiting logic at lines 928-941 appears to be a bug introduced in
+  this PR. The condition `if thistaskwaiting` will always evaluate to false since
+  `thistaskwaiting` is initialized to false and only set to true inside that
+  unreachable block. This may cause the "Waiting for background task" detection
+  to not function. Recommend verifying this with the PR author.
+
+second_review:
+  date: "2026-01-21"
+  methodology: |
+    Independent analysis performed by checking out merge commit cd0d942f1144807d46c132f6fd33ce62f0c03d71,
+    reading full source files (not just diffs), and tracing call chains with grep/rg searches.
+    Compared findings with original analysis and added enhancements.
+
+  additional_findings:
+    - finding: "Potential bug in monitor_std thistaskwaiting logic"
+      severity: "medium"
+      description: |
+        The condition at line 928 `if thistaskwaiting` will never be true because the
+        variable is initialized to false (line 915) and is only set to true inside that
+        same conditional block (line 930), making it unreachable. The "Waiting for
+        background task" message detection likely does not function as intended.
+      evidence_loc: "precompilation.jl:915-941"
+
+    - finding: "loadable_exts computation changed from direct_deps to triggers"
+      severity: "low"
+      description: |
+        Commit 12adf71 (included in this PR) fixes extension handling for stdlibs by
+        changing the loadable_exts computation from direct_deps[pkg] to triggers[pkg].
+        This is important because direct_deps filters out sysimage packages, while
+        triggers now includes them via the Base.in_sysimage check.
+      evidence_loc: "precompilation.jl:1118-1119"
+
+    - finding: "Removed interactive error storage in Base.MainInclude.err"
+      severity: "medium"
+      description: |
+        The old behavior of storing errors in Base.MainInclude.err for interactive
+        sessions (allowing `julia> err` to inspect them) has been removed. This is an
+        undocumented API change that could affect REPL workflows.
+      evidence_loc: "precompilation.jl:1327-1332 (new code that replaced the old behavior)"
+
+    - finding: "Silent suppression of transitive dependency failures"
+      severity: "medium"
+      description: |
+        When !strict && !requested_errs, the failed_deps dictionary is completely emptied.
+        This means transitive dependency failures are silently discarded when the requested
+        packages succeed. Users may not know about underlying failures until they try to
+        use the affected packages directly.
+      evidence_loc: "precompilation.jl:1235-1242"
+
+  original_analysis_assessment: |
+    The original analysis was thorough and covered the main behavioral changes well.
+    It correctly identified the key changes (--compiled-modules=strict, io/logio split,
+    error filtering, sysimage triggers). The additions from this second review are:
+    1. A potential bug in the thistaskwaiting logic
+    2. More detail on the loadable_exts fix (commit 12adf71)
+    3. The removal of Base.MainInclude.err interactive behavior
+    4. More precise documentation of the internal API changes
+    5. Additional coverage gaps in the tests
+
+  confidence: "high"
+  risk_assessment_change: |
+    Original risk level of "medium" is appropriate. The potential thistaskwaiting bug
+    does not change the overall risk assessment as it only affects progress output
+    for edge cases (packages waiting on IO/timers), not core precompilation behavior.
