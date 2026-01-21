@@ -14,6 +14,11 @@ scope:
     - "JuliaLowering/test/assignments_ir.jl"
     - "JuliaLowering/test/closures_ir.jl"
     - "JuliaLowering/test/decls_ir.jl"
+    - "JuliaLowering/test/destructuring_ir.jl"
+    - "JuliaLowering/test/functions_ir.jl"
+    - "JuliaLowering/test/generators_ir.jl"
+    - "JuliaLowering/test/quoting_ir.jl"
+    - "JuliaLowering/test/scopes_ir.jl"
     - "JuliaLowering/test/typedefs_ir.jl"
   components:
     - "JuliaLowering"
@@ -31,8 +36,8 @@ analysis:
       evidence:
         - source: "code"
           path: "JuliaLowering/src/linear_ir.jl"
-          loc: "101-112"
-          url: "https://github.com/JuliaLang/julia/blob/bfcfc5b032664ba064e3dcd7c9d6942e6fb81e68/JuliaLowering/src/linear_ir.jl#L101-L112"
+          loc: "101-113"
+          url: "https://github.com/JuliaLang/julia/blob/bfcfc5b032664ba064e3dcd7c9d6942e6fb81e68/JuliaLowering/src/linear_ir.jl#L101-L113"
           snippet: |
             function is_valid_body_ir_argument(ctx, ex)
                 if is_valid_ir_argument(ctx, ex)
@@ -93,12 +98,12 @@ analysis:
   secondary_effects:
     - effect: "Linear IR emission can keep lambda arguments as direct `BindingId` operands in body IR (calls and conditionals) even when `is_always_defined` is cleared by closure boxing logic, reducing temporary SSA assignments and altering IR shapes in golden tests."
       mechanism: |
-        compile_args(ctx, args)  [linear_ir.jl:155-170]
-          -> is_valid_body_ir_argument(ctx, arg_val)  [linear_ir.jl:101-112]
+        compile_args(ctx, args)  [linear_ir.jl:156-171]
+          -> is_valid_body_ir_argument(ctx, arg_val)  [linear_ir.jl:164]
             checks binfo.kind == :argument || binfo.is_always_defined
           -> arguments now pass validation without emitting emit_assign_tmp
-        compile_condition_term(ctx, ex)  [linear_ir.jl:374-379]
-          -> is_valid_body_ir_argument(ctx, cond)
+        compile_condition_term(ctx, ex)  [linear_ir.jl:374-380]
+          -> is_valid_body_ir_argument(ctx, cond)  [linear_ir.jl:376]
           -> allows direct BindingId in gotoifnot conditions
       downstream_surfaces:
         - "Linear IR tests and any tooling that inspects JuliaLowering Linear IR output"
