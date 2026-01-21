@@ -1,0 +1,223 @@
+schema_version: "1.0"
+
+pr:
+  number: 59781
+  title: "add admonition to `hash` docstring about default seed arguments"
+  url: "https://github.com/JuliaLang/julia/pull/59781"
+  author: "adienes"
+  labels:
+    - "docs"
+    - "hashing"
+  created_at: "2025-10-08T14:43:29Z"
+  merged_at: "2025-10-16T17:54:22Z"
+  merge_commit_sha: "db9bef17c261bbf3247d7a78f5ae011ca3a42372"
+  feature_commit_sha: "c9d5da8dcde2620b293f7ed4a803acdda81e36a0"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59781.diff"
+
+scope:
+  files_touched:
+    - "base/hashing.jl"
+  components:
+    - "Other"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Adds a documentation warning to the `hash` function docstring advising users not to
+      provide a default value (like `h = UInt(0)`) for the second argument when implementing
+      the 2-argument form of `hash`. This pattern causes hash inconsistencies because it
+      bypasses the global `HASH_SEED` that is randomized per Julia process.
+    issue_links: []
+    juliahub_search: "https://juliahub.com/ui/Search?type=code&q=h::UInt%5Cs*=%5Cs*(?:zero%5C(UInt%5C)|UInt%5C(0%5C))&rx=true"
+    quoted_from_pr: |
+      this pattern should always be avoided, but it seems some packages do it and the docs
+      don't say not to, so I put a warning
+    motivation: |
+      The PR author found that this problematic pattern exists in real-world packages
+      (see juliahub_search link). The regex pattern searches for:
+        h::UInt\s*=\s*(?:zero\(UInt\)|UInt\(0\))
+      This matches both `h::UInt = UInt(0)` and `h::UInt = zero(UInt)` variants.
+
+  direct_changes:
+    - summary: |
+        Added a warning admonition to the `hash` docstring explaining that `h::UInt` should
+        not be given a default value like `h = UInt(0)` because this creates a 1-argument
+        method that is more specific than the fallback `hash(x::Any)`, potentially using the
+        wrong seed and causing hash inconsistencies.
+      component: "Documentation"
+      evidence:
+        - source: "diff"
+          path: "base/hashing.jl"
+          loc: "24-28"
+          url: "https://github.com/JuliaLang/julia/blob/db9bef17c261bbf3247d7a78f5ae011ca3a42372/base/hashing.jl#L24-L28"
+          snippet: |
+            !!! warning
+                When implementing the 2-argument form, the second argument `h` should _not_ be given a
+                default value such `h = UInt(0)` as this will implicitly create a 1-argument method that
+                is more specific than the fallback (see [Note on Optional and keyword Arguments](@ref)),
+                but potentially with the wrong seed, causing hash inconsistencies.
+
+  pipeline_impact: []
+
+  secondary_effects:
+    - effect: |
+        Documentation improvement that may prevent hash-related bugs in downstream packages
+        that incorrectly implement the `hash` function with default arguments.
+      mechanism: |
+        The warning educates users about Julia's method dispatch behavior:
+
+        1. hash(data::Any) = hash(data, HASH_SEED)  [hashing.jl:40]
+           This is the 1-argument fallback that uses the process-specific HASH_SEED.
+
+        2. If a user defines: hash(x::MyType, h::UInt = UInt(0))
+           Julia expands this to two methods:
+           - hash(x::MyType, h::UInt)   # 2-argument version
+           - hash(x::MyType) = hash(x, UInt(0))  # 1-argument with wrong seed!
+
+        3. The user's 1-argument method is MORE SPECIFIC than hash(data::Any)
+           because MyType <: Any, so it gets dispatched instead.
+
+        4. This causes hash(myobj) to use UInt(0) instead of HASH_SEED,
+           breaking equality contracts when objects are compared across Dict lookups.
+
+        References: doc/src/manual/methods.md:881 "Note on Optional and keyword Arguments"
+      downstream_surfaces:
+        - "Any package implementing custom hash methods"
+        - "Data structures relying on hash consistency (Dict, Set)"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/hashing.jl"
+          loc: "40"
+          url: "https://github.com/JuliaLang/julia/blob/db9bef17c261bbf3247d7a78f5ae011ca3a42372/base/hashing.jl#L40"
+          snippet: |
+            hash(data::Any) = hash(data, HASH_SEED)
+        - source: "code"
+          path: "base/hashing.jl"
+          loc: "3"
+          url: "https://github.com/JuliaLang/julia/blob/db9bef17c261bbf3247d7a78f5ae011ca3a42372/base/hashing.jl#L3"
+          snippet: |
+            const HASH_SEED = UInt == UInt64 ? 0xbdd89aa982704029 : 0xeabe9406
+        - source: "documentation"
+          path: "doc/src/manual/methods.md"
+          loc: "881-896"
+          url: "https://github.com/JuliaLang/julia/blob/db9bef17c261bbf3247d7a78f5ae011ca3a42372/doc/src/manual/methods.md#L881-L896"
+          snippet: |
+            ## Note on Optional and keyword Arguments
+
+            As mentioned briefly in [Functions](@ref man-functions), optional arguments are
+            implemented as syntax for multiple method definitions. For example, this definition:
+
+            ```julia
+            f(a=1,b=2) = a+2b
+            ```
+
+            translates to the following three methods:
+
+            ```julia
+            f(a,b) = a+2b
+            f(a) = f(a,2)
+            f() = f(1,2)
+            ```
+
+    - effect: |
+        Concrete demonstration of the bug this warning prevents.
+      mechanism: |
+        Example showing why default hash seeds cause inconsistency:
+
+        ```julia
+        # WRONG: Creates a 1-arg method that bypasses HASH_SEED
+        struct BadType
+            x::Int
+        end
+        hash(b::BadType, h::UInt = UInt(0)) = hash(b.x, h)
+
+        # What Julia sees (two methods):
+        # hash(b::BadType, h::UInt) = hash(b.x, h)
+        # hash(b::BadType) = hash(b, UInt(0))  # <-- more specific than hash(::Any)!
+
+        # Consequences:
+        a = BadType(42)
+        hash(a)  # Uses UInt(0) as seed, not HASH_SEED
+
+        # In a different Julia process with different HASH_SEED:
+        d = Dict(a => "value")  # Stored with hash using UInt(0)
+        # But normal lookup path uses HASH_SEED, causing lookup failures!
+
+        # CORRECT pattern:
+        hash(b::BadType, h::UInt) = hash(b.x, h)
+        # Let Base.hash(::Any) provide the 1-arg fallback with HASH_SEED
+        ```
+      downstream_surfaces:
+        - "Packages using Dict/Set with custom types"
+        - "Serialization across Julia processes"
+        - "Any equality-based operations relying on hash consistency"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    public_api: []
+    internal_api: []
+    ir_format: []
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime: []
+    memory: []
+    code_size: []
+
+  tests:
+    changed_files: []
+    new_behavior_assertions: []
+    coverage_gaps:
+      - "No tests added - this is a documentation-only change"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Documentation-only change with no code modifications"
+      - "No changes to runtime behavior, compilation, or any APIs"
+      - "Only adds informational content to help users avoid a common pitfall"
+      - "The warning references existing Julia documentation about optional arguments"
+
+  open_questions:
+    - |
+      Could Julia provide a lint warning or deprecation notice when users define
+      hash methods with default second arguments?
+
+  recommendations:
+    - |
+      Downstream package maintainers should audit their custom `hash` implementations
+      to ensure they do not use default values for the second argument. Search for
+      patterns like `h::UInt = UInt(0)` or `h::UInt = zero(UInt)` in hash methods.
+    - |
+      The correct pattern is to define only `hash(x::MyType, h::UInt)` and let Julia's
+      fallback `hash(x::Any) = hash(x, HASH_SEED)` handle the 1-argument case.
+
+reviewer_notes:
+  reviewer: "independent-analysis"
+  review_date: "2026-01-21"
+  verification_steps:
+    - "Checked out merge commit db9bef17c261bbf3247d7a78f5ae011ca3a42372"
+    - "Verified feature commit c9d5da8dcde2620b293f7ed4a803acdda81e36a0 contains only doc changes"
+    - "Read full base/hashing.jl to verify HASH_SEED usage and fallback dispatch"
+    - "Read doc/src/manual/methods.md:881-909 to verify the optional argument behavior"
+    - "Confirmed no internal hash implementations use the problematic pattern"
+  enhancements_made:
+    - "Added feature_commit_sha to track the actual change separate from merge commit"
+    - "Added juliahub_search link from PR body showing affected packages in the wild"
+    - "Added motivation section explaining the regex pattern used to find affected code"
+    - "Added documentation reference with actual code from methods.md"
+    - "Added concrete example demonstrating the dispatch bug scenario"
+  assessment: |
+    The original analysis was accurate and thorough for a documentation-only PR.
+    This enhancement adds more context about why the documentation was needed
+    (real-world packages were making this mistake), and provides concrete examples
+    that illustrate the dispatch issue more clearly for downstream maintainers.
+
+    The risk assessment of "low" is correct - this is purely documentation with no
+    behavioral changes. However, the educational value is high because the bug
+    pattern can cause subtle, hard-to-debug hash inconsistencies.
