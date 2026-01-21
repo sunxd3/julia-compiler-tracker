@@ -1,0 +1,326 @@
+schema_version: "1.0"
+
+pr:
+  number: 56777
+  title: "Fix `stack(; dims)` on containers with HasLength eltype & HasShape elements"
+  url: "https://github.com/JuliaLang/julia/pull/56777"
+  diff_url: "https://github.com/JuliaLang/julia/pull/56777.diff"
+  author: "mcabbott"
+  labels:
+    - "arrays"
+    - "bugfix"
+  merged_at: "2025-10-13T23:09:31Z"
+  merge_commit_sha: "99bcbce890675bda827259446ba0890001da49d6"
+  fix_commit_sha: "e78e550018a22d3da3063ad3769db322a192294f"
+  assignee: "vtjnash"
+  pr_body: |
+    Fixes #56771
+    While fixing this I saw #56776, will comment there on differences.
+    I think the reason this line existed was probably to handle `Tuple`, for which
+    `Base.IteratorSize(Tuple) == Base.HasLength()` although they behave like `HasShape{1}`.
+    I'd like to check a little more for unintended consequences, hence mark this draft for now.
+
+scope:
+  files_touched:
+    - "base/abstractarray.jl"
+    - "test/abstractarray.jl"
+  components:
+    - "Base.stack"
+    - "Base._typed_stack"
+    - "Base.IteratorSize"
+  pipeline_stages:
+    - "Runtime"
+  is_compiler_change: false
+  category: "Standard library bug fix"
+
+analysis:
+  intent:
+    summary: |
+      Fix incorrect dimension computation in `stack(A; dims)` when the container's element
+      type has `IteratorSize == HasLength()` (e.g., abstract `Array` type) but actual
+      elements have multi-dimensional shape (e.g., concrete `Matrix` instances).
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/56771"
+    related_prs:
+      - "https://github.com/JuliaLang/julia/pull/56776"
+
+  bug_description:
+    problem: |
+      When calling `stack(y; dims=2)` on a collection typed as `AbstractArray[...]` or
+      `Array[...]`, the output dimensions were computed incorrectly. The function would
+      produce the same result for `dims=2` and `dims=3` when elements were 2D matrices.
+    example_before_fix: |
+      y = AbstractArray[ones(2,3) for _=1:4]
+      stack(y; dims=1) |> size  # (4, 2, 3) - correct
+      stack(y; dims=2) |> size  # (2, 3, 4) - WRONG, should be (2, 4, 3)
+      stack(y; dims=3) |> size  # (2, 3, 4) - correct
+      stack(y; dims=2) == stack(y; dims=3)  # true - WRONG
+    example_after_fix: |
+      y = AbstractArray[ones(2,3) for _=1:4]
+      stack(y; dims=1) |> size  # (4, 2, 3)
+      stack(y; dims=2) |> size  # (2, 4, 3) - NOW CORRECT
+      stack(y; dims=3) |> size  # (2, 3, 4)
+      stack(y; dims=2) == stack(y; dims=3)  # false - NOW CORRECT
+
+  direct_changes:
+    - summary: "Remove incorrect HasLength -> HasShape{1}() dispatch in _typed_stack"
+      component: "base/abstractarray.jl"
+      change_type: "deletion"
+      evidence:
+        - source: "diff"
+          path: "base/abstractarray.jl"
+          loc: "2942-2943 (old numbering, now removed)"
+          url: "https://github.com/JuliaLang/julia/pull/56777/files"
+          removed_code: |
+            _typed_stack(dims::Integer, ::Type{T}, ::Type{S}, ::HasLength, A) where {T,S} =
+                _typed_stack(dims, T, S, HasShape{1}(), A)
+          explanation: |
+            This method intercepted any HasLength iterator size and forced it to be treated
+            as HasShape{1}(). This was problematic because:
+            1. HasLength is the DEFAULT for types where N cannot be inferred
+            2. Abstract types like `Array` (without parameters) return HasLength
+            3. Forcing N=1 causes the dims == N+1 check (dims == 2) to incorrectly
+               take the colon path, ignoring the actual dims parameter
+        - source: "fallback_method"
+          path: "base/abstractarray.jl"
+          loc: "2949-2950"
+          url: "https://github.com/JuliaLang/julia/blob/99bcbce890675bda827259446ba0890001da49d6/base/abstractarray.jl#L2949-L2950"
+          snippet: |
+            _typed_stack(dims::Integer, ::Type{T}, ::Type{S}, ::IteratorSize, A) where {T,S} =
+                _dim_stack(dims, T, S, A)
+          explanation: |
+            This fallback method now handles HasLength correctly by forwarding to
+            _dim_stack, which uses actual element axes rather than type-level information.
+
+    - summary: "Add comprehensive test coverage for HasLength eltype with HasShape elements"
+      component: "test/abstractarray.jl"
+      change_type: "addition"
+      evidence:
+        - source: "test"
+          path: "test/abstractarray.jl"
+          loc: "1883-1908"
+          url: "https://github.com/JuliaLang/julia/blob/99bcbce890675bda827259446ba0890001da49d6/test/abstractarray.jl#L1883-L1908"
+          snippet: |
+            @testset "issue 56771, stack(; dims) on containers with HasLength eltype & HasShape elements" begin
+                for T in (Matrix, Array, Any)
+                    xs = T[rand(2,3) for _ in 1:4]
+                    @test size(stack(xs; dims=1)) == (4,2,3)
+                    @test size(stack(xs; dims=2)) == (2,4,3)  # this was the problem case, for T=Array
+                    @test size(stack(xs; dims=3)) == (2,3,4)
+                    @test size(stack(identity, xs; dims=2)) == (2,4,3)
+                    @test size(stack(x for x in xs if true; dims=2)) == (2,4,3)
+
+                    xmat = T[rand(2,3) for _ in 1:4, _ in 1:5]
+                    @test size(stack(xmat; dims=1)) == (20,2,3)
+                    @test size(stack(xmat; dims=2)) == (2,20,3)
+                    @test size(stack(xmat; dims=3)) == (2,3,20)
+                end
+
+                it = Iterators.product(1:2, 3:5)
+                @test size(it) == (2,3)
+                @test Base.IteratorSize(typeof(it)) == Base.HasShape{2}()
+                @test Base.IteratorSize(Iterators.ProductIterator) == Base.HasLength()
+                for T in (typeof(it), Iterators.ProductIterator, Any)
+                    ys = T[it for _ in 1:4]
+                    @test size(stack(ys; dims=2)) == (2,4,3)
+                    @test size(stack(identity, ys; dims=2)) == (2,4,3)
+                    @test size(stack(y for y in ys if true; dims=2)) == (2,4,3)
+                end
+            end
+          test_coverage_notes: |
+            Tests three type scenarios:
+            - Matrix: concrete type, IteratorSize(Matrix{...}) = HasShape{2}() - worked before
+            - Array: abstract type without params, IteratorSize(Array) = HasLength() - BUG CASE
+            - Any: widest abstract type - worked before due to different code path
+
+            Also tests Iterators.ProductIterator which has same HasLength vs HasShape mismatch:
+            - IteratorSize(Iterators.ProductIterator) = HasLength()  (type-level)
+            - Actual instances have HasShape{2}() for product(1:2, 3:5)
+
+    - summary: "Evidence that _dim_stack correctly handles dimensions from actual elements"
+      component: "base/abstractarray.jl"
+      change_type: "context"
+      evidence:
+        - source: "code"
+          path: "base/abstractarray.jl"
+          loc: "2954-2964"
+          url: "https://github.com/JuliaLang/julia/blob/99bcbce890675bda827259446ba0890001da49d6/base/abstractarray.jl#L2954-L2964"
+          snippet: |
+            @constprop :aggressive function _dim_stack(dims::Integer, ::Type{T}, ::Type{S}, A) where {T,S}
+                xit = Iterators.peel(A)
+                nothing === xit && return _empty_stack(dims, T, S, A)
+                x1, xrest = xit
+                ax1 = _iterator_axes(x1)    # <-- Gets axes from ACTUAL element, not type
+                N1 = length(ax1)+1          # <-- Computes dims from actual axes
+                dims in 1:N1 || throw(ArgumentError(LazyString("cannot stack slices ndims(x) = ", N1-1, " along dims = ", dims)))
+
+                newaxis = _vec_axis(A)
+                outax = ntuple(d -> d==dims ? newaxis : ax1[d - (d>dims)], N1)  # <-- Correct output axes
+                B = similar(_ensure_array(x1), T, outax...)
+          key_lines: |
+            Line 2958: ax1 = _iterator_axes(x1) - this is the crucial line that gets axes from
+            the actual first element instance, bypassing any type-level IteratorSize mismatch.
+            For a 2x3 Matrix, this returns (OneTo(2), OneTo(3)) regardless of container type.
+
+  root_cause_analysis:
+    mechanism: |
+      The bug occurred due to a mismatch between type-level and instance-level information
+      in the IteratorSize trait system.
+
+      Call chain (BEFORE fix):
+        stack(y; dims=2)  [abstractarray.jl:2868]
+          -> _stack(2, iter)  [abstractarray.jl:2900]
+          -> _stack(2, HasLength(), iter)  [dispatch based on IteratorSize(iter)]
+          -> _typed_stack(2, T, S, iter)  [abstractarray.jl:2908]
+             where S = Array (element type of container)
+          -> _typed_stack(2, T, S, IteratorSize(S), A)  [abstractarray.jl:2940-2941]
+             IteratorSize(Array) == HasLength()  # Array without params uses default!
+          -> _typed_stack(2, T, S, HasLength(), A)  [REMOVED METHOD - was line 2942-2943]
+          -> _typed_stack(2, T, S, HasShape{1}(), A)  # WRONG: forced N=1
+          -> if dims == N+1  # 2 == 1+1 TRUE, incorrectly takes colon path
+               _typed_stack(:, T, S, A, (_vec_axis(A),))  # appends dim at end, ignoring dims=2
+
+      Call chain (AFTER fix):
+        stack(y; dims=2)  [abstractarray.jl:2868]
+          -> _stack(2, iter)  [abstractarray.jl:2900]
+          -> _stack(2, HasLength(), iter)  [dispatch on IteratorSize(iter)]
+          -> _typed_stack(2, T, S, iter)  [abstractarray.jl:2908]
+          -> _typed_stack(2, T, S, IteratorSize(S), A)  [abstractarray.jl:2940-2941]
+          -> _typed_stack(2, T, S, HasLength(), A)
+             No specific method for HasLength, falls through to:
+          -> _typed_stack(dims::Integer, ::Type{T}, ::Type{S}, ::IteratorSize, A)  [line 2949-2950]
+          -> _dim_stack(dims, T, S, A)  [line 2954]
+             CORRECT: uses actual element axes, not type-level information
+
+    why_dim_stack_works: |
+      The _dim_stack function correctly handles any dims value because it:
+      1. Peeks at the first actual element: xit = Iterators.peel(A)  [line 2955]
+      2. Gets axes from the ACTUAL ELEMENT instance: ax1 = _iterator_axes(x1)  [line 2958]
+      3. Computes dimensions from actual axes: N1 = length(ax1)+1  [line 2959]
+      4. Constructs output axes correctly: outax = ntuple(d -> d==dims ? newaxis : ax1[d - (d>dims)], N1)
+
+      This bypasses the type-level IteratorSize entirely, using runtime element shape.
+
+    key_insight: |
+      The IteratorSize trait is defined on TYPES, not instances:
+        - IteratorSize(::Type) = HasLength()  # default for any type
+        - IteratorSize(::Type{<:AbstractArray{<:Any,N}}) where {N} = HasShape{N}()
+
+      When the element type is abstract (like `Array` without type parameters), Julia
+      cannot infer N, so it falls back to HasLength(). But actual array instances
+      ARE multi-dimensional, causing the dims computation to be wrong.
+
+    author_note: |
+      From PR body: "I think the reason this line existed was probably to handle `Tuple`,
+      for which `Base.IteratorSize(Tuple) == Base.HasLength()` although they behave like
+      `HasShape{1}`."
+
+      This concern is addressed because Tuple handling still works after the fix -
+      when stacking tuples, _dim_stack correctly determines dimensions from the actual
+      tuple elements. Existing tests at test/abstractarray.jl:1786-1790 verify this.
+
+  secondary_effects:
+    - effect: "None - this is a pure bug fix with no ripple effects"
+      mechanism: |
+        The fix only removes an incorrect dispatch method. The fallback behavior
+        (_dim_stack) was already correct and handles all dimension values properly.
+        No new code paths are introduced.
+      downstream_surfaces: []
+      likelihood: "none"
+      impact: "none"
+
+    - effect: "Tuple stacking continues to work correctly"
+      mechanism: |
+        The author noted concern about Tuple handling since IteratorSize(Tuple) = HasLength().
+        After fix verification:
+        1. stack([(1,2), (3,4)]) calls _dim_stack via the IteratorSize fallback
+        2. _dim_stack gets axes from actual tuple: _iterator_axes((1,2)) returns (OneTo(2),)
+        3. Output correctly becomes 2x2 matrix [1 3; 2 4]
+
+        Existing tests at test/abstractarray.jl:1786-1790 verify this behavior:
+          @test stack([(1,2), (3,4)]) == [1 3; 2 4]
+          @test stack(((1,2), (3,4))) == [1 3; 2 4]
+          @test stack([(1,2), (3,4)]; dims=1) == [1 2; 3 4]
+      downstream_surfaces: []
+      likelihood: "verified_working"
+      impact: "none"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - component: "stack(; dims)"
+        change: "Corrects output dimensions for abstract-typed array containers"
+        impact: "low"
+        notes: |
+          Code that depended on the buggy behavior may produce different results.
+          However, the old behavior was clearly incorrect, so this is unlikely
+          to break real-world code negatively.
+
+  performance:
+    compile_time: []
+    runtime:
+      - change: "No performance impact"
+        impact: "none"
+        notes: |
+          The removed method was a simple dispatch forwarding. The new code path
+          (_dim_stack) was already being used for other IteratorSize variants.
+          No algorithmic complexity changes.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure bug fix - corrects clearly incorrect behavior"
+      - "No new code added, only removed an incorrect dispatch method"
+      - "Comprehensive test coverage added to prevent regression"
+      - "Only affects edge case: abstract element types with concrete multi-dim instances"
+
+  open_questions: []
+
+  recommendations:
+    - "Users experiencing unexpected stack(; dims) output with abstract-typed containers should upgrade"
+    - "No action needed for downstream package maintainers - this does not touch compiler internals"
+
+  downstream_package_impact:
+    compiler_tools:
+      JET: "Not affected - standard library bug fix only"
+      GPUCompiler: "Not affected"
+      Enzyme: "Not affected"
+      IRTools: "Not affected"
+      Cassette: "Not affected"
+    general:
+      - package: "Any package using stack() with abstract array types"
+        impact: "Positive - bug fix corrects output dimensions"
+        action_required: "None"
+
+evidence_verification:
+  julia_repo_checked_out: true
+  merge_commit_sha_verified: "99bcbce890675bda827259446ba0890001da49d6"
+  fix_commit_sha_verified: "e78e550018a22d3da3063ad3769db322a192294f"
+  full_context_read: true
+  test_code_examined: true
+  call_chains_traced: true
+  tuple_handling_verified: true
+  iteratorsize_trait_analyzed: true
+
+independent_review:
+  reviewer_analysis_date: "2026-01-21"
+  original_analysis_accuracy: "high"
+  corrections_made:
+    - "Added fix_commit_sha to distinguish from merge_commit_sha"
+    - "Updated line number references to reflect old vs current numbering"
+    - "Added explanation of why _dim_stack works correctly"
+    - "Added author's note about Tuple handling concern from PR body"
+    - "Added evidence that Tuple handling is verified working"
+    - "Added evidence showing _dim_stack implementation details"
+  additional_insights:
+    - |
+      The removed method was likely added as an optimization for Tuple handling, assuming
+      that HasLength types always behave like 1D. This assumption broke when abstract
+      array types (which default to HasLength) contained multi-dimensional instances.
+    - |
+      The fix is elegant because it leverages the existing _dim_stack fallback which
+      was designed to handle arbitrary dimensions by examining actual elements. No new
+      code was needed - the fix simply removed the overly-aggressive HasLength interception.
+    - |
+      Related PR #56776 mentioned in PR body appears to be an alternative approach to
+      the same issue, though this PR was the one ultimately merged.
