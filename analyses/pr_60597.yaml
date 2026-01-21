@@ -1,0 +1,243 @@
+schema_version: "1.0"
+pr:
+  number: 60597
+  title: "flisp: Port closure box optimization fixes from JuliaLowering.jl"
+  url: "https://github.com/JuliaLang/julia/pull/60597"
+  author: "aviatesk"
+  labels: []
+  merged_at: "2026-01-09T20:47:33Z"
+  merge_commit_sha: "268f80d701808edc5686b83d8b9d8ca46df48abe"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60597.diff"
+
+scope:
+  files_touched:
+    - "src/julia-syntax.scm"
+    - "test/syntax.jl"
+  components:
+    - "flisp lowering"
+  pipeline_stages:
+    - "Lowering"
+    - "ClosureConversion"
+
+analysis:
+  intent:
+    summary: |
+      This PR fixes bugs in the closure Box optimization within the flisp lowering code.
+      The Box optimization attempts to identify captured variables that are single-assigned
+      and never used before their definition, allowing them to be captured directly instead
+      of through a Core.Box. Three specific bug cases were fixed:
+      1. Arguments reassigned inside loops (arguments are implicitly declared outside loops)
+      2. Variables in while-true loops with `break` (may be assigned multiple times)
+      3. Labels that can be jumped to, bypassing assignment
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/37690"
+      - "https://github.com/JuliaLang/julia/pull/60567"
+
+  direct_changes:
+    - summary: "Add outer-decl table for tracking declarations from outer scopes"
+      component: "flisp lowering (lambda-optimize-vars!)"
+      evidence:
+        - source: "code"
+          path: "src/julia-syntax.scm"
+          loc: "3950-3951"
+          url: "https://github.com/JuliaLang/julia/blob/268f80d701808edc5686b83d8b9d8ca46df48abe/src/julia-syntax.scm#L3950-L3951"
+          snippet: |
+            (let ((vi     (car (lam:vinfo lam)))
+                  (args   (lam:argnames lam))
+                  (decl   (table))
+                  (outer-decl (table))
+                  (unused (table))  ;; variables not (yet) used (read from) in the current block
+                  (live   (table))  ;; variables that have been set in the current block
+                  (seen   (table))) ;; all variables we've seen assignments to
+
+    - summary: "Initialize decl with arguments since they're implicitly declared outside any loop"
+      component: "flisp lowering (lambda-optimize-vars!)"
+      evidence:
+        - source: "code"
+          path: "src/julia-syntax.scm"
+          loc: "3961-3965"
+          url: "https://github.com/JuliaLang/julia/blob/268f80d701808edc5686b83d8b9d8ca46df48abe/src/julia-syntax.scm#L3961-L3965"
+          snippet: |
+            ;; Initialize decl with arguments since they're implicitly declared outside any loop
+            (for-each (lambda (arg)
+                        (if (has? unused arg)
+                            (put! decl arg #t)))
+                      args)
+
+    - summary: "Rework enter-loop! and leave-loop! to track outer declarations"
+      component: "flisp lowering (lambda-optimize-vars!)"
+      evidence:
+        - source: "code"
+          path: "src/julia-syntax.scm"
+          loc: "3998-4005"
+          url: "https://github.com/JuliaLang/julia/blob/268f80d701808edc5686b83d8b9d8ca46df48abe/src/julia-syntax.scm#L3998-L4005"
+          snippet: |
+            (define (enter-loop!)
+              (let ((outer-decl- outer-decl))
+                (set! outer-decl decl)
+                (set! decl (table.clone decl))
+                outer-decl-))
+            (define (leave-loop! old-outer-decl)
+              (set! decl outer-decl)
+              (set! outer-decl old-outer-decl))
+
+    - summary: "Update restore function to handle outer-decl properly"
+      component: "flisp lowering (lambda-optimize-vars!)"
+      evidence:
+        - source: "code"
+          path: "src/julia-syntax.scm"
+          loc: "3966-3975"
+          url: "https://github.com/JuliaLang/julia/blob/268f80d701808edc5686b83d8b9d8ca46df48abe/src/julia-syntax.scm#L3966-L3975"
+          snippet: |
+            (define (restore old)
+              (table.foreach (lambda (k v)
+                               (if (and (has? old k) (not (has? unused k)))
+                                 (del! old k)))
+                             outer-decl)
+              (table.foreach (lambda (k v)
+                               (if (not (has? old k))
+                                   (put! unused k v)))
+                             live)
+              (set! live old))
+
+    - summary: "Add test for argument reassigned inside loop"
+      component: "tests"
+      evidence:
+        - source: "code"
+          path: "test/syntax.jl"
+          loc: "1944-1953"
+          url: "https://github.com/JuliaLang/julia/blob/268f80d701808edc5686b83d8b9d8ca46df48abe/test/syntax.jl#L1944-L1953"
+          snippet: |
+            # Argument reassigned inside loop needs Box (argument is implicitly declared outside loop)
+            function f_arg_loop(x)
+                local f
+                for i in 1:2
+                    x = i
+                    i == 1 && (f = ()->x;)
+                end
+                f()
+            end
+            @test f_arg_loop(0) == 2
+
+    - summary: "Add test for variable in while-true loop with break"
+      component: "tests"
+      evidence:
+        - source: "code"
+          path: "test/syntax.jl"
+          loc: "1955-1970"
+          url: "https://github.com/JuliaLang/julia/blob/268f80d701808edc5686b83d8b9d8ca46df48abe/test/syntax.jl#L1955-L1970"
+          snippet: |
+            # Variable in while-true loop with break needs Box
+            function f_break_loop()
+                local f
+                local x
+                i = 1
+                while true
+                    x = i
+                    if i == 1
+                        f = ()->x
+                    end
+                    i >= 3 && break
+                    i += 1
+                end
+                f()
+            end
+            @test f_break_loop() == 3
+
+    - summary: "Add test for label bypass assignment"
+      component: "tests"
+      evidence:
+        - source: "code"
+          path: "test/syntax.jl"
+          loc: "1935-1942"
+          url: "https://github.com/JuliaLang/julia/blob/268f80d701808edc5686b83d8b9d8ca46df48abe/test/syntax.jl#L1935-L1942"
+          snippet: |
+            # Label can be jumped to, bypassing assignment - needs Box
+            let
+                @goto L
+                y = 1
+                @label L
+                f = ()->y
+                @test_throws UndefVarError(:y, :local) f()
+            end
+
+  secondary_effects:
+    - effect: "Closure types may now have Core.Box fields for captured variables that were previously direct"
+      mechanism: |
+        lambda-optimize-vars!() [julia-syntax.scm:3935]
+          determines which variables are "never-undef" (always assigned before use)
+          -> For single-assigned, never-undef variables, clears the `capt` bit [julia-syntax.scm:4079-4080]
+            (set-car! (cddr v) (logand (caddr v) (lognot 5)))
+          -> is-var-boxed?() [julia-syntax.scm:4084-4088]
+            checks (and vi (vinfo:asgn vi) (vinfo:capt vi))
+          -> If capt is NOT cleared, variable is boxed via Core.Box
+          -> This PR makes the analysis more conservative: arguments in loops and
+             variables in while-true with break now correctly remain boxed
+      downstream_surfaces:
+        - "Closure field types (now include Core.Box where previously didn't)"
+        - "Runtime behavior (closures now correctly reflect mutation)"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Fixes correctness bugs where closures captured stale values"
+      mechanism: |
+        BEFORE this PR, code like:
+          function f_arg_loop(x)
+              local f
+              for i in 1:2
+                  x = i
+                  i == 1 && (f = ()->x;)
+              end
+              f()
+          end
+        Would incorrectly NOT box `x` because the analysis didn't recognize
+        that arguments are implicitly declared outside the loop. This caused
+        the closure to capture the value at creation time (1) instead of the
+        final value (2).
+
+        AFTER this PR, arguments are added to `decl` table initially, causing
+        the analysis to recognize they may be assigned multiple times in a loop.
+      downstream_surfaces:
+        - "Closure semantics (correctness fix)"
+      likelihood: "high"
+      impact: "high"
+
+  compatibility:
+    internal_api:
+      - field: "vinfo flags (capt bit)"
+        change: "More variables may now have capt bit set due to stricter analysis"
+        affected_tools: []
+    behavioral:
+      - item: "Closures capturing arguments reassigned in loops now correctly reflect mutations"
+        nature: "correctness fix"
+        impact: "Fixes semantic bugs in edge cases"
+      - item: "Closures capturing variables in while-true loops with break now correctly reflect mutations"
+        nature: "correctness fix"
+        impact: "Fixes semantic bugs in edge cases"
+
+  performance:
+    compile_time:
+      - item: "Negligible impact - same O(n) tree walk, slightly different bookkeeping"
+        nature: "neutral"
+        details: "ESTIMATED: <1% change in lowering time"
+    runtime:
+      - item: "More Core.Box allocations for previously incorrectly optimized cases"
+        nature: "regression (expected)"
+        details: |
+          Code with arguments reassigned in loops or variables in while-true
+          with break will now correctly use Core.Box. This is a correctness fix,
+          not a performance regression - the previous behavior was incorrect.
+
+  risk:
+    level: "low"
+    rationale:
+      - "This is a correctness fix ported from JuliaLowering.jl"
+      - "The changes make the Box optimization more conservative (safer)"
+      - "Test cases added for all three fixed scenarios"
+      - "Related discussion and development in PR #60567 provides confidence"
+
+  open_questions: []
+
+  recommendations:
+    - "Downstream tools that inspect closure field types should be aware that closures may have different field types after this change"
+    - "Performance-sensitive code with closures in loops may want to manually ensure variables are assigned outside the loop to avoid Box"
