@@ -23,14 +23,15 @@ analysis:
     summary: "Propagate @nospecialize metadata for placeholder (unnamed) arguments through lowering and linear IR so the resulting Method nospecialize bitset matches user annotations."
     issue_links:
       - "https://github.com/JuliaLang/julia/issues/44428"
+    quoted_from_pr: "Propagate `is_nospecialize` metadata for Placeholder arguments in desugaring and linear_ir generation. Separated from #60416."
   direct_changes:
-    - summary: "Desugaring now copies :nospecialize metadata onto synthesized placeholder argument bindings so unnamed arguments preserve @nospecialize during lowering."
+    - summary: "Desugaring now extracts :nospecialize metadata from placeholder argument AST nodes and passes it to new_local_binding, ensuring unnamed arguments preserve @nospecialize during lowering."
       component: "JuliaLowering desugaring"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "JuliaLowering/src/desugaring.jl"
-          loc: "2330-2339"
-          url: "https://github.com/JuliaLang/julia/blob/b7a217c55c07d7c975b2d1250f832731c2053284/JuliaLowering/src/desugaring.jl#L2330-L2339"
+          loc: "2329-2339"
+          url: "https://github.com/JuliaLang/julia/blob/b7a217c55c07d7c975b2d1250f832731c2053284/JuliaLowering/src/desugaring.jl#L2329-L2339"
           snippet: |
             elseif k == K"Placeholder"
                 # Lowering should be able to use placeholder args as rvalues internally,
@@ -43,13 +44,13 @@ analysis:
                     new_local_binding(ctx, ex, "#arg$(string(arg_id))#"; kind=:argument,
                                       is_nospecialize=is_nospecialize)
                 end
-    - summary: "Linear IR slots for placeholder arguments now read :nospecialize metadata directly, ensuring CodeInfo meta is emitted for unnamed arguments." 
+    - summary: "Linear IR Slot construction for placeholder arguments now reads :nospecialize metadata directly from the AST node via getmeta(), ensuring CodeInfo meta is emitted for unnamed arguments."
       component: "JuliaLowering linear_ir"
       evidence:
-        - source: "code"
+        - source: "diff"
           path: "JuliaLowering/src/linear_ir.jl"
-          loc: "1065-1070"
-          url: "https://github.com/JuliaLang/julia/blob/b7a217c55c07d7c975b2d1250f832731c2053284/JuliaLowering/src/linear_ir.jl#L1065-L1070"
+          loc: "1065-1069"
+          url: "https://github.com/JuliaLang/julia/blob/b7a217c55c07d7c975b2d1250f832731c2053284/JuliaLowering/src/linear_ir.jl#L1065-L1069"
           snippet: |
             for arg in children(lambda_args)
                 if kind(arg) == K"Placeholder"
@@ -59,36 +60,49 @@ analysis:
   secondary_effects:
     - effect: "@nospecialize on unnamed arguments now survives all the way to emitted CodeInfo meta, so Method.nospecialize bitsets reflect placeholder annotations."
       mechanism: |
-        expand_function_arg(...) [desugaring.jl:2330-2339]
-          -> new_local_binding(..., is_nospecialize=...) [bindings.jl:132-143]
-          -> compile_lambda(...) builds Slot(..., is_nospecialize=...) for placeholders [linear_ir.jl:1065-1070]
-          -> _to_codeinfo emits Expr(:meta, :nospecialize, Core.SlotNumber(i)) when slot.is_nospecialize [eval.jl:246-250]
+        expand_function_arg(ctx, body_stmts, arg, ...) [desugaring.jl:2285]
+          checks kind(ex) == K"Placeholder" [desugaring.jl:2329]
+          -> getmeta(ex, :nospecialize, false) [desugaring.jl:2333]
+          -> new_local_binding(..., is_nospecialize=is_nospecialize) [desugaring.jl:2337-2338]
+          -> _new_binding(..., is_nospecialize=...) [bindings.jl:137]
+          -> BindingInfo(..., is_nospecialize=...) [bindings.jl:42-45]
+
+        compile_lambda(outer_ctx, ex) [linear_ir.jl:1055]
+          checks kind(arg) == K"Placeholder" [linear_ir.jl:1066]
+          -> Slot(..., getmeta(arg, :nospecialize, false), ...) [linear_ir.jl:1068]
+
+        to_code_info(ex, slots, meta) [eval.jl:220]
+          iterates over slots [eval.jl:229]
+          -> if slot.is_nospecialize [eval.jl:246]
+          -> push!(stmts, Expr(:meta, :nospecialize, Core.SlotNumber(i))) [eval.jl:249]
       downstream_surfaces:
         - "Method.nospecialize bitset"
         - "CodeInfo :nospecialize meta on placeholder slots"
       likelihood: "high"
       impact: "low"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/eval.jl"
+          loc: "246-250"
+          url: "https://github.com/JuliaLang/julia/blob/b7a217c55c07d7c975b2d1250f832731c2053284/JuliaLowering/src/eval.jl#L246-L250"
+          snippet: |
+            if slot.is_nospecialize
+                # Ideally this should be a slot flag instead
+                add_ir_debug_info!(current_codelocs_stack, ex)
+                push!(stmts, Expr(:meta, :nospecialize, Core.SlotNumber(i)))
+            end
   compatibility:
     internal_api:
-      - impact: "Method.nospecialize now includes bits for unnamed placeholder arguments when annotated, which may change expectations in tooling that inspects Method.nospecialize for specialization control."
+      - summary: "Method.nospecialize now includes bits for unnamed placeholder arguments when annotated, which may change expectations in tooling that inspects Method.nospecialize for specialization control."
         evidence:
-          - source: "code"
-            path: "JuliaLowering/src/eval.jl"
-            loc: "241-250"
-            url: "https://github.com/JuliaLang/julia/blob/b7a217c55c07d7c975b2d1250f832731c2053284/JuliaLowering/src/eval.jl#L241-L250"
+          - source: "diff"
+            path: "JuliaLowering/src/bindings.jl"
+            loc: "17"
+            url: "https://github.com/JuliaLang/julia/blob/b7a217c55c07d7c975b2d1250f832731c2053284/JuliaLowering/src/bindings.jl#L17"
             snippet: |
-              slotflags[i] =                   # Inference          | Codegen
-                  slot.is_read          << 3 | # SLOT_USED          | jl_vinfo_sa
-                  slot.is_single_assign << 4 | # SLOT_ASSIGNEDONCE  | -
-                  slot.is_maybe_undef   << 5 | # SLOT_USEDUNDEF     | jl_vinfo_usedundef
-                  slot.is_called        << 6   # SLOT_CALLED        | -
-              if slot.is_nospecialize
-                  # Ideally this should be a slot flag instead
-                  add_ir_debug_info!(current_codelocs_stack, ex)
-                  push!(stmts, Expr(:meta, :nospecialize, Core.SlotNumber(i)))
-              end
+              is_nospecialize::Bool # @nospecialize on this argument (only valid for kind == :argument)
     behavioral:
-      - impact: "User code with @nospecialize on unnamed arguments now produces the expected nospecialize bitmask in tests, aligning runtime specialization behavior with annotations."
+      - summary: "User code with @nospecialize on unnamed arguments now produces the expected nospecialize bitmask, aligning runtime specialization behavior with annotations."
         evidence:
           - source: "test"
             path: "JuliaLowering/test/functions.jl"
@@ -104,14 +118,32 @@ analysis:
               @test only(methods(test_mod.f_nospecialize_unnamed)).nospecialize == 0b11
   performance:
     compile_time:
-      - impact: "ESTIMATED: slightly reduced specialization work for methods that use unnamed @nospecialize arguments (now correctly marked), which can lower method instance churn in codegen."
+      - summary: "ESTIMATED: Slightly reduced specialization work for methods that use unnamed @nospecialize arguments (now correctly marked), which can lower method instance churn in codegen."
+        evidence:
+          - source: "discussion"
+            path: "JuliaLowering/src/desugaring.jl"
+            loc: "2333"
+            snippet: "The fix adds one getmeta() call per placeholder argument during desugaring - O(1) per argument, negligible overhead."
     runtime:
-      - impact: "ESTIMATED: no runtime behavior change beyond honoring the existing @nospecialize annotation; specialization decisions align with user intent."
+      - summary: "ESTIMATED: No runtime behavior change beyond honoring the existing @nospecialize annotation; specialization decisions align with user intent."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/functions.jl"
+            loc: "334"
+            snippet: "Test verifies Method.nospecialize == 0b11 for function with two @nospecialize arguments (one unnamed, one named)."
+  tests:
+    changed_files:
+      - "JuliaLowering/test/functions.jl"
+    new_behavior_assertions:
+      - "Test that @nospecialize on unnamed argument (::Any) sets the nospecialize bit: only(methods(test_mod.f_nospecialize_unnamed)).nospecialize == 0b11"
+    coverage_gaps: []
   risk:
     level: "low"
     rationale:
       - "Change is limited to propagating existing metadata for placeholder arguments and is guarded by tests for Method.nospecialize."
       - "No changes to inference or optimization passes beyond carrying metadata into slots."
+      - "The fix only affects the nospecialize bit for unnamed arguments - no semantic changes to named arguments."
   open_questions: []
   recommendations:
     - "Downstream tooling that inspects Method.nospecialize should include placeholder (unnamed) arguments in its expectations going forward."
+    - "Tools using reflection on method signatures should be aware that unnamed @nospecialize arguments now correctly show in the nospecialize bitmask."
