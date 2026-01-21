@@ -1,0 +1,423 @@
+schema_version: "1.0"
+pr:
+  number: 59981
+  title: "Revert \"precompile: fail in (closer to) linear time and linear error messages\""
+  url: "https://github.com/JuliaLang/julia/pull/59981"
+  author: "giordano"
+  labels:
+    - "packages"
+    - "revert"
+    - "package extensions"
+  merged_at: "2025-10-29T12:32:36Z"
+  merge_commit_sha: "32e83e20f313f5876295fc3cadb056df0a04156f"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59981.diff"
+  reverts: "https://github.com/JuliaLang/julia/pull/59765"
+  fixes: "https://github.com/JuliaLang/julia/issues/59956"
+scope:
+  files_touched:
+    - "base/precompilation.jl"
+    - "src/jl_uv.c"
+    - "doc/src/devdocs/precompile_hang.md"
+    - "test/precompile.jl"
+    - "test/loading.jl"
+  components:
+    - "Base.Precompilation"
+    - "C Runtime (libuv integration)"
+    - "Documentation"
+  pipeline_stages:
+    - "PackageLoading"
+    - "Precompilation"
+analysis:
+  intent:
+    summary: "Reverts PR #59765 to fix issue #59956 where package extension precompilation failed with 'Precompiled image not available with flags CacheFlags' errors. The reverted PR introduced --compiled-modules=strict flag handling and buggy IO stream separation that caused incompatibility with package extensions during precompilation."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59956"
+      - "https://github.com/JuliaLang/julia/pull/59765"
+  direct_changes:
+    - summary: "Removes the --compiled-modules=strict flag and restores loadable_exts computation from direct_deps[pkg] instead of filtered deps."
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1036-1044"
+          url: "https://github.com/JuliaLang/julia/blob/32e83e20f313f5876295fc3cadb056df0a04156f/base/precompilation.jl#L1036-L1044"
+          snippet: |
+            # for extensions, any extension in our direct dependencies is one we have a right to load
+            # for packages, we may load any extension (all possible triggers are accounted for above)
+            loadable_exts = haskey(ext_to_parent, pkg) ? filter((dep)->haskey(ext_to_parent, dep), direct_deps[pkg]) : nothing
+            if _from_loading && pkg in requested_pkgids
+                # loading already took the cachefile_lock and printed logmsg for its explicit requests
+                t = @elapsed ret = begin
+                    Base.compilecache(pkg, sourcepath, std_pipe, std_pipe, !ignore_loaded;
+                                      flags, cacheflags, loadable_exts)
+                end
+    - summary: "Restores simplified IO stream handling without logio/io separation."
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "535-547"
+          url: "https://github.com/JuliaLang/julia/blob/32e83e20f313f5876295fc3cadb056df0a04156f/base/precompilation.jl#L535-L547"
+          snippet: |
+            # suppress precompilation progress messages when precompiling for loading packages, except during interactive sessions
+            # or when specified by logging heuristics that explicitly require it
+            # since the complicated IO implemented here can have somewhat disastrous consequences when happening in the background (e.g. #59599)
+            io = _io
+            logcalls = nothing
+            if _from_loading && !isinteractive()
+                io = IOContext{IO}(devnull)
+                fancyprint = false
+                logcalls = isinteractive() ? CoreLogging.Info : CoreLogging.Debug # sync with Base.compilecache
+            end
+
+            nconfigs = length(configs)
+            hascolor = get(io, :color, false)::Bool
+    - summary: "Restores monitor_std as inline closure with CORRECT taskwaiting set-based logic, removing the buggy thistaskwaiting variable from PR 59765."
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "836-868"
+          url: "https://github.com/JuliaLang/julia/blob/32e83e20f313f5876295fc3cadb056df0a04156f/base/precompilation.jl#L836-L868"
+          snippet: |
+            function monitor_std(pkg_config, pipe; single_requested_pkg=false)
+                pkg, config = pkg_config
+                try
+                    liveprinting = false
+                    while !eof(pipe)
+                        local str = readline(pipe, keep=true)
+                        if single_requested_pkg && (liveprinting || !isempty(str))
+                            @lock print_lock begin
+                                if !liveprinting
+                                    liveprinting = true
+                                    pkg_liveprinted[] = pkg
+                                end
+                                print(io, ansi_cleartoendofline, str)
+                            end
+                        end
+                        write(get!(IOBuffer, std_outputs, pkg_config), str)
+                        if !in(pkg_config, taskwaiting) && occursin("waiting for IO to finish", str)
+                            !fancyprint && @lock print_lock begin
+                                println(io, pkg.name, color_string(" Waiting for background task / IO / timer.", Base.warn_color()))
+                            end
+                            push!(taskwaiting, pkg_config)
+                        end
+                        if !fancyprint && in(pkg_config, taskwaiting)
+                            @lock print_lock begin
+                                print(io, str)
+                            end
+                        end
+                    end
+                catch err
+                    err isa InterruptException || rethrow()
+                end
+            end
+    - summary: "Restores original error handling that accumulates stderr output with error messages for project dependencies."
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1086-1098"
+          url: "https://github.com/JuliaLang/julia/blob/32e83e20f313f5876295fc3cadb056df0a04156f/base/precompilation.jl#L1086-L1098"
+          snippet: |
+            catch err
+                close(std_pipe.in) # close pipe to end the std output monitor
+                wait(t_monitor)
+                if err isa ErrorException || (err isa ArgumentError && startswith(err.msg, "Invalid header in cache file"))
+                    errmsg = String(take!(get(IOBuffer, std_outputs, pkg_config)))
+                    delete!(std_outputs, pkg_config) # so it's not shown as warnings, given error report
+                    failed_deps[pkg_config] = (strict || is_project_dep) ? string(sprint(showerror, err), "\n", strip(errmsg)) : ""
+                    !fancyprint && @lock print_lock begin
+                        println(io, " "^12, color_string("  X ", Base.error_color()), name)
+                    end
+                else
+                    rethrow()
+                end
+    - summary: "Restores unconditional __precompile__(false) checking for all packages, not just single requested packages from loading."
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "993-997"
+          url: "https://github.com/JuliaLang/julia/blob/32e83e20f313f5876295fc3cadb056df0a04156f/base/precompilation.jl#L993-L997"
+          snippet: |
+            # Heuristic for when precompilation is disabled
+            if occursin(r"\b__precompile__\(\s*false\s*\)", read(sourcepath, String))
+                notify(was_processed[pkg_config])
+                continue
+            end
+    - summary: "Reverts C runtime hang detection message back to shorter form 'waiting for IO to finish'."
+      component: "C Runtime (libuv integration)"
+      evidence:
+        - source: "code"
+          path: "src/jl_uv.c"
+          loc: "68-73"
+          url: "https://github.com/JuliaLang/julia/blob/32e83e20f313f5876295fc3cadb056df0a04156f/src/jl_uv.c#L68-L73"
+          snippet: |
+            if (!uv_loop_alive(t->loop))
+                return;
+            jl_safe_printf("\n[pid %zd] waiting for IO to finish:\n"
+                           " Handle type        uv_handle_t->data\n",
+                           (size_t)uv_os_getpid());
+            uv_walk(jl_io_loop, walk_print_cb, NULL);
+    - summary: "Restores tests to use try/catch LoadError pattern instead of @test_throws PkgPrecompileError."
+      component: "Tests"
+      evidence:
+        - source: "code"
+          path: "test/precompile.jl"
+          loc: "690-698"
+          url: "https://github.com/JuliaLang/julia/blob/32e83e20f313f5876295fc3cadb056df0a04156f/test/precompile.jl#L690-L698"
+          snippet: |
+            try
+                Base.require(Main, :FooBar2)
+                error("the \"break me\" test failed")
+            catch exc
+                isa(exc, LoadError) || rethrow()
+                exc = exc.error
+                isa(exc, ErrorException) || rethrow()
+                "break me" == exc.msg || rethrow()
+            end
+  secondary_effects:
+    - effect: "Package extension precompilation is restored to working state. The --compiled-modules=strict flag was causing precompiled images to be marked unavailable with incompatible cache flags."
+      mechanism: |
+        Issue #59956 reported error:
+          "Precompiled image Base.PkgId(...CompatLinearAlgebraExt...) not available with flags CacheFlags(use_pkgimages=true, debug_level=1, check_bounds=0, inline=true, opt_level=2)"
+
+        ROOT CAUSE - loadable_exts computation difference:
+          PR 59765 (buggy): loadable_exts = filter((dep)->haskey(ext_to_parent, dep), deps)
+            -> 'deps' was a filtered/computed list from precompile task processing
+            -> Extension trigger information was incorrectly filtered out
+
+          REVERTED (correct): loadable_exts = filter((dep)->haskey(ext_to_parent, dep), direct_deps[pkg])
+            -> 'direct_deps[pkg]' contains original manifest triggers from triggers[pkg]
+            -> Extension triggers preserved correctly
+
+        Call chain [precompilation.jl]:
+          _precompilepkgs() line 1038: loadable_exts = haskey(ext_to_parent, pkg) ? filter(..., direct_deps[pkg]) : nothing
+            -> Base.compilecache() line 1042-1043: flags, cacheflags, loadable_exts
+            -> create_expr_cache() loading.jl:3175: loadable_exts parameter
+            -> loading.jl:3237: Base.loadable_extensions = $(_pkg_str(loadable_exts))
+            -> run_extension_callbacks() loading.jl:1642: checks extid.id in loadable_extensions
+
+        The COMBINED effect of --compiled-modules=strict flag (also removed by revert) and wrong loadable_exts
+        caused extension precompilation to fail with cache flag mismatch.
+      downstream_surfaces:
+        - "All packages with extensions (Mocking.jl, Compat.jl with CompatLinearAlgebraExt, etc.)"
+        - "Package extension loading during precompilation"
+        - "Cache flag compatibility between parent packages and extensions"
+      likelihood: high
+      impact: high
+    - effect: "The buggy thistaskwaiting logic from PR 59765 is REMOVED - revert FIXES this bug by restoring set-based taskwaiting check."
+      mechanism: |
+        PR 59765 introduced BUGGY code in _precompilepkgs_monitor_std():
+          local thistaskwaiting = false  # starts false
+          if thistaskwaiting  # NEVER true initially - BUG!
+              if occursin("Waiting for background task / IO / timer", str)
+                  thistaskwaiting = true  # DEAD CODE - never reached
+          else
+              # all output went here unconditionally
+
+        REVERTED code in monitor_std() closure is CORRECT:
+          if !in(pkg_config, taskwaiting) && occursin("waiting for IO to finish", str)
+              push!(taskwaiting, pkg_config)
+          end
+          if !fancyprint && in(pkg_config, taskwaiting)
+              print(io, str)
+          end
+
+        The set-based check (!in + push + in) correctly:
+        1. Detects first occurrence of "waiting for IO to finish"
+        2. Adds package to taskwaiting set
+        3. Continues printing subsequent output for that package
+      downstream_surfaces:
+        - "Background task/IO hang detection during precompilation"
+        - "User-visible warnings for hanging packages"
+      likelihood: high
+      impact: medium
+    - effect: "Exception type for precompilation failures reverts from direct PkgPrecompileError throw to LoadError wrapping ErrorException."
+      mechanism: |
+        Base.require() [loading.jl]
+          -> _require_search_from_serialized() attempts to load cached
+          -> On stale cache: Precompilation.precompilepkgs([pkg]; _from_loading=true)
+          -> Precompilation failure handling:
+
+        PR 59765: Direct throw from precompilepkgs
+          throw(PkgPrecompileError(err_msg))  # thrown directly to caller
+
+        REVERTED: Error propagates through loading chain
+          ErrorException from compilecache
+            -> wrapped in LoadError by require machinery
+            -> Test confirms: isa(exc, LoadError) && isa(exc.error, ErrorException)
+
+        Note: PkgPrecompileError still exists and is used for:
+          - Unknown package errors (line 516)
+          - Interactive session error storage in 'err' variable (line 1231)
+          - Manual precompilepkgs() calls (line 1239)
+      downstream_surfaces:
+        - "Error handling code that was updated to catch PkgPrecompileError from require()"
+        - "CI systems parsing precompilation error types"
+        - "Test code using @test_throws PkgPrecompileError"
+      likelihood: medium
+      impact: low
+    - effect: "Unconditional __precompile__(false) detection restored - all packages with this directive are skipped, not just single requested packages."
+      mechanism: |
+        PR 59765 had conditional check:
+          if _from_loading && single_requested_pkg && occursin(r"\b__precompile__\(\s*false\s*\)", read(sourcepath, String))
+              Base.@logmsg logcalls "Disabled precompiling..."
+              notify(was_processed[pkg_config])
+              continue
+          end
+
+        REVERTED - unconditional check [precompilation.jl:993-997]:
+          if occursin(r"\b__precompile__\(\s*false\s*\)", read(sourcepath, String))
+              notify(was_processed[pkg_config])
+              continue
+          end
+
+        Differences:
+        1. Removes _from_loading condition - applies to all precompile calls
+        2. Removes single_requested_pkg condition - applies to batch precompilation
+        3. Removes diagnostic logmsg about why precompilation was skipped
+      downstream_surfaces:
+        - "Packages with __precompile__(false) directive"
+        - "Batch precompilation via Pkg.precompile()"
+        - "Diagnostic logging when precompilation is skipped"
+      likelihood: medium
+      impact: low
+    - effect: "IO stream handling simplified - single io variable instead of logio/io separation."
+      mechanism: |
+        PR 59765 had elaborate IO separation [precompilation.jl:621-637]:
+          logio = io
+          logcalls = nothing
+          if _from_loading
+              if isinteractive()
+                  logcalls = CoreLogging.Info
+              else
+                  logio = IOContext{IO}(devnull)
+                  fancyprint = false
+                  logcalls = CoreLogging.Debug
+              end
+          end
+
+        REVERTED - simplified [precompilation.jl:538-544]:
+          io = _io
+          logcalls = nothing
+          if _from_loading && !isinteractive()
+              io = IOContext{IO}(devnull)
+              fancyprint = false
+              logcalls = isinteractive() ? CoreLogging.Info : CoreLogging.Debug
+          end
+
+        Note: Reverted code has subtle issue - logcalls ternary inside !isinteractive() block
+        will always evaluate to Debug. But this matches pre-59765 behavior.
+      downstream_surfaces:
+        - "Precompilation output in interactive vs non-interactive sessions"
+        - "Progress bar visibility in CI environments"
+      likelihood: low
+      impact: low
+    - effect: "Dictionary iteration pattern restored from keyset iteration to pair iteration."
+      mechanism: |
+        PR 59765 [precompilation.jl:817]:
+          for dep_pkgid in keys(direct_deps)
+
+        REVERTED [precompilation.jl:748-749]:
+          for dep in direct_deps
+              dep_pkgid = first(dep)
+
+        Both are functionally equivalent for Dict iteration, but the reverted pattern
+        explicitly unpacks the pair, which was the original style.
+      downstream_surfaces:
+        - "No functional impact - stylistic difference only"
+      likelihood: low
+      impact: low
+  compatibility:
+    internal_api:
+      - field: "monitor_std function structure"
+        change: "Reverted from external _precompilepkgs_monitor_std() function back to inline closure monitor_std() capturing variables from enclosing scope."
+        affected_tools:
+          - tool: "Code monkey-patching precompilation internals"
+            usage: "Unlikely to be affected as this is internal implementation detail"
+      - field: "loadable_exts data source"
+        change: "loadable_exts computed from direct_deps[pkg] (manifest triggers) instead of deps (filtered dependencies). This is the key fix for extension precompilation."
+        affected_tools:
+          - tool: "Downstream tools analyzing precompilation dependency graphs"
+            usage: "May observe different extension trigger lists during precompilation"
+      - field: "C runtime hang message string"
+        change: "Reverted from 'Waiting for background task / IO / timer to finish' back to 'waiting for IO to finish' in src/jl_uv.c:68"
+        affected_tools:
+          - tool: "Scripts grepping for precompilation hang messages"
+            usage: "Must match 'waiting for IO to finish' instead of longer message"
+          - tool: "Log analyzers parsing libuv output"
+            usage: "Pattern matching needs update"
+    behavioral:
+      - change: "Packages can now fallback to serial compilation when parallel precompilation fails or dependency graph is incomplete."
+        impact: "Precompilation may take longer but will succeed in more cases, especially for packages with extensions."
+      - change: "Exception type from Base.require() reverts from PkgPrecompileError to LoadError for precompilation failures."
+        impact: "Code catching PkgPrecompileError from require() should also catch LoadError, or use original error handling."
+      - change: "Package extensions precompile correctly again with proper cache flag handling."
+        impact: "Packages like Mocking.jl and Compat.jl extensions that were failing to install will now work."
+      - change: "All packages with __precompile__(false) are skipped during batch precompilation, not just single requested packages."
+        impact: "More consistent behavior, but loses diagnostic logging about why precompilation was skipped."
+  performance:
+    compile_time:
+      - impact: |
+          ESTIMATED: Slight regression in pathological cases.
+          - PR 59765 optimized failure cases to O(n) linear time with --compiled-modules=strict
+          - Revert allows serial fallback, potentially O(n * m) for n packages with m failed dependencies
+          - Trade-off: Correctness over speed - extensions now work
+          - Typical case: No noticeable difference when all dependencies succeed
+          - Source file reading for __precompile__(false) now happens unconditionally (minor overhead)
+    runtime:
+      - impact: "ESTIMATED: No runtime performance change - this only affects precompilation behavior."
+  risk:
+    level: low
+    rationale:
+      - "This is a revert PR - it restores known-working behavior from before PR 59765."
+      - "The revert fixes a critical bug (#59956) that prevented package installation for packages with extensions."
+      - "Reverts are generally low-risk as they restore previous stable state."
+      - "The PR was quickly merged (same day) indicating high confidence in the fix."
+      - "Note: PR 59765 was later reapplied with fixes, so this revert was temporary."
+  open_questions:
+    - "Was the cache flag incompatibility in PR 59765 primarily due to loadable_exts computation or --compiled-modules=strict, or both?"
+    - "Which subsequent PR reapplied the fixes from 59765 with corrected extension handling?"
+  recommendations:
+    - "If you updated error handling to catch PkgPrecompileError from Base.require(), ensure LoadError is also caught for compatibility with this Julia version range."
+    - "Scripts parsing precompilation hang messages should check for both 'waiting for IO to finish' and 'Waiting for background task / IO / timer' for robustness across Julia versions."
+    - "Test package extensions thoroughly when upgrading Julia versions around this change."
+    - "The thistaskwaiting bug was in PR 59765, not the reverted code. If encountering hang detection issues, check which version you are on."
+reviewer_notes:
+  independent_analysis_performed: true
+  julia_repo_checkout: "pr-59981 branch checked out from origin pull/59981/head"
+  code_examined:
+    - "base/precompilation.jl - full file context at lines 530-560, 740-780, 836-868, 990-1100, 1170-1250"
+    - "src/jl_uv.c - hang message at lines 68-73"
+    - "test/precompile.jl - test changes at lines 680-720"
+    - "test/loading.jl - manifest format changes"
+    - "base/loading.jl - loadable_extensions usage at lines 1606, 1642, 3175, 3237"
+    - "PR 59765 diff for context on what was reverted"
+    - "Issue 59956 for bug description and exact error message"
+  corrections_from_original_analysis:
+    - finding: "CRITICAL CORRECTION: thistaskwaiting bug claim was WRONG"
+      original_claim: "The thistaskwaiting logic bug is preserved in the reverted code"
+      correction: "The revert FIXES the bug by removing thistaskwaiting entirely. The reverted code uses correct set-based taskwaiting check: !in(pkg_config, taskwaiting) && occursin(...)"
+      evidence: "Actual code at precompilation.jl:853-863 shows no thistaskwaiting variable"
+    - finding: "CORRECTION: monitor_std is inline closure, not external function"
+      original_claim: "Code snippet showed _precompilepkgs_monitor_std external function"
+      correction: "Reverted code has monitor_std() as inline closure capturing variables from enclosing scope"
+      evidence: "precompilation.jl:836 shows 'function monitor_std(pkg_config, pipe; single_requested_pkg=false)' as closure"
+    - finding: "CORRECTION: IO handling code snippet was inaccurate"
+      original_claim: "Snippet showed logio', logcalls', fancyprint' variable names"
+      correction: "Actual reverted code uses io, logcalls, fancyprint directly without primed names"
+      evidence: "precompilation.jl:538-544 shows actual variable naming"
+  key_findings:
+    - finding: "Root cause was combination of --compiled-modules=strict flag AND loadable_exts computed from wrong data source"
+      severity: "high"
+      evidence: |
+        Issue #59956 error: 'Precompiled image Base.PkgId(...CompatLinearAlgebraExt...) not available with flags CacheFlags(...)'
+        Key diff: loadable_exts source changed from 'deps' (filtered) to 'direct_deps[pkg]' (original triggers)
+    - finding: "The thistaskwaiting bug was INTRODUCED by PR 59765 and REMOVED by this revert"
+      severity: "medium"
+      evidence: "Reverted code at precompilation.jl:853 uses '!in(pkg_config, taskwaiting)' which is correct"
+    - finding: "New secondary effect: __precompile__(false) checking changed from conditional to unconditional"
+      severity: "low"
+      evidence: "precompilation.jl:993-997 now checks all packages, not just _from_loading && single_requested_pkg"
