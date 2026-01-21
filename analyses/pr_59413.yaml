@@ -14,6 +14,8 @@ scope:
     - "Compiler/src/abstractinterpretation.jl"
     - "Compiler/src/stmtinfo.jl"
     - "Compiler/src/typeinfer.jl"
+    - "Compiler/src/types.jl"
+    - "Compiler/src/ssair/inlining.jl"
     - "Compiler/test/inline.jl"
     - "Compiler/test/newinterp.jl"
     - "contrib/generate_precompile.jl"
@@ -48,8 +50,8 @@ analysis:
       evidence:
         - source: "code"
           path: "Compiler/src/stmtinfo.jl"
-          loc: "52-64"
-          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/stmtinfo.jl#L52-L64"
+          loc: "52-65"
+          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/stmtinfo.jl#L52-L65"
           snippet: |
             struct MethodMatchInfo <: CallInfo
                 results::MethodLookupResult
@@ -67,114 +69,103 @@ analysis:
             end
         - source: "code"
           path: "Compiler/src/abstractinterpretation.jl"
-          loc: "125-242"
-          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/abstractinterpretation.jl#L125-L242"
+          loc: "53-58"
+          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/abstractinterpretation.jl#L53-L58"
           snippet: |
-            (; valid_worlds, applicable) = matches
-            update_valid_age!(sv, get_inference_world(interp), valid_worlds) # need to record the negative world now, since even if we don't generate any useful information, inlining might want to add an invoke edge and it won't have this information anymore
-            if bail_out_toplevel_call(interp, sv)
-                local napplicable = length(applicable)
-                for i = 1:napplicable
-                    local sig = applicable[i].match.spec_types
-                    if !isdispatchtuple(sig)
-                        # only infer fully concrete call sites in top-level expressions (ignoring even isa_compileable_sig matches)
-                        add_remark!(interp, sv, "Refusing to infer non-concrete call site in top-level expression")
-                        return Future(CallMeta(Any, Any, Effects(), NoCallInfo()))
-                    end
-                end
+            struct MethodMatchTarget
+                match::MethodMatch
+                edges::Vector{Union{Nothing,CodeInstance}}
+                call_results::Vector{Union{Nothing,InferredCallResult}}
+                edge_idx::Int
             end
-            mresult = abstract_call_method(interp, method, sig, match.sparams, multiple_matches, si, sv)::Future
-            function handle1(interp, sv)
-                local (; rt, exct, effects, edge, call_result) = mresult[]
-                this_conditional = ignorelimited(rt)
-                this_rt = widenwrappedconditional(rt)
-                this_exct = exct
-                const_call_result = abstract_call_method_with_const_args(interp,
-                    mresult[], state.func, this_arginfo, si, match, sv)
-                if const_call_result !== nothing
-                    this_const_conditional = ignorelimited(const_call_result.rt)
-                    this_const_rt = widenwrappedconditional(const_call_result.rt)
-                    const_result = const_edge = nothing
-                    if this_const_rt ⊑ₚ this_rt
-                        this_conditional = this_const_conditional
-                        this_rt = this_const_rt
-                        (; effects, const_result, const_edge) = const_call_result
-                    elseif is_better_effects(const_call_result.effects, effects)
-                        (; effects, const_result, const_edge) = const_call_result
-                    else
-                        add_remark!(interp, sv, "[constprop] Discarded because the result was wider than inference")
-                    end
-                    if const_call_result.exct ⋤ this_exct
-                        this_exct = const_call_result.exct
-                        (; const_result, const_edge) = const_call_result
-                    else
-                        add_remark!(interp, sv, "[constprop] Discarded exception type because result was wider than inference")
-                    end
-                    if const_edge !== nothing
-                        edge = const_edge
-                        update_valid_age!(sv, get_inference_world(interp), world_range(const_edge))
-                    end
-                    if const_result !== nothing
-                        call_result = const_result
-                    end
-                end
-                state.all_effects = merge_effects(state.all_effects, effects)
-                @assert !(this_conditional isa Conditional || this_rt isa MustAlias) "invalid lattice element returned from inter-procedural context"
-                if can_propagate_conditional(this_conditional, argtypes)
-                    this_rt = this_conditional
-                end
-                edges[edge_idx] = edge
-                call_results[edge_idx] = call_result
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "148-148"
+          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/abstractinterpretation.jl#L148"
+          snippet: |
+            (; match, edges, call_results, edge_idx) = applicable[state.inferidx]
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "241-242"
+          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/abstractinterpretation.jl#L241-L242"
+          snippet: |
+            edges[edge_idx] = edge
+            call_results[edge_idx] = call_result
     - summary: "Edge inference now returns an InferenceResult in MethodCallResult.call_result when available, enabling later inlineability checks against the actual inferred source."
       component: "Compiler.TypeInference"
       evidence:
         - source: "code"
           path: "Compiler/src/typeinfer.jl"
-          loc: "1208-1231"
-          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/typeinfer.jl#L1208-L1231"
+          loc: "1207-1234"
+          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/typeinfer.jl#L1207-L1234"
           snippet: |
-            push!(caller.tasks, function get_infer_result(interp, caller)
-                update_valid_age!(caller, get_inference_world(interp), frame.valid_worlds)
-                local isinferred = is_inferred(frame)
-                local effects
-                local edge = nothing
-                local call_result = nothing
-                if isinferred
-                    edge = result.ci
-                    if edge_ci isa CodeInstance && codeinst_edges_sub(edge_ci, edge.min_world, edge.max_world, edge.edges)
-                        edge = edge_ci # override the edge for tracking invalidation
+            let mresult = Future{MethodCallResult}()
+                push!(caller.tasks, function get_infer_result(interp, caller)
+                    update_valid_age!(caller, get_inference_world(interp), frame.valid_worlds)
+                    local isinferred = is_inferred(frame)
+                    local effects
+                    local edge = nothing
+                    local call_result = nothing
+                    if isinferred
+                        edge = result.ci
+                        if edge_ci isa CodeInstance && codeinst_edges_sub(edge_ci, edge.min_world, edge.max_world, edge.edges)
+                            edge = edge_ci # override the edge for tracking invalidation
+                        end
+                        result.ci_as_edge = edge # override the edge for tracking purposes
+                        effects = result.ipo_effects # effects are adjusted already within `finish` for ipo_effects
+                        call_result = result
+                    else
+                        effects = adjust_effects(effects_for_cycle(frame.ipo_effects), method)
+                        add_cycle_backedge!(caller, frame)
                     end
-                    result.ci_as_edge = edge # override the edge for tracking purposes
-                    effects = result.ipo_effects # effects are adjusted already within `finish` for ipo_effects
-                    call_result = result
-                else
-                    effects = adjust_effects(effects_for_cycle(frame.ipo_effects), method)
-                    add_cycle_backedge!(caller, frame)
-                end
-                local bestguess = frame.bestguess
-                local exc_bestguess = refine_exception_type(frame.exc_bestguess, effects)
-                mresult[] = MethodCallResult(interp, caller, method, bestguess, exc_bestguess, effects,
-                    edge, edgecycle, edgelimited, call_result)
-                return true
-            end)
+                    local bestguess = frame.bestguess
+                    local exc_bestguess = refine_exception_type(frame.exc_bestguess, effects)
+                    mresult[] = MethodCallResult(interp, caller, method, bestguess, exc_bestguess, effects,
+                        edge, edgecycle, edgelimited, call_result)
+                    return true
+                end)
+                return mresult
+            end
     - summary: "Const-prop heuristics and semi-concrete evaluation now consult the inferred source carried in call_result for inlineability decisions and irinterp setup."
       component: "Compiler.AbstractInterpretation"
       evidence:
         - source: "code"
           path: "Compiler/src/abstractinterpretation.jl"
-          loc: "1208-1278"
-          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/abstractinterpretation.jl#L1208-L1278"
+          loc: "1206-1246"
+          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/abstractinterpretation.jl#L1206-L1246"
           snippet: |
-            if inf_result isa InferenceResult
-                inferred = inf_result.src
-                # TODO propagate a specific `CallInfo` that conveys information about this call
-                if src_inlining_policy(interp, mi, inferred, NoCallInfo(), IR_FLAG_NULL)
+            function const_prop_methodinstance_heuristic(interp::AbstractInterpreter,
+                inf_result::Union{InferenceResult,Nothing}, mi::MethodInstance, arginfo::ArgInfo, sv::AbsIntState)
+                method = mi.def::Method
+                if method.is_for_opaque_closure
+                    # Not inlining an opaque closure can be very expensive, so be generous
+                    # with the const-prop-ability.
                     return true
                 end
+                if is_declared_inline(method)
+                    return true
+                end
+                flag = get_curr_ssaflag(sv)
+                if is_stmt_inline(flag)
+                    return true
+                elseif is_stmt_noinline(flag)
+                    return false
+                else
+                    if inf_result isa InferenceResult
+                        inferred = inf_result.src
+                        # TODO propagate a specific `CallInfo` that conveys information about this call
+                        if src_inlining_policy(interp, mi, inferred, NoCallInfo(), IR_FLAG_NULL)
+                            return true
+                        end
+                    end
+                end
+                return false # the cache isn't inlineable, so this constant-prop' will most likely be unfruitful
             end
-            return false # the cache isn't inlineable, so this constant-prop' will most likely be unfruitful
-            end
-
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "1248-1281"
+          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/abstractinterpretation.jl#L1248-L1281"
+          snippet: |
             function semi_concrete_eval_call(interp::AbstractInterpreter,
                 mi::MethodInstance, result::MethodCallResult, arginfo::ArgInfo, sv::AbsIntState)
                 call_result = result.call_result
@@ -182,7 +173,7 @@ analysis:
                 codeinst = call_result.ci
                 codeinst isa CodeInstance || return nothing
                 inferred = call_result.src
-                src_inlining_policy(interp, mi, inferred, NoCallInfo(), IR_FLAG_NULL) || return nothing # hack to work-around test failures caused by #58183 until both it and #48913 are fixed
+                src_inlining_policy(interp, mi, inferred, NoCallInfo(), IR_FLAG_NULL) || return nothing
                 irsv = IRInterpretationState(interp, codeinst, mi, arginfo.argtypes, inferred)
                 irsv === nothing && return nothing
                 assign_parentchild!(irsv, sv)
@@ -209,8 +200,8 @@ analysis:
       evidence:
         - source: "code"
           path: "Compiler/test/inline.jl"
-          loc: "1876-1889"
-          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/test/inline.jl#L1876-L1889"
+          loc: "1876-1890"
+          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/test/inline.jl#L1876-L1890"
           snippet: |
             call_func_mul_int(a::Int, b::Int) = @noinline func_mul_int(a, b)
             multi_inlining2(a::Int, b::Int) = call_func_mul_int(a, b)
@@ -232,14 +223,14 @@ analysis:
       evidence:
         - source: "code"
           path: "src/jltypes.c"
-          loc: "3719-3724"
-          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/src/jltypes.c#L3719-L3724"
+          loc: "3722-3726"
+          url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/src/jltypes.c#L3722-L3726"
           snippet: |
-            jl_svecset(jl_code_instance_type->types, 2, jl_code_instance_type);
             const static uint32_t code_instance_constfields[1]  = { 0b000001110000011100011 }; // Set fields 1, 2, 6-8, 14-16 as const
             const static uint32_t code_instance_atomicfields[1] = { 0b111110001011100011100 }; // Set fields 3-5, 9-12, 13, 17-21 as atomic
             // Fields 4-5 are only operated on by construction and deserialization, so are effectively const at runtime
             // Fields ipo_purity_bits and analysis_results are not currently threadsafe or reliable, as they get mutated after optimization, but are not declared atomic
+            // and there is no way to tell (during inference) if their value is finalized yet (to wait for them to be narrowed if applicable)
         - source: "test"
           path: "test/core.jl"
           loc: "16-21"
@@ -253,10 +244,11 @@ analysis:
   secondary_effects:
     - effect: "Inlining decisions become more stable because const-prop heuristics now consult the actual inferred source of callees, preventing a later inlining pass from undoing a noinline choice that inference already recorded."
       mechanism: |
-        abstract_call_gf_by_type() stores call_results per MethodMatchTarget [abstractinterpretation.jl:148-242]
-          -> infercalls2() passes call_results to const_prop_methodinstance_heuristic() [abstractinterpretation.jl:301-308]
-          -> const_prop_methodinstance_heuristic() checks src_inlining_policy on inf_result.src [abstractinterpretation.jl:1233-1241]
-          -> inlining tests verify no inlining on second pass when inference recorded noinline [Compiler/test/inline.jl:1876-1889]
+        abstract_call_gf_by_type() stores call_results per MethodMatchTarget [abstractinterpretation.jl:242]
+          -> infercalls2() passes call_results to const_prop_methodinstance_heuristic() [abstractinterpretation.jl:306-307]
+          -> const_prop_methodinstance_heuristic() checks src_inlining_policy on inf_result.src [abstractinterpretation.jl:1237-1241]
+          -> if inlineable, returns true to allow const-prop; otherwise returns false
+          -> inlining tests verify no inlining on second pass when inference recorded noinline [Compiler/test/inline.jl:1876-1890]
       downstream_surfaces:
         - "Core.Compiler inlining and constant-propagation heuristics"
         - "SSA inlining pass stability"
@@ -264,14 +256,46 @@ analysis:
       impact: "medium"
     - effect: "Semi-concrete evaluation (irinterp) now requires an InferenceResult-backed CodeInstance and inlineable source, which can reduce irinterp attempts on cached but non-inlineable code."
       mechanism: |
-        typeinf_edge() populates MethodCallResult.call_result with InferenceResult when available [typeinfer.jl:1208-1231]
-          -> semi_concrete_eval_call() uses result.call_result.ci and result.call_result.src [abstractinterpretation.jl:1248-1276]
-          -> src_inlining_policy gate can block irinterp when source is not inlineable [abstractinterpretation.jl:1255-1256]
+        typeinf_edge() populates MethodCallResult.call_result with InferenceResult when isinferred [typeinfer.jl:1214-1221]
+          -> semi_concrete_eval_call() retrieves call_result from result.call_result [abstractinterpretation.jl:1250]
+          -> checks call_result isa InferenceResult [abstractinterpretation.jl:1251]
+          -> extracts codeinst = call_result.ci and inferred = call_result.src [abstractinterpretation.jl:1252-1254]
+          -> src_inlining_policy gate blocks irinterp when source is not inlineable [abstractinterpretation.jl:1255]
       downstream_surfaces:
         - "IRInterpreter-based const-prop"
         - "Inlining preparation for cached CodeInstances"
       likelihood: "medium"
       impact: "low"
+    - effect: "Inlining system retrieves call_results via getresult() to compute joint effects and dispatch to appropriate result handlers based on result type."
+      mechanism: |
+        getresult(info, idx) returns call_results[idx] [types.jl:559 -> stmtinfo.jl:159]
+          -> compute_inlining_cases() iterates over matches calling getresult() [ssair/inlining.jl:1305]
+          -> info_effects() extracts effects from call_result by type [ssair/inlining.jl:1273-1282]:
+             - InferenceResult -> call_result.ipo_effects
+             - ConcreteResult -> call_result.effects
+             - SemiConcreteResult -> call_result.effects
+          -> joint_effects = merge_effects(joint_effects, info_effects(...)) [ssair/inlining.jl:1306]
+          -> handle_any_call_result!() dispatches based on result type [ssair/inlining.jl:1264-1270]:
+             - ConcreteResult -> handle_concrete_result!()
+             - SemiConcreteResult -> handle_semi_concrete_result!()
+             - else -> handle_call_result!()
+      downstream_surfaces:
+        - "SSA inlining pass case handling"
+        - "Effect inference during inlining"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "Cached results with inlineable source now preserve InferenceResult as call_result for downstream inlining."
+      mechanism: |
+        return_cached_result() for CodeInstance with src [typeinfer.jl:1005-1027]:
+          -> creates InferenceResult with cached source [typeinfer.jl:1012-1019]
+          -> passes inf_result as call_result to MethodCallResult [typeinfer.jl:1026]
+        return_cached_result() for InferenceResult [typeinfer.jl:1029-1041]:
+          -> passes existing inf_result as call_result [typeinfer.jl:1040]
+      downstream_surfaces:
+        - "Cached edge inlining"
+        - "Source preservation for inlining decisions"
+      likelihood: "high"
+      impact: "medium"
   compatibility:
     internal_api:
       - field: "Core.Compiler.MethodMatchInfo.call_results"
@@ -282,14 +306,13 @@ analysis:
             evidence:
               - source: "code"
                 path: "stdlib/REPL/src/REPLCompletions.jl"
-                loc: "602-609"
-                url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/stdlib/REPL/src/REPLCompletions.jl#L602-L609"
+                loc: "605-608"
+                url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/stdlib/REPL/src/REPLCompletions.jl#L605-L608"
                 snippet: |
                   if (interp.limit_aggressive_inference ? is_repl_frame(sv) : is_call_stack_uncached(sv))
                       neweffects = CC.Effects(result.effects; consistent=CC.ALWAYS_TRUE)
                       result = CC.MethodCallResult(result.rt, result.exct, neweffects, result.edge,
                                                    result.edgecycle, result.edgelimited, result.call_result)
-                  end
       - field: "Core.Compiler.MethodCallResult.call_result"
         change: "Replaces the previous volatile_inf_result slot and now carries InferredCallResult for use in const-prop and irinterp."
         affected_tools:
@@ -298,8 +321,8 @@ analysis:
             evidence:
               - source: "code"
                 path: "Compiler/src/abstractinterpretation.jl"
-                loc: "821-833"
-                url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/abstractinterpretation.jl#L821-L833"
+                loc: "821-834"
+                url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/abstractinterpretation.jl#L821-L834"
                 snippet: |
                   struct MethodCallResult
                       rt
@@ -315,13 +338,27 @@ analysis:
                           return new(rt, exct, effects, edge, edgecycle, edgelimited, call_result)
                       end
                   end
+      - field: "Core.Compiler.getresult(info::CallInfo, idx::Int)"
+        change: "New API to retrieve call_results from CallInfo for use in inlining. Returns InferredCallResult or nothing."
+        affected_tools:
+          - tool: "Custom inlining implementations"
+            usage: "Inlining code using nsplit/getsplit should also call getresult() to obtain effects and source for inlining decisions."
+            evidence:
+              - source: "code"
+                path: "Compiler/src/types.jl"
+                loc: "557-559"
+                url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/types.jl#L557-L559"
+                snippet: |
+                  nsplit(info::CallInfo) = nsplit_impl(info)::Union{Nothing,Int}
+                  getsplit(info::CallInfo, idx::Int) = getsplit_impl(info, idx)::MethodLookupResult
+                  getresult(info::CallInfo, idx::Int) = getresult_impl(info, idx)
     behavioral:
       - change: "Second inlining pass respects inference-recorded noinline decisions even if callsite flag is cleared, as enforced by updated tests."
         evidence:
           - source: "test"
             path: "Compiler/test/inline.jl"
-            loc: "1876-1889"
-            url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/test/inline.jl#L1876-L1889"
+            loc: "1876-1890"
+            url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/test/inline.jl#L1876-L1890"
             snippet: |
               call_func_mul_int(a::Int, b::Int) = @noinline func_mul_int(a, b)
               multi_inlining2(a::Int, b::Int) = call_func_mul_int(a, b)
@@ -343,29 +380,22 @@ analysis:
         evidence:
           - source: "code"
             path: "Compiler/src/stmtinfo.jl"
-            loc: "52-64"
-            url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/stmtinfo.jl#L52-L64"
+            loc: "58-63"
+            url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/stmtinfo.jl#L58-L63"
             snippet: |
-              struct MethodMatchInfo <: CallInfo
-                  results::MethodLookupResult
-                  mt::MethodTable
-                  atype
-                  fullmatch::Bool
-                  edges::Vector{Union{Nothing,CodeInstance}}
-                  call_results::Vector{Union{Nothing,InferredCallResult}}
-                  function MethodMatchInfo(
-                      results::MethodLookupResult, mt::MethodTable, @nospecialize(atype), fullmatch::Bool)
+              call_results::Vector{Union{Nothing,InferredCallResult}}
+              function MethodMatchInfo(
+                  results::MethodLookupResult, mt::MethodTable, @nospecialize(atype), fullmatch::Bool)
                   edges = fill!(Vector{Union{Nothing,CodeInstance}}(undef, length(results)), nothing)
                   call_results = fill!(Vector{Union{Nothing,InferredCallResult}}(undef, length(results)), nothing)
                   return new(results, mt, atype, fullmatch, edges, call_results)
-              end
     runtime:
       - impact: "ESTIMATED: improved runtime in cases where previously-missing inlineable IR prevented inlining, by ensuring inference regenerates inlineable sources when needed."
         evidence:
           - source: "code"
             path: "Compiler/src/typeinfer.jl"
-            loc: "1123-1133"
-            url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/typeinfer.jl#L1123-L1133"
+            loc: "1123-1134"
+            url: "https://github.com/JuliaLang/julia/blob/998cb27e4c83364a38378841c88c954ac1e7eb59/Compiler/src/typeinfer.jl#L1123-L1134"
             snippet: |
               if codeinst isa CodeInstance
                   need_inlineable_code = may_optimize(interp) && (force_inline || is_inlineable(inferred))
@@ -379,15 +409,16 @@ analysis:
                           @assert codeinst.def === mi "MethodInstance for cached edge does not match"
                           return return_cached_result(interp, method, code, src, caller, edgecycle, edgelimited)
                       end
-                  else # no reinference needed
   risk:
     level: "medium"
     rationale:
       - "Touches inference/inlining heuristics and adds a new call_result dataflow; incorrect propagation could change inlining or const-prop behavior."
       - "Modifies CodeInstance const-field metadata, which affects assumptions about mutability during optimization."
+      - "Changes to MethodCallResult constructor signature require downstream tools to update their MethodCallResult construction."
   open_questions:
     - "Are there additional AbstractInterpreter implementations (outside stdlib) that construct MethodCallResult without forwarding call_result and need updates?"
     - "Should the semi-concrete eval inlineability gate be revisited once #58183 and #48913 are resolved to avoid skipping irinterp when source is available but not inlineable?"
   recommendations:
     - "Downstream compiler tooling that wraps or constructs MethodCallResult should forward call_result to preserve inference metadata."
     - "Consider adding a small note in developer docs about MethodMatchInfo.call_results and MethodCallResult.call_result to avoid silent tooling breakage."
+    - "Custom AbstractInterpreter implementations that override concrete_eval_eligible or similar should follow the REPLInterpreter pattern for forwarding call_result."
