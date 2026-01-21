@@ -85,13 +85,13 @@ analysis:
                 f = MixedKeyDict((Dict(2 => 7), Dict(5. => 11)))
                 @test mergewith(+, d, e, f).dicts == (Dict(1 => 10, 2 => 7), Dict(4.0 => 2, 5.0 => 20))
             end
-    - summary: "Remove the backward-compatibility test that exercised merge with a combiner and keep mergewith coverage." 
+    - summary: "Remove the backward-compatibility test that exercised merge with a combiner and keep mergewith coverage."
       component: "Base tests"
       evidence:
         - source: "test"
           path: "test/dict.jl"
-          loc: "1281-1291"
-          url: "https://github.com/JuliaLang/julia/blob/595757964be1e190e8fe474b74df7a60b315e566/test/dict.jl#L1281-L1291"
+          loc: "1281-1292"
+          url: "https://github.com/JuliaLang/julia/blob/595757964be1e190e8fe474b74df7a60b315e566/test/dict.jl#L1281-L1292"
           snippet: |
             @testset "Dict merge" begin
                 d1 = Dict("A" => 1, "B" => 2)
@@ -105,6 +105,14 @@ analysis:
                 @test foldl(mergewith(+), [d1, d2]; init=Dict{Union{},Union{}}()) ==
                     Dict("A" => 1, "B" => 5, "C" => 4)
             end
+        - source: "diff"
+          path: "test/dict.jl"
+          loc: "removed"
+          url: "https://github.com/JuliaLang/julia/pull/59775/files#diff-test-dict"
+          snippet: |
+            # Lines removed by this PR:
+            -    # backward compatibility
+            -    @test @inferred merge(+, d1, d2) == Dict("A" => 1, "B" => 5, "C" => 4)
     - summary: "Add a NEWS entry documenting the deprecation of merge(combine::Callable, d::AbstractDict...)."
       component: "Release notes"
       evidence:
@@ -120,16 +128,26 @@ analysis:
   secondary_effects:
     - effect: "Calling merge(combine::Callable, d::AbstractDict...) now emits a deprecation warning and forwards to mergewith."
       mechanism: |
-        merge(combine::Callable, d::AbstractDict, others::AbstractDict...)  [base/abstractdict.jl:408-409]
-          defines the Callable-combiner overload
-        -> @deprecate wrapper  [base/deprecated.jl:570-573]
-          emits depwarn and redirects to mergewith(combine, d, others...)
-        -> mergewith(combine, d::AbstractDict, others::AbstractDict...)  [base/abstractdict.jl:405-406]
-          performs the combining merge
+        @deprecate macro  [base/deprecated.jl:572]
+          creates a new method: merge(combine::Callable, d::AbstractDict, others::AbstractDict...)
+          that calls depwarn() then forwards to mergewith(combine, d, others...)
+        -> mergewith(combine, d::AbstractDict, others::AbstractDict...)  [base/abstractdict.jl:401-402]
+          mergewith!(combine, _typeddict(d, others...), others...)
+        -> mergewith!(combine, d1::AbstractDict, d2::AbstractDict)  [base/abstractdict.jl:286-291]
+          performs the actual combining merge
       downstream_surfaces:
         - "User code calling merge(+, dicts...)"
         - "Packages that overload merge(combine::Callable, ::AbstractDict...)"
       likelihood: "high"
+      impact: "low"
+    - effect: "merge!(combine::Callable, ...) remains available as an undeprecated alias to mergewith!."
+      mechanism: |
+        merge!(combine::Callable, args...)  [base/abstractdict.jl:295]
+          directly calls mergewith!(combine, args...) without deprecation warning
+        NOTE: Only merge (not merge!) with Callable is deprecated; merge! alias preserved for backward compatibility.
+      downstream_surfaces:
+        - "User code calling merge!(+, dicts...)"
+      likelihood: "medium"
       impact: "low"
   compatibility:
     internal_api:
@@ -158,3 +176,4 @@ analysis:
   recommendations:
     - "Update downstream code that calls merge(+, dicts...) to mergewith(+, dicts...) to avoid deprecation warnings."
     - "If you define custom merge(combine::Callable, ::AbstractDict...) methods, consider adding corresponding mergewith overloads."
+    - "Note: merge!(+, dicts...) is NOT deprecated and remains as an alias for mergewith!(+, dicts...) - only the non-mutating merge is deprecated."
