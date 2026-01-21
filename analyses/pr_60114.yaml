@@ -1,0 +1,350 @@
+schema_version: "1.0"
+
+pr:
+  number: 60114
+  title: "Revert \"Call `realpath` before comparing coverage paths\""
+  url: "https://github.com/JuliaLang/julia/pull/60114"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60114.diff"
+  author: "Keno"
+  labels:
+    - "revert"
+  merged_at: "2025-11-13T02:59:36Z"
+  merge_commit_sha: "89b8cd414f165068f82e9aa2d59e0b677f0727ec"
+  reverts_pr: 60088
+
+scope:
+  files_touched:
+    - "src/codegen.cpp"
+    - "src/jlapi.c"
+    - "src/julia_internal.h"
+  components:
+    - "Codegen"
+    - "Runtime"
+  pipeline_stages:
+    - "Codegen"
+
+analysis:
+  intent:
+    summary: |
+      Reverts PR #60088 which added `realpath` calls during coverage path comparisons.
+      The reverted change caused a significant performance regression (2x increase in
+      Pkg.jl CI time) because it required filesystem queries for every line table entry
+      during code generation. Keno noted he would work on a more comprehensive replacement.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/60088"
+      - "https://github.com/JuliaLang/julia/issues/60058"
+
+  direct_changes:
+    - summary: "Removed realpath call from in_tracked_path lambda in codegen"
+      component: "Codegen"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "8900-8902"
+          url: "https://github.com/JuliaLang/julia/blob/89b8cd414f165068f82e9aa2d59e0b677f0727ec/src/codegen.cpp#L8900-L8902"
+          snippet: |
+            auto in_tracked_path = [] (StringRef file) { // falls within an explicitly set file or directory
+                return jl_options.tracked_path != NULL && file.starts_with(jl_options.tracked_path);
+            };
+
+    - summary: "Changed jl_absrealpath from JL_DLLEXPORT to static function"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/jlapi.c"
+          loc: "1173-1208"
+          url: "https://github.com/JuliaLang/julia/blob/89b8cd414f165068f82e9aa2d59e0b677f0727ec/src/jlapi.c#L1173-L1208"
+          snippet: |
+            static char *absrealpath(const char *in, int nprefix)
+            { // compute an absolute realpath location, so that chdir doesn't change the file reference
+              // ignores (copies directly over) nprefix characters at the start of abspath
+                char *out;
+                uv_fs_t req;
+                int realpath_ret = uv_fs_realpath(NULL, &req, in + nprefix, NULL);
+                if (realpath_ret >= 0) {
+                    size_t sz = strlen((char*)(req.ptr)) + 1;
+                    out = (char*)malloc_s(sz + nprefix);
+                    memcpy(out, in, nprefix);
+                    memcpy(out + nprefix, req.ptr, sz);
+                    uv_fs_req_cleanup(&req);
+                }
+                else {
+                    uv_fs_req_cleanup(&req);
+                    size_t sz = strlen(in + nprefix) + 1;
+                    if (jl_isabspath(in + nprefix)) {
+                        out = (char*)malloc_s(sz + nprefix);
+                        memcpy(out, in, sz + nprefix);
+                    }
+                    else {
+                        size_t path_size = JL_PATH_MAX;
+                        char *path = (char*)malloc_s(JL_PATH_MAX);
+                        if (uv_cwd(path, &path_size)) {
+                            jl_error("fatal error: unexpected error while retrieving current working directory");
+                        }
+                        out = (char*)malloc_s(path_size + 1 + sz + nprefix);
+                        memcpy(out, in, nprefix);
+                        memcpy(out + nprefix, path, path_size);
+                        out[nprefix + path_size] = PATHSEPSTRING[0];
+                        memcpy(out + nprefix + path_size + 1, in + nprefix, sz);
+                        free(path);
+                    }
+                }
+                return out;
+            }
+
+    - summary: "Removed jl_absrealpath declaration from internal header"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/julia_internal.h"
+          loc: "1911"
+          url: "https://github.com/JuliaLang/julia/blob/89b8cd414f165068f82e9aa2d59e0b677f0727ec/src/julia_internal.h#L1911"
+          snippet: |
+            JL_DLLEXPORT int jl_isabspath(const char *in) JL_NOTSAFEPOINT;
+
+            // Commonly used symbols (jl_sym_t* values)
+
+  secondary_effects:
+    - effect: "Coverage path matching reverts to simple string prefix comparison"
+      mechanism: |
+        in_tracked_path(file) [codegen.cpp:8900]
+          now uses: file.starts_with(jl_options.tracked_path)
+          instead of: jl_absrealpath() -> starts_with comparison
+
+        This lambda is called at multiple points during codegen:
+          1. codegen.cpp:8904 - mod_is_tracked = in_tracked_path(ctx.file)
+          2. codegen.cpp:9114 - is_tracked = in_tracked_path(newdbg.file) [inside coverageVisitStmt]
+          3. codegen.cpp:9153 - is_tracked = in_tracked_path(file) [inside record_line_exists]
+
+        The key issue was that record_line_exists() iterates over all debug info entries
+        and coverageVisitStmt() is called for each statement. Calling realpath() for each
+        of these incurs significant filesystem overhead.
+      downstream_surfaces:
+        - "Code coverage collection"
+        - "Memory allocation tracking"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Symlink handling regression in --code-coverage=@path"
+      mechanism: |
+        Without the realpath call, if a user specifies --code-coverage=@/some/symlink/path
+        and the actual source files are accessed via a resolved path, the coverage
+        instrumentation may not match correctly.
+
+        This was the original bug that PR #60088 attempted to fix (ref issue #60058).
+        The revert means this symlink issue is re-introduced until a more efficient
+        solution is implemented.
+      downstream_surfaces:
+        - "Code coverage with symlinked paths"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "Restores consistency between codegen and inference-time path tracking"
+      mechanism: |
+        There is a parallel path tracking mechanism at the Julia level:
+
+        jl_is_file_tracked(path) [src/init.c:543-548]
+          -> uses strncmp with jl_options.tracked_path (simple prefix match)
+          -> exported as JL_DLLEXPORT
+
+        This is called from Julia side:
+          Base.is_file_tracked(file::Symbol) [base/options.jl:128-130]
+            -> ccall(:jl_is_file_tracked, ...)
+
+        Which is used by the compiler:
+          _should_instrument(loc::Symbol) = is_file_tracked(loc) [Compiler/src/inferencestate.jl:583]
+            -> called from should_instrument() for path-specific coverage mode
+
+        PR #60088 only modified the codegen path (in_tracked_path lambda) but NOT
+        jl_is_file_tracked. This revert restores consistency: both paths now use
+        simple prefix matching without realpath resolution.
+
+        Call chain for inference-time instrumentation decision:
+          should_instrument(mod, debuginfo, ...) [inferencestate.jl:576-581]
+            checks JLOptions().code_coverage == 3 (path-specific mode)
+            -> _should_instrument(debuginfo) [inferencestate.jl:588-593]
+            -> _should_instrument(loc::Symbol) [inferencestate.jl:583]
+            -> is_file_tracked(loc) [base/options.jl:128-130]
+            -> jl_is_file_tracked(path) [src/init.c:543-548]
+      downstream_surfaces:
+        - "Inference-time instrumentation decisions"
+        - "Code coverage path-specific mode at compile time"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "src/init.c"
+          loc: "543-548"
+          url: "https://github.com/JuliaLang/julia/blob/89b8cd414f165068f82e9aa2d59e0b677f0727ec/src/init.c#L543-L548"
+          snippet: |
+            JL_DLLEXPORT int jl_is_file_tracked(jl_sym_t *path)
+            {
+                const char* path_ = jl_symbol_name(path);
+                int tpath_len = strlen(jl_options.tracked_path);
+                return (strlen(path_) >= tpath_len) && (strncmp(path_, jl_options.tracked_path, tpath_len) == 0);
+            }
+        - source: "code"
+          path: "Compiler/src/inferencestate.jl"
+          loc: "576-593"
+          url: "https://github.com/JuliaLang/julia/blob/89b8cd414f165068f82e9aa2d59e0b677f0727ec/Compiler/src/inferencestate.jl#L576-L593"
+          snippet: |
+            function should_instrument(mod::Module, debuginfo::DebugInfo, only_if_affects_optimizer::Bool=false)
+                instrumentation_enabled(mod, only_if_affects_optimizer) && return true
+                JLOptions().code_coverage == 3 || JLOptions().malloc_log == 3 || return false
+                # path-specific coverage mode: if any line falls in a tracked file enable coverage for all
+                return _should_instrument(debuginfo)
+            end
+
+            _should_instrument(loc::Symbol) = is_file_tracked(loc)
+            _should_instrument(loc::Method) = _should_instrument(loc.file)
+            _should_instrument(loc::MethodInstance) = _should_instrument(loc.def)
+            _should_instrument(::Module) = false
+            _should_instrument(::Nothing) = false
+            function _should_instrument(info::DebugInfo)
+                linetable = info.linetable
+                linetable === nothing || (_should_instrument(linetable) && return true)
+                _should_instrument(info.def) && return true
+                return false
+            end
+
+    - effect: "Asymmetry between tracked_path resolution and file path resolution preserved"
+      mechanism: |
+        The tracked_path is resolved to realpath at startup:
+          jl_resolve_sysimg_location() [jlapi.c:1281-1282]
+            if (jl_options.tracked_path)
+                jl_options.tracked_path = absrealpath(jl_options.tracked_path, 0);
+
+        But file paths in debug info are NOT resolved before comparison.
+        This asymmetry is the root cause of the symlink issue:
+        - User specifies: --code-coverage=@/symlink/path
+        - tracked_path becomes: /resolved/real/path (via absrealpath)
+        - File in debug info: /symlink/path/file.jl (not resolved)
+        - Comparison fails: "/symlink/path/file.jl".starts_with("/resolved/real/path") = false
+
+        Test confirms expected behavior [test/cmdlineargs.jl:622-623]:
+          @test readchomp(...--code-coverage=@$tdir`) == "(3, $(repr(realpath(tdir))))"
+        This shows tracked_path IS resolved but source file paths are not.
+      downstream_surfaces:
+        - "Coverage path matching with symlinks"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "jl_absrealpath"
+        change: "No longer exported (reverted to static function)"
+        affected_tools:
+          - "Any code that might have started depending on jl_absrealpath between PR #60088 merge (2025-11-11) and this revert (2025-11-13)"
+
+    behavioral:
+      - change: "--code-coverage=@path may not work with symlinked paths"
+        description: |
+          If the tracked_path contains symlinks, the coverage instrumentation
+          comparison uses simple string prefix matching which won't match
+          the realpath-resolved paths stored in debug info.
+        affected_scenarios:
+          - "Testing Pkg.jl in-tree where paths go through symlinks"
+          - "Any --code-coverage=@path usage with symlinked directories"
+
+  performance:
+    compile_time:
+      - change: "Eliminates O(n * m) filesystem calls during codegen"
+        description: |
+          MEASURED: Pkg.jl CI time improved by ~2x (reverted the regression)
+
+          Previously (with PR #60088):
+            - in_tracked_path() called jl_absrealpath() which invokes uv_fs_realpath()
+            - This is called for every debug info entry (record_line_exists) and
+              every statement (coverageVisitStmt) when coverage mode is enabled
+            - n = number of statements, m = number of debug info entries
+            - Each realpath call incurs filesystem I/O
+
+          Now (after this revert):
+            - Simple string comparison: O(1) per call
+            - No filesystem operations during codegen path matching
+
+          Detailed call frequency analysis:
+            record_line_exists() [codegen.cpp:9133-9164]
+              - Iterates recursively through all debuginfo edges
+              - For each debuginfo, iterates through all codelocs entries
+              - Called once per function compilation
+
+            coverageVisitStmt() [codegen.cpp:9104-9121]
+              - Called at codegen.cpp:9180 (initial call for function definition)
+              - Called at codegen.cpp:9188 (inside main codegen loop for each stmt with debug update)
+              - Called once per statement with changed debug info
+
+          With realpath: Each call = uv_fs_realpath() syscall = ~0.1-1ms per call
+          Without realpath: Each call = StringRef::starts_with() = ~10ns per call
+        magnitude: "MEASURED: 2x improvement in Pkg.jl CI time"
+
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "This is a revert to known-good code that was in production before PR #60088"
+      - "The reverted behavior has been stable for years"
+      - "The performance regression was severe (2x Pkg.jl CI time) and confirmed"
+      - "The symlink issue being re-introduced is a corner case with workarounds"
+      - "Keno indicated plans for a more comprehensive fix"
+      - "Revert restores consistency between codegen and inference-time path tracking"
+
+  downstream_impact:
+    packages: []
+    surfaces:
+      - "Code coverage instrumentation"
+      - "Path-specific coverage mode (--code-coverage=@path)"
+    notes: |
+      This PR has minimal impact on downstream packages. The only change that could
+      theoretically affect external code is the removal of jl_absrealpath from the
+      exported API, but this was only exported for 2 days (between PR #60088 merge
+      on 2025-11-11 and this revert on 2025-11-13). It is extremely unlikely any
+      package started depending on this symbol in that window.
+
+      The main impact is on users of --code-coverage=@path with symlinked paths,
+      who may need to use resolved paths instead of symlinked paths until a proper
+      fix is implemented.
+
+      Note: The jl_is_file_tracked function (used at inference time) was never
+      modified by PR #60088, so it always had the symlink issue. The revert
+      brings the codegen path back in sync with the inference-time path.
+
+  open_questions:
+    - "What is the comprehensive replacement that Keno mentioned working on?"
+    - "Could caching of realpath results eliminate the performance issue while preserving symlink handling?"
+    - "Should the coverage filtering be moved to writer side as mentioned in PR #60088 body?"
+    - "Should jl_is_file_tracked also be fixed for symlinks to maintain consistency?"
+    - "Could the file paths in debug info be pre-resolved at load time instead of comparison time?"
+
+  recommendations:
+    - "No action required by downstream package maintainers"
+    - "Users experiencing coverage issues with symlinked paths should use resolved absolute paths"
+    - "Watch for follow-up PR implementing a more efficient solution"
+    - "Future fix should address both codegen (in_tracked_path) and inference (jl_is_file_tracked) paths"
+
+classification:
+  type: "revert"
+  compiler_relevant: true
+  breaking_change: false
+  requires_downstream_action: false
+
+reviewer_notes:
+  independent_analysis_findings:
+    - finding: "Discovered parallel path tracking in jl_is_file_tracked (init.c)"
+      description: |
+        The original analysis focused on the codegen path (in_tracked_path lambda).
+        Independent analysis found a parallel code path at the Julia level:
+        jl_is_file_tracked() -> Base.is_file_tracked() -> should_instrument()
+        This path was never modified by PR #60088 and always had simple prefix matching.
+        The revert restores consistency between these two paths.
+    - finding: "Verified call frequency analysis"
+      description: |
+        Confirmed that record_line_exists is called once per function but iterates
+        through all debuginfo entries recursively, and coverageVisitStmt is called
+        per-statement in the main codegen loop. This explains the O(n*m) cost.
+    - finding: "Identified asymmetry root cause"
+      description: |
+        The tracked_path is resolved via absrealpath at startup (jlapi.c:1281-1282)
+        but source file paths in debug info are never resolved. This asymmetry
+        is the fundamental cause of the symlink matching issue.

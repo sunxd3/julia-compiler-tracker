@@ -1,0 +1,500 @@
+schema_version: "1.0"
+pr:
+  number: 60356
+  title: "(Mostly) Trivial part of LLVM 21 support"
+  url: "https://github.com/JuliaLang/julia/pull/60356"
+  author: "yuyichao"
+  labels: []
+  merged_at: "2025-12-11T18:50:21Z"
+  merge_commit_sha: "ad589da1f96b82bcd60ea269d7fae60a73012fb8"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60356.diff"
+  commits:
+    - sha: "337169a406db10de10b43326cdf03b3a2156f9b1"
+      message: "Use CaptureInfo for NoCapture on LLVM 21"
+    - sha: "f995c6a"
+      message: "Removed IsNewDbgInfoFormat field"
+    - sha: "ce6c055e8ee623cbbfc870f3a75e6fd130e30a71"
+      message: "Alias information change for LLVM 21/22"
+    - sha: "7209461"
+      message: "runFinalizedActions API change"
+    - sha: "ad589da1f96b82bcd60ea269d7fae60a73012fb8"
+      message: "Assorted return value/argument type/include change for LLVM 21"
+scope:
+  files_touched:
+    - "src/aotcompile.cpp"
+    - "src/cgmemmgr.cpp"
+    - "src/cgutils.cpp"
+    - "src/codegen.cpp"
+    - "src/debuginfo.cpp"
+    - "src/disasm.cpp"
+    - "src/jitlayers.cpp"
+  components:
+    - "Codegen"
+    - "JIT"
+    - "AOT"
+    - "DebugInfo"
+  pipeline_stages:
+    - "Codegen"
+analysis:
+  intent:
+    summary: "Prepare Julia's LLVM interface for LLVM 21 by adapting to API changes including NoCapture attribute replacement with CaptureInfo, Triple API changes, debug info format field removal, memcpy/AAMDNodes API changes, and ORC JIT signature updates. Split from PR 59946 to simplify review. Also includes forward compatibility for LLVM 22 AAMDNodes constructor."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59946"
+  direct_changes:
+    - summary: "Replace deprecated Attribute::NoCapture with CaptureInfo-based API for LLVM 21+. Introduces helper functions NoCaptureAttr() and addNoCaptureAttr() that abstract over the version difference. Also modifies Attributes() function signature to accept extra Attribute objects."
+      component: "Codegen"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "598-606"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/codegen.cpp#L598-L606"
+          snippet: |
+            AttributeSet Attributes(LLVMContext &C, std::initializer_list<Attribute::AttrKind> attrkinds, std::initializer_list<Attribute> extra={})
+            {
+                SmallVector<Attribute, 8> attrs(attrkinds.size() + extra.size());
+                for (size_t i = 0; i < attrkinds.size(); i++)
+                    attrs[i] = Attribute::get(C, attrkinds.begin()[i]);
+                for (size_t i = 0; i < extra.size(); i++)
+                    attrs[attrkinds.size() + i] = extra.begin()[i];
+                return AttributeSet::get(C, ArrayRef<Attribute>(attrs));
+            }
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "608-624"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/codegen.cpp#L608-L624"
+          snippet: |
+            static inline Attribute NoCaptureAttr(LLVMContext &C)
+            {
+            #if JL_LLVM_VERSION < 210000
+                return Attribute::get(C, Attribute::NoCapture);
+            #else
+                return Attribute::getWithCaptureInfo(C, CaptureInfo(CaptureComponents::None));
+            #endif
+            }
+
+            static inline void addNoCaptureAttr(AttrBuilder &param)
+            {
+            #if JL_LLVM_VERSION < 210000
+                param.addAttribute(Attribute::NoCapture);
+            #else
+                param.addCapturesAttr(CaptureInfo(CaptureComponents::None));
+            #endif
+            }
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "8188-8194"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/codegen.cpp#L8188-L8194"
+          snippet: |
+            AttrBuilder param(M->getContext());
+            Type *ty = et;
+            if (et == nullptr || et->isAggregateType()) { // aggregate types are passed by pointer
+                addNoCaptureAttr(param);
+                param.addAttribute(Attribute::ReadOnly);
+                ty = PointerType::get(M->getContext(), AddressSpace::Derived);
+            }
+    - summary: "Update TargetMachine::createTargetMachine calls to pass Triple directly instead of Triple::str() for LLVM 21+, as the API now accepts Triple by value."
+      component: "AOT/JIT"
+      evidence:
+        - source: "code"
+          path: "src/jitlayers.cpp"
+          loc: "1401-1413"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/jitlayers.cpp#L1401-L1413"
+          snippet: |
+            auto TM = TheTarget->createTargetMachine(
+            #if JL_LLVM_VERSION < 210000
+                    TheTriple.getTriple(),
+            #else
+                    TheTriple,
+            #endif
+                    TheCPU, FeaturesStr,
+                    options,
+                    relocmodel,
+                    codemodel,
+                    optlevel,
+                    true // JIT
+                    );
+        - source: "code"
+          path: "src/aotcompile.cpp"
+          loc: "1559-1570"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/aotcompile.cpp#L1559-L1570"
+          snippet: |
+            auto TM = std::unique_ptr<TargetMachine>(
+                SourceTM.getTarget().createTargetMachine(
+            #if JL_LLVM_VERSION < 210000
+                    SourceTM.getTargetTriple().str(),
+            #else
+                    SourceTM.getTargetTriple(),
+            #endif
+                    SourceTM.getTargetCPU(),
+                    SourceTM.getTargetFeatureString(),
+                    SourceTM.Options,
+        - source: "code"
+          path: "src/jitlayers.cpp"
+          loc: "2390-2407"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/jitlayers.cpp#L2390-L2407"
+          snippet: |
+            std::unique_ptr<TargetMachine> JuliaOJIT::cloneTargetMachine() const
+            {
+                auto NewTM = std::unique_ptr<TargetMachine>(getTarget()
+                    .createTargetMachine(
+            #if JL_LLVM_VERSION < 210000
+                        getTargetTriple().str(),
+            #else
+                        getTargetTriple(),
+            #endif
+                        getTargetCPU(),
+                        getTargetFeatureString(),
+                        getTargetOptions(),
+                        TM->getRelocationModel(),
+                        TM->getCodeModel(),
+                        TM->getOptLevel()));
+                fixupTM(*NewTM);
+                return NewTM;
+            }
+    - summary: "Remove references to Function::IsNewDbgInfoFormat field which no longer exists in LLVM 21 (debug info format is now always 'new' format)."
+      component: "Codegen/AOT"
+      evidence:
+        - source: "code"
+          path: "src/aotcompile.cpp"
+          loc: "567-570"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/aotcompile.cpp#L567-L570"
+          snippet: |
+            F->copyAttributesFrom(SF);
+            #if JL_LLVM_VERSION < 210000
+              F->IsNewDbgInfoFormat = SF->IsNewDbgInfoFormat;
+            #endif
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "10068-10074"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/codegen.cpp#L10068-L10074"
+          snippet: |
+            if (Src.hasPersonalityFn())
+                Dst.setPersonalityFn(Src.getPersonalityFn());
+            if (Src.hasPersonalityFn())
+                Dst.setPersonalityFn(Src.getPersonalityFn());
+            #if JL_LLVM_VERSION < 210000
+            assert(Src.IsNewDbgInfoFormat == Dst.IsNewDbgInfoFormat);
+            #endif
+    - summary: "Update CreateMemCpy API usage to use AAMDNodes struct for LLVM 21+ instead of separate tbaa/tbaa_struct/scope/noalias parameters. Also adds toAAMDNodes() helper with forward compatibility for LLVM 22 (5th parameter)."
+      component: "Codegen"
+      evidence:
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "1160-1167"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/cgutils.cpp#L1160-L1167"
+          snippet: |
+            auto merged_ai = dst_ai.merge(src_ai);
+            #if JL_LLVM_VERSION < 210000
+            ctx.builder.CreateMemCpy(dst, align_dst, src, align_src, sz, is_volatile,
+                                     merged_ai.tbaa, merged_ai.tbaa_struct, merged_ai.scope, merged_ai.noalias);
+            #else
+            ctx.builder.CreateMemCpy(dst, align_dst, src, align_src, sz, is_volatile,
+                                     merged_ai.toAAMDNodes());
+            #endif
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "1725-1732"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/codegen.cpp#L1725-L1732"
+          snippet: |
+            AAMDNodes toAAMDNodes() const
+            {
+            #if JL_LLVM_VERSION < 220000
+                return AAMDNodes(tbaa, tbaa_struct, scope, noalias);
+            #else
+                return AAMDNodes(tbaa, tbaa_struct, scope, noalias, nullptr);
+            #endif
+            }
+    - summary: "Update Module::setTargetTriple calls to pass Triple directly for LLVM 21+ instead of Triple::str()."
+      component: "Codegen/AOT"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "2839-2846"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/codegen.cpp#L2839-L2846"
+          snippet: |
+            m->setDataLayout(DL);
+            #if JL_LLVM_VERSION < 210000
+            m->setTargetTriple(triple.str());
+            #else
+            m->setTargetTriple(triple);
+            #endif
+
+            if (triple.isOSWindows() && triple.getArch() == Triple::x86) {
+        - source: "code"
+          path: "src/aotcompile.cpp"
+          loc: "2188-2194"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/aotcompile.cpp#L2188-L2194"
+          snippet: |
+            Module sysimgM("sysimg", Context);
+            #if JL_LLVM_VERSION < 210000
+            sysimgM.setTargetTriple(TheTriple.str());
+            #else
+            sysimgM.setTargetTriple(TheTriple);
+            #endif
+    - summary: "Update createAsmStreamer calls to pass MCInstPrinter as unique_ptr for LLVM 21+ instead of raw pointer."
+      component: "Disassembler"
+      evidence:
+        - source: "code"
+          path: "src/disasm.cpp"
+          loc: "926-941"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/disasm.cpp#L926-L941"
+          snippet: |
+            std::unique_ptr<MCStreamer> Streamer(
+            #if JL_LLVM_VERSION >= 210000
+                TheTarget->createAsmStreamer(Ctx, std::move(ustream),
+
+                                             std::move(IP), std::move(CE), std::move(MAB))
+            #elif JL_LLVM_VERSION >= 190000
+                TheTarget->createAsmStreamer(Ctx, std::move(ustream),
+
+                                             IP.release(), std::move(CE), std::move(MAB))
+            #else
+                TheTarget->createAsmStreamer(Ctx, std::move(ustream), /*asmverbose*/ true,
+                                             /*useDwarfDirectory*/ true, IP.release(),
+                                             std::move(CE), std::move(MAB),
+                                             /*ShowInst*/ false)
+            #endif
+            );
+        - source: "code"
+          path: "src/disasm.cpp"
+          loc: "1275-1293"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/disasm.cpp#L1275-L1293"
+          snippet: |
+            std::unique_ptr<MCInstPrinter> InstPrinter(TM->getTarget().createMCInstPrinter(
+                                                           jl_ExecutionEngine->getTargetTriple(), OutputAsmDialect, MAI, MII, MRI));
+            std::unique_ptr<MCAsmBackend> MAB(TM->getTarget().createMCAsmBackend(
+                STI, MRI, Options));
+            std::unique_ptr<MCCodeEmitter> MCE;
+            if (binary) { // enable MCAsmStreamer::AddEncodingComment printing
+                MCE.reset(TM->getTarget().createMCCodeEmitter(MII, *Context));
+            }
+            auto FOut = std::make_unique<formatted_raw_ostream>(asmfile);
+            std::unique_ptr<MCStreamer> S(TM->getTarget().createAsmStreamer(
+            #if JL_LLVM_VERSION >= 210000
+                *Context, std::move(FOut), std::move(InstPrinter), std::move(MCE), std::move(MAB)
+            #elif JL_LLVM_VERSION >= 190000
+                *Context, std::move(FOut), InstPrinter.release(), std::move(MCE), std::move(MAB)
+            #else
+                *Context, std::move(FOut), true, true, InstPrinter, std::move(MCE),
+                std::move(MAB), false
+            #endif
+                    ));
+    - summary: "Update getLineInfoForAddress to handle new Expected<DILineInfo> return type in LLVM 21+ instead of direct DILineInfo."
+      component: "DebugInfo"
+      evidence:
+        - source: "code"
+          path: "src/debuginfo.cpp"
+          loc: "505-514"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/debuginfo.cpp#L505-L514"
+          snippet: |
+            int havelock = jl_lock_profile_wr();
+            assert(havelock); (void)havelock;
+            auto lineinfo = context->getLineInfoForAddress(makeAddress(Section, pointer + slide), infoSpec);
+            jl_unlock_profile_wr();
+            #if JL_LLVM_VERSION < 210000
+            info = std::move(lineinfo);
+            #else
+            info = std::move(lineinfo.value());
+            #endif
+    - summary: "Handle temporary API change in runFinalizeActions for LLVM 21 only (callback-based signature that was reverted before LLVM 22)."
+      component: "JIT Memory Manager"
+      evidence:
+        - source: "code"
+          path: "src/cgmemmgr.cpp"
+          loc: "1013-1028"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/cgmemmgr.cpp#L1013-L1028"
+          snippet: |
+            if (!FA)
+                return OnFinalized(FA.takeError());
+            // Need to handle dealloc actions when we GC code
+            #if JL_LLVM_VERSION >= 210000 && JL_LLVM_VERSION < 220000
+            // This change was reverted before llvm 22 is branched off
+            orc::shared::runFinalizeActions(GP->allocActions(), [&] (auto E) {
+                if (!E)
+                    return OnFinalized(E.takeError());
+                OnFinalized(std::move(FA));
+            });
+            #else
+            auto E = orc::shared::runFinalizeActions(GP->allocActions());
+            if (!E)
+                return OnFinalized(E.takeError());
+            OnFinalized(std::move(FA));
+            #endif
+    - summary: "Update RTDyldObjectLinkingLayer callback to accept variadic arguments as LLVM 21+ passes additional memory buffer parameter."
+      component: "JIT"
+      evidence:
+        - source: "code"
+          path: "src/jitlayers.cpp"
+          loc: "1934-1942"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/jitlayers.cpp#L1934-L1942"
+          snippet: |
+            MemMgr(createRTDyldMemoryManager()),
+            UnlockedObjectLayer(
+                    ES,
+                    [this](auto&&...) {
+                        // LLVM 21+ passes in a memory buffer
+                        std::unique_ptr<RuntimeDyld::MemoryManager> result(new ForwardingMemoryManager(MemMgr));
+                        return result;
+                    }
+                ),
+    - summary: "Add include for SelfExecutorProcessControl header which is now required for LLVM 21+."
+      component: "JIT"
+      evidence:
+        - source: "code"
+          path: "src/jitlayers.cpp"
+          loc: "14-19"
+          url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/jitlayers.cpp#L14-L19"
+          snippet: |
+            #include <llvm/ExecutionEngine/Orc/CompileUtils.h>
+            #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
+            #include <llvm/ExecutionEngine/Orc/DebugObjectManagerPlugin.h>
+            #if JL_LLVM_VERSION >= 210000
+            #  include <llvm/ExecutionEngine/Orc/SelfExecutorProcessControl.h>
+            #endif
+  secondary_effects:
+    - effect: "NoCapture attribute representation changes in generated LLVM IR for function parameters but semantic meaning is preserved."
+      mechanism: |
+        Call chain for NoCapture attribute application:
+        get_specsig_function(params, M, sig, ...)  [codegen.cpp:8100+]
+          -> for SRet return: addNoCaptureAttr(param)  [codegen.cpp:8139]
+          -> for Union return: addNoCaptureAttr(param)  [codegen.cpp:8147]
+          -> for return_roots: addNoCaptureAttr(param)  [codegen.cpp:8156]
+          -> for aggregate params: addNoCaptureAttr(param)  [codegen.cpp:8191]
+
+        Also applied in function declarations:
+        get_func_attrs(C)  [codegen.cpp:632-639]
+          -> uses NoCaptureAttr(C) for second parameter via Attributes() extra param
+        jllockvalue_func, jlunlockvalue_func, jllockfield_func, jlunlockfield_func  [codegen.cpp:1010-1045]
+          -> use NoCaptureAttr(C) for first parameter via Attributes() extra param
+        gc_loaded_func  [codegen.cpp:1505-1512]
+          -> uses NoCaptureAttr(C) for first parameter via Attributes() extra param
+
+        In LLVM 21+, the CaptureInfo-based API provides richer capture semantics
+        (address_is_captured, read_provenance_is_captured, etc.) but Julia uses
+        CaptureComponents::None which is equivalent to the old NoCapture.
+      downstream_surfaces:
+        - "LLVM IR output from Julia codegen"
+        - "Tools that parse/analyze Julia-generated LLVM IR"
+        - "LLVM.jl users inspecting function attributes"
+      likelihood: "high"
+      impact: "low"
+    - effect: "AAMDNodes struct now used for memcpy alias metadata instead of individual fields, affecting how TBAA/noalias info is passed to LLVM."
+      mechanism: |
+        jl_aliasinfo_t::toAAMDNodes()  [codegen.cpp:1725-1732]
+          -> constructs AAMDNodes from tbaa, tbaa_struct, scope, noalias
+          -> LLVM 22 adds 5th parameter (nullptr - likely for DSCR metadata)
+
+        emit_memcpy_llvm(ctx, dst, dst_ai, src, src_ai, ...)  [cgutils.cpp:1160-1167]
+          -> merged_ai = dst_ai.merge(src_ai)
+          -> CreateMemCpy(..., merged_ai.toAAMDNodes())
+
+        The toAAMDNodes() helper provides forward compatibility with LLVM 22.
+      downstream_surfaces:
+        - "Memory copy operations in generated code"
+        - "TBAA/alias analysis in LLVM optimization passes"
+      likelihood: "high"
+      impact: "low"
+    - effect: "Attributes() helper function signature extended with optional extra parameter for Attribute objects."
+      mechanism: |
+        Attributes(LLVMContext &C, std::initializer_list<Attribute::AttrKind> attrkinds,
+                   std::initializer_list<Attribute> extra={})  [codegen.cpp:598-606]
+
+        The extra parameter allows passing pre-constructed Attribute objects (like
+        CaptureInfo-based NoCapture) alongside AttrKind enums. This is backward
+        compatible due to the default empty initializer list.
+      downstream_surfaces:
+        - "Any external code calling Attributes() helper (internal API)"
+      likelihood: "low"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "Function::IsNewDbgInfoFormat"
+        change: "Field removed in LLVM 21 - debug info format is now always 'new' format. Assertion and copy removed from function cloning in IRLinker_copyFunctionProto and linkFunctionBody."
+        affected_tools:
+          - tool: "Any tool directly copying Function objects via IRLinker_copyFunctionProto"
+            usage: "Tools cloning LLVM Functions for modification"
+          - tool: "Any tool checking IsNewDbgInfoFormat field"
+            usage: "No longer needed - field does not exist in LLVM 21+"
+      - field: "jl_aliasinfo_t::toAAMDNodes()"
+        change: "New helper method added to convert aliasinfo to AAMDNodes for use with CreateMemCpy. Includes LLVM 22 forward compatibility."
+        affected_tools:
+          - tool: "Any code extending jl_aliasinfo_t or using emit_memcpy_llvm"
+            usage: "Internal codegen - toAAMDNodes() abstracts version differences"
+      - field: "NoCaptureAttr() / addNoCaptureAttr()"
+        change: "New helper functions added to abstract over LLVM version differences for NoCapture attribute"
+        affected_tools:
+          - tool: "Any code adding NoCapture attributes to LLVM functions"
+            usage: "Use these helpers instead of direct Attribute::NoCapture"
+      - field: "Attributes() function signature"
+        change: "Added optional extra parameter for pre-constructed Attribute objects"
+        affected_tools:
+          - tool: "Any external code using Attributes() helper"
+            usage: "Backward compatible - existing calls work unchanged"
+    behavioral:
+      - change: "No user-visible behavioral changes - this is purely an LLVM API compatibility update."
+        affected_surfaces:
+          - "None - internal implementation only"
+        evidence:
+          - source: "code"
+            path: "src/codegen.cpp"
+            loc: "608-624"
+            url: "https://github.com/JuliaLang/julia/blob/ad589da1f96b82bcd60ea269d7fae60a73012fb8/src/codegen.cpp#L608-L624"
+            snippet: |
+              // Both paths produce semantically equivalent NoCapture attribute:
+              // LLVM < 21: Attribute::get(C, Attribute::NoCapture)
+              // LLVM >= 21: Attribute::getWithCaptureInfo(C, CaptureInfo(CaptureComponents::None))
+  downstream_packages:
+    - package: "LLVM.jl"
+      impact: "low"
+      details: |
+        LLVM.jl wraps LLVM C API and may need updates for LLVM 21 compatibility:
+        - NoCapture attribute now uses CaptureInfo API in LLVM 21+
+        - Tools parsing Julia-generated IR may see different attribute representation
+        - IR semantics unchanged - NoCapture meaning is preserved
+    - package: "GPUCompiler.jl"
+      impact: "low"
+      details: |
+        GPUCompiler uses Julia's codegen infrastructure:
+        - May need to update if directly accessing LLVM attributes
+        - Triple API changes (direct Triple vs string) may affect target machine creation
+        - AAMDNodes API change affects CreateMemCpy calls
+        - All changes abstracted by Julia's version conditionals - no direct impact expected
+    - package: "Enzyme.jl"
+      impact: "low"
+      details: |
+        Enzyme performs AD through LLVM IR transformation:
+        - NoCapture attribute semantics unchanged (CaptureComponents::None = full no capture)
+        - May need to handle CaptureInfo API if inspecting/setting capture attributes
+        - AAMDNodes change does not affect alias analysis semantics
+        - IsNewDbgInfoFormat removal - no impact as LLVM 21 always uses new format
+  performance:
+    compile_time:
+      - impact: "None expected"
+        details: |
+          ESTIMATED: No performance change expected. The API changes are
+          purely structural - same operations, different function signatures.
+          The version checks are compile-time preprocessor conditionals.
+    runtime:
+      - impact: "None expected"
+        details: |
+          ESTIMATED: No runtime performance change. The generated code
+          should be identical - same LLVM attributes, same alias metadata,
+          same optimization opportunities.
+  risk:
+    level: "low"
+    rationale:
+      - "All changes are guarded by JL_LLVM_VERSION preprocessor checks, preserving existing behavior for older LLVM versions."
+      - "Changes are purely API adaptation with no semantic differences."
+      - "This PR is explicitly labeled as 'trivial' and split from a larger PR (59946) for easier review."
+      - "The runFinalizeActions change in cgmemmgr.cpp handles a temporary LLVM 21 API change that was reverted before LLVM 22, demonstrating awareness of LLVM development."
+      - "Forward compatibility for LLVM 22 included in toAAMDNodes() method."
+  open_questions:
+    - "The CaptureInfo API in LLVM 21+ supports more granular capture tracking (address_is_captured, read_provenance_is_captured, write_provenance_is_captured). Could Julia benefit from using more specific capture information than CaptureComponents::None for better optimization?"
+    - "The AAMDNodes constructor adds a 5th parameter in LLVM 22 (nullptr passed here). This is likely for DSCR (Data Sharing and Consistency Region) metadata - should Julia eventually use this for more precise alias analysis?"
+    - "The Expected<DILineInfo> return type in LLVM 21 getLineInfoForAddress suggests error handling may be needed. The current code uses lineinfo.value() without checking for errors - is this safe?"
+  recommendations:
+    - "Downstream packages using LLVM.jl or directly interfacing with Julia's codegen should ensure compatibility with LLVM 21's CaptureInfo-based nocapture attribute if they parse or generate LLVM IR."
+    - "Tools analyzing Julia-generated LLVM IR should not rely on specific string representations of attributes, as the nocapture representation changes between LLVM versions."
+    - "The temporary workaround for runFinalizeActions (LLVM 21 only, not 22) should be monitored - if LLVM 21 support is eventually dropped, this conditional can be simplified."
+    - "Consider adding error handling for Expected<DILineInfo> return value in debuginfo.cpp to gracefully handle lookup failures."
+    - "GPUCompiler and Enzyme maintainers should review their LLVM attribute handling code if they directly manipulate capture attributes."

@@ -1,0 +1,223 @@
+schema_version: "1.0"
+pr:
+  number: 60134
+  title: "loading.jl: Make `slug` internally type-stable"
+  url: "https://github.com/JuliaLang/julia/pull/60134"
+  author: "eschnett"
+  labels: []
+  merged_at: "2025-11-14T20:17:58Z"
+  merge_commit_sha: "bc8ebd8e5481fdaeac4026666ba0c0deb2a721eb"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60134.diff"
+scope:
+  files_touched:
+    - "base/loading.jl"
+  components:
+    - "Base"
+  pipeline_stages:
+    - "Runtime"
+analysis:
+  intent:
+    summary: "Fix type instability in the internal `slug` function used for package path slug generation. The call to `divrem` caused type promotion from UInt32 to UInt64 on 64-bit systems because `length(slug_chars)` returns Int64. The fix explicitly casts the divisor to UInt32."
+    issue_links: []
+  direct_changes:
+    - summary: "Cast `length(slug_chars)` to UInt32 to prevent type promotion in divrem, and remove redundant variable copy."
+      component: "Base.loading"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "186-194"
+          url: "https://github.com/JuliaLang/julia/blob/bc8ebd8e5481fdaeac4026666ba0c0deb2a721eb/base/loading.jl#L186-L194"
+          snippet: |
+            function slug(x::UInt32, p::Int)
+                sprint(sizehint=p) do io
+                    n = UInt32(length(slug_chars))  # Explicitly UInt32 to avoid promotion
+                    for i = 1:p
+                        x, d = divrem(x, n)         # divrem(UInt32, UInt32) -> (UInt32, UInt32)
+                        write(io, slug_chars[1+d])
+                    end
+                end
+            end
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "185-194"
+          url: "https://github.com/JuliaLang/julia/pull/60134.diff"
+          snippet: |
+            # BEFORE (type-unstable):
+            function slug(x::UInt32, p::Int)
+                sprint(sizehint=p) do io
+                    y = x
+                    n = length(slug_chars)        # Int64 on 64-bit systems
+                    for i = 1:p
+                        y, d = divrem(y, n)       # divrem(UInt32, Int64) -> (UInt64, UInt64)
+                        write(io, slug_chars[1+d])
+                    end
+                end
+            end
+
+            # AFTER (type-stable):
+            function slug(x::UInt32, p::Int)
+                sprint(sizehint=p) do io
+                    n = UInt32(length(slug_chars)) # Explicitly UInt32
+                    for i = 1:p
+                        x, d = divrem(x, n)        # divrem(UInt32, UInt32) -> (UInt32, UInt32)
+                        write(io, slug_chars[1+d])
+                    end
+                end
+            end
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "184"
+          url: "https://github.com/JuliaLang/julia/blob/bc8ebd8e5481fdaeac4026666ba0c0deb2a721eb/base/loading.jl#L184"
+          snippet: |
+            const slug_chars = String(['A':'Z'; 'a':'z'; '0':'9'])
+            # length(slug_chars) = 62 (fits safely in UInt32)
+    - summary: "Remove unnecessary variable copy (y = x) and operate directly on argument x."
+      component: "Base.loading"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "187-190"
+          url: "https://github.com/JuliaLang/julia/pull/60134.diff"
+          snippet: |
+            # BEFORE: used intermediate variable y
+            -        y = x
+            -        n = length(slug_chars)
+            +        n = UInt32(length(slug_chars))
+                     for i = 1:p
+            -            y, d = divrem(y, n)
+            +            x, d = divrem(x, n)
+  secondary_effects:
+    - effect: "Type stability eliminates UInt32->UInt64 promotion in divrem, avoiding potential performance overhead."
+      mechanism: |
+        Before fix, divrem(x::UInt32, n::Int64) triggers promotion chain:
+          divrem(x::Unsigned, y::BitSigned)  [base/int.jl:280-283]
+            -> converts n via unsigned(abs(n)) to UInt64
+            -> calls divrem(x::UInt32, ::UInt64)
+            -> promote_rule(UInt64, UInt32) = UInt64  [base/int.jl:781]
+            -> returns (UInt64, UInt64)
+
+        After fix, divrem(x::UInt32, n::UInt32):
+          -> no promotion needed, same-type dispatch
+          -> returns (UInt32, UInt32) directly
+      downstream_surfaces:
+        - "Do-block closure inside sprint is fully type-inferred"
+        - "Loop variable x maintains UInt32 throughout"
+      likelihood: "high"
+      impact: "low"
+    - effect: "Improved inference for all callers: package_slug, version_slug, project_precompile_slug."
+      mechanism: |
+        All callers pass UInt32 from _crc32c() which always returns UInt32:
+          _crc32c(...) -> ccall(:jl_crc32c, UInt32, ...)  [base/util.jl:509]
+
+        Caller inventory with locations:
+          1. package_slug(uuid, p)  [base/loading.jl:196-199]
+             crc = _crc32c(uuid) -> slug(crc::UInt32, p)
+             Used in: cache_file_entry()  [base/loading.jl:1223]
+
+          2. version_slug(uuid, sha1, p)  [base/loading.jl:201-205]
+             crc = _crc32c(uuid); crc = _crc32c(sha1.bytes, crc) -> slug(crc::UInt32, p)
+             Used in: explicit_manifest_deps_get()  [base/loading.jl:1163]
+                      test/loading.jl:532
+
+          3. project_precompile_slug  [base/loading.jl:3278-3290]
+             crc = _crc32c(project); ... -> slug(crc::UInt32, 5)
+             Used for: precompilation cache path generation (.ji files)
+      downstream_surfaces:
+        - "Package loading (cache_file_entry)"
+        - "DEPOT_PATH package lookups (explicit_manifest_deps_get)"
+        - "Precompilation cache file naming"
+      likelihood: "high"
+      impact: "low"
+    - effect: "Sprint do-block closure becomes fully type-stable."
+      mechanism: |
+        The anonymous function passed to sprint:
+          sprint(sizehint=p) do io
+              n = UInt32(length(slug_chars))
+              for i = 1:p
+                  x, d = divrem(x, n)  # Now (UInt32, UInt32) throughout loop
+                  write(io, slug_chars[1+d])  # d::UInt32, indexing is type-stable
+              end
+          end
+
+        Before: x could change from UInt32 to UInt64 in first iteration, causing
+        type instability that inference must track across loop iterations.
+
+        After: x remains UInt32 throughout, no type widening during loop execution.
+      downstream_surfaces:
+        - "Closure capture/inference"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - field: "slug output"
+        change: "No change - the function produces identical output; only internal type representation differs."
+      - field: "package_slug, version_slug return values"
+        change: "No change - return type is String, computed from same character sequence."
+  performance:
+    compile_time:
+      - impact: |
+          ESTIMATED: slight improvement in inference time for slug and its callers.
+          Before: inference tracks UInt32->UInt64 promotion through divrem dispatch chain.
+          After: direct same-type dispatch, simpler type lattice traversal.
+          Affected functions: slug, package_slug, version_slug, cache_file_entry, compilecache
+    runtime:
+      - impact: |
+          ESTIMATED: marginal improvement in slug execution time.
+          Before: each divrem call (p iterations, default p=5) involved:
+            - Type promotion UInt32 -> UInt64
+            - 64-bit division operations
+            - Tuple unpacking of (UInt64, UInt64)
+          After: all operations stay 32-bit:
+            - No type conversion overhead
+            - 32-bit division (faster on many architectures)
+            - Tuple unpacking of (UInt32, UInt32)
+
+          For typical usage (p=5), this is 5 divrem operations per slug call.
+          Actual wall-clock improvement is likely negligible but strictly positive.
+  risk:
+    level: "low"
+    rationale:
+      - "Change is purely internal type stability fix with no API surface change."
+      - "Output of slug function is identical (same characters produced from same input)."
+      - "PR author explicitly states 'No externally visible change.'"
+      - "Trivial change with clear correctness (62 fits easily in UInt32, max value 2^32-1)."
+      - "No tests modified because behavior is unchanged; only internal types differ."
+  open_questions: []
+  recommendations:
+    - "No action required for downstream packages - this is a transparent performance improvement."
+    - "This change demonstrates best practice for type-stable internal functions: explicitly cast values to expected types rather than relying on promotion."
+reviewer_notes:
+  independent_verification: |
+    Verified by independent analysis:
+    1. Confirmed _crc32c always returns UInt32 via ccall at base/util.jl:509
+    2. Confirmed promote_rule(Int64, UInt32) = Int64 and promote_rule(UInt64, UInt32) = UInt64 at base/int.jl:777,781
+    3. Traced divrem(Unsigned, BitSigned) dispatch path at base/int.jl:280-283
+    4. Verified all 4 call sites for slug() function
+    5. Confirmed no tests were added/modified (behavioral equivalence)
+  additional_evidence:
+    - source: "code"
+      path: "base/util.jl"
+      loc: "509"
+      url: "https://github.com/JuliaLang/julia/blob/bc8ebd8e5481fdaeac4026666ba0c0deb2a721eb/base/util.jl#L509"
+      snippet: |
+        unsafe_crc32c(a, n, crc) = ccall(:jl_crc32c, UInt32, (UInt32, Ptr{UInt8}, Csize_t), crc, a, n)
+    - source: "code"
+      path: "base/int.jl"
+      loc: "280-283"
+      url: "https://github.com/JuliaLang/julia/blob/bc8ebd8e5481fdaeac4026666ba0c0deb2a721eb/base/int.jl#L280-L283"
+      snippet: |
+        function divrem(x::Unsigned, y::BitSigned)
+            q, r = divrem(x, unsigned(abs(y)))  # converts y to UInt64, then promotes x
+            unsigned(flipsign(signed(q), y)), r
+        end
+    - source: "code"
+      path: "base/int.jl"
+      loc: "777-781"
+      url: "https://github.com/JuliaLang/julia/blob/bc8ebd8e5481fdaeac4026666ba0c0deb2a721eb/base/int.jl#L777-L781"
+      snippet: |
+        promote_rule(::Type{Int64}, ::Union{Type{Int16}, Type{Int32}, Type{Int8}, Type{UInt16}, Type{UInt32}, Type{UInt8}}) = Int64
+        promote_rule(::Type{Int128}, ::Union{Type{Int16}, Type{Int32}, Type{Int64}, Type{Int8}, Type{UInt16}, Type{UInt32}, Type{UInt64}, Type{UInt8}}) = Int128
+        promote_rule(::Type{UInt16}, ::Union{Type{Int8}, Type{UInt8}}) = UInt16
+        promote_rule(::Type{UInt32}, ::Union{Type{Int16}, Type{Int8}, Type{UInt16}, Type{UInt8}}) = UInt32
+        promote_rule(::Type{UInt64}, ::Union{Type{Int16}, Type{Int32}, Type{Int8}, Type{UInt16}, Type{UInt32}, Type{UInt8}}) = UInt64

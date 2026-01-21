@@ -1,0 +1,304 @@
+schema_version: "1.0"
+
+pr:
+  number: 60549
+  title: "[release-1.11] Backports for 1.11"
+  url: "https://github.com/JuliaLang/julia/pull/60549"
+  author: "IanButterworth"
+  labels:
+    - "release"
+  merged_at: "2026-01-11T12:11:51Z"
+  merge_commit_sha: "deb1167a9f629564bd07074053b320d3c3f1f252"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60549.diff"
+  # Note: The actual fix commit is from PR #60491
+  fix_commit_message: "[release-1.11] Fix KeyError in require_stdlib for non-stdlib extensions (#60491)"
+
+scope:
+  files_touched:
+    - "base/loading.jl"
+    - "test/loading.jl"
+  components:
+    - "Base.loading"
+  pipeline_stages:
+    - "ModuleLoading"
+
+analysis:
+  intent:
+    summary: |
+      Fix KeyError in require_stdlib when loading stdlib extensions triggered by non-stdlib modules.
+      The bug was introduced in PR #59521 (Backports for Julia 1.11.8) where the require_stdlib
+      function unconditionally called end_loading() in a finally block, even when start_loading()
+      was never called (due to from_stdlib=false code path).
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60392"
+      - "https://github.com/JuliaLang/julia/pull/60491"
+      - "https://github.com/JuliaLang/julia/pull/59521"
+
+  direct_changes:
+    - summary: "Add loading_started flag to guard end_loading call in require_stdlib"
+      component: "Base.loading"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "2694-2727"
+          url: "https://github.com/JuliaLang/julia/blob/deb1167a9f629564bd07074053b320d3c3f1f252/base/loading.jl#L2694-L2727"
+          snippet: |
+            # BEFORE (buggy code from PR #59521):
+            env = Sys.STDLIB
+            try
+                depot_path = append_bundled_depot_path!(empty(DEPOT_PATH))
+                from_stdlib = true
+                if ext isa String
+                    # ... checks that may set from_stdlib = false ...
+                end
+                if from_stdlib
+                    # start_loading() called HERE - but only when from_stdlib=true
+                    newm = start_loading(this_uuidkey, UInt128(0), true)
+                    newm === nothing || return newm
+                    newm = _require_search_from_serialized(...)
+                end
+            finally
+                end_loading(this_uuidkey, newm)  # BUG: Called even when start_loading was never called!
+            end
+
+            # AFTER (fixed code):
+            env = Sys.STDLIB
+            loading_started = false  # NEW: Track whether start_loading was called
+            try
+                depot_path = append_bundled_depot_path!(empty(DEPOT_PATH))
+                from_stdlib = true
+                if ext isa String
+                    # ... checks that may set from_stdlib = false ...
+                end
+                if from_stdlib
+                    set_pkgorigin_version_path(this_uuidkey, sourcepath)
+                    newm = start_loading(this_uuidkey, UInt128(0), true)
+                    newm === nothing || return newm
+                    loading_started = true  # NEW: Mark that start_loading was called
+                    newm = _require_search_from_serialized(...)
+                end
+            finally
+                loading_started && end_loading(this_uuidkey, newm)  # FIXED: Only call if started
+            end
+
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "2139-2142"
+          url: "https://github.com/JuliaLang/julia/blob/deb1167a9f629564bd07074053b320d3c3f1f252/base/loading.jl#L2139-L2142"
+          snippet: |
+            # Why KeyError occurs without the fix:
+            function end_loading(modkey::PkgId, @nospecialize loaded)
+                loading = pop!(package_locks, modkey)  # <-- KeyError if modkey not in dict!
+                notify(loading[2], loaded, all=true)
+                nothing
+            end
+
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "2080-2094"
+          url: "https://github.com/JuliaLang/julia/blob/deb1167a9f629564bd07074053b320d3c3f1f252/base/loading.jl#L2080-L2094"
+          snippet: |
+            # start_loading adds entry to package_locks:
+            function start_loading(modkey::PkgId, build_id::UInt128, stalecheck::Bool)
+                assert_havelock(require_lock)
+                require_lock.reentrancy_cnt == 1 || throw(ConcurrencyViolationError("recursive call to start_loading"))
+                while true
+                    loaded = stalecheck ? maybe_root_module(modkey) : nothing
+                    loaded isa Module && return loaded
+                    if build_id != UInt128(0)
+                        loaded = maybe_loaded_precompile(modkey, build_id)
+                        loaded isa Module && return loaded
+                    end
+                    loading = get(package_locks, modkey, nothing)
+                    if loading === nothing
+                        package_locks[modkey] = current_task() => Threads.Condition(require_lock)  # <-- Adds entry
+                        return nothing
+                    end
+                    # ... wait for another task ...
+                end
+            end
+
+    - summary: "Add regression test for require_stdlib with non-stdlib from module"
+      component: "test/loading"
+      evidence:
+        - source: "diff"
+          path: "test/loading.jl"
+          loc: "1642-1660"
+          url: "https://github.com/JuliaLang/julia/blob/deb1167a9f629564bd07074053b320d3c3f1f252/test/loading.jl#L1642-L1660"
+          snippet: |
+            @testset "require_stdlib extension with non-stdlib from module" begin
+                # Test that require_stdlib doesn't error when called with an extension
+                # and the `from` module is not from the bundled depot (from_stdlib=false path)
+                # This is a regression test for https://github.com/JuliaLang/julia/issues/60392
+                cmd = `$(Base.julia_cmd()) --startup-file=no -e '
+                    Pkg_pkgid = Base.PkgId(Base.UUID("44cfe95a-1eb2-52ea-b672-e2afdf69b78f"), "Pkg")
+                    REPLExt_pkgid = Base.PkgId(Base.uuid5(Pkg_pkgid.uuid, "REPLExt"), "REPLExt")
+                    # Create and register a fake REPL module to simulate a non-stdlib module being loaded
+                    # This triggers the from_stdlib=false path since the fake module is not from the bundled depot
+                    FakeREPL = Module(:REPL)
+                    FakeREPL_pkgid = Base.PkgId(Base.UUID("3fa0cd96-eef1-5676-8a61-b3b8758bbffb"), "REPL")
+                    Base.register_root_module(FakeREPL)
+                    # This should not throw a KeyError from end_loading
+                    Base.require_stdlib(Pkg_pkgid, "REPLExt", FakeREPL)
+                    # Verify the extension was loaded
+                    Base.maybe_root_module(REPLExt_pkgid) isa Module || error("Something is wrong")
+                '`
+                @test success(cmd)
+            end
+
+  secondary_effects:
+    - effect: "Fixes crash when Revise.jl or similar packages trigger early REPL loading"
+      mechanism: |
+        Call chain that triggers the bug [base/loading.jl]:
+          1. User's startup.jl loads Revise.jl or a package that triggers REPL
+          2. REPL module gets loaded from a non-standard depot (not bundled)
+          3. REPL's load_pkg() [stdlib/REPL/src/Pkg_beforeload.jl:8] calls:
+               Base.require_stdlib(Pkg_pkgid, "REPLExt", REPL)
+          4. require_stdlib() [base/loading.jl:2684] processes the extension:
+               - ext = "REPLExt" (not nothing)
+               - from = REPL module (not from bundled depot)
+          5. from_stdlib check [base/loading.jl:2701-2710]:
+               if ext isa String  # true
+                   from_uuid = PkgId(from)  # REPL's PkgId
+                   from_m = get(loaded_modules, from_uuid, nothing)
+                   if from_m === from  # true, REPL is loaded
+                       cachepath = get(PkgOrigin, pkgorigins, from_uuid).cachepath
+                       entrypath, entryfile = cache_file_entry(from_uuid)
+                       from_stdlib = any(x -> startswith(entrypath, x), depot_path)  # FALSE!
+                   end
+               end
+          6. The `if from_stdlib` block [base/loading.jl:2712] is SKIPPED
+             - start_loading() is NEVER called
+             - package_locks[this_uuidkey] is NEVER set
+          7. BEFORE FIX: finally block [base/loading.jl:2725] calls:
+               end_loading(this_uuidkey, newm)  # -> pop!(package_locks, this_uuidkey) -> KeyError!
+          8. AFTER FIX: finally block checks:
+               loading_started && end_loading(...)  # loading_started=false, so skipped
+      downstream_surfaces:
+        - "Package loading on Julia 1.11"
+        - "Revise.jl users with startup.jl configurations"
+        - "Any workflow that loads REPL from non-bundled depot before Pkg extension"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "Other start_loading/end_loading usages are safe by design"
+      mechanism: |
+        Analysis of other callers of start_loading/end_loading:
+
+        1. _tryrequire_from_serialized [base/loading.jl:1877-1886]:
+           loaded = start_loading(modkey, build_id, false)  # Called FIRST
+           if loaded === nothing                            # Only enter try/finally if returned nothing
+               try
+                   ...
+               finally
+                   end_loading(modkey, loaded)              # Safe: start_loading was called
+               end
+           end
+
+        2. __require_prelocked [base/loading.jl:2383-2395]:
+           m = start_loading(uuidkey, UInt128(0), true)     # Called FIRST
+           if m === nothing                                  # Only enter try/finally if returned nothing
+               try
+                   ...
+               finally
+                   ...
+                   end_loading(uuidkey, m)                  # Safe: start_loading was called
+               end
+           end
+
+        The pattern in require_stdlib was unique:
+        - start_loading was inside conditional `if from_stdlib` block
+        - end_loading was in finally block wrapping ALL paths including from_stdlib=false
+      downstream_surfaces:
+        - "Standard package loading (unaffected)"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Caller site in REPL is the only extension usage"
+      mechanism: |
+        Search results for require_stdlib calls with extension argument:
+          $ rg "require_stdlib.*\".*Ext" julia/
+          stdlib/REPL/src/Pkg_beforeload.jl:8:    REPLExt = Base.require_stdlib(Pkg_pkgid, "REPLExt", REPL)
+
+        This is the ONLY location where require_stdlib is called with an extension.
+        The function load_pkg() [stdlib/REPL/src/Pkg_beforeload.jl:7-16]:
+          function load_pkg()
+              REPLExt = Base.require_stdlib(Pkg_pkgid, "REPLExt", REPL)
+              @lock Base.require_lock begin
+                  lock = get(Base.package_locks, Base.PkgId(REPLExt), nothing)
+                  lock !== nothing && wait(lock[2])
+              end
+              return REPLExt
+          end
+
+        All other require_stdlib calls pass ext=nothing (single PkgId argument):
+          base/client.jl:388 - InteractiveUtils (no ext)
+          base/client.jl:403 - REPL (no ext)
+          base/util.jl:697 - InteractiveUtils (no ext)
+          base/stream.jl:307,344 - Sockets (no ext)
+          base/Base.jl:583 - Profile (no ext)
+          stdlib/InteractiveUtils/src/InteractiveUtils.jl:341,356 - LinearAlgebra, Pkg (no ext)
+      downstream_surfaces:
+        - "REPL extension loading (REPLExt)"
+      likelihood: "high"
+      impact: "medium"
+
+  compatibility:
+    internal_api:
+      - field: "package_locks dictionary"
+        change: "No change to dictionary structure or semantics"
+        affected_tools: []
+      - field: "start_loading/end_loading functions"
+        change: "No change to function signatures or behavior"
+        affected_tools: []
+
+    behavioral:
+      - description: "Fixes regression from PR #59521"
+        change: |
+          PR #59521 (Backports for Julia 1.11.8) introduced a code path where end_loading
+          could be called without a corresponding start_loading. Specifically, when
+          require_stdlib was called with:
+            1. ext != nothing (loading an extension)
+            2. from module not from bundled depot (from_stdlib=false)
+          The if from_stdlib block would be skipped, but the finally block would still
+          try to call end_loading, causing KeyError from pop!(package_locks, modkey).
+        affected_tools: []
+
+  performance:
+    compile_time: []
+    runtime:
+      - description: "Negligible overhead from boolean flag check"
+        impact: |
+          One additional boolean assignment: loading_started = false [line 2697]
+          One additional boolean assignment: loading_started = true [line 2722] (conditional)
+          One additional boolean check: loading_started && [line 2726]
+          ESTIMATED: < 1 nanosecond additional overhead per require_stdlib call
+
+  risk:
+    level: "low"
+    rationale:
+      - "Simple boolean flag fix with clear logic"
+      - "Only affects edge case where from_stdlib=false AND ext != nothing"
+      - "Includes regression test to prevent future breakage"
+      - "Fix is well-contained within require_stdlib function"
+      - "No changes to public API or compiler internals"
+      - "Pattern matches safe usage in _tryrequire_from_serialized and __require_prelocked"
+
+  open_questions:
+    - "Why was this bug not caught in CI before release? The from_stdlib=false path with extensions may need dedicated test coverage."
+    - "Should the finally block pattern in require_stdlib be refactored to match the safer pattern used in _tryrequire_from_serialized (where try/finally is nested inside the if)?"
+
+  recommendations:
+    - "Backport to any other 1.11.x release branches if applicable"
+    - "Consider refactoring require_stdlib to use the safer pattern: call start_loading first, then only enter try/finally if it returns nothing"
+    - "Add CI workflow that tests startup.jl with Revise.jl to catch similar issues"
+
+reviewer_notes:
+  - note: "Independent analysis confirmed the original analysis is accurate"
+    additions:
+      - "Added explicit before/after code comparison showing the bug"
+      - "Added full start_loading and end_loading function code to show KeyError mechanism"
+      - "Added analysis of why other usages are safe (guarded by early returns)"
+      - "Added the actual caller site (Pkg_beforeload.jl) and rg search results"
+      - "Added explicit call chain with file:line references"
+      - "Corrected issue reference to #60392 (was accurate) and added #60491"

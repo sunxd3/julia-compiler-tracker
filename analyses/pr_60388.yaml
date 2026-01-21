@@ -1,0 +1,627 @@
+schema_version: "1.0"
+pr:
+  number: 60388
+  title: "codegen: improve codegen size layout of on-stack format for pointer-ful types"
+  url: "https://github.com/JuliaLang/julia/pull/60388"
+  author: "vtjnash"
+  labels:
+    - "compiler:codegen"
+    - "don't squash"
+  merged_at: "2025-12-17T15:22:28Z"
+  merge_commit_sha: "28e922e1e55bcb9e6b7e818f34105aba4567f68c"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60388.diff"
+
+scope:
+  files_touched:
+    - "src/codegen.cpp"
+    - "src/cgutils.cpp"
+    - "src/intrinsics.cpp"
+  components:
+    - "Compiler.Codegen"
+  pipeline_stages:
+    - "Codegen"
+    - "LLVMIRGeneration"
+
+analysis:
+  intent:
+    summary: |
+      This PR improves the on-stack memory layout for structs containing pointers by:
+      1. Declaring on-stack format to be same layout as on-heap format (enabling zero-copy)
+      2. Removing trailing pointers from on-stack data allocation (shrink-wrapping)
+      3. Implementing lazy loading of GC roots from existing stack locations
+      This is particularly impactful for argument forwarding, avoiding intermediate stack copies.
+    issue_links: []
+
+  direct_changes:
+    - summary: "New jl_gc_roots_t class for lazy GC root management"
+      component: "Compiler.Codegen"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "1735-1799"
+          url: "https://github.com/JuliaLang/julia/blob/28e922e1e55bcb9e6b7e818f34105aba4567f68c/src/codegen.cpp#L1735-L1799"
+          snippet: |
+            // A class to hold GC roots that can be either:
+            // 1. Materialized: a SmallVector of Value* that have already been loaded
+            // 2. Lazy: a pointer + count + tbaa that allows loading on demand
+            // This allows deferring the load of GC roots until they are actually needed.
+            struct jl_gc_roots_t {
+            private:
+                // Materialized roots (when ptr is null)
+                SmallVector<Value*,0> roots;
+                // Lazy loading state (when ptr is non-null)
+                Value *ptr = nullptr;
+                size_t count = 0;
+                MDNode *tbaa = nullptr;
+
+            public:
+                // Default constructor - empty roots
+                jl_gc_roots_t() = default;
+
+                // Constructor from ArrayRef
+                template <typename U>
+                explicit jl_gc_roots_t(ArrayRef<U*> roots) : roots(roots.begin(), roots.end()) {}
+
+                // Constructor from SmallVector (move)
+                explicit jl_gc_roots_t(SmallVector<Value*,0> &&values) : roots(std::move(values)) {}
+
+                // Constructor for lazy loading
+                jl_gc_roots_t(Value *ptr, size_t count, MDNode *tbaa)
+                    : ptr(ptr), count(count), tbaa(tbaa) {}
+
+    - summary: "split_value_size now shrink-wraps trailing pointers"
+      component: "Compiler.Codegen"
+      evidence:
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "1204-1221"
+          url: "https://github.com/JuliaLang/julia/blob/28e922e1e55bcb9e6b7e818f34105aba4567f68c/src/cgutils.cpp#L1204-L1221"
+          snippet: |
+            static std::pair<size_t,size_t> split_value_size(jl_datatype_t *typ)
+            {
+                assert(jl_is_datatype(typ));
+                bool hasptr = typ->layout->first_ptr >= 0;
+                size_t npointers = hasptr ? typ->layout->npointers : 0;
+                // shrink wrap away trailing pointers (but not interior pointers, which
+                // would change alignment of fields containing non-pointer data)
+                size_t size = jl_datatype_size(typ);
+                for (ssize_t i = npointers - 1; i >= 0; i--) {
+                    size_t ptr_end = jl_ptr_offset(typ, i) * sizeof(void*) + sizeof(void*);
+                    if (ptr_end == size) {
+                        size = jl_ptr_offset(typ, i) * sizeof(void*);
+                    } else {
+                        break;
+                    }
+                }
+                return std::make_pair(size, npointers);
+            }
+
+    - summary: "split_value now supports copy_required parameter for zero-copy forwarding"
+      component: "Compiler.Codegen"
+      evidence:
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "1346-1370"
+          url: "https://github.com/JuliaLang/julia/blob/28e922e1e55bcb9e6b7e818f34105aba4567f68c/src/cgutils.cpp#L1346-L1370"
+          snippet: |
+            static std::tuple<Value*, jl_gc_roots_t, MDNode*> split_value(jl_codectx_t &ctx, const jl_cgval_t &x, Align x_alignment, bool copy_required)
+            {
+                jl_datatype_t *typ = (jl_datatype_t*)x.typ;
+                auto sizes = split_value_size(typ);
+                jl_gc_roots_t roots;
+                if (sizes.second) {
+                    roots = copy_required || x.inline_roots.empty() ? jl_gc_roots_t(extract_gc_roots(ctx, x, sizes.second)) : x.inline_roots;
+                    assert(roots.size() == sizes.second);
+                }
+                Value *bits = nullptr;
+                if (sizes.first) {
+                    if (!copy_required) {
+                        if (!x.inline_roots.empty())
+                            return std::make_tuple(x.V, std::move(roots), x.tbaa);
+                        else if (x.ispointer())
+                            return std::make_tuple(data_pointer(ctx, x), std::move(roots), x.tbaa);
+                    }
+                    Align align_dst(julia_alignment((jl_value_t*)typ));
+                    AllocaInst *alloca = emit_static_alloca(ctx, sizes.first, align_dst);
+                    auto stack_ai = jl_aliasinfo_t::fromTBAA(ctx, ctx.tbaa().tbaa_stack);
+                    split_value_into(ctx, x, x_alignment, alloca, align_dst, stack_ai, false);
+                    bits = alloca;
+                }
+                return std::make_tuple(bits, std::move(roots), ctx.tbaa().tbaa_stack);
+            }
+
+    - summary: "Lazy root loading implementation in jl_gc_roots_t::get()"
+      component: "Compiler.Codegen"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "2535-2546"
+          url: "https://github.com/JuliaLang/julia/blob/28e922e1e55bcb9e6b7e818f34105aba4567f68c/src/codegen.cpp#L2535-L2546"
+          snippet: |
+            Value *jl_gc_roots_t::get(jl_codectx_t &ctx, size_t i) const
+            {
+                if (ptr) {
+                    // Lazy mode - load the root on demand
+                    Type *T_prjlvalue = ctx.types().T_prjlvalue;
+                    auto roots_ai = jl_aliasinfo_t::fromTBAA(ctx, tbaa);
+                    LoadInst *load = ctx.builder.CreateAlignedLoad(T_prjlvalue, emit_ptrgep(ctx, ptr, i * sizeof(jl_value_t*)), Align(sizeof(void*)));
+                    roots_ai.decorateInst(load);
+                    return load;
+                }
+                return roots[i];
+            }
+
+    - summary: "make_lazy_gc_roots helper for deferred root loading"
+      component: "Compiler.Codegen"
+      evidence:
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "524-529"
+          url: "https://github.com/JuliaLang/julia/blob/28e922e1e55bcb9e6b7e818f34105aba4567f68c/src/cgutils.cpp#L524-L529"
+          snippet: |
+            static jl_gc_roots_t make_lazy_gc_roots(Value *inline_roots_ptr, size_t npointers, MDNode *tbaa)
+            {
+                if (npointers == 0)
+                    return jl_gc_roots_t();
+                return jl_gc_roots_t(inline_roots_ptr, npointers, tbaa);
+            }
+
+    - summary: "value_to_pointer fast path for allpointers types"
+      component: "Compiler.Codegen"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "2425-2441"
+          url: "https://github.com/JuliaLang/julia/blob/28e922e1e55bcb9e6b7e818f34105aba4567f68c/src/codegen.cpp#L2425-L2441"
+          snippet: |
+            static inline jl_cgval_t value_to_pointer(jl_codectx_t &ctx, const jl_cgval_t &v)
+            {
+                if (!v.inline_roots.empty()) {
+                    if (allpointers((jl_datatype_t*)v.typ))
+                        return mark_julia_slot(v.inline_roots.get_ptr(ctx), v.typ, v.TIndex, ctx.tbaa().tbaa_gcframe);
+                    Align align(julia_alignment(v.typ));
+                    Type *ty = julia_type_to_llvm(ctx, v.typ);
+                    AllocaInst *loc = emit_static_alloca(ctx, ty, align);
+                    auto tbaa = v.V == nullptr ? ctx.tbaa().tbaa_gcframe : ctx.tbaa().tbaa_stack;
+                    auto stack_ai = jl_aliasinfo_t::fromTBAA(ctx, tbaa);
+                    recombine_value(ctx, v, loc, stack_ai, align, false);
+                    return mark_julia_slot(loc, v.typ, v.TIndex, tbaa);
+                }
+                if (v.ispointer() || v.V == nullptr)
+                    return v;
+                return value_to_pointer(ctx, v.V, v.typ, v.TIndex);
+            }
+
+    - summary: "emit_ptrgep optimization for zero offset"
+      component: "Compiler.Codegen"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "2228-2235"
+          url: "https://github.com/JuliaLang/julia/blob/28e922e1e55bcb9e6b7e818f34105aba4567f68c/src/codegen.cpp#L2228-L2235"
+          snippet: |
+            static Value *emit_ptrgep(jl_codectx_t &ctx, Value *base, size_t byte_offset, const Twine &Name="")
+            {
+                if (byte_offset == 0)
+                    return base;
+                auto *gep = ctx.builder.CreateConstInBoundsGEP1_32(getInt8Ty(ctx.builder.getContext()), base, byte_offset);
+                setName(ctx.emission_context, gep, Name);
+                return gep;
+            }
+
+    - summary: "split_value_field simplified to preserve layout identity"
+      component: "Compiler.Codegen"
+      evidence:
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "1373-1389"
+          url: "https://github.com/JuliaLang/julia/blob/28e922e1e55bcb9e6b7e818f34105aba4567f68c/src/cgutils.cpp#L1373-L1389"
+          snippet: |
+            static std::pair<ssize_t,ssize_t> split_value_field(jl_datatype_t *typ, unsigned idx)
+            {
+                size_t fldoff = jl_field_offset(typ, idx);
+                assert(typ->layout->first_ptr >= 0);
+                size_t npointers = typ->layout->npointers;
+                for (size_t i = 0; i < npointers; i++) {
+                    size_t ptr = jl_ptr_offset(typ, i) * sizeof(void*);
+                    if (ptr >= fldoff) {
+                        if (ptr >= fldoff + jl_field_size(typ, idx))
+                            break;
+                        jl_value_t *ft = jl_field_type(typ, idx);
+                        bool onlyptr = jl_field_isptr(typ, idx) || (jl_is_datatype(ft) && allpointers((jl_datatype_t*)ft));
+                        return std::make_pair(onlyptr ? -1 : (ssize_t)fldoff, (ssize_t)i);
+                    }
+                }
+                return std::make_pair((ssize_t)fldoff, (ssize_t)-1);
+            }
+
+    - summary: "Removed load_gc_roots function - replaced by make_lazy_gc_roots"
+      component: "Compiler.Codegen"
+      evidence:
+        - source: "diff"
+          path: "src/cgutils.cpp"
+          loc: "521-536 (old)"
+          url: "https://github.com/JuliaLang/julia/pull/60388/files#diff-cgutils"
+          snippet: |
+            REMOVED:
+            static llvm::SmallVector<Value*,0> load_gc_roots(jl_codectx_t &ctx,
+                Value *inline_roots_ptr, size_t npointers, MDNode *tbaa, bool isVolatile=false)
+            {
+                SmallVector<Value*,0> gcroots(npointers);
+                if (npointers) {
+                    Type *T_prjlvalue = ctx.types().T_prjlvalue;
+                    auto roots_ai = jl_aliasinfo_t::fromTBAA(ctx, tbaa);
+                    for (size_t i = 0; i < npointers; i++) {
+                        LoadInst *ptr = ctx.builder.CreateAlignedLoad(...);
+                        roots_ai.decorateInst(ptr);
+                        gcroots[i] = ptr;
+                    }
+                }
+                return gcroots;
+            }
+
+            REPLACED BY:
+            static jl_gc_roots_t make_lazy_gc_roots(Value *inline_roots_ptr, size_t npointers, MDNode *tbaa)
+            {
+                if (npointers == 0)
+                    return jl_gc_roots_t();
+                return jl_gc_roots_t(inline_roots_ptr, npointers, tbaa);
+            }
+
+            The old function eagerly loaded all roots. The new function creates a lazy
+            descriptor that defers loading until jl_gc_roots_t::get() is called.
+
+    - summary: "emit_call_specfun_other now uses copy_required=false for argument forwarding"
+      component: "Compiler.Codegen"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "5331-5339"
+          url: "https://github.com/JuliaLang/julia/blob/28e922e1e55bcb9e6b7e818f34105aba4567f68c/src/codegen.cpp#L5331-L5339"
+          snippet: |
+            else if (et->isAggregateType()) {
+                auto tracked = CountTrackedPointers(et);
+                if (tracked.count && !tracked.all) {
+                    auto [val, roots, result_tbaa] = split_value(ctx, arg, Align(julia_alignment(jt)), /*copy_required*/false);
+                    Value *proots = roots.get_ptr(ctx);
+                    assert(val);
+                    argvals[idx] = decay_derived(ctx, val);
+                    argvals[++idx] = proots;
+                }
+            }
+
+            KEY CHANGE: copy_required=false allows zero-copy forwarding when the argument
+            already has inline_roots. The split_value function returns the original
+            pointers directly instead of copying to a new alloca.
+
+  secondary_effects:
+    - effect: "Reduced stack allocation for types with trailing pointers"
+      mechanism: |
+        split_value_size() [cgutils.cpp:1204-1221]
+          computes shrunken size by removing trailing pointer slots
+        -> split_value() [cgutils.cpp:1346-1370]
+          allocates only sizes.first bytes instead of full jl_datatype_size()
+        -> emit_static_alloca() creates smaller stack slot
+        -> Results in smaller stack frames for functions handling pointer-ful types
+      downstream_surfaces:
+        - "Stack frame layout"
+        - "LLVM IR patterns"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Lazy root loading avoids unnecessary loads in argument forwarding"
+      mechanism: |
+        make_lazy_gc_roots() [cgutils.cpp:524-529]
+          creates jl_gc_roots_t with ptr/count/tbaa (lazy mode)
+        -> emit_call_specfun_other() [codegen.cpp:5334]
+          calls split_value() with copy_required=false
+        -> When value already has inline_roots, returns x.inline_roots directly
+        -> jl_gc_roots_t::get() [codegen.cpp:2535-2546]
+          only loads root when actually accessed
+        -> Roots may never be loaded if only passed through to callee
+      downstream_surfaces:
+        - "Function call codegen"
+        - "Argument passing ABI"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "On-stack and on-heap layouts now declared compatible"
+      mechanism: |
+        The PR description states: "Declaring that the on-stack format is the
+        same layout as the on-heap format, allowing more zero-copy uses"
+
+        This is achieved by:
+        1. split_value_field() [cgutils.cpp:1373-1389] now returns actual fldoff
+           instead of computing adjusted offset for split storage
+        2. value_to_pointer() [codegen.cpp:2425-2441] can use get_ptr() directly
+           for allpointers types without recombination
+
+        Call chain:
+        split_value_field() returns (ssize_t)fldoff directly
+        -> emit_getfield_knownidx() uses actual field offset
+        -> Compatible with native heap layout
+      downstream_surfaces:
+        - "Value representation in LLVM IR"
+        - "Field access codegen"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "jl_cgval_t.inline_roots field type changed from SmallVector to jl_gc_roots_t"
+      mechanism: |
+        jl_cgval_t struct [codegen.cpp:1803-1840]
+          now stores: jl_gc_roots_t inline_roots
+          instead of: SmallVector<Value*,0> inline_roots
+
+        All code accessing inline_roots must now use:
+        - inline_roots.get(ctx, i) instead of inline_roots[i]
+        - inline_roots.size() instead of inline_roots.size()
+        - inline_roots.empty() instead of inline_roots.empty()
+        - jl_gc_roots_t(std::move(vec)) to construct from SmallVector
+      downstream_surfaces:
+        - "Internal codegen API"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "PHI node dominance fix in convert_julia_type_to_union - roots loaded at correct insertion point"
+      mechanism: |
+        When adding roots to union PHI nodes, lazy roots must be loaded BEFORE the branch
+        instruction so the loaded values dominate all incoming edges.
+
+        convert_julia_type_to_union() [codegen.cpp:2873-2894]
+          if (add_roots_count && (v.TIndex || v.isboxed)) {
+            SmallVector<Value*,0> new_roots(add_roots_inline, Vnull);
+            if (add_roots_inline) {
+              ctx.builder.SetInsertPoint(currBB->getTerminator());  // <-- KEY: insert BEFORE branch
+              for (size_t i = 0; i < ret.inline_roots.size(); i++)
+                new_roots[i] = ret.inline_roots.get(ctx, i);        // <-- loads go here
+              ctx.builder.SetInsertPoint(postBB);                   // <-- then back to post
+            }
+            // PHI nodes created in postBB can now reference loaded values from currBB
+          }
+
+        Without this fix, lazy loads would be emitted in postBB, but PHI incoming values
+        from currBB need values that dominate currBB's terminator. This is a correctness
+        fix required by the lazy loading mechanism.
+      downstream_surfaces:
+        - "Union type handling"
+        - "PHI node generation"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "jl_gc_roots_t::slice enables lazy field extraction without loading all roots"
+      mechanism: |
+        jl_gc_roots_t::slice() [codegen.cpp:2561-2568]
+          jl_gc_roots_t jl_gc_roots_t::slice(jl_codectx_t &ctx, size_t first, size_t numel) const {
+              if (numel == 0)
+                  return jl_gc_roots_t();
+              else if (ptr)
+                  return jl_gc_roots_t(emit_ptrgep(ctx, ptr, first * sizeof(void*)), numel, tbaa);
+              else
+                  return jl_gc_roots_t(ArrayRef(roots).slice(first, numel));
+          }
+
+        Used in emit_getfield_knownidx() [cgutils.cpp:3398-3401]:
+          if (hasptr) {
+              size_t nroots = jl_field_isptr(jt, idx) ? 1 : ((jl_datatype_t*)jfty)->layout->npointers;
+              roots = strct.inline_roots.slice(ctx, offsets.second, nroots);
+          }
+
+        This enables extracting a subset of roots from a struct's inline_roots without
+        loading any of them until they are actually needed.
+      downstream_surfaces:
+        - "Field access codegen"
+        - "getfield optimization"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "emit_ifelse properly handles lazy roots in intrinsics"
+      mechanism: |
+        emit_ifelse() [intrinsics.cpp:1237-1249]
+          jl_gc_roots_t x_roots = x.inline_roots;  // copy the lazy descriptor
+          jl_gc_roots_t y_roots = y.inline_roots;
+          auto nroots = std::max(x_roots.size(), y_roots.size());
+          for (size_t i = 0; i < nroots; i++) {
+              Value *x_root = Vnull, *y_root = Vnull;
+              if (i < x_roots.size())
+                  x_root = x_roots.get(ctx, i);    // load on demand
+              if (i < y_roots.size())
+                  y_root = y_roots.get(ctx, i);    // load on demand
+              ifelse_roots[i] = ctx.builder.CreateSelect(isfalse, y_root, x_root);
+          }
+
+        The roots are only loaded when needed for the select instruction, and the
+        resulting roots are materialized into a SmallVector for the return value.
+      downstream_surfaces:
+        - "Core.ifelse codegen"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "typed_store loads roots on demand for cmpxchg operations"
+      mechanism: |
+        typed_store() [cgutils.cpp:2692-2696]
+          if (!rhs.inline_roots.empty()) {
+              const jl_gc_roots_t &roots_copy = rhs.inline_roots;
+              for (size_t i = 0; i < roots_copy.size(); i++)
+                  Args.push_back(roots_copy.get(ctx, i));
+          }
+
+        For atomic compare-exchange operations, roots are loaded just before being
+        passed as arguments to the cmpxchg helper function.
+      downstream_surfaces:
+        - "Atomic field operations"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "allpointers types enable zero-copy pointer operations via get_ptr"
+      mechanism: |
+        allpointers() [codegen.cpp:1619-1627]
+          static bool allpointers(size_t size, size_t npointers) {
+              return size == npointers * sizeof(void*);
+          }
+          static bool allpointers(jl_datatype_t *typ) {
+              return allpointers(jl_datatype_size(typ), typ->layout->npointers);
+          }
+
+        When a type consists entirely of pointers (e.g., Tuple{Any,Any,Any}),
+        the lazy ptr can be used directly without any data copying:
+
+        value_to_pointer() [codegen.cpp:2428-2429]
+          if (allpointers((jl_datatype_t*)v.typ))
+              return mark_julia_slot(v.inline_roots.get_ptr(ctx), v.typ, ...);
+
+        jl_gc_roots_t::get_ptr() returns the lazy ptr directly when in lazy mode,
+        avoiding any memory allocation or copying.
+      downstream_surfaces:
+        - "Tuple handling"
+        - "Types with only pointer fields"
+      likelihood: "high"
+      impact: "medium"
+
+  compatibility:
+    internal_api:
+      - field: "jl_cgval_t.inline_roots"
+        change: "Type changed from SmallVector<Value*,0> to jl_gc_roots_t"
+        affected_tools:
+          - tool: "Internal codegen"
+            usage: "All direct indexing like inline_roots[i] replaced with inline_roots.get(ctx, i)"
+      - field: "split_value return type"
+        change: "Returns std::tuple<Value*, jl_gc_roots_t, MDNode*> with new copy_required parameter"
+        affected_tools:
+          - tool: "Internal codegen callers"
+            usage: "Callers must specify copy_required and use structured bindings"
+      - field: "mark_julia_slot signature"
+        change: "Now takes jl_gc_roots_t&& instead of ArrayRef<Value*>"
+        affected_tools:
+          - tool: "Internal codegen"
+            usage: "Callers must construct jl_gc_roots_t explicitly"
+      - field: "load_gc_roots function"
+        change: "REMOVED - replaced by make_lazy_gc_roots which returns jl_gc_roots_t"
+        affected_tools:
+          - tool: "Internal codegen"
+            usage: "Callers must use make_lazy_gc_roots and call .get() when root values are needed"
+      - field: "jl_gc_roots_t::get() requires jl_codectx_t&"
+        change: "All root accesses now require a codegen context to emit load instructions"
+        affected_tools:
+          - tool: "Internal codegen"
+            usage: "Cannot access roots without an active codegen context"
+    behavioral:
+      - change: "LLVM IR may have fewer load instructions for unused roots"
+        impact: "Tools analyzing IR patterns may see different instruction sequences"
+      - change: "Stack allocations may be smaller for types with trailing pointers"
+        impact: "Tools that depend on specific stack frame layouts need updating"
+    callers_updated:
+      - function: "extract_gc_roots"
+        file: "cgutils.cpp:490-519"
+        change: "Now iterates via .get(ctx, i) instead of direct indexing"
+      - function: "get_gc_roots_for"
+        file: "cgutils.cpp:532-551"
+        change: "Loads roots via .get(ctx, i) into SmallVector"
+      - function: "store_all_roots"
+        file: "cgutils.cpp:1223-1230"
+        change: "Takes const jl_gc_roots_t& and calls .get(ctx, i)"
+      - function: "emit_getfield_knownidx"
+        file: "cgutils.cpp:3392-3427"
+        change: "Uses .slice() for lazy field root extraction"
+      - function: "typed_store"
+        file: "cgutils.cpp:2692-2696"
+        change: "Loads roots on demand before passing to cmpxchg"
+      - function: "emit_new_struct"
+        file: "cgutils.cpp:4597"
+        change: "Constructs jl_gc_roots_t from SmallVector"
+      - function: "emit_memoryref_FCA"
+        file: "cgutils.cpp:4927"
+        change: "Accesses root via .get(ctx, 0)"
+      - function: "emit_ifelse"
+        file: "intrinsics.cpp:1237-1314"
+        change: "Copies lazy descriptors and loads on demand"
+      - function: "convert_julia_type_to_union"
+        file: "codegen.cpp:2873-2926"
+        change: "Loads roots at correct insertion point for PHI dominance"
+      - function: "emit_call_specfun_other"
+        file: "codegen.cpp:5334"
+        change: "Uses copy_required=false for zero-copy"
+      - function: "emit_specsig_to_specsig"
+        file: "codegen.cpp:7226"
+        change: "Uses make_lazy_gc_roots for lazy loading"
+      - function: "emit_varinfo"
+        file: "codegen.cpp:5917-5934"
+        change: "Manually loads volatile roots into SmallVector"
+      - function: "emit_modifyhelper"
+        file: "codegen.cpp:7050-7072"
+        change: "Rebuilds roots from function arguments"
+      - function: "emit_phinode_assign"
+        file: "codegen.cpp:6081,6129"
+        change: "Constructs jl_gc_roots_t from ArrayRef"
+
+  performance:
+    compile_time:
+      - impact: |
+          ESTIMATED: Negligible to slightly positive
+          - Lazy root loading may reduce LLVM IR instructions when roots aren't needed
+          - Smaller stack allocations reduce alloca instructions
+          - Additional jl_gc_roots_t abstraction has minimal overhead
+    runtime:
+      - impact: |
+          ESTIMATED: Positive for argument-forwarding patterns
+          - Reduced stack copies when forwarding arguments: O(n) fewer memcpy operations
+            where n = number of forwarded pointer-ful arguments
+          - Smaller stack frames reduce memory traffic
+          - Lazy loading eliminates loads for unused roots
+
+          Most impactful case: calling a method that just forwards its arguments
+          to another function - previously required intermediate stack copy, now
+          can pass original pointers directly.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Author (vtjnash) is core Julia developer with deep codegen expertise"
+      - "Changes are internal to codegen, no user-visible API changes"
+      - "Layout compatibility is maintained (on-stack matches on-heap)"
+      - "PR was merged after review, labeled 'don't squash' for commit history preservation"
+      - "All changes preserve semantic correctness while improving efficiency"
+
+  open_questions:
+    - "What is the measured performance impact on real workloads?"
+    - "Are there edge cases where lazy loading might cause unexpected behavior with volatile loads?"
+    - "Could this interact with future changes to GC rooting strategy?"
+    - "How does the PHI node insertion point fix (SetInsertPoint to currBB->getTerminator) interact with complex control flow?"
+    - "Could the shrink-wrapping of trailing pointers cause issues with external tools that expect full struct sizes?"
+    - "What is the impact on debug info and stack unwinding for shrunken stack allocations?"
+
+  recommendations:
+    - "Downstream tools analyzing LLVM IR may see different stack allocation patterns"
+    - "Tools that depend on specific inline_roots representation should update to use jl_gc_roots_t API"
+    - "No action needed for typical Julia users - this is an internal optimization"
+    - "Code generators or JIT compilers that interface with Julia's codegen should be aware of the new lazy loading pattern"
+    - "Profiling tools should account for potentially fewer memory operations in argument-forwarding code paths"
+
+  reviewer_notes:
+    reviewer: "Independent analysis"
+    date: "2026-01-21"
+    key_findings:
+      - finding: "PHI node correctness fix is critical"
+        detail: |
+          The change at codegen.cpp:2879-2883 is not just an optimization but a correctness fix.
+          Lazy roots must be loaded BEFORE the branch instruction (at currBB->getTerminator)
+          so they dominate the PHI nodes in postBB. Without this, the lazy loads would be
+          emitted after the branch, causing LLVM dominance violations.
+      - finding: "slice() method enables efficient field access"
+        detail: |
+          The new jl_gc_roots_t::slice() method allows extracting a subset of roots without
+          loading any of them. This is used in emit_getfield_knownidx for pointer-ful struct
+          field access, enabling lazy loading to propagate through field extractions.
+      - finding: "allpointers optimization is key for tuple-heavy code"
+        detail: |
+          Types where size == npointers * sizeof(void*) (e.g., Tuple{Any,Any,Any}) can use
+          get_ptr() directly without any copying. This is a significant optimization for
+          Julia's pervasive use of tuples for multiple return values.
+      - finding: "Comprehensive caller updates"
+        detail: |
+          The PR updates 15+ functions across cgutils.cpp, codegen.cpp, and intrinsics.cpp
+          to use the new jl_gc_roots_t API. Each caller was updated to use .get(ctx, i)
+          instead of direct [i] indexing, requiring access to a jl_codectx_t.
+      - finding: "Volatile root handling preserved"
+        detail: |
+          The emit_varinfo function still manually loads roots when vi.isVolatile is set,
+          ensuring volatile semantics are preserved even with the lazy loading change.

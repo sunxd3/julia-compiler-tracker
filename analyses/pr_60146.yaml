@@ -1,0 +1,316 @@
+schema_version: "1.0"
+
+pr:
+  number: 60146
+  title: "loading: More extension loading cleanup"
+  url: "https://github.com/JuliaLang/julia/pull/60146"
+  author: "Keno"
+  labels: []
+  merged_at: "2025-11-17T07:58:38Z"
+  merge_commit_sha: "c223ef2eb395e2bfac9740a5440bb83b502eafa3"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60146.diff"
+
+scope:
+  files_touched:
+    - "base/loading.jl"
+  components:
+    - "Base.loading"
+  pipeline_stages:
+    - "PackageLoading"
+
+analysis:
+  intent:
+    summary: |
+      Fix extension loading in implicit environments when the parent package has not been loaded yet.
+      This PR addresses two related issues that were "bugs covering for each other":
+
+      1. Extensions could only be found in implicit environments if EXT_PRIMED had the extension
+         primed (i.e., the parent package was already loaded). This is usually true at runtime,
+         but NOT during stdlib precompilation.
+
+      2. The explicit_manifest_uuid_path function used locate_package() to find extension parent
+         paths, which could cause recursive lookups and fail during precompilation when the
+         malformed stdlib manifests cannot be used for loading.
+
+      The fix adds a fallback path that scans implicit environment directories for extensions,
+      and replaces the recursive locate_package call with direct manifest entry lookup.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59863"
+
+  direct_changes:
+    - summary: "Add fallback scan for extensions in implicit environments when EXT_PRIMED is empty"
+      component: "Base.loading"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "842-846"
+          url: "https://github.com/JuliaLang/julia/blob/c223ef2eb395e2bfac9740a5440bb83b502eafa3/base/loading.jl#L842-L846"
+          snippet: |
+            # AFTER: Added else branch when EXT_PRIMED doesn't have the extension
+            else
+                # We still need to scan the whole directory for extensions.
+                ext_path, ext_proj = implicit_env_project_file_extension(env, pkg)
+                ext_path === nothing || return ext_path
+            end
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "827-831"
+          url: "https://github.com/JuliaLang/julia/blob/c223ef2eb395e2bfac9740a5440bb83b502eafa3/base/loading.jl#L827-L831"
+          snippet: |
+            # if not found, this might be an extension - first we fast path needing
+            # to scan the whole directory for a matching extension by peeking at
+            # EXT_PRIMED. However, this only works if the parent package was loaded.
+            # This is usually the case, but not always, e.g. in precompilation.
+            triggers = get(EXT_PRIMED, pkg, nothing)
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "965-975"
+          url: "https://github.com/JuliaLang/julia/blob/c223ef2eb395e2bfac9740a5440bb83b502eafa3/base/loading.jl#L965-L975"
+          snippet: |
+            # Find the project file for the extension `ext` in the implicit env `dir``
+            function implicit_env_project_file_extension(dir::String, ext::PkgId)
+                for pkg in readdir(dir; join=true)
+                    project_file = env_project_file(pkg)
+                    project_file isa String || continue
+                    path = project_file_ext_path(project_file, ext)
+                    if path !== nothing
+                        return path, project_file
+                    end
+                end
+                return nothing, nothing
+            end
+
+    - summary: "Replace locate_package with explicit_manifest_entry_path when finding extension parent paths"
+      component: "Base.loading"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "1139-1145"
+          url: "https://github.com/JuliaLang/julia/blob/c223ef2eb395e2bfac9740a5440bb83b502eafa3/base/loading.jl#L1139-L1145"
+          snippet: |
+            # AFTER: Uses explicit_manifest_entry_path instead of locate_package
+            if extensions !== nothing && haskey(extensions, pkg.name) && uuid !== nothing && uuid5(UUID(uuid), pkg.name) == pkg.uuid
+                parent_path = explicit_manifest_entry_path(manifest_file, PkgId(UUID(uuid), name), entry)
+                if parent_path === nothing || parent_path === missing
+                    error("failed to find source of parent package: \"$name\"")
+                end
+                p = normpath(dirname(parent_path), "..")
+                return find_ext_path(p, pkg.name)
+        - source: "diff_before"
+          path: "base/loading.jl"
+          loc: "1133-1137"
+          note: "Code BEFORE the change (from parent commit)"
+          snippet: |
+            # BEFORE: Used locate_package which could recurse through LOAD_PATH
+            if extensions !== nothing && haskey(extensions, pkg.name) && uuid !== nothing && uuid5(UUID(uuid), pkg.name) == pkg.uuid
+                parent_path = locate_package(PkgId(UUID(uuid), name))
+                if parent_path === nothing
+                    error("failed to find source of parent package: \"$name\"")
+                end
+
+  secondary_effects:
+    - effect: "Extension loading now works without requiring parent package to be loaded first"
+      mechanism: |
+        manifest_uuid_path(env, pkg)  [loading.jl:811]
+          -> checks if env is directory (project_file returns true for dirs)  [loading.jl:823]
+          -> calls implicit_manifest_uuid_path(env, pkg) first  [loading.jl:825]
+          -> if not found, checks EXT_PRIMED[pkg] for fast path  [loading.jl:831]
+          -> if EXT_PRIMED empty (parent not loaded), falls to else branch  [loading.jl:842]
+          -> calls implicit_env_project_file_extension(env, pkg)  [loading.jl:844]
+            -> iterates readdir(dir; join=true)  [loading.jl:966]
+            -> for each pkg dir, gets project_file via env_project_file()  [loading.jl:967]
+            -> calls project_file_ext_path(project_file, ext)  [loading.jl:969]
+            -> returns path if extension found  [loading.jl:971]
+      downstream_surfaces:
+        - "Stdlib precompilation (Statistics/SparseArrayExt scenario)"
+        - "Extension loading during explicit precompile calls"
+        - "Implicit environment extension discovery (@stdlib)"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Avoids recursive locate_package call that could fail during stdlib precompilation"
+      mechanism: |
+        explicit_manifest_uuid_path(project_file, pkg)  [loading.jl:1116]
+          -> iterates manifest entries looking for extension  [loading.jl:1133-1148]
+          -> BEFORE: called locate_package(PkgId(UUID(uuid), name))
+             This would re-search LOAD_PATH and could find packages in wrong environments
+             or fail when manifests are malformed (as in stdlib precompilation)
+          -> AFTER: calls explicit_manifest_entry_path(manifest_file, PkgId(UUID(uuid), name), entry)
+             Uses the already-available manifest entry directly  [loading.jl:1140]
+          -> explicit_manifest_entry_path resolves path/git-tree-sha1 from entry  [loading.jl:1152-1178]
+          -> now also handles `missing` return (depot not found)  [loading.jl:1141]
+      downstream_surfaces:
+        - "Stdlib precompilation"
+        - "Package precompilation with extensions"
+        - "Cross-environment package loading"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "Performance impact from directory scanning in implicit environments"
+      mechanism: |
+        implicit_env_project_file_extension(dir, ext)  [loading.jl:965]
+          -> calls readdir(dir; join=true) - O(n) where n = packages in directory
+          -> for each package: calls env_project_file(pkg) - reads filesystem
+          -> for each with Project.toml: calls project_file_ext_path() - parses TOML
+          -> early returns on match, but worst case scans all packages
+
+        Mitigating factors:
+          1. Only triggered when loading from implicit environment
+          2. Only triggered when EXT_PRIMED is empty (parent not loaded)
+          3. @stdlib is last in default LOAD_PATH, so rarely reached
+          4. Most environments are explicit (have Manifest.toml)
+
+        Author note from commit message: "I also don't think that this fallback case
+        will actually trigger in practice although it does of course trigger when
+        looking up any package that is not actually present in the environment."
+      downstream_surfaces:
+        - "Large implicit environments at start of LOAD_PATH"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Fixes tangled bug interaction between cross-environment extension lookup and implicit env extension loading"
+      mechanism: |
+        Scenario described in commit message:
+        1. Stdlib precompilation sets LOAD_PATH to "@stdlib:$(pwd)/stdlib"
+        2. @stdlib is implicit env (symlinked directory), $(pwd)/stdlib is explicit (malformed manifests)
+        3. Previously: Found Statistics in first env, then Statistics' SparseArrayExt in second env
+        4. SparseArrayExt lookup called locate_package(Statistics) which re-searched first env
+        5. This accidentally worked due to bugs covering for each other
+
+        With this fix:
+        1. Extension lookup in implicit env works directly via directory scan
+        2. Extension parent path comes from manifest entry, not re-lookup
+        3. No cross-environment shenanigans needed
+      downstream_surfaces:
+        - "Stdlib precompilation (Statistics, LinearAlgebra, etc.)"
+      likelihood: "high"
+      impact: "medium"
+
+  compatibility:
+    internal_api:
+      - field: "EXT_PRIMED dictionary"
+        change: "No longer required for extension discovery in implicit environments"
+        affected_tools:
+          - tool: "Pkg.jl"
+            usage: "Pkg.jl populates EXT_PRIMED when loading packages"
+      - field: "explicit_manifest_entry_path function"
+        change: "Now used for extension parent path resolution in explicit_manifest_uuid_path"
+        affected_tools:
+          - tool: "Custom package loaders"
+            usage: "Tools overriding locate_package won't affect extension parent resolution"
+      - field: "locate_package function"
+        change: "No longer called during extension parent path resolution"
+        affected_tools:
+          - tool: "Custom package loaders"
+            usage: "Hooks into locate_package won't be called during extension manifest lookup"
+
+    behavioral:
+      - change: "Extensions in implicit environments can be loaded during precompilation before parent is loaded"
+        migration: "No migration needed - this is a bug fix"
+        risk: "low"
+      - change: "Extension parent path resolution uses manifest entry directly instead of full package lookup"
+        migration: "No migration needed - internal implementation change"
+        risk: "low"
+      - change: "Stdlib precompilation no longer relies on cross-environment manifest lookups"
+        migration: "No migration needed - internal fix"
+        risk: "low"
+
+  performance:
+    compile_time:
+      - impact: |
+          O(n) directory scan in implicit environments where n = number of packages.
+          Only triggered when ALL of:
+          1. Loading a package from implicit environment (directory, not explicit manifest)
+          2. Package is not found by implicit_manifest_uuid_path (not a regular package)
+          3. Package is not in EXT_PRIMED (parent not yet loaded)
+          4. Package is actually an extension
+
+          Per-package cost:
+          - readdir() syscall: O(n) entries
+          - env_project_file() per dir: stat() + potential Project.toml read
+          - project_file_ext_path(): TOML parse if extension matches
+
+          ESTIMATED: <1% increase in package load time for typical use cases.
+          Worst case: large implicit environments at start of LOAD_PATH.
+          Mitigated: @stdlib is last in default LOAD_PATH; most real envs are explicit.
+        likelihood: "low"
+
+    runtime:
+      - impact: "None - changes only affect package loading, not runtime behavior"
+        likelihood: "none"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are isolated to package loading infrastructure"
+      - "Adds fallback path that only triggers in edge cases (implicit env + extension + parent not loaded)"
+      - "Replaces fragile cross-environment lookup with direct manifest entry access"
+      - "Author notes this fixes a tangled set of bugs that were covering for each other"
+      - "No changes to compiler internals, type inference, or codegen"
+      - "Related PR #59863 cleaned up extension loading one month prior"
+      - "Test exists at test/loading.jl:1242 for extensions in implicit environments"
+
+  open_questions:
+    - "Should @stdlib be converted to an explicit environment to avoid implicit env scanning?"
+    - "What is the performance impact of readdir() on very large implicit environments?"
+    - "Are there other places where locate_package is used when explicit_manifest_entry_path would be safer?"
+
+  recommendations:
+    - "Downstream packages that customize package loading should verify extension loading still works"
+    - "Avoid large implicit environments at the start of LOAD_PATH for optimal performance"
+    - "Monitor stdlib precompilation for any regressions"
+    - "Consider converting @stdlib to explicit environment in future"
+
+changelog:
+  summary: |
+    Fix extension loading in implicit environments when parent package is not yet loaded.
+    This primarily affects stdlib precompilation and edge cases where extensions need to
+    be discovered before their parent packages have been loaded into EXT_PRIMED.
+    Also fixes potential recursive locate_package calls during extension parent resolution.
+
+  user_facing: false
+
+  breaking_changes: []
+
+  bug_fixes:
+    - "Extensions in implicit environments can now be found even when parent package hasn't been loaded"
+    - "Stdlib precompilation no longer relies on cross-environment manifest lookups"
+    - "Extension parent path resolution no longer uses potentially-recursive locate_package call"
+
+  deprecations: []
+
+downstream_impact:
+  JET: "none"
+  Enzyme: "none"
+  GPUCompiler: "none"
+  IRTools: "none"
+  Cassette: "none"
+  Turing: "none"
+  summary: |
+    This PR changes package loading infrastructure (base/loading.jl), not compiler internals.
+    It should have no direct impact on compiler-related downstream packages like JET, Enzyme,
+    GPUCompiler, IRTools, or Cassette. These packages interact with the compiler pipeline
+    (type inference, IR, codegen), not the package loading system.
+
+    Packages that customize or extend Julia's package loading mechanism (like Pkg.jl or
+    custom depot managers) should verify their extension loading behavior. However, since
+    the changes fix edge cases that primarily affect stdlib precompilation, the risk of
+    downstream breakage is minimal.
+
+    Key affected scenario: If a downstream tool overrides locate_package and expects it to
+    be called during extension parent resolution in explicit_manifest_uuid_path, that
+    override will no longer be triggered. This is unlikely to affect any real-world tools.
+
+review_notes:
+  reviewer: "Independent second analyst"
+  date: "2026-01-21"
+  changes_from_original:
+    - "Fixed function name: explicit_manifest_entry_load_spec -> explicit_manifest_entry_path"
+    - "Updated line numbers to match actual merge commit (was referencing different version)"
+    - "Added evidence showing code BEFORE the change for clearer diff context"
+    - "Added explicit call chain with file:line references for secondary effects"
+    - "Added detail about Statistics/SparseArrayExt scenario from commit message"
+    - "Added secondary effect documenting the tangled bug interaction"
+    - "Added reference to existing test at test/loading.jl:1242"
+    - "Enhanced tooling impact to specify that locate_package overrides won't be called"
+    - "Added context about relationship to parent PR #59863"

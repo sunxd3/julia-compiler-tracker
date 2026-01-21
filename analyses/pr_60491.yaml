@@ -1,0 +1,256 @@
+schema_version: "1.0"
+pr:
+  number: 60491
+  title: "[release-1.11] Fix KeyError in require_stdlib for non-stdlib extensions"
+  url: "https://github.com/JuliaLang/julia/pull/60491"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60491.diff"
+  author: "IanButterworth"
+  labels: []
+  merged_at: "2026-01-05T16:22:25Z"
+  merge_commit_sha: "37e763890478b5b8a3b9ba160713ee6a178ece8d"
+
+scope:
+  files_touched:
+    - "base/loading.jl"
+    - "test/loading.jl"
+  components:
+    - "Base.loading"
+  pipeline_stages:
+    - "ModuleLoading"
+    - "ExtensionLoading"
+
+analysis:
+  intent:
+    summary: |
+      Fixes a KeyError bug in require_stdlib when loading extensions where the
+      'from' module is not from the bundled depot. The bug occurred because
+      end_loading was called in a finally block even when start_loading was
+      never invoked, causing a KeyError when trying to pop! from package_locks.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60392"
+
+  direct_changes:
+    - summary: "Add loading_started flag to guard end_loading call"
+      component: "Base.loading"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "2696-2726"
+          url: "https://github.com/JuliaLang/julia/blob/37e763890478b5b8a3b9ba160713ee6a178ece8d/base/loading.jl#L2696-L2726"
+          snippet: |
+            env = Sys.STDLIB
+            loading_started = false
+            try
+                depot_path = append_bundled_depot_path!(empty(DEPOT_PATH))
+                from_stdlib = true # set to false if `from` is a normal package
+                if ext isa String
+                    from_uuid = PkgId(from)
+                    from_m = get(loaded_modules, from_uuid, nothing)
+                    if from_m === from
+                        cachepath = get(PkgOrigin, pkgorigins, from_uuid).cachepath
+                        entrypath, entryfile = cache_file_entry(from_uuid)
+                        from_stdlib = any(x -> startswith(entrypath, x), depot_path)
+                    end
+                end
+                if from_stdlib
+                    if ext === nothing
+                        sourcepath = normpath(env, this_uuidkey.name, "src", this_uuidkey.name * ".jl")
+                    else
+                        sourcepath = find_ext_path(normpath(joinpath(env, package_uuidkey.name)), ext)
+                    end
+                    set_pkgorigin_version_path(this_uuidkey, sourcepath)
+                    newm = start_loading(this_uuidkey, UInt128(0), true)
+                    newm === nothing || return newm
+                    loading_started = true
+                    newm = _require_search_from_serialized(this_uuidkey, sourcepath, UInt128(0), false; DEPOT_PATH=depot_path)
+                end
+            finally
+                loading_started && end_loading(this_uuidkey, newm)
+            end
+
+    - summary: "Add regression test for non-stdlib extension loading"
+      component: "test/loading"
+      evidence:
+        - source: "test"
+          path: "test/loading.jl"
+          loc: "1642-1659"
+          url: "https://github.com/JuliaLang/julia/blob/37e763890478b5b8a3b9ba160713ee6a178ece8d/test/loading.jl#L1642-L1659"
+          snippet: |
+            @testset "require_stdlib extension with non-stdlib from module" begin
+                # Test that require_stdlib doesn't error when called with an extension
+                # and the `from` module is not from the bundled depot (from_stdlib=false path)
+                # This is a regression test for https://github.com/JuliaLang/julia/issues/60392
+                cmd = `$(Base.julia_cmd()) --startup-file=no -e '
+                    Pkg_pkgid = Base.PkgId(Base.UUID("44cfe95a-1eb2-52ea-b672-e2afdf69b78f"), "Pkg")
+                    REPLExt_pkgid = Base.PkgId(Base.uuid5(Pkg_pkgid.uuid, "REPLExt"), "REPLExt")
+                    # Create and register a fake REPL module to simulate a non-stdlib module
+                    FakeREPL = Module(:REPL)
+                    FakeREPL_pkgid = Base.PkgId(Base.UUID("3fa0cd96-eef1-5676-8a61-b3b8758bbffb"), "REPL")
+                    Base.register_root_module(FakeREPL)
+                    # This should not throw a KeyError from end_loading
+                    Base.require_stdlib(Pkg_pkgid, "REPLExt", FakeREPL)
+                    # Verify the extension was loaded
+                    Base.maybe_root_module(REPLExt_pkgid) isa Module || error("Something is wrong")
+                '`
+                @test success(cmd)
+            end
+
+  secondary_effects:
+    - effect: "No secondary effects - pure bug fix"
+      mechanism: |
+        This is a localized bug fix that only corrects the control flow in require_stdlib.
+        The fix ensures start_loading and end_loading are always paired:
+
+        require_stdlib(package_uuidkey, ext, from)  [loading.jl:2684]
+          -> checks if from_stdlib is true  [loading.jl:2712]
+          -> if true: start_loading(this_uuidkey, ...) adds to package_locks  [loading.jl:2720]
+          -> loading_started = true  [loading.jl:2722]
+          -> finally: loading_started && end_loading()  [loading.jl:2726]
+                      only calls end_loading if start_loading was called
+
+        The package_locks dictionary invariant is now maintained:
+        - start_loading() adds: package_locks[modkey] = current_task() => Condition  [loading.jl:2093]
+        - end_loading() removes: pop!(package_locks, modkey)  [loading.jl:2140]
+      downstream_surfaces: []
+      likelihood: "N/A"
+      impact: "N/A"
+
+    - effect: "Edge case: start_loading returns Module instead of nothing"
+      mechanism: |
+        When start_loading returns a Module (already loaded), the code returns early
+        at line 2721: `newm === nothing || return newm`
+
+        In this case, loading_started remains false. The finally block still runs
+        (since `return` triggers `finally`), but the guard prevents calling end_loading.
+
+        This is CORRECT because start_loading only adds to package_locks when it
+        returns nothing:
+          loading = get(package_locks, modkey, nothing)  [loading.jl:2091]
+          if loading === nothing
+              package_locks[modkey] = current_task() => Condition  [loading.jl:2093]
+              return nothing  [loading.jl:2094]
+
+        When start_loading returns a Module (lines 2086, 2089, 2135), no entry was
+        added to package_locks, so no cleanup is needed.
+      downstream_surfaces: []
+      likelihood: "N/A"
+      impact: "N/A"
+
+  master_branch_comparison:
+    note: |
+      IMPORTANT: This bug is RELEASE-1.11 SPECIFIC. Master has different code structure.
+
+      On master (line 3050-3082), require_stdlib calls start_loading UNCONDITIONALLY
+      before the try block:
+        newm = start_loading(this_uuidkey, UInt128(0), true)
+        newm === nothing || return newm
+        try
+            ...
+            if from_stdlib
+                ...
+            end
+        finally
+            end_loading(this_uuidkey, newm)
+        end
+
+      On release-1.11 (BEFORE fix), start_loading was inside the if from_stdlib block:
+        try
+            ...
+            if from_stdlib
+                ...
+                newm = start_loading(...)
+                newm === nothing || return newm
+                newm = _require_search_from_serialized(...)
+            end
+        finally
+            end_loading(this_uuidkey, newm)  # ALWAYS called, even if from_stdlib=false
+        end
+
+      The release-1.11 structure caused the bug when from_stdlib=false because:
+      1. start_loading was never called (inside the if block)
+      2. end_loading was always called (in finally)
+      3. pop!(package_locks, modkey) threw KeyError
+
+      Master does not need this fix because start_loading is always called before try.
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - impact: "Bug fix - previously broken behavior now works"
+        description: |
+          require_stdlib with extensions and non-stdlib 'from' modules no longer
+          throws KeyError. This fixes loading Revise.jl from startup.jl in 1.11.8.
+
+  performance:
+    compile_time:
+      - impact: "Negligible"
+        description: |
+          One additional boolean assignment (loading_started = false/true).
+          ESTIMATED: <0.001% overhead per require_stdlib call.
+    runtime:
+      - impact: "None"
+        description: "No runtime code paths are modified."
+
+  callers_analysis:
+    note: |
+      All call sites of start_loading and end_loading in base/loading.jl:
+
+      start_loading callers (5 total):
+        - _tryrequire_from_serialized  [loading.jl:1877]
+        - _require_search_from_serialized  [loading.jl:2028]
+        - start_loading definition  [loading.jl:2080]
+        - __require_prelocked  [loading.jl:2383]
+        - require_stdlib  [loading.jl:2720]
+
+      end_loading callers (5 total):
+        - _tryrequire_from_serialized  [loading.jl:1886]
+        - _require_search_from_serialized  [loading.jl:2043]
+        - end_loading definition  [loading.jl:2139]
+        - __require_prelocked  [loading.jl:2395]
+        - require_stdlib  [loading.jl:2726]
+
+      Pattern comparison:
+        _tryrequire_from_serialized: start_loading called BEFORE try block, unconditionally
+        _require_search_from_serialized: start_loading inside loop, end_loading in finally IF entered try
+        __require_prelocked: start_loading BEFORE try block, only enters try if returned nothing
+        require_stdlib (fixed): uses loading_started flag to track conditional call
+
+  risk:
+    level: "low"
+    rationale:
+      - "Simple control flow fix - adds a guard boolean to prevent mismatched calls"
+      - "Regression test added to prevent future breakage"
+      - "Fix is surgical: only 4 lines changed in loading.jl"
+      - "Pattern follows existing code in _tryrequire_from_serialized and __require_prelocked"
+      - "Master branch has different code structure and does not have this bug"
+
+  open_questions: []
+
+  recommendations:
+    - "No action needed on master - the code structure is different and does not have this bug."
+    - "The fix is specific to release-1.11 branch architecture where start_loading was inside the if from_stdlib block."
+    - "Consider backporting to release-1.10 if that branch has similar code structure."
+
+metadata:
+  analysis_date: "2026-01-21"
+  analyst: "Claude"
+  confidence: "high"
+  verification:
+    julia_repo_checked_out: true
+    pr_branch: "pr-60491"
+    full_source_reviewed: true
+    callers_traced: true
+  second_review:
+    date: "2026-01-21"
+    reviewer: "Claude (independent review)"
+    findings:
+      - "Confirmed master branch has different code structure - start_loading called unconditionally before try"
+      - "Release-1.11 specific bug due to start_loading being inside if from_stdlib block"
+      - "Analyzed edge case when start_loading returns Module (not nothing) - correctly handled"
+      - "Verified all 5 callers of start_loading and end_loading with line numbers"
+      - "Confirmed fix maintains package_locks dictionary invariant"
+    additional_evidence:
+      master_require_stdlib_location: "loading.jl:3039-3095"
+      master_start_loading_line: 3050
+      release_1_11_start_loading_line: 2720
+      code_structure_difference: "master calls start_loading before try block; release-1.11 calls it inside if from_stdlib"

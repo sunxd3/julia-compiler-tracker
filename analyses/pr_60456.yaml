@@ -1,0 +1,294 @@
+schema_version: "1.0"
+pr:
+  number: 60456
+  title: "Print `full_name` after precompiling extension"
+  url: "https://github.com/JuliaLang/julia/pull/60456"
+  author: "JoshuaLampert"
+  merge_commit_sha: "7c59dfbdd66ce763b252f25f0bf34064fe03658a"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60456.diff"
+  labels:
+    - "backport 1.10"
+    - "package extensions"
+    - "backport 1.12"
+    - "backport 1.13"
+  merged_at: "2025-12-23T22:14:36Z"
+
+scope:
+  files_touched:
+    - "base/precompilation.jl"
+  components:
+    - "Base.Precompilation"
+  pipeline_stages:
+    - "Precompilation"
+    - "Package Loading"
+
+analysis:
+  intent:
+    summary: |
+      Fix inconsistency where package extension precompilation messages showed only
+      the extension name (e.g., "MeshesExt") instead of the full qualified name
+      including the parent package (e.g., "KernelInterpolation -> MeshesExt").
+      This aligns with Julia documentation which states that "extension names are
+      always shown together with their parent package name" in Pkg output.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60047"
+
+  core_function:
+    summary: "The full_name() function that formats extension names with parent package"
+    evidence:
+      - source: "code"
+        path: "base/precompilation.jl"
+        loc: "384-390"
+        url: "https://github.com/JuliaLang/julia/blob/7c59dfbdd66ce763b252f25f0bf34064fe03658a/base/precompilation.jl#L384-L390"
+        snippet: |
+          # name or parent -> ext
+          function full_name(ext_to_parent::Dict{PkgId, PkgId}, pkg::PkgId)
+              if haskey(ext_to_parent, pkg)
+                  return string(ext_to_parent[pkg].name, " -> ", pkg.name)  # Uses Unicode arrow U+2192
+              else
+                  return pkg.name
+              end
+          end
+        note: |
+          This function was pre-existing in the codebase. The PR extends its usage
+          to additional output locations. For non-extension packages, it returns
+          just pkg.name unchanged, ensuring backward compatibility.
+
+  direct_changes:
+    - summary: "Use full_name() for extension names in task waiting message"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "933-938"
+          url: "https://github.com/JuliaLang/julia/blob/7c59dfbdd66ce763b252f25f0bf34064fe03658a/base/precompilation.jl#L933-L938"
+          snippet: |
+            if occursin("Waiting for background task / IO / timer", str)
+                thistaskwaiting = true
+                !liveprinting && !fancyprint && @lock print_lock begin
+                    println(io, full_name(ext_to_parent, pkg), color_string(str, Base.warn_color()))
+                end
+                push!(taskwaiting, pkg_config)
+            end
+        - source: "diff"
+          before: "println(io, pkg.name, color_string(str, Base.warn_color()))"
+          after: "println(io, full_name(ext_to_parent, pkg), color_string(str, Base.warn_color()))"
+          change_description: "Changed from pkg.name to full_name(ext_to_parent, pkg)"
+
+    - summary: "Pass fullname to precompile_pkgs_maybe_cachefile_lock function"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1144-1145"
+          url: "https://github.com/JuliaLang/julia/blob/7c59dfbdd66ce763b252f25f0bf34064fe03658a/base/precompilation.jl#L1144-L1145"
+          snippet: |
+            fullname = full_name(ext_to_parent, pkg)
+            t = @elapsed ret = precompile_pkgs_maybe_cachefile_lock(io, print_lock, fancyprint, pkg_config, pkgspidlocked, hascolor, parallel_limiter, fullname) do
+          change_description: "Added fullname variable and passed to lock function"
+
+    - summary: "Use full_name() in precompilation finished message"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1256-1258"
+          url: "https://github.com/JuliaLang/julia/blob/7c59dfbdd66ce763b252f25f0bf34064fe03658a/base/precompilation.jl#L1256-L1258"
+          snippet: |
+            if fancyprint # replace the progress bar
+                what = isempty(requested_pkgids) ? "packages finished." : "$(join((full_name(ext_to_parent, p) for p in requested_pkgids), ", ", " and ")) finished."
+                printpkgstyle(iostr, :Precompiling, what)
+            end
+        - source: "diff"
+          before: |
+            what = isempty(requested_pkgids) ? "packages finished." : "$(join((p.name for p in requested_pkgids), ", ", " and ")) finished."
+          after: |
+            what = isempty(requested_pkgids) ? "packages finished." : "$(join((full_name(ext_to_parent, p) for p in requested_pkgids), ", ", " and ")) finished."
+          change_description: "Changed from p.name to full_name(ext_to_parent, p) for finished message"
+
+    - summary: "Use full_name() in error reporting for failed deps"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1327-1332"
+          url: "https://github.com/JuliaLang/julia/blob/7c59dfbdd66ce763b252f25f0bf34064fe03658a/base/precompilation.jl#L1327-L1332"
+          snippet: |
+            err_str = IOBuffer()
+            for ((dep, config), err) in failed_deps
+                write(err_str, "\n")
+                print(err_str, "\n", full_name(ext_to_parent, dep), " ")
+                join(err_str, config[1], " ")
+                print(err_str, "\n", err)
+            end
+        - source: "diff"
+          before: 'print(err_str, "\n", dep.name, " ")'
+          after: 'print(err_str, "\n", full_name(ext_to_parent, dep), " ")'
+          change_description: "Changed from dep.name to full_name(ext_to_parent, dep)"
+
+    - summary: "Update precompile_pkgs_maybe_cachefile_lock signature to accept fullname"
+      component: "Base.Precompilation"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1360-1382"
+          url: "https://github.com/JuliaLang/julia/blob/7c59dfbdd66ce763b252f25f0bf34064fe03658a/base/precompilation.jl#L1360-L1382"
+          snippet: |
+            function precompile_pkgs_maybe_cachefile_lock(f, io::IO, print_lock::ReentrantLock, fancyprint::Bool, pkg_config, pkgspidlocked, hascolor, parallel_limiter::Base.Semaphore, fullname)
+                if !(isdefined(Base, :mkpidlock_hook) && isdefined(Base, :trymkpidlock_hook) && Base.isdefined(Base, :parse_pidfile_hook))
+                    return f()
+                end
+                pkg, config = pkg_config
+                flags, cacheflags = config
+                stale_age = Base.compilecache_pidlock_stale_age
+                pidfile = Base.compilecache_pidfile_path(pkg, flags=cacheflags)
+                cachefile = @invokelatest Base.trymkpidlock_hook(f, pidfile; stale_age)
+                if cachefile === false
+                    pid, hostname, age = @invokelatest Base.parse_pidfile_hook(pidfile)
+                    pkgspidlocked[pkg_config] = if isempty(hostname) || hostname == gethostname()
+                        if pid == getpid()
+                            "an async task in this process (pidfile: $pidfile)"
+                        else
+                            "another process (pid: $pid, pidfile: $pidfile)"
+                        end
+                    else
+                        "another machine (hostname: $hostname, pid: $pid, pidfile: $pidfile)"
+                    end
+                    !fancyprint && @lock print_lock begin
+                        println(io, "    ", fullname, _color_string(" Being precompiled by $(pkgspidlocked[pkg_config])", Base.info_color(), hascolor))
+                    end
+        - source: "diff"
+          before: |
+            function precompile_pkgs_maybe_cachefile_lock(f, io::IO, print_lock::ReentrantLock, fancyprint::Bool, pkg_config, pkgspidlocked, hascolor, parallel_limiter::Base.Semaphore)
+            ...
+            println(io, "    ", pkg.name, _color_string(" Being precompiled by $(pkgspidlocked[pkg_config])", Base.info_color(), hascolor))
+          after: |
+            function precompile_pkgs_maybe_cachefile_lock(f, io::IO, print_lock::ReentrantLock, fancyprint::Bool, pkg_config, pkgspidlocked, hascolor, parallel_limiter::Base.Semaphore, fullname)
+            ...
+            println(io, "    ", fullname, _color_string(" Being precompiled by $(pkgspidlocked[pkg_config])", Base.info_color(), hascolor))
+          change_description: "Added fullname parameter (9th positional argument) and use it instead of pkg.name"
+
+  secondary_effects:
+    - effect: "Improved user experience for extension precompilation messages"
+      mechanism: |
+        full_name(ext_to_parent, pkg) [precompilation.jl:384-390]
+          checks if pkg is in ext_to_parent Dict via haskey()
+          -> if extension: returns "ParentPkg -> ExtensionName" (using Unicode arrow)
+          -> if regular pkg: returns pkg.name unchanged (backward compatible)
+
+        Call chain for extension name resolution:
+          _precompilepkgs() [precompilation.jl:563]
+            -> builds ext_to_parent Dict [line 637]
+            -> full_name(ext_to_parent, pkg) called at output locations
+
+        Locations changed by this PR (4 locations):
+          1. Line 936: task waiting output in monitor_std() (non-fancy mode)
+          2. Line 1145: fullname passed to precompile_pkgs_maybe_cachefile_lock()
+          3. Line 1257: "finished" message in fancyprint mode
+          4. Line 1330: error reporting for failed deps
+
+        Pre-existing full_name() usages (not changed, already correct):
+          - Line 410: circular dependency explanation
+          - Line 422: circular dependency outer deps list
+          - Line 640: describe_pkg() for progress display
+          - Line 1310: stderr output with warnings
+
+        Remaining pkg.name usages (internal, not user-facing output):
+          - Line 575: pkg_names list construction (for matching)
+          - Line 824: pkg_names from project_deps (for matching)
+          - Line 1067: checking if pkg is requested (for matching)
+      downstream_surfaces:
+        - "Terminal output during precompilation"
+        - "Log messages in CI environments"
+        - "Error messages for failed precompilation"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Consistent extension naming across all precompilation output"
+      mechanism: |
+        Before this PR, some output locations used full_name() while others used pkg.name:
+          - describe_pkg() already used full_name() (line 640)
+          - stderr output already used full_name() (line 1310)
+          - But task waiting, finished messages, error reports, and pidlock messages did not
+
+        After this PR, all user-visible output consistently shows "Parent -> Extension"
+        for extensions, making it easier to identify which package owns an extension.
+      downstream_surfaces:
+        - "User debugging of precompilation issues"
+        - "CI log parsing (if any tools parse precompilation output)"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "precompile_pkgs_maybe_cachefile_lock function signature"
+        change: "Added fullname parameter (9th positional argument)"
+        affected_tools: []
+        note: "Internal function not exported; signature change has no downstream impact"
+    behavioral:
+      - change: "Extension package names now display as 'Parent -> Extension' instead of just 'Extension'"
+        surfaces:
+          - "Precompilation output messages"
+          - "CI logs"
+        note: "Purely cosmetic change to user-facing output; no semantic behavior change"
+
+  performance:
+    compile_time:
+      - impact: "Negligible"
+        mechanism: |
+          Additional Dict lookup in full_name() function:
+            haskey(ext_to_parent, pkg)  # O(1) hash lookup
+          Called only during string construction for log messages.
+          ESTIMATED: <0.01% overhead, completely negligible
+    runtime:
+      - impact: "None"
+        mechanism: "Changes affect only precompilation output, not runtime code"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are purely cosmetic (log message formatting)"
+      - "No modifications to compilation logic or package loading behavior"
+      - "No changes to any data structures or internal APIs used by downstream tools"
+      - "The full_name() function was already in use at other locations in the same file"
+      - "Backport labels indicate maintainers consider this safe for stable releases"
+
+  open_questions: []
+
+  recommendations:
+    - "No action required for downstream packages"
+    - "Users may notice improved clarity in precompilation messages for extensions"
+
+changelog:
+  category: "Diagnostics"
+  breaking: false
+  summary: |
+    Package extension precompilation messages now show the full qualified name
+    including the parent package (e.g., "KernelInterpolation -> MeshesExt")
+    instead of just the extension name. This applies to finished messages,
+    error reports, task waiting messages, and pidfile lock messages.
+  user_visible: true
+  example_before: |
+    Precompiling MeshesExt finished.
+  example_after: |
+    Precompiling KernelInterpolation -> MeshesExt finished.
+  detailed_changes:
+    - "Task waiting messages: 'MeshesExt Waiting...' -> 'ParentPkg -> MeshesExt Waiting...'"
+    - "Finished messages: 'MeshesExt finished.' -> 'ParentPkg -> MeshesExt finished.'"
+    - "Error messages: 'MeshesExt failed' -> 'ParentPkg -> MeshesExt failed'"
+    - "Pidlock messages: 'MeshesExt Being precompiled by...' -> 'ParentPkg -> MeshesExt Being precompiled by...'"
+
+reviewer_notes:
+  verification_performed:
+    - "Verified full_name() function definition at lines 384-390"
+    - "Confirmed all 4 changed locations use full_name() correctly"
+    - "Verified pre-existing full_name() usages at lines 410, 422, 640, 1310"
+    - "Confirmed remaining pkg.name usages are internal (not user-facing)"
+    - "Verified diff patches match actual code changes"
+  analysis_quality: "high"
+  confidence: "high"
+  notes: |
+    This is a straightforward cosmetic change to precompilation output formatting.
+    The full_name() function gracefully handles non-extensions by returning
+    just pkg.name, so regular packages are unaffected. The PR was backported
+    to 1.10, 1.12, and 1.13, indicating maintainers consider it low-risk.
