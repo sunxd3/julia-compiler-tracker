@@ -16,6 +16,7 @@ scope:
     - "stdlib/Artifacts/src/Artifacts.jl"
     - "src/jloptions.c"
     - "base/logging/logging.jl"
+    - "base/lock.jl"
     - "stdlib/Logging/test/runtests.jl"
     - "pkgimage.mk"
     - "stdlib/stdlib.mk"
@@ -31,6 +32,7 @@ scope:
     - "Compiler.AbstractInterpretation"
     - "Base/Stdlib"
     - "Runtime/CLI"
+    - "Build"
   pipeline_stages:
     - "Parsing"
     - "Lowering"
@@ -38,13 +40,17 @@ scope:
     - "Runtime"
 analysis:
   intent:
-    summary: "Release-1.12 backport bundle for the 1.12.4 patch release, including parser/lowering fixes, artifact world-age handling, logging compatibility, and runtime/stdlib updates."
+    summary: "Release-1.12 backport bundle for the 1.12.4 patch release, including parser/lowering fixes, artifact world-age handling, logging compatibility, build strictness, and runtime/stdlib updates."
     issue_links:
       - "https://github.com/JuliaLang/julia/pull/60195"
       - "https://github.com/JuliaLang/julia/pull/60383"
       - "https://github.com/JuliaLang/julia/pull/60330"
       - "https://github.com/JuliaLang/julia/pull/60299"
       - "https://github.com/JuliaLang/julia/pull/60414"
+      - "https://github.com/JuliaLang/julia/pull/60279"
+      - "https://github.com/JuliaLang/julia/pull/60291"
+      - "https://github.com/JuliaLang/julia/pull/60041"
+      - "https://github.com/JuliaLang/julia/pull/60308"
   direct_changes:
     - summary: "Lowering now preserves keyword/parameters structure when removing argument side effects, so kwcall parameters are evaluated exactly once for broadcasted LHS expressions."
       component: "JuliaSyntax"
@@ -203,6 +209,27 @@ analysis:
                 exct = Union{exct, ErrorException}
             end
             update_valid_age!(sv, callee_valid_range)
+    - summary: "Stdlib precompilation now uses strict=true, causing precompile failures to throw instead of being silently ignored."
+      component: "Build"
+      evidence:
+        - source: "code"
+          path: "pkgimage.mk"
+          loc: "28-29"
+          url: "https://github.com/JuliaLang/julia/blob/4c54cafbd6db26108b3432b7c1906aaa0ff46e31/pkgimage.mk#L28-L29"
+          snippet: |
+            $(BUILDDIR)/stdlib/%.image: $(JULIAHOME)/stdlib/Project.toml $(JULIAHOME)/stdlib/Manifest.toml $(INDEPENDENT_STDLIBS_SRCS) $(JULIA_DEPOT_PATH)/compiled
+            	@$(call PRINT_JULIA, JULIA_CPU_TARGET="$(JULIA_CPU_TARGET)" $(call spawn,$(JULIA_EXECUTABLE)) --startup-file=no -e \
+            		'Base.Precompilation.precompilepkgs(configs=[``=>Base.CacheFlags(debug_level=2, opt_level=3), ``=>Base.CacheFlags(check_bounds=1, debug_level=2, opt_level=3)]; strict=true)')
+    - summary: "Corrected @lock macro compatibility note: exported in Julia 1.7, not 1.10."
+      component: "Base/Stdlib"
+      evidence:
+        - source: "code"
+          path: "base/lock.jl"
+          loc: "368-369"
+          url: "https://github.com/JuliaLang/julia/blob/4c54cafbd6db26108b3432b7c1906aaa0ff46e31/base/lock.jl#L368-L369"
+          snippet: |
+            !!! compat
+                `@lock` was added in Julia 1.3, and exported in Julia 1.7.
   secondary_effects:
     - effect: "Keyword argument expressions on broadcasted LHS kwcalls are guaranteed to be evaluated once, reducing duplicated side effects in lowered code."
       mechanism: |
@@ -225,6 +252,16 @@ analysis:
         - "Precompile & world-age sensitive tooling"
       likelihood: "medium"
       impact: "medium"
+    - effect: "Stdlib precompilation failures now cause build to fail instead of silently continuing, improving CI reliability."
+      mechanism: |
+        pkgimage.mk rule for stdlib/%.image  [pkgimage.mk:27-29]
+          -> Base.Precompilation.precompilepkgs(...; strict=true)  [pkgimage.mk:29]
+          -> strict=true causes precompile errors to throw  [Base.Precompilation]
+      downstream_surfaces:
+        - "Julia build system"
+        - "CI pipelines that build Julia"
+      likelihood: "high"
+      impact: "low"
   compatibility:
     internal_api:
       - field: "Artifacts._artifacts_world_age"
@@ -235,6 +272,8 @@ analysis:
     behavioral:
       - change: "Broadcasted LHS kwcalls now evaluate keyword arguments once, matching positional-arg side-effect stripping semantics."
         affected_code: "User code with side-effecting kw arguments inside broadcasted assignments."
+      - change: "Stdlib precompilation failures now halt the build instead of being silently ignored."
+        affected_code: "Julia build scripts and CI that builds Julia from source; precompile errors will now be surfaced."
   performance:
     compile_time:
       - impact: "ESTIMATED: negligible extra work from mapping `parameters` nodes in remove-argument-side-effects; still linear in argument count."
@@ -245,6 +284,7 @@ analysis:
     rationale:
       - "Changes are targeted backports with explicit tests for kwcall side effects and LogLevel comparisons."
       - "World-age freeze for artifacts is localized to @artifact_str invocation path."
+      - "Build strictness change only affects Julia builds, not end-user code; surfaces previously-hidden errors."
   open_questions:
     - "Do any packages rely on Base._require_world_age during artifact resolution, and should they update if they were indirectly depending on it?"
   recommendations:
