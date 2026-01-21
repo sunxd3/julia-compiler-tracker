@@ -1,0 +1,537 @@
+schema_version: "1.0"
+
+pr:
+  number: 60012
+  title: "loading: improve precompilation cache reason messages"
+  url: "https://github.com/JuliaLang/julia/pull/60012"
+  author: "vtjnash"
+  labels: []
+  created_at: "2025-11-01T01:09:25Z"
+  merged_at: "2025-11-03T16:56:30Z"
+  merge_commit_sha: "404f18b9c5a847988ac5c4715408cfcc6be6d5ba"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60012.diff"
+  base_branch: "master"
+
+scope:
+  files_touched:
+    - "base/loading.jl"
+  components:
+    - "Other"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Improve user experience by making precompilation cache invalidation reason
+      messages clearer and more user-friendly. The original messages used cryptic
+      abbreviations ("dep", "fsize", "fhash") and negative-sounding language
+      ("wrong", "misses") that confused users into thinking something had failed
+      when precompilation was actually working correctly.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59255"
+    quoted_from_pr: |
+      Make cache invalidation reason messages clearer and more user-friendly by
+      removing abbreviations and using more positive, informative language.
+
+      Changes include:
+      - Expanded all abbreviations (e.g., "dep" → "dependency", "fsize" → "file size")
+      - Replaced negative-sounding terms like "wrong" with neutral "different"
+      - Made technical terms clearer (e.g., "ocachefile" → "native code cache file")
+      - Changed "cache misses" to "caches not reused" for more positive framing
+      - Reordered format from "reason (count)" to "count for reason" for better readability
+
+  direct_changes:
+    - summary: |
+        Changed list_reasons() output format from "reason (count)" to "count for reason"
+        and relabeled from "cache misses" to "caches not reused"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4019-4022"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4019-L4022"
+          snippet: |
+            function list_reasons(reasons::Dict{String,Int})
+                isempty(reasons) && return ""
+                return " (caches not reused: $(join(("$v for $k" for (k,v) in reasons), ", ")))"
+            end
+
+    - summary: |
+        Replaced "nonresolveable depot" with "file location uses unresolved depot path"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4030"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4030"
+          snippet: |
+            record_reason(reasons, "file location uses unresolved depot path")
+
+    - summary: |
+        Replaced "missing sourcefile" with "source file not found"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4039"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4039"
+          snippet: |
+            record_reason(reasons, "source file not found")
+
+    - summary: |
+        Replaced "include_dependency mtime change" with "file modification time changed"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4053"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4053"
+          snippet: |
+            record_reason(reasons, "file modification time changed")
+
+    - summary: |
+        Replaced "include_dependency fsize change" with "file size changed"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4061"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4061"
+          snippet: |
+            record_reason(reasons, "file size changed")
+
+    - summary: |
+        Replaced "include_dependency fhash change" with "file content changed"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4067"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4067"
+          snippet: |
+            record_reason(reasons, "file content changed")
+
+    - summary: |
+        Replaced "incompatible header" with "different Julia build configuration"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4095"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4095"
+          snippet: |
+            record_reason(reasons, "different Julia build configuration")
+
+    - summary: |
+        Replaced "mismatched flags" with "different compilation options"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4108"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4108"
+          snippet: |
+            record_reason(reasons, "different compilation options")
+
+    - summary: |
+        Replaced "requires pkgimages" with "native code caching disabled"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4117"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4117"
+          snippet: |
+            record_reason(reasons, "native code caching disabled")
+
+    - summary: |
+        Replaced "target mismatch" with "different system or CPU target"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4126"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4126"
+          snippet: |
+            record_reason(reasons, "different system or CPU target")
+
+    - summary: |
+        Replaced "missing ocachefile" with "native code cache file not found"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4131"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4131"
+          snippet: |
+            record_reason(reasons, "native code cache file not found")
+
+    - summary: |
+        Replaced "for different pkgid" with "different package identifier"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4140"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4140"
+          snippet: |
+            record_reason(reasons, "different package identifier")
+
+    - summary: |
+        Replaced "for different buildid" with "different build identifier"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4148"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4148"
+          snippet: |
+            record_reason(reasons, "different build identifier")
+
+    - summary: |
+        Replaced "wrong julia version" with "different Julia version"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4174"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4174"
+          snippet: |
+            record_reason(reasons, "different Julia version")
+
+    - summary: |
+        Replaced "wrong dep version loaded" with "different dependency version already loaded"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4180"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4180"
+          snippet: |
+            record_reason(reasons, "different dependency version already loaded")
+
+    - summary: |
+        Replaced "dep missing source" with "dependency source file not found"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4187"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4187"
+          snippet: |
+            record_reason(reasons, "dependency source file not found")
+
+    - summary: |
+        Replaced "wrong dep buildid" with "different dependency build identifier"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4206"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4206"
+          snippet: |
+            record_reason(reasons, "different dependency build identifier")
+
+    - summary: |
+        Replaced "wrong source" with "different source file path"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4222"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4222"
+          snippet: |
+            record_reason(reasons, "different source file path")
+
+    - summary: |
+        Replaced "dep uuid changed" with "dependency identifier changed"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4231"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4231"
+          snippet: |
+            record_reason(reasons, "dependency identifier changed")
+
+    - summary: |
+        Replaced "invalid checksum" with "cache file checksum is invalid"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4242"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4242"
+          snippet: |
+            record_reason(reasons, "cache file checksum is invalid")
+
+    - summary: |
+        Replaced "ocachefile invalid checksum" with "native code cache checksum is invalid"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4249"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4249"
+          snippet: |
+            record_reason(reasons, "native code cache checksum is invalid")
+
+    - summary: |
+        Replaced "preferences hash mismatch" with "package preferences changed"
+      component: "base/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4257"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4257"
+          snippet: |
+            record_reason(reasons, "package preferences changed")
+
+  secondary_effects:
+    - effect: |
+        User-facing log messages now display clearer diagnostic information when
+        precompilation triggers. Users will see messages like "Precompiling MyPkg
+        (caches not reused: 2 for different Julia version, 1 for file content changed)"
+      mechanism: |
+        Complete call chain from require() to user display:
+
+        require(into::Module, mod::Symbol)  [base/loading.jl:2641]
+          -> _require(pkg::PkgId, env=...)  [base/loading.jl:2680]
+          -> reasons = Dict{String,Int}()   [base/loading.jl:2697]  <-- Dict created here
+          -> _require_search_from_serialized(...; reasons)  [base/loading.jl:2701]
+          -> stale_cachefile(...; reasons)  [base/loading.jl:2067]
+          -> record_reason(reasons, string)  [base/loading.jl:4015-4017]
+               stores reason counts in Dict{String,Int}
+          -> list_reasons(reasons)  [base/loading.jl:4019-4022]
+               formats as " (caches not reused: $count for $reason, ...)"
+          -> @logmsg verbosity "Precompiling ..."  [base/loading.jl:2735]
+               displays to user during precompile trigger
+      downstream_surfaces:
+        - "Interactive REPL users"
+        - "CI/CD build logs"
+        - "Package precompilation diagnostics"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "2697"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L2697"
+          snippet: |
+            reasons = Dict{String,Int}()
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "2701"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L2701"
+          snippet: |
+            loaded = _require_search_from_serialized(pkg, path, UInt128(0), true; reasons)
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "2735"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L2735"
+          snippet: |
+            @logmsg verbosity "Precompiling $(repr("text/plain", pkg))$(list_reasons(reasons))"
+
+    - effect: |
+        Tools or scripts that parse precompilation log output may need to update
+        their regex patterns to match the new message format
+      mechanism: |
+        The format changed from "reason (count)" to "count for reason" and the
+        header changed from "cache misses" to "caches not reused". Any downstream
+        tooling parsing these strings programmatically would need updates.
+      downstream_surfaces:
+        - "Log parsing scripts"
+        - "CI diagnostic tools"
+        - "IDE plugins that parse Julia output"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "4021"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4021"
+          snippet: |
+            return " (caches not reused: $(join(("$v for $k" for (k,v) in reasons), ", ")))"
+
+    - effect: |
+        The internal @debug log messages intentionally RETAIN the original technical
+        terminology ("incompatible header", "mismatched flags", "wrong build_id", etc.)
+        for developer debugging purposes. Only user-facing record_reason() strings changed.
+      mechanism: |
+        The @debug macro outputs go to the Debug log level, typically only visible when
+        JULIA_DEBUG=loading is set. These are developer-facing diagnostic messages and
+        were intentionally not updated to preserve technical precision for debugging.
+      downstream_surfaces:
+        - "Developer debugging with JULIA_DEBUG=loading"
+        - "Julia internals documentation"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "4094"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4094"
+          snippet: |
+            @debug "Rejecting cache file $cachefile due to it containing an incompatible cache header"
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "4103-4106"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4103-L4106"
+          snippet: |
+            @debug """
+            Rejecting cache file $cachefile for $modkey since the flags are mismatched
+              requested flags: $(requested_flags) [$(_cacheflag_to_uint8(requested_flags))]
+              cache file:      $(CacheFlags(actual_flags)) [$actual_flags]
+            """
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "4205"
+          url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4205"
+          snippet: |
+            @debug "Rejecting cache file $cachefile because it provides the wrong build_id (got $((UUID(build_id)))) for $req_key (want $(UUID(req_build_id)))"
+
+    - effect: |
+        No programmatic parsing of these messages exists in Julia's stdlib/Pkg.jl.
+        Verified by searching for "cache misses" and "caches not reused" patterns
+        in the stdlib directory - no matches found.
+      mechanism: |
+        The precompilation reason messages are purely for human consumption via log
+        output. Pkg.jl and other stdlib components do not parse or depend on these
+        string values for any programmatic decisions.
+      downstream_surfaces:
+        - "External tooling only (not in Julia's codebase)"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "search"
+          path: "stdlib/"
+          loc: "N/A"
+          snippet: |
+            $ rg "cache misses|caches not reused" stdlib/
+            # No matches found
+
+  compatibility:
+    public_api: []
+    internal_api:
+      - summary: |
+          The string constants passed to record_reason() are not part of any stable API.
+          These are purely diagnostic messages intended for human consumption. The
+          internal API (record_reason, list_reasons functions) remains unchanged.
+        evidence:
+          - source: "diff"
+            path: "base/loading.jl"
+            loc: "4015-4023"
+            url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4015-L4023"
+            snippet: |
+              function record_reason(reasons::Dict{String,Int}, reason::String)
+                  reasons[reason] = get(reasons, reason, 0) + 1
+              end
+              record_reason(::Nothing, ::String) = nothing
+              function list_reasons(reasons::Dict{String,Int})
+                  isempty(reasons) && return ""
+                  return " (caches not reused: $(join(("$v for $k" for (k,v) in reasons), ", ")))"
+              end
+              list_reasons(::Nothing) = ""
+    ir_format: []
+    behavioral:
+      - summary: |
+          No semantic or behavioral changes to cache validation logic. The
+          stale_cachefile() and any_includes_stale() functions make identical
+          decisions as before; only the human-readable reason strings are modified.
+        evidence:
+          - source: "diff"
+            path: "base/loading.jl"
+            loc: "4077-4082"
+            url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4077-L4082"
+            snippet: |
+              @constprop :none function stale_cachefile(modpath::String, cachefile::String; ignore_loaded::Bool = false, requested_flags::CacheFlags=CacheFlags(), reasons=nothing)
+                  return stale_cachefile(PkgId(""), UInt128(0), modpath, cachefile; ignore_loaded, requested_flags, reasons)
+              end
+              @constprop :none function stale_cachefile(modkey::PkgId, build_id::UInt128, modpath::String, cachefile::String;
+                                                        ignore_loaded::Bool=false, requested_flags::CacheFlags=CacheFlags(),
+                                                        reasons::Union{Dict{String,Int},Nothing}=nothing, stalecheck::Bool=true)
+
+  performance:
+    compile_time: []
+    runtime:
+      - summary: |
+          NEGLIGIBLE: Slightly longer strings passed to record_reason() which are
+          stored in a Dict. The difference is a few extra bytes per reason string.
+          This only affects the diagnostic code path during cache miss scenarios.
+        evidence:
+          - source: "diff"
+            path: "base/loading.jl"
+            loc: "4015-4017"
+            url: "https://github.com/JuliaLang/julia/blob/404f18b9c5a847988ac5c4715408cfcc6be6d5ba/base/loading.jl#L4015-L4017"
+            snippet: |
+              function record_reason(reasons::Dict{String,Int}, reason::String)
+                  reasons[reason] = get(reasons, reason, 0) + 1
+              end
+    memory: []
+    code_size: []
+
+  tests:
+    changed_files: []
+    new_behavior_assertions: []
+    coverage_gaps:
+      - |
+        No tests were added or modified for this PR. The string changes are purely
+        cosmetic and do not affect any testable behavior. Existing tests in
+        test/precompile.jl that call Base.stale_cachefile() check boolean return
+        values, not the diagnostic messages.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are purely cosmetic - only user-facing diagnostic string literals are modified"
+      - "No changes to control flow, cache validation logic, or return values"
+      - "The record_reason() and list_reasons() function signatures are unchanged"
+      - "All 22 string replacements are straightforward text substitutions"
+      - "PR authored by vtjnash (core Julia developer) with simple, well-scoped changes"
+
+  open_questions: []
+
+  recommendations:
+    - |
+      For downstream tools that parse Julia's precompilation log output: update any
+      regex patterns that match on the old reason strings. Key changes:
+      - "cache misses:" is now "caches not reused:"
+      - Format changed from "reason (count)" to "count for reason"
+      - "wrong" is now "different" in all messages
+      - Abbreviations like "dep", "fsize", "fhash" are now spelled out
+
+reviewer_notes:
+  independent_analysis_date: "2026-01-21"
+  methodology: |
+    Checked out merge commit 404f18b9c5 and independently traced the code paths.
+    Used rg to search for all callers of record_reason and list_reasons.
+    Verified that @debug messages retain original terminology.
+    Searched stdlib for any programmatic parsing of these messages.
+  additional_findings:
+    - finding: "Complete call chain documented from require() to display"
+      description: |
+        Traced the full flow: require() creates Dict{String,Int} at line 2697,
+        passes it through _require_search_from_serialized() at line 2701,
+        which calls stale_cachefile() at line 2067, accumulating reasons,
+        then displays via list_reasons() at line 2735.
+    - finding: "@debug messages intentionally unchanged"
+      description: |
+        The developer-facing @debug messages (visible with JULIA_DEBUG=loading)
+        still use technical terminology like "incompatible header", "mismatched flags",
+        "wrong build_id". This is intentional - only user-facing messages changed.
+    - finding: "No stdlib parsing of these messages"
+      description: |
+        Searched stdlib/ for any code that parses precompilation reason strings.
+        No matches found - these messages are purely for human consumption.
+    - finding: "Old strings completely removed"
+      description: |
+        Searched for old abbreviated strings ("dep missing", "wrong dep", "mismatched flags",
+        "target mismatch"). None found - the PR completely replaced all 22 instances.
+  agreement_with_original: |
+    The original analysis was accurate and thorough. Enhancements added:
+    - More complete call chain with Dict creation location (line 2697)
+    - Documentation that @debug messages retain technical terminology
+    - Verification that no stdlib code parses these strings
+    - Confirmation that all old strings were completely removed
+  confidence: "high"
+  risk_assessment_agrees: true
