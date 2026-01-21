@@ -1,0 +1,747 @@
+schema_version: "1.0"
+
+pr:
+  number: 59678
+  title: "clear up several more inconsistencies among `gcd`, `gcdx` and `invmod`"
+  url: "https://github.com/JuliaLang/julia/pull/59678"
+  author: "adienes"
+  labels:
+    - "maths"
+    - "bugfix"
+  merged_at: "2025-10-21T14:21:26Z"
+  merge_commit_sha: "548f2f464abb7afc1cbb03ff02f8affd4354a3a3"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59678.diff"
+
+scope:
+  files_touched:
+    - "base/intfuncs.jl"
+    - "test/intfuncs.jl"
+  components:
+    - "Base.Math"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      This PR fixes several inconsistencies and bugs in the number-theoretic functions `gcd`,
+      `gcdx`, and `invmod`, particularly around edge cases involving `typemin` of signed types
+      and mixed signed/unsigned integer arguments. Key fixes:
+
+      1. `gcdx(typemin(Int8), typemin(Int8))` previously returned `(-128, 0, -1)` with a
+         nonpositive gcd - now correctly throws DomainError
+      2. `gcd(typemin(Int8), UInt16(2))` previously errored - now returns `0x0002`
+      3. `gcdx(typemin(Int8), Int8(-1))` previously errored - now returns `(1, 0, -1)`
+      4. Various `invmod` correctness issues fixed, e.g., `invmod(0x3e81, Int16(-5716))`
+
+      The policy established: For signed types, if `abs(a)` or `abs(b)` cannot be represented,
+      an error is thrown. Otherwise, all returned values must satisfy the mathematical invariants
+      (gcd positive, Bezout identity holds modulo overflow, invmod satisfies mod(widemul(x,i), m) == mod(1,m)).
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/33781"
+
+  direct_changes:
+    - summary: "Add `_promote_mixed_signs` helper for handling signed-unsigned type promotion"
+      component: "Base.Math"
+      evidence:
+        - source: "code"
+          path: "base/intfuncs.jl"
+          loc: "146-150"
+          url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L146-L150"
+          snippet: |
+            function _promote_mixed_signs(a::Signed, b::Unsigned)
+                # handle the case a == typemin(typeof(a)) if R != typeof(a)
+                R = promote_typeof(a, b)
+                promote(abs(a % signed(R)), b)
+            end
+
+    - summary: "Rewrite `gcd(::Signed, ::Unsigned)` and `lcm(::Signed, ::Unsigned)` to use the new helper"
+      component: "Base.Math"
+      evidence:
+        - source: "diff"
+          path: "base/intfuncs.jl"
+          loc: "155-158"
+          url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L155-L158"
+          snippet: |
+            # BEFORE:
+            gcd(a::Unsigned, b::Signed) = gcd(promote(a, abs(b))...)
+            gcd(a::Signed, b::Unsigned) = gcd(promote(abs(a), b)...)
+            lcm(a::Signed, b::Unsigned) = lcm(promote(abs(a), b)...)
+
+            # AFTER:
+            gcd(a::Unsigned, b::Signed) = gcd(b, a)
+            gcd(a::Signed, b::Unsigned) = gcd(_promote_mixed_signs(a, b)...)
+            lcm(a::Unsigned, b::Signed) = lcm(promote(a, abs(b))...)  # unchanged
+            lcm(a::Signed, b::Unsigned) = lcm(_promote_mixed_signs(a, b)...)
+
+    - summary: "Rewrite `gcdx` core algorithm with explicit handling of edge cases"
+      component: "Base.Math"
+      evidence:
+        - source: "code"
+          path: "base/intfuncs.jl"
+          loc: "232-257"
+          url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L232-L257"
+          snippet: |
+            Base.@assume_effects :terminates_locally function gcdx(a::T, b::T) where {T<:Integer}
+                if iszero(a) && iszero(b)
+                    return (zero(T), zero(T), zero(T))
+                elseif isone(abs(b))
+                    # handles (typemin(::Signed), -1)
+                    return (one(T), zero(T), b)
+                elseif isone(abs(a))
+                    return (one(T), a, zero(T))
+                end
+                # a0, b0 = a, b
+                s0, s1 = oneunit(T), zero(T)
+                t0, t1 = s1, s0
+                # The loop invariant is: s0*a0 + t0*b0 == a && s1*a0 + t1*b0 == b
+                while !iszero(b)
+                    q, r = divrem(a, b)
+                    a, b = b, r
+                    s0, s1 = s1, s0 - q*s1
+                    t0, t1 = t1, t0 - q*t1
+                end
+                # for cases like abs(Int8(-128))
+                if isnegative(a) && isnegative(abs(a))
+                    throw(DomainError((a, b), LazyString("gcd not representable in ", T)))
+                else
+                    return isnegative(a) ? (abs(a), -s0, -t0) : (a, s0, t0)
+                end
+            end
+
+    - summary: "Rewrite `gcdx(::Signed, ::Unsigned)` with corrected sign handling"
+      component: "Base.Math"
+      evidence:
+        - source: "code"
+          path: "base/intfuncs.jl"
+          loc: "273-282"
+          url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L273-L282"
+          snippet: |
+            function gcdx(a::Signed, b::Unsigned)
+                R = promote_typeof(a, b)
+                d, u, v = gcdx(promote(abs(a % signed(R)), b)...)
+                flip_typemin = isnegative(a) & (R <: Signed)
+                d, flipsign(u, a - flip_typemin), v
+            end
+            function gcdx(a::Unsigned, b::Signed)
+                d, v, u = gcdx(b, a)
+                d, u, v
+            end
+
+    - summary: "Complete rewrite of `invmod` with new `_bezout_coef` helper"
+      component: "Base.Math"
+      evidence:
+        - source: "code"
+          path: "base/intfuncs.jl"
+          loc: "305-338"
+          url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L305-L338"
+          snippet: |
+            function invmod(n::Integer, m::Integer)
+                # The postcondition is: mod(widemul(result, n), m) == mod(one(T), m) && iszero(div(result, m))
+                iszero(m) && throw(DomainError(m, "`m` must not be 0."))
+                R = promote_typeof(n, m)
+                if R <: Signed
+                    x = _bezout_coef(n, m)
+                    return mod(x, m)
+                else
+                    S = signed(R)
+                    if !hastypemax(S) || (n <= typemax(S)) && (m <= typemax(S))
+                        x = _bezout_coef(n % S, m % S)
+
+                        # this branch is only hit if R <: Unsigned, so we don't have
+                        # to worry about abs(typemin(::Signed)) overflow. If `m` is
+                        # signed then `x` must be unsigned, and thus never negative
+                        isnegative(x) && (x += abs(m))
+                        return mod(x % R, m)
+                    else
+                        # since gcdx only promises bezout w.r.t overflow for unsigned ints,
+                        # we have to widen to a signed type
+                        W = widen(S)
+                        x = _bezout_coef(n % W, m % W)
+                        t = mod(x, m % W)
+                        isnegative(m) && (t -= m)
+                        return mod(t % R, m)
+                    end
+                end
+            end
+
+            function _bezout_coef(n, m)
+                g, x, _ = gcdx(n, m)
+                g != 1 && throw(DomainError((n, m), LazyString("Greatest common divisor is ", g, ".")))
+                return x
+            end
+
+  secondary_effects:
+    - effect: "DomainError now thrown for unrepresentable gcd values"
+      mechanism: |
+        gcdx(a::T, b::T) where {T<:Integer}  [intfuncs.jl:232-257]
+          After Euclidean algorithm completes with result in `a`:
+          -> checks: isnegative(a) && isnegative(abs(a))  [intfuncs.jl:252]
+          -> This is true only for typemin(::Signed) where abs(x) == x (overflows)
+          -> throw(DomainError(..., "gcd not representable in T"))
+
+        IMPORTANT: The check `isnegative(a) && isnegative(abs(a))` is a clever typemin
+        detection technique. For any signed integer x:
+          - If x >= 0: isnegative(x) = false, short-circuits
+          - If x < 0 and x != typemin: abs(x) > 0, so isnegative(abs(x)) = false
+          - If x == typemin: abs(x) == x (overflow!), so isnegative(abs(x)) = true
+
+        Example: gcdx(Int8(-128), Int8(-128))
+          - Algorithm computes gcd = -128
+          - isnegative(-128) = true
+          - isnegative(abs(-128)) = isnegative(-128) = true (overflow!)
+          - Throws DomainError instead of returning (-128, 0, -1)
+
+        CRITICAL CLARIFICATION: The DomainError is only thrown when the GCD itself
+        would be typemin, NOT simply when an input is typemin. For example:
+          - gcdx(typemin(Int64), 3) returns (1, u, v) - works fine because gcd(typemin,3)=1
+          - gcdx(typemin(Int64), 0) throws DomainError - gcd would be abs(typemin)
+          - gcdx(typemin(Int64), typemin(Int64)) throws DomainError
+      downstream_surfaces:
+        - "Code calling gcdx with typemin values where GCD would be typemin"
+        - "Range intersection code in base/range.jl:1221 - SAFE because step values cannot both be typemin with GCD=typemin"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Error type differs from PR description"
+      mechanism: |
+        The PR description showed:
+          gcdx(typemin(Int8), typemin(Int8))
+          ERROR: OverflowError: checked arithmetic: cannot compute |x| for x = -128::Int8
+
+        But the actual implementation throws DomainError:
+          gcdx(typemin(Int8), typemin(Int8))
+          ERROR: DomainError with (-128, 0):
+          gcd not representable in Int8
+
+        This is because the PR evolved during review. The final implementation uses
+        `isnegative(abs(a))` to detect typemin rather than `checked_abs`, providing
+        a more descriptive error message.
+      downstream_surfaces:
+        - "Code that catches specific error types from gcdx"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Mixed signed/unsigned gcd now works for typemin cases"
+      mechanism: |
+        gcd(a::Signed, b::Unsigned)  [intfuncs.jl:156]
+          calls _promote_mixed_signs(a, b)  [intfuncs.jl:146-150]
+        -> R = promote_typeof(a, b)
+        -> promote(abs(a % signed(R)), b)
+
+        The key insight: `a % signed(R)` converts the signed value to the signed
+        type of the promoted result BEFORE taking abs(). If R is wider than typeof(a),
+        this prevents overflow on typemin.
+
+        Example: gcd(Int8(-128), UInt16(256))
+          - R = promote_typeof(Int8(-128), UInt16(256)) = UInt16
+          - signed(R) = Int16
+          - Int8(-128) % Int16 = Int16(-128)  # no overflow
+          - abs(Int16(-128)) = Int16(128)  # safe!
+          - gcd(128, 256) = 128 = 0x0080
+      downstream_surfaces:
+        - "Code using gcd/lcm with mixed signed/unsigned types"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "gcdx handles (typemin, -1) and (typemin, 1) edge cases correctly"
+      mechanism: |
+        gcdx(a::T, b::T) where {T<:Integer}  [intfuncs.jl:232-257]
+          New early-exit cases at lines 235-240:
+
+          elseif isone(abs(b))
+              # handles (typemin(::Signed), -1)
+              return (one(T), zero(T), b)
+          elseif isone(abs(a))
+              return (one(T), a, zero(T))
+
+        Example: gcdx(Int8(-128), Int8(-1))
+          - abs(b) = abs(-1) = 1, so isone(abs(b)) = true
+          - Returns (1, 0, -1)
+          - Verify: 0 * (-128) + (-1) * (-1) = 1 = gcd
+
+        These cases are now handled BEFORE the Euclidean loop, avoiding
+        the problematic divrem(typemin, -1) which would cause DivideError.
+      downstream_surfaces:
+        - "Code calling gcdx with boundary values"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "flip_typemin logic in gcdx(::Signed, ::Unsigned) handles edge case"
+      mechanism: |
+        function gcdx(a::Signed, b::Unsigned)  [intfuncs.jl:273-278]
+            R = promote_typeof(a, b)
+            d, u, v = gcdx(promote(abs(a % signed(R)), b)...)
+            flip_typemin = isnegative(a) & (R <: Signed)  # Note: bitwise &, not &&
+            d, flipsign(u, a - flip_typemin), v
+        end
+
+        The `flip_typemin` variable handles the edge case where:
+        1. The original `a` was negative (need to flip sign of Bezout coefficient)
+        2. AND `R` is a signed type
+        3. AND `a` might be typemin(T)
+
+        Uses bitwise `&` instead of logical `&&` to avoid short-circuit evaluation,
+        ensuring consistent behavior regardless of branch prediction.
+
+        The expression `a - flip_typemin` handles typemin wraparound:
+        - If a = typemin(Int64) and flip_typemin = true:
+          a - true = typemin(Int64) - 1 = typemax(Int64) (wraparound)
+          flipsign(u, typemax(Int64)) keeps u positive
+        - If a < 0 but not typemin:
+          a - false = a (still negative)
+          flipsign(u, a) negates u
+      downstream_surfaces:
+        - "Code using gcdx with mixed signed/unsigned types where signed is typemin"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "invmod correctness improved for unsigned types and negative moduli"
+      mechanism: |
+        invmod(n::Integer, m::Integer)  [intfuncs.jl:305-332]
+          Now has three branches based on promoted type R:
+
+          1. R <: Signed: Simple path, just use _bezout_coef and mod
+          2. R <: Unsigned AND values fit in signed(R): Convert to signed, compute, convert back
+          3. R <: Unsigned AND values too large: Widen to signed type, compute, convert back
+
+        The key fix: For unsigned types, gcdx can produce coefficients that appear
+        to "wrap around" (e.g., large positive values that represent negative numbers
+        mod 2^n). The new code carefully handles sign correction:
+          - isnegative(x) && (x += abs(m))  [line 320]
+
+        Example fix: invmod(0x3e81, Int16(-5716))
+          - Previously incorrect due to sign handling bugs
+          - Now correctly returns Int16(-2407)
+          - Verify: mod(widemul(0x3e81, -2407), -5716) == mod(1, -5716)
+      downstream_surfaces:
+        - "Cryptographic code using invmod"
+        - "Code using invmod with mixed types"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Previous workarounds for gcdx inconsistencies removed from invmod"
+      mechanism: |
+        The old invmod had explicit workarounds for gcdx bugs (issue #33781):
+
+        # OLD CODE (removed):
+        if n isa Signed && hastypemax(typeof(n))
+            # work around inconsistencies in gcdx
+            # https://github.com/JuliaLang/julia/issues/33781
+            T = promote_type(typeof(n), typeof(m))
+            n == typemin(typeof(n)) && m == typeof(n)(-1) && return T(0)
+            n == typeof(n)(-1) && m == typemin(typeof(n)) && return T(-1)
+        end
+
+        These workarounds are no longer needed because gcdx now handles
+        these edge cases correctly (early-exit for abs(b)==1 or abs(a)==1).
+
+        This is a code quality improvement - removes technical debt from previous
+        incomplete fixes.
+      downstream_surfaces:
+        - "Code that depended on specific invmod behavior at edge cases"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "BigInt gcdx unchanged but benefits from consistent behavior"
+      mechanism: |
+        BigInt has its own gcdx implementation in base/gmp.jl:674:
+          function gcdx(a::BigInt, b::BigInt)
+              # Uses GMP library's mpz_gcdext
+
+        This implementation is NOT affected by the PR changes because:
+        1. BigInt has arbitrary precision - no typemin overflow issues
+        2. BigInt gcdx dispatches directly to GMP library
+
+        However, mixed calls like gcdx(BigInt(x), Int8(y)) will promote
+        to BigInt and use the GMP implementation, bypassing the new Integer code.
+      downstream_surfaces: []
+      likelihood: "high"
+      impact: "none"
+
+    - effect: "Callers of gcdx in stdlib unaffected"
+      mechanism: |
+        gcdx is called in:
+        1. base/range.jl:1221 - Range intersection
+           g, x, y = gcdx(step1, step2)
+           -> step1 and step2 come from first_step_last_ascending()
+           -> Steps are converted to positive by negation if negative
+           -> DomainError only occurs when GCD itself is typemin
+           -> This requires BOTH steps to be multiples of typemin - extremely unlikely
+
+        2. stdlib/Dates/src/periods.jl:102
+           Base.gcdx(a::T, b::T) where {T<:Period} =
+             ((g, x, y) = gcdx(value(a), value(b)); return T(g), x, y)
+           -> Wraps gcdx, passes through values from Period types
+           -> Period values are unlikely to be typemin
+
+        3. base/rational.jl:585,594 - Rational gcdx
+           _, a, b = gcdx(idiv(x, c), idiv(y, c))
+           -> Uses integer division results, unlikely to hit edge cases
+           -> Division of rational components produces moderate integers
+
+        None of these call sites are likely to use typemin values.
+      downstream_surfaces: []
+      likelihood: "high"
+      impact: "none"
+
+  compatibility:
+    internal_api:
+      - field: "gcdx return value for typemin inputs"
+        change: "Now throws DomainError instead of returning incorrect negative gcd"
+        affected_tools:
+          - tool: "User code"
+            usage: "Code calling gcdx(typemin(T), x) where GCD would be typemin must handle DomainError"
+      - field: "_bezout_coef helper function added"
+        change: "New internal function extracted from invmod"
+        affected_tools: []
+      - field: "_promote_mixed_signs helper function added"
+        change: "New internal function for handling signed-unsigned gcd/lcm"
+        affected_tools: []
+    behavioral:
+      - field: "gcdx(typemin(T), typemin(T))"
+        change: "Was (-128, 0, -1) for Int8, now throws DomainError"
+        affected_tools:
+          - tool: "Any code relying on gcdx accepting typemin,typemin"
+            usage: "Must now catch DomainError or avoid this input"
+      - field: "gcdx(typemin(T), T(0))"
+        change: "Now throws DomainError (gcd would be abs(typemin) which overflows)"
+        affected_tools: []
+      - field: "gcdx(typemin(T), T(-1))"
+        change: "Was error, now returns (1, 0, -1)"
+        affected_tools: []
+      - field: "gcd(typemin(T), UnsignedType)"
+        change: "Was error for some cases, now works correctly"
+        affected_tools: []
+      - field: "invmod edge cases"
+        change: "Various correctness fixes for mixed types and negative moduli"
+        affected_tools: []
+
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: Negligible"
+        details: |
+          No changes to type inference or specialization behavior.
+          The @assume_effects :terminates_locally annotation is preserved.
+          New helper functions are small and inline easily.
+    runtime:
+      - impact: "ESTIMATED: Neutral to slight overhead for edge cases"
+        details: |
+          The new gcdx implementation has additional early-exit checks:
+          - isone(abs(b)) check: O(1) abs and comparison
+          - isone(abs(a)) check: O(1) abs and comparison
+
+          For the common case (non-edge inputs), this adds 2 conditional
+          branches. The main loop is unchanged.
+
+          The new invmod has more branches for type handling but this
+          is necessary for correctness. Most paths are still O(log n).
+
+  risk:
+    level: "low"
+    rationale:
+      - "Fixes real bugs - previous behavior was mathematically incorrect"
+      - "Edge cases (typemin values) are rare in practice"
+      - "New errors (DomainError) are appropriate - unrepresentable results should error"
+      - "Extensive new test coverage added for edge cases"
+      - "PR reviewed and merged by Julia core team"
+      - "Exhaustive testing of all Int8/UInt8 invmod cases in test suite"
+
+  open_questions:
+    - question: "Could downstream packages depend on the old incorrect gcdx behavior?"
+      resolved: true
+      answer: |
+        Unlikely. The old behavior (returning negative gcd) violated the documented
+        contract that gcd returns the "greatest common (positive) divisor". Any code
+        depending on this behavior would already be buggy.
+
+    - question: "Are there performance regressions for common cases?"
+      resolved: true
+      answer: |
+        The new code adds two isone(abs(x)) checks at the start of gcdx, which
+        is negligible overhead (two integer abs operations and comparisons).
+        The main Euclidean algorithm loop is unchanged.
+
+    - question: "Why use DomainError instead of OverflowError?"
+      resolved: true
+      answer: |
+        DomainError is more semantically appropriate because the issue is that
+        the mathematical result (abs(typemin)) cannot be represented in the type,
+        not that an arithmetic operation overflowed. The PR description showed
+        OverflowError from an earlier implementation using checked_abs, but
+        the final implementation uses a more targeted check with DomainError.
+
+  recommendations:
+    - "No action required for most users - fixes are for rare edge cases"
+    - "Code using gcdx with potentially typemin inputs should catch DomainError"
+    - "Test suites should verify gcdx/invmod behavior at type boundaries"
+    - "Cryptographic code using invmod should verify correctness with new behavior"
+    - "Code catching OverflowError from gcdx should now catch DomainError instead"
+
+changelog_entry:
+  category: "Mathematical Functions"
+  breaking: true
+  summary: |
+    Fixed inconsistencies in gcd, gcdx, and invmod for edge cases involving typemin
+    values and mixed signed/unsigned types. gcdx now throws DomainError when the gcd
+    is not representable (e.g., gcdx(typemin(Int8), typemin(Int8))). Previously broken
+    cases like gcd(typemin(Int8), UInt16(256)) now work correctly.
+  downstream_impact: |
+    Code that calls gcdx with typemin values of signed types may now receive DomainError
+    instead of incorrect results. Code using gcd/invmod with mixed signed/unsigned types
+    may see different (correct) results in edge cases.
+
+downstream_package_impact:
+  Turing_jl: "none - does not use gcd/gcdx/invmod at type boundaries"
+  Enzyme_jl: "none - not related to differentiation"
+  GPUCompiler: "none - not related to GPU compilation"
+  JET: "none - pure bugfix, no inference changes"
+  IRTools: "none - not related to IR manipulation"
+  Cassette: "none - not related to code transformation"
+
+code_path_trace:
+  gcdx_edge_case_handling:
+    description: "How gcdx handles typemin edge cases"
+    steps:
+      - location: "base/intfuncs.jl:232-240"
+        url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L232-L240"
+        code: |
+          Base.@assume_effects :terminates_locally function gcdx(a::T, b::T) where {T<:Integer}
+              if iszero(a) && iszero(b)
+                  return (zero(T), zero(T), zero(T))
+              elseif isone(abs(b))
+                  # handles (typemin(::Signed), -1)
+                  return (one(T), zero(T), b)
+              elseif isone(abs(a))
+                  return (one(T), a, zero(T))
+              end
+        explanation: "Early exit for zero and unit inputs, avoiding problematic divisions"
+      - location: "base/intfuncs.jl:251-256"
+        url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L251-L256"
+        code: |
+            # for cases like abs(Int8(-128))
+            if isnegative(a) && isnegative(abs(a))
+                throw(DomainError((a, b), LazyString("gcd not representable in ", T)))
+            else
+                return isnegative(a) ? (abs(a), -s0, -t0) : (a, s0, t0)
+            end
+        explanation: "Check for unrepresentable gcd (typemin case) and throw DomainError"
+
+  typemin_detection_technique:
+    description: "The isnegative(abs(a)) check as typemin detection"
+    steps:
+      - location: "base/intfuncs.jl:252"
+        url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L252"
+        code: |
+          if isnegative(a) && isnegative(abs(a))
+        explanation: |
+          This is a clever typemin detection technique:
+          - isnegative(x) is x < 0
+          - For any signed x where x != typemin: abs(x) >= 0, so isnegative(abs(x)) = false
+          - For x = typemin: abs(typemin) = typemin (overflow!), so isnegative(abs(x)) = true
+          - Combined with isnegative(a), this uniquely identifies typemin
+
+  mixed_sign_gcd_handling:
+    description: "How gcd handles mixed signed/unsigned types"
+    steps:
+      - location: "base/intfuncs.jl:155-156"
+        url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L155-L156"
+        code: |
+          gcd(a::Unsigned, b::Signed) = gcd(b, a)
+          gcd(a::Signed, b::Unsigned) = gcd(_promote_mixed_signs(a, b)...)
+        explanation: "Dispatch unsigned-signed to signed-unsigned, then use helper"
+      - location: "base/intfuncs.jl:146-150"
+        url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L146-L150"
+        code: |
+          function _promote_mixed_signs(a::Signed, b::Unsigned)
+              # handle the case a == typemin(typeof(a)) if R != typeof(a)
+              R = promote_typeof(a, b)
+              promote(abs(a % signed(R)), b)
+          end
+        explanation: "Convert to wider signed type before abs() to avoid overflow"
+
+  flip_typemin_logic:
+    description: "How gcdx(::Signed, ::Unsigned) handles typemin edge case"
+    steps:
+      - location: "base/intfuncs.jl:273-278"
+        url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L273-L278"
+        code: |
+          function gcdx(a::Signed, b::Unsigned)
+              R = promote_typeof(a, b)
+              d, u, v = gcdx(promote(abs(a % signed(R)), b)...)
+              flip_typemin = isnegative(a) & (R <: Signed)
+              d, flipsign(u, a - flip_typemin), v
+          end
+        explanation: |
+          Uses bitwise & to compute flip_typemin without short-circuit.
+          When a=typemin and R is Signed: a-true wraps to typemax (positive),
+          so flipsign keeps u positive. Otherwise flipsign(u,a) negates u
+          when a was originally negative.
+
+  invmod_branch_handling:
+    description: "How invmod handles different type combinations"
+    steps:
+      - location: "base/intfuncs.jl:309-311"
+        url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L309-L311"
+        code: |
+            if R <: Signed
+                x = _bezout_coef(n, m)
+                return mod(x, m)
+        explanation: "Simple path for signed types - direct computation"
+      - location: "base/intfuncs.jl:313-321"
+        url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L313-L321"
+        code: |
+                S = signed(R)
+                if !hastypemax(S) || (n <= typemax(S)) && (m <= typemax(S))
+                    x = _bezout_coef(n % S, m % S)
+                    # this branch is only hit if R <: Unsigned, so we don't have
+                    # to worry about abs(typemin(::Signed)) overflow. If `m` is
+                    # signed then `x` must be unsigned, and thus never negative
+                    isnegative(x) && (x += abs(m))
+                    return mod(x % R, m)
+        explanation: "Unsigned types that fit in signed - convert, compute, sign-correct"
+      - location: "base/intfuncs.jl:322-330"
+        url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L322-L330"
+        code: |
+                else
+                    # since gcdx only promises bezout w.r.t overflow for unsigned ints,
+                    # we have to widen to a signed type
+                    W = widen(S)
+                    x = _bezout_coef(n % W, m % W)
+                    t = mod(x, m % W)
+                    isnegative(m) && (t -= m)
+                    return mod(t % R, m)
+                end
+        explanation: "Large unsigned types - widen to larger signed type for computation"
+      - location: "base/intfuncs.jl:334-338"
+        url: "https://github.com/JuliaLang/julia/blob/548f2f464abb7afc1cbb03ff02f8affd4354a3a3/base/intfuncs.jl#L334-L338"
+        code: |
+          function _bezout_coef(n, m)
+              g, x, _ = gcdx(n, m)
+              g != 1 && throw(DomainError((n, m), LazyString("Greatest common divisor is ", g, ".")))
+              return x
+          end
+        explanation: "Helper extracts Bezout coefficient from gcdx, checks coprimality"
+
+test_coverage:
+  new_tests:
+    - file: "test/intfuncs.jl"
+      lines: "220-232"
+      description: "Tests gcdx throws DomainError for typemin edge cases"
+      code: |
+        for T in (Int8, Int16, Int32, Int64, Int128)
+            @test_throws DomainError gcdx(typemin(T), typemin(T))
+            @test_throws DomainError gcdx(typemin(T), T(0))
+            @test_throws DomainError gcdx(T(0), typemin(T))
+            d, u, v = gcdx(typemin(T), T(-1))
+            @test d == T(1)
+            @test typemin(T) * u + T(-1) * v == T(1)
+            @test gcdx(T(-1), typemin(T)) == (d, v, u)
+            d, u, v = gcdx(typemin(T), T(1))
+            @test d == T(1)
+            @test typemin(T) * u + T(1) * v == T(1)
+            @test gcdx(T(1), typemin(T)) == (d, v, u)
+        end
+    - file: "test/intfuncs.jl"
+      lines: "258-260"
+      description: "Tests mixed signed/unsigned gcd edge cases"
+      code: |
+        @test gcdx(Int16(-32768), Int8(-128)) === (Int16(128), Int16(0), Int16(-1))
+        @test gcdx(Int8(-128), UInt16(256)) === (0x0080, 0xffff, 0x0000)
+        @test gcd(Int8(-128), UInt16(256)) === 0x0080
+    - file: "test/intfuncs.jl"
+      lines: "310-314"
+      description: "Tests invmod edge cases with mixed types and negative moduli"
+      code: |
+        @test invmod(0x00000001, Int8(-128)) === Int32(-127)
+        @test invmod(0xffffffff, Int8(-38)) === Int32(-15)
+        @test invmod(Int8(-1), 0xffffffff) === 0xfffffffe
+        @test invmod(Int32(-1), typemin(Int64)) === Int64(-1)
+        @test invmod(0x3e81, Int16(-5716)) === Int16(-2407)
+    - file: "test/intfuncs.jl"
+      lines: "316-332"
+      description: "Exhaustive test of invmod for Int8/UInt8"
+      code: |
+        for T in (Int8, UInt8)
+            for x in typemin(T):typemax(T)
+                for m in typemin(T):typemax(T)
+                    if !(
+                        iszero(m) ||
+                        iszero(mod(x, m)) && !isone(abs(m)) ||
+                        !isone(gcd(x, m))
+                    )
+                        y = invmod(x, m)
+                        @test mod(widemul(y, x), m) == mod(1, m)
+                        @test div(y, m) == 0
+                    else
+                        @test_throws DomainError invmod(x, m)
+                    end
+                end
+            end
+        end
+
+reviewer_notes:
+  initial_reviewer: "automated_analysis"
+  initial_date: "2026-01-21"
+  verification_method: |
+    1. Cloned Julia repository and checked out merge commit 548f2f464
+    2. Read full source context of base/intfuncs.jl
+    3. Analyzed PR description and diff to understand the changes
+    4. Traced call chains for gcd, gcdx, lcm, and invmod
+    5. Verified edge case handling for typemin values
+    6. Reviewed new test coverage for edge cases
+    7. Searched for callers of gcdx in base/ and stdlib/
+  findings:
+    - "This PR fixes real mathematical bugs in number-theoretic functions"
+    - "The new DomainError for unrepresentable gcd is correct behavior"
+    - "Edge case handling for typemin values is now comprehensive"
+    - "New _bezout_coef and _promote_mixed_signs helpers improve code clarity"
+    - "Extensive new test coverage for boundary conditions"
+  confidence: "high"
+  rationale: |
+    The changes are mathematically sound. The previous implementation violated
+    the documented invariant that gcd returns a positive value. The new implementation
+    correctly errors when the result cannot be represented, and fixes several
+    edge cases involving mixed signed/unsigned types.
+
+  secondary_review:
+    reviewer: "independent_analysis"
+    date: "2026-01-21"
+    additional_findings:
+      - finding: "Error type discrepancy with PR description"
+        detail: |
+          PR description showed OverflowError but implementation throws DomainError.
+          This is actually better - DomainError is more semantically appropriate for
+          "result not representable in type" vs "arithmetic overflow".
+      - finding: "isnegative(abs(a)) is clever typemin detection"
+        detail: |
+          The check `isnegative(a) && isnegative(abs(a))` uniquely identifies typemin
+          values because only for typemin does abs(x) remain negative (due to overflow).
+          This is more efficient than calling checked_abs and catching the exception.
+      - finding: "flip_typemin uses bitwise & intentionally"
+        detail: |
+          The expression `isnegative(a) & (R <: Signed)` uses bitwise AND rather than
+          logical AND. This ensures both conditions are evaluated without short-circuit,
+          providing consistent behavior. The subsequent `a - flip_typemin` handles
+          typemin wraparound correctly.
+      - finding: "DomainError only when GCD is typemin, not just inputs"
+        detail: |
+          Clarified that gcdx(typemin(Int64), 3) works fine (returns gcd=1), while
+          gcdx(typemin(Int64), 0) throws DomainError. The error occurs when the
+          GCD result itself would be typemin, not merely when inputs include typemin.
+      - finding: "StepRange intersection is safe"
+        detail: |
+          The gcdx call in base/range.jl:1221 for range intersection is safe because
+          steps are processed through first_step_last_ascending() which ensures positive
+          steps. The DomainError would only trigger if both steps were multiples of
+          typemin with GCD=typemin, which is practically impossible.
+      - finding: "BigInt gcdx unaffected"
+        detail: |
+          BigInt has its own gcdx implementation using GMP library (base/gmp.jl:674).
+          This is not affected by the PR changes since BigInt has arbitrary precision.
+    verification_steps:
+      - "Independently traced gcdx call chains with rg search"
+      - "Verified flip_typemin arithmetic with manual calculation"
+      - "Confirmed DomainError vs OverflowError distinction"
+      - "Traced range intersection code path for safety"
+      - "Checked BigInt gcdx implementation in gmp.jl"
+    confidence: "high"
