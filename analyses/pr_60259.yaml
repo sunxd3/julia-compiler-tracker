@@ -18,7 +18,7 @@ scope:
     - "Precompile"
 analysis:
   intent:
-    summary: "When precompiling methods, detect construction of Function-typed structs (closures) and enqueue their single compileable specialization so the closure method is compiled ahead of time."
+    summary: "When precompiling methods, detect construction of Function-typed structs (closures) via :new expressions and proactively compile their single compileable specialization. This enables closure methods to be compiled ahead of time when the closure type is concrete, reducing first-call latency. Motivated by making REPL precompile scripts more 'static', particularly for @task and @async which expand into no-argument lambdas."
     issue_links: []
   direct_changes:
     - summary: "Extend collectinvokes! to recognize :new expressions that instantiate Function-typed structs, derive their concrete closure type via instanceof_tfunc, and enqueue a compileable specialization for invokelatest precompile work queues."
@@ -26,8 +26,8 @@ analysis:
       evidence:
         - source: "code"
           path: "Compiler/src/typeinfer.jl"
-          loc: "1645-1660"
-          url: "https://github.com/JuliaLang/julia/blob/3efd5e7c9b31f02d70f39f16702823b769d7c4d1/Compiler/src/typeinfer.jl#L1645-L1660"
+          loc: "1645-1661"
+          url: "https://github.com/JuliaLang/julia/blob/3efd5e7c9b31f02d70f39f16702823b769d7c4d1/Compiler/src/typeinfer.jl#L1645-L1661"
           snippet: |
             elseif isexpr(stmt, :new)
                 # When creating a struct of Function type, check to see if we should
@@ -46,39 +46,68 @@ analysis:
 
                 push!(workqueue, mi)
             end
+        - source: "pr_body"
+          path: "PR description"
+          loc: "N/A"
+          url: "https://github.com/JuliaLang/julia/pull/60259"
+          snippet: |
+            # Example from PR body showing the motivation:
+            f(x::T) where {T <: Number} = y::T -> x+y
+            precompile(f, (Int,))
+            f(1)(2)
+
+            # Before this PR, the closure method would not get precompiled,
+            # resulting in --trace-compile output:
+            # precompile(Tuple{Foo.var"#f##0#f##1"{Int64, Int64}, Int64})
+
+            # After this PR, the closure method is proactively compiled when
+            # f is precompiled, eliminating the trace-compile output.
   secondary_effects:
     - effect: "Closure methods created via struct construction during precompile may now be eagerly compiled when the closure type is concrete, reducing later runtime compilation for those closures."
       mechanism: |
-        compile!(codeinfos, workqueue; invokelatest_queue)  [typeinfer.jl:1722-1793]
-          -> collectinvokes!(workqueue, src, sptypes; invokelatest_queue)  [typeinfer.jl:1778-1781]
-            -> isexpr(stmt, :new) branch derives closure type with instanceof_tfunc  [typeinfer.jl:1645-1649]
-            -> compileable_specialization_for_call(...) resolves single compileable MethodInstance  [typeinfer.jl:1557-1579]
-            -> push!(invokelatest_queue, mi) enqueues closure method for compilation  [typeinfer.jl:1655-1660]
+        typeinf_ext_toplevel(methods, worlds, trim_mode)  [typeinfer.jl:1805-1835]
+          creates invokelatest_queue = CompilationQueue(...)  [typeinfer.jl:1810-1812]
+          -> compile!(codeinfos, workqueue; invokelatest_queue)  [typeinfer.jl:1822]
+            -> for CodeInstance items: collectinvokes!(workqueue, src, sptypes; invokelatest_queue)  [typeinfer.jl:1780]
+              -> isexpr(stmt, :new) branch derives closure type with instanceof_tfunc  [typeinfer.jl:1645-1650]
+              -> compileable_specialization_for_call(workqueue.interp, atype)  [typeinfer.jl:1657]
+                 resolves single compileable MethodInstance via method_table lookup  [typeinfer.jl:1557-1580]
+              -> push!(invokelatest_queue, mi) enqueues closure method  [typeinfer.jl:1660]
+          -> compile!(codeinfos, invokelatest_queue; invokelatest_queue)  [typeinfer.jl:1828]
+            drains the invokelatest_queue, compiling enqueued closure methods
       downstream_surfaces:
         - "Precompile scripts and cache generation (e.g., REPL precompile)"
         - "Task/Channel closures built during module precompilation"
+        - "@task and @async macro expansions that create no-argument lambdas"
       likelihood: "medium"
+      impact: "medium"
+    - effect: "@task and @async macros expand to closures that can now be proactively compiled when the containing method is precompiled."
+      mechanism: |
+        @task macro expansion  [base/task.jl:141-143]:
+          macro task(ex)
+              thunk = replace_linenums!(:(()->$(esc(ex))), __source__)
+              :(Task($thunk))
+          end
+
+        The ()->$(esc(ex)) creates a closure struct. When a method containing
+        @task is precompiled, the :new expression for the closure is now
+        detected by collectinvokes!, and the closure's method is enqueued
+        for compilation via the invokelatest_queue.
+      downstream_surfaces:
+        - "Any code using @task or @async in precompiled methods"
+        - "REPL startup latency (primary motivation per PR description)"
+      likelihood: "high"
       impact: "medium"
   compatibility:
     internal_api: []
     behavioral:
-      - change: "Precompile may now emit extra CodeInstances for closure methods when the closure type is concrete and compileable, which can reduce first-call latency for those closures."
+      - change: "Precompile may now emit extra CodeInstances for closure methods when the closure type is concrete and has a single compileable specialization. This is purely additive - closures that previously required runtime compilation may now be precompiled."
         evidence:
           - source: "code"
             path: "Compiler/src/typeinfer.jl"
-            loc: "1645-1660"
-            url: "https://github.com/JuliaLang/julia/blob/3efd5e7c9b31f02d70f39f16702823b769d7c4d1/Compiler/src/typeinfer.jl#L1645-L1660"
+            loc: "1655-1661"
+            url: "https://github.com/JuliaLang/julia/blob/3efd5e7c9b31f02d70f39f16702823b769d7c4d1/Compiler/src/typeinfer.jl#L1655-L1661"
             snippet: |
-              elseif isexpr(stmt, :new)
-                  # When creating a struct of Function type, check to see if we should
-                  # proactively compile the lambda
-                  t, _, _, _ = instanceof_tfunc(argextype(stmt.args[1], ci, sptypes))
-                  t <: Function || continue
-                  atype = Tuple{t, Vararg}
-              else
-                  # TODO: handle other StmtInfo like OpaqueClosure?
-                  continue
-              end
               let workqueue = invokelatest_queue
                   # make a best-effort attempt to enqueue the relevant code for the dynamic invokelatest call
                   mi = compileable_specialization_for_call(workqueue.interp, atype)
@@ -88,12 +117,12 @@ analysis:
               end
   performance:
     compile_time:
-      - impact: "ESTIMATED: Additional compileable_specialization_for_call lookup for each :new of Function-typed struct in precompile/invokelatest queue, adding minor inference-time work when such closures are constructed."
+      - impact: "ESTIMATED: Additional compileable_specialization_for_call lookup (O(1) method table lookup + signature matching) for each :new expression of Function-typed struct encountered during precompile. The lookup is guarded by `t <: Function` check, so non-closure :new expressions skip this path entirely. Minimal overhead expected."
         evidence:
           - source: "code"
             path: "Compiler/src/typeinfer.jl"
-            loc: "1557-1579"
-            url: "https://github.com/JuliaLang/julia/blob/3efd5e7c9b31f02d70f39f16702823b769d7c4d1/Compiler/src/typeinfer.jl#L1557-L1579"
+            loc: "1557-1580"
+            url: "https://github.com/JuliaLang/julia/blob/3efd5e7c9b31f02d70f39f16702823b769d7c4d1/Compiler/src/typeinfer.jl#L1557-L1580"
             snippet: |
               function compileable_specialization_for_call(interp::AbstractInterpreter, @nospecialize(argtype))
                   mt = ccall(:jl_method_table_for, Any, (Any,), argtype)
@@ -120,22 +149,33 @@ analysis:
                   return mi
               end
     runtime:
-      - impact: "ESTIMATED: Reduced first-call latency for closure invocations whose types are known at precompile time, since their MethodInstances can be compiled during precompile."
+      - impact: "ESTIMATED: Reduced first-call latency for closure invocations whose types are known and concrete at precompile time. Instead of JIT-compiling the closure method on first call, the method is already compiled in the precompile cache. Benefit is proportional to how many closures with concrete types are created in precompiled code."
         evidence:
-          - source: "test"
-            path: "test/precompile.jl"
-            loc: "270-272"
-            url: "https://github.com/JuliaLang/julia/blob/3efd5e7c9b31f02d70f39f16702823b769d7c4d1/test/precompile.jl#L270-L272"
+          - source: "pr_body"
+            path: "PR description"
+            loc: "N/A"
+            url: "https://github.com/JuliaLang/julia/pull/60259"
             snippet: |
-              # check that Tasks work from serialized state
-              ch1 = Channel(x -> nothing)
-              ch2 = Channel(x -> (push!(x, 2); nothing), Inf)
+              # PR motivation: "This idea was motivated by trying to make the
+              # REPL precompile script more 'static'. Creating a task with
+              # @task or @async expands into a no-argument lambda, which won't
+              # get precompiled with the containing method."
+
+              # After this PR: closure methods created via @task/@async in
+              # precompiled code will be proactively compiled, reducing REPL
+              # startup latency and eliminating --trace-compile output for
+              # those closures.
   risk:
     level: "low"
     rationale:
       - "Change is limited to enqueueing additional compileable MethodInstances during precompile/invokelatest handling; no changes to runtime dispatch semantics."
-      - "Guarded by instanceof_tfunc and compileable_specialization_for_call returning a single compileable specialization."
+      - "Guarded by instanceof_tfunc returning a concrete Function subtype and compileable_specialization_for_call finding exactly one compileable method."
+      - "Best-effort approach: if closure type is not concrete or has multiple/no compileable signatures, the code path simply continues without enqueueing."
+      - "No changes to method tables, type inference, or inlining behavior."
   open_questions:
-    - "Should similar proactive compilation be extended to OpaqueClosure creation, as hinted by the existing TODO in collectinvokes!?"
+    - "Should similar proactive compilation be extended to OpaqueClosure creation, as hinted by the existing TODO comment at typeinfer.jl:1652?"
+    - "Could this approach be extended to other patterns that create callable objects (e.g., functors, callable structs)?"
   recommendations:
-    - "Consider adding a targeted precompile test that asserts closure methods created during precompile (such as Channel/Task lambdas) appear in the precompile trace or code cache, to lock in this behavior."
+    - "Consider adding a targeted precompile test that asserts closure methods created during precompile (such as @task/@async lambdas) appear in the code cache, using --trace-compile to verify no runtime compilation is required."
+    - "Monitor REPL startup time benchmarks to quantify the latency improvement from proactive closure compilation."
+    - "Consider documenting this behavior so users understand that closures with concrete types will be proactively compiled during precompilation."
