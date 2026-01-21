@@ -1,0 +1,189 @@
+schema_version: "1.0"
+pr:
+  number: 60103
+  title: "comment: slug size is 5 bytes, not 4"
+  url: "https://github.com/JuliaLang/julia/pull/60103"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60103.diff"
+  author: "StefanKarpinski"
+  labels: []
+  merged_at: "2025-11-12T00:13:23Z"
+  merge_commit_sha: "8af0a91c771187947ddf35b7eed182653770ec89"
+
+scope:
+  files_touched:
+    - "base/loading.jl"
+  components:
+    - "Base.loading"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Fix incorrect comment in base/loading.jl that stated package path slugs are
+      "4-byte" when they have actually been 5-byte by default since July 2018
+      (PR #27939). This is a pure documentation correction with no code changes.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Update comment from '4-byte slugs' to '5-byte slugs'"
+      component: "Base.loading"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "182"
+          url: "https://github.com/JuliaLang/julia/blob/8af0a91c771187947ddf35b7eed182653770ec89/base/loading.jl#L182"
+          snippet: |
+            ## package path slugs: turning UUID + SHA1 into a pair of 5-byte "slugs" ##
+
+  secondary_effects: []
+
+  compatibility:
+    internal_api: []
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure comment/documentation change with no code modifications"
+      - "No semantic changes to any functions or behavior"
+      - "No effect on downstream packages or tools"
+
+  open_questions: []
+
+  recommendations:
+    - "No action required for downstream package maintainers"
+
+historical_context:
+  original_comment: |
+    ## package path slugs: turning UUID + SHA1 into a pair of 4-byte "slugs" ##
+  default_changed_in: "PR #27939 (cdf3d8f8d24, 2018-07-28)"
+  commits_since_outdated: 352
+  explanation: |
+    The default slug length was changed from 4 to 5 characters in PR #27939
+    by Kristoffer Carlsson on July 28, 2018. The comment stating "4-byte"
+    was never updated at that time and remained incorrect for over 7 years.
+
+    The actual code confirms 5 is the default (base/loading.jl lines 197-206):
+
+    ```julia
+    function package_slug(uuid::UUID, p::Int=5)
+        crc = _crc32c(uuid)
+        return slug(crc, p)
+    end
+
+    function version_slug(uuid::UUID, sha1::SHA1, p::Int=5)
+        crc = _crc32c(uuid)
+        crc = _crc32c(sha1.bytes, crc)
+        return slug(crc, p)
+    end
+    ```
+
+    Backward compatibility with old 4-character slugs is maintained via
+    explicit fallback logic in package loading (base/loading.jl line 1165-1171):
+
+    ```julia
+    # Keep the 4 since it used to be the default
+    uuid = pkg.uuid::UUID # checked within `explicit_manifest_uuid_path`
+    for slug in (version_slug(uuid, hash), version_slug(uuid, hash, 4))
+        for depot in DEPOT_PATH
+            path = joinpath(depot, "packages", pkg.name, slug)
+            ispath(path) && return entry_path(abspath(path), pkg.name, entryfile)
+        end
+    end
+    ```
+
+  code_evidence:
+    - source: "code"
+      path: "base/loading.jl"
+      loc: "197-206"
+      url: "https://github.com/JuliaLang/julia/blob/8af0a91c771187947ddf35b7eed182653770ec89/base/loading.jl#L197-L206"
+      description: "Function definitions showing p=5 default"
+      snippet: |
+        function package_slug(uuid::UUID, p::Int=5)
+            crc = _crc32c(uuid)
+            return slug(crc, p)
+        end
+
+        function version_slug(uuid::UUID, sha1::SHA1, p::Int=5)
+            crc = _crc32c(uuid)
+            crc = _crc32c(sha1.bytes, crc)
+            return slug(crc, p)
+        end
+    - source: "code"
+      path: "base/loading.jl"
+      loc: "1165-1171"
+      url: "https://github.com/JuliaLang/julia/blob/8af0a91c771187947ddf35b7eed182653770ec89/base/loading.jl#L1165-L1171"
+      description: "Backward compatibility fallback to 4-char slugs"
+      snippet: |
+        # Keep the 4 since it used to be the default
+        uuid = pkg.uuid::UUID # checked within `explicit_manifest_uuid_path`
+        for slug in (version_slug(uuid, hash), version_slug(uuid, hash, 4))
+            for depot in DEPOT_PATH
+                path = joinpath(depot, "packages", pkg.name, slug)
+                ispath(path) && return entry_path(abspath(path), pkg.name, entryfile)
+            end
+        end
+
+  documentation_evidence:
+    - source: "documentation"
+      path: "doc/src/manual/code-loading.md"
+      loc: "177"
+      url: "https://github.com/JuliaLang/julia/blob/8af0a91c771187947ddf35b7eed182653770ec89/doc/src/manual/code-loading.md#L177"
+      description: "Documentation example uses 5-character slug 'HDkrT'"
+      snippet: |
+        It then computes the `slug` for this UUID/SHA-1 pair, which is `HDkrT`
+        (the exact details of this computation aren't important, but it is
+        consistent and deterministic). This means that the path to this `Priv`
+        package will be `packages/Priv/HDkrT/src/Priv.jl` in one of the package
+        depots.
+
+  test_evidence:
+    - source: "test"
+      path: "test/depot/packages/Baz/81oLe"
+      description: "Test depot uses 5-character slug '81oLe'"
+    - source: "test"
+      path: "test/depot/packages/Foo/I05Qq"
+      description: "Test depot uses 5-character slug 'I05Qq'"
+    - source: "test"
+      path: "test/loading.jl"
+      loc: "271"
+      url: "https://github.com/JuliaLang/julia/blob/8af0a91c771187947ddf35b7eed182653770ec89/test/loading.jl#L271"
+      description: "Test expects 5-character slug path"
+      snippet: |
+        ("Foo.Baz", "6801f525-dc68-44e8-a4e8-cabd286279e7", "depot/packages/Baz/81oLe/src/Baz.jl"),
+
+downstream_impact:
+  summary: "None - this is a documentation-only change"
+  affected_packages: []
+  action_required: "None"
+  notes: |
+    The slug functions package_slug and version_slug are not exported from Base
+    and are internal implementation details. The version_slug function is imported
+    in test/loading.jl for testing purposes only (line 103):
+
+    import Base: SHA1, PkgId, load_path, identify_package, locate_package, version_slug, dummy_uuid
+
+    Downstream packages should not depend on the exact slug length, as the
+    fallback mechanism (lines 1165-1171) ensures backward compatibility.
+
+classification:
+  type: "documentation"
+  breaking_change: false
+  requires_migration: false
+
+reviewer_notes:
+  independent_verification: |
+    Secondary reviewer verified:
+    1. Comment at line 182 now correctly states "5-byte slugs"
+    2. Both package_slug and version_slug functions default to p=5 (lines 197, 202)
+    3. Backward compatibility with 4-char slugs confirmed at line 1167
+    4. Documentation example at doc/src/manual/code-loading.md uses 5-char slug 'HDkrT'
+    5. Test depot directories use 5-character slugs (81oLe, I05Qq)
+    6. PR #27939 (cdf3d8f8d24) from 2018-07-28 introduced the change from 4 to 5
+    7. 352 commits to loading.jl occurred between PR #27939 and this fix
+  confidence: "high"
+  analysis_quality: "Complete - all claims verified against actual code"
