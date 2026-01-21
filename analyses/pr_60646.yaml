@@ -28,8 +28,8 @@ analysis:
       evidence:
         - source: "code"
           path: "JuliaLowering/src/binding_analysis.jl"
-          loc: "65-83"
-          url: "https://github.com/JuliaLang/julia/blob/65eade52d8cabc43d1f8be4a9f7781b6e66eed7e/JuliaLowering/src/binding_analysis.jl#L65-L83"
+          loc: "65-84"
+          url: "https://github.com/JuliaLang/julia/blob/65eade52d8cabc43d1f8be4a9f7781b6e66eed7e/JuliaLowering/src/binding_analysis.jl#L65-L84"
           snippet: |
             function _analyze_lambda_vars!(ctx, ex)
                 lambda_bindings = ex.lambda_bindings
@@ -56,8 +56,8 @@ analysis:
       evidence:
         - source: "test"
           path: "JuliaLowering/test/closures.jl"
-          loc: "475-488"
-          url: "https://github.com/JuliaLang/julia/blob/65eade52d8cabc43d1f8be4a9f7781b6e66eed7e/JuliaLowering/test/closures.jl#L475-L488"
+          loc: "475-489"
+          url: "https://github.com/JuliaLang/julia/blob/65eade52d8cabc43d1f8be4a9f7781b6e66eed7e/JuliaLowering/test/closures.jl#L475-L489"
           snippet: |
             JuliaLowering.include_string(test_mod, """
             function f_update_outer_capture()
@@ -79,9 +79,9 @@ analysis:
         analyze_def_and_use!(ctx, ex)  [binding_analysis.jl:39-52]
           -> _analyze_lambda_vars!(ctx, ex)  [binding_analysis.jl:65-85]
              skips locals_capt entries where from_outer_lambda=true
-          -> is_boxed(binfo)  [closure_conversion.jl:304-317]
+          -> is_boxed(binfo)  [closure_conversion.jl:304-318]
              uses is_always_defined && is_assigned_once to suppress boxing
-          -> closure_type_fields(...)  [closure_conversion.jl:234-279]
+          -> closure_type_fields(...)  [closure_conversion.jl:235-283]
              field_is_box = is_boxed(ctx, id) for captured variables
       downstream_surfaces:
         - "Closure field layout (boxed vs unboxed captures)"
@@ -102,8 +102,8 @@ analysis:
         evidence:
           - source: "test"
             path: "JuliaLowering/test/closures.jl"
-            loc: "475-488"
-            url: "https://github.com/JuliaLang/julia/blob/65eade52d8cabc43d1f8be4a9f7781b6e66eed7e/JuliaLowering/test/closures.jl#L475-L488"
+            loc: "475-489"
+            url: "https://github.com/JuliaLang/julia/blob/65eade52d8cabc43d1f8be4a9f7781b6e66eed7e/JuliaLowering/test/closures.jl#L475-L489"
             snippet: |
               let (f, response) = test_mod.f_update_outer_capture()
                   @test f.response isa Core.Box
