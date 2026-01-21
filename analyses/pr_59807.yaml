@@ -1,0 +1,188 @@
+schema_version: "1.0"
+pr:
+  number: 59807
+  title: "[backports 1.12] use < and > rather than isnegative and ispositive"
+  url: "https://github.com/JuliaLang/julia/pull/59807"
+  author: "adienes"
+  labels: []
+  merged_at: "2025-10-10T18:16:30Z"
+  merge_commit_sha: "f442e9baeaa3d7c94fb4cd4c2b08ea605b379de9"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59807.diff"
+scope:
+  files_touched:
+    - "base/float.jl"
+  components:
+    - "Base.Float"
+  pipeline_stages:
+    - "None (runtime library refactoring only)"
+analysis:
+  intent:
+    summary: "Replace calls to `isnegative(d)` and `ispositive(d)` with direct comparison operators `d < 0` and `d > 0` in `nextfloat` and `prevfloat` functions. This is a backport fix for Julia 1.12 that removes dependency on `ispositive`/`isnegative` which are Julia 1.13+ functions. Fixes a review comment from PR #59705 (1.12.1 backports)."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59705#discussion_r2417221174"
+  direct_changes:
+    - summary: "Changed `nextfloat(f::AbstractFloat, d::Integer)` to use `d < 0` instead of `isnegative(d)`"
+      component: "base/float.jl"
+      evidence:
+        - source: "code"
+          path: "base/float.jl"
+          loc: "854"
+          url: "https://github.com/JuliaLang/julia/blob/f442e9baeaa3d7c94fb4cd4c2b08ea605b379de9/base/float.jl#L854"
+          snippet: |
+            nextfloat(f::AbstractFloat, d::Integer) = _nextfloat(f, d < 0, uabs(d))
+        - source: "diff"
+          path: "base/float.jl"
+          loc: "854"
+          url: "https://github.com/JuliaLang/julia/pull/59807.diff"
+          snippet: |
+            # Before (parent commit 5f44496d1c):
+            nextfloat(f::AbstractFloat, d::Integer) = _nextfloat(f, isnegative(d), uabs(d))
+
+            # After (PR commit f442e9baea):
+            nextfloat(f::AbstractFloat, d::Integer) = _nextfloat(f, d < 0, uabs(d))
+    - summary: "Changed `prevfloat(x::AbstractFloat, d::Integer)` to use `d > 0` instead of `ispositive(d)`"
+      component: "base/float.jl"
+      evidence:
+        - source: "code"
+          path: "base/float.jl"
+          loc: "872"
+          url: "https://github.com/JuliaLang/julia/blob/f442e9baeaa3d7c94fb4cd4c2b08ea605b379de9/base/float.jl#L872"
+          snippet: |
+            prevfloat(x::AbstractFloat, d::Integer) = _nextfloat(x, d > 0, uabs(d))
+        - source: "diff"
+          path: "base/float.jl"
+          loc: "872"
+          url: "https://github.com/JuliaLang/julia/pull/59807.diff"
+          snippet: |
+            # Before (parent commit 5f44496d1c):
+            prevfloat(x::AbstractFloat, d::Integer) = _nextfloat(x, ispositive(d), uabs(d))
+
+            # After (PR commit f442e9baea):
+            prevfloat(x::AbstractFloat, d::Integer) = _nextfloat(x, d > 0, uabs(d))
+  secondary_effects:
+    - effect: "Enables Julia 1.12 compatibility by removing dependency on Julia 1.13+ functions"
+      mechanism: |
+        ispositive and isnegative are defined in Julia 1.13+ (base/number.jl):
+          ispositive(x::Real) = x > 0  [number.jl:159 in master]
+          isnegative(x::Real) = x < 0  [number.jl:181 in master]
+
+        The parameter `d` has type `Integer`, which is a subtype of `Real`.
+        For any Integer value:
+          ispositive(d) is EXACTLY equivalent to d > 0
+          isnegative(d) is EXACTLY equivalent to d < 0
+
+        Therefore this is a semantic-preserving refactoring that:
+          1. Removes function call overhead (minor optimization)
+          2. Makes code more explicit and readable
+          3. Crucially: enables backport to Julia 1.12 which lacks ispositive/isnegative
+      downstream_surfaces:
+        - "Julia 1.12 release branch"
+        - "nextfloat/prevfloat API consumers"
+      likelihood: "high"
+      impact: "low"
+    - effect: "No behavioral change for any Integer type including edge cases"
+      mechanism: |
+        The _nextfloat function signature:
+          function _nextfloat(f::IEEEFloat, dneg::Bool, da::Integer)  [float.jl:811]
+
+        The second parameter `dneg` (direction negative) is a Bool that determines:
+          - If true: iterate toward negative infinity (decrease float value)
+          - If false: iterate toward positive infinity (increase float value)
+
+        For nextfloat(f, d): d < 0 means iterate backward (toward smaller floats)
+        For prevfloat(x, d): d > 0 means iterate backward (toward smaller floats)
+
+        Edge case analysis:
+          - d = 0: Both comparisons return false, behavior unchanged
+          - d > 0 (positive): d < 0 is false, d > 0 is true, correct direction
+          - d < 0 (negative): d < 0 is true, d > 0 is false, correct direction
+          - For any Integer type (Int8, Int64, BigInt, etc.): comparisons work correctly
+      downstream_surfaces:
+        - "All callers of nextfloat(::AbstractFloat, ::Integer)"
+        - "All callers of prevfloat(::AbstractFloat, ::Integer)"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "No behavioral change - pure refactoring with identical semantics"
+        migration: "None required"
+  performance:
+    compile_time:
+      - impact: "Negligible - two fewer function calls to resolve at compile time"
+        evidence: "Direct comparison operators vs function calls"
+    runtime:
+      - impact: "ESTIMATED: Negligible to minor improvement - direct comparison instead of function call"
+        evidence: |
+          Before: isnegative(d) -> function lookup -> x < 0
+          After: d < 0 -> direct comparison
+
+          The compiler likely inlines isnegative anyway, so real-world impact is minimal.
+          However, direct comparison is clearer and avoids any potential inlining failures.
+  risk:
+    level: "low"
+    rationale:
+      - "Semantic-preserving refactoring with provably identical behavior"
+      - "For Integer types, ispositive(d) === (d > 0) and isnegative(d) === (d < 0)"
+      - "No edge cases differ: zero, positive, negative integers all behave identically"
+      - "Change is purely stylistic/compatibility-focused with no functional impact"
+      - "Critical for 1.12 backport: avoids dependency on 1.13+ functions"
+  open_questions: []
+  recommendations:
+    - "No action required for downstream packages - behavior is unchanged"
+    - "This pattern (direct comparison vs ispositive/isnegative) should be considered for other 1.12 backports"
+    - "Code using nextfloat/prevfloat with integer step counts will see no behavioral difference"
+
+reviewer_verification:
+  verified_by: "Independent code review"
+  verified_at: "2026-01-21"
+  line_numbers_verified: true
+  code_changes_verified: true
+  verification_details:
+    - check: "Line 854 contains nextfloat with d < 0"
+      result: "VERIFIED - Exact match: nextfloat(f::AbstractFloat, d::Integer) = _nextfloat(f, d < 0, uabs(d))"
+    - check: "Line 872 contains prevfloat with d > 0"
+      result: "VERIFIED - Exact match: prevfloat(x::AbstractFloat, d::Integer) = _nextfloat(x, d > 0, uabs(d))"
+    - check: "Parent commit used isnegative/ispositive"
+      result: "VERIFIED via git show HEAD~1 - Parent commit 5f44496d1c had: nextfloat using isnegative(d), prevfloat using ispositive(d)"
+    - check: "_nextfloat function signature at line 811"
+      result: "VERIFIED - function _nextfloat(f::IEEEFloat, dneg::Bool, da::Integer)"
+  test_coverage_verified:
+    - test: "test/numbers.jl - nextfloat(nextfloat(0.0),-2) == -5.0e-324"
+      exercises: "Negative step parameter (d < 0 check)"
+    - test: "test/numbers.jl - nextfloat(0.0,typemin(Int64)) == -Inf"
+      exercises: "Most negative integer step (edge case for d < 0)"
+    - test: "test/numbers.jl - nextfloat(1.0,typemax(UInt64)) == Inf"
+      exercises: "Unsigned integer step (d < 0 always false for unsigned)"
+    - test: "test/numbers.jl - nextfloat(1.0,-big(2)^67) == -Inf"
+      exercises: "BigInt negative step"
+  semantic_equivalence_proof: |
+    For any Integer d:
+      - isnegative(d) is defined as: x < 0 (from base/number.jl in Julia 1.13+)
+      - ispositive(d) is defined as: x > 0 (from base/number.jl in Julia 1.13+)
+
+    Therefore for Integer types:
+      - isnegative(d) === (d < 0) for all Integer values
+      - ispositive(d) === (d > 0) for all Integer values
+
+    Key edge cases verified:
+      - d = 0: Both comparisons return false (correct: no iteration)
+      - d = typemin(Int64): d < 0 returns true (correct: negative direction)
+      - d::UInt64 = any: d < 0 always false, d > 0 true if nonzero (correct for unsigned)
+
+    Note: For floating-point types, isnegative(-0.0) returns false while
+    ispositive(0.0) returns false, but this PR only affects the Integer parameter d,
+    not the AbstractFloat parameter f/x.
+  additional_observations:
+    - observation: "The only reference to isnegative pattern in base/ is a comment in range.jl"
+      evidence: "base/range.jl:386: steprange_last_empty(start::Bool, step, stop) = start XOR (step > zero(step)) # isnegative(step) ? start : !start"
+      implication: "Confirms isnegative/ispositive are not broadly used in base/, reducing backport risk"
+    - observation: "BigFloat has its own nextfloat/prevfloat implementation"
+      evidence: "base/mpfr.jl: nextfloat(x::BigFloat, n::Integer=1) = n == 0 ? x : nextfloat!(_duplicate(x), n)"
+      implication: "This change does not affect BigFloat behavior (it has separate methods)"
+  risk_assessment_confirmation: |
+    Risk level LOW is appropriate because:
+    1. Change is provably semantic-preserving (see equivalence proof above)
+    2. Existing test coverage exercises relevant edge cases
+    3. No downstream API surface change - only internal implementation
+    4. Specific purpose (1.12 backport) is well-documented in PR body
