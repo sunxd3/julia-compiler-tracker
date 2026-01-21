@@ -72,8 +72,8 @@ analysis:
             @test test_mod.f_kw_slurp_dep(; a=2, c=3) == (2, 2, 1)
         - source: "test"
           path: "JuliaLowering/test/functions_ir.jl"
-          loc: "1369-1448"
-          url: "https://github.com/JuliaLang/julia/blob/64d451869ff2fdb5964e4e327fb170d6a82ee296/JuliaLowering/test/functions_ir.jl#L1369-L1448"
+          loc: "1369-1451"
+          url: "https://github.com/JuliaLang/julia/blob/64d451869ff2fdb5964e4e327fb170d6a82ee296/JuliaLowering/test/functions_ir.jl#L1369-L1451"
           snippet: |
             ########################################
             # Keyword slurping with defaults depending on keyword names
@@ -111,6 +111,7 @@ analysis:
             21  SourceLocation::1:10
             22  (call core.svec %₁₉ %₂₀ %₂₁)
             23  --- method core.nothing %₂₂
+                # kwcall method - key fix: no global kws reference, correct argument count
                 slots: [slot₁/#self#(!read) slot₂/kws slot₃/#self# slot₄/kwtmp slot₅/a(single_assign) slot₆/b(single_assign)]
                 1   (call core.isdefined slot₂/kws :a)
                 2   (gotoifnot %₁ label₆)
@@ -134,6 +135,7 @@ analysis:
                 20  (call top.structdiff slot₂/kws %₁₉)
                 21  (call top.pairs %₂₀)
                 22  TestMod.#f_kw_slurp_dep#0
+                # Fixed: (call %₂₂ slot₅/a slot₆/b %₂₁ slot₃/#self#) - no extra kws argument
                 23  (call %₂₂ slot₅/a slot₆/b %₂₁ slot₃/#self#)
                 24  (return %₂₃)
             24  latestworld
@@ -155,16 +157,35 @@ analysis:
                 8   TestMod.#f_kw_slurp_dep#0
                 9   (call %₈ slot₂/a slot₃/b slot₄/kws slot₁/#self#)
                 10  (return %₉)
+            32  latestworld
+            33  TestMod.f_kw_slurp_dep
+            34  (return %₃₃)
   secondary_effects:
     - effect: "Keyword slurp defaults no longer introduce an unbound identifier/global binding in the kwcall path, and the body method call no longer receives an extra argument."
       mechanism: |
-        keyword_function_defs(ctx, ...)  [desugaring.jl:2646]
+        expand_function_def(ctx, ex, ...)  [desugaring.jl:2945]
+          -> keyword_function_defs(ctx, ...)  [desugaring.jl:3185]
+          -> use_ssa_kw_temps=false when defaults_depend_on_kw_names  [desugaring.jl:2793]
           -> kw_val_vars computed without slurp when has_kw_slurp=true  [desugaring.jl:2808-2817]
           -> kwcall_body_tail builds body call with kw_val_vars..., remaining_kws, positional args  [desugaring.jl:2857-2864]
           -> scope_nest(...) supplies kw_values for keyword names only (excluding slurp)  [desugaring.jl:2872-2873]
       downstream_surfaces:
         - "Lowered IR for kwcall methods (CodeInfo/IR used by tooling that inspects keyword lowering)"
         - "Static analysis reporting of undefined globals in lowered kwcall IR"
+        - "JETLS (JET Language Server) undefined global variable analysis"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "JETLS no longer reports false positive undefined global variable warnings for keyword slurp functions with dependent defaults."
+      mechanism: |
+        Before fix: kw_val_vars included slurp name as unbound Identifier
+          -> scope analysis resolved it as global binding (e.g., Main.kws)
+          -> JETLS flagged undefined global variable warning
+        After fix: kw_val_vars excludes slurp when has_kw_slurp=true
+          -> remaining keywords passed only via remaining_kws (from structdiff/pairs)
+          -> no spurious global binding reference in lowered IR
+      downstream_surfaces:
+        - tool: "JETLS"
+          usage: "JETLS performs static analysis on lowered IR to detect undefined global variables"
       likelihood: "high"
       impact: "medium"
   compatibility:
@@ -172,10 +193,28 @@ analysis:
     behavioral:
       - change: "Keyword slurping with defaults depending on other keyword names now produces kwcall IR that omits the slurp identifier and avoids passing an extra argument."
         evidence:
+          - source: "pr_description"
+            path: "PR body"
+            loc: "N/A"
+            url: "https://github.com/JuliaLang/julia/pull/60600"
+            snippet: |
+              # Before/after IR comparison from PR for f(; a=1, b=a, kws...) = (a, b, kws)
+              # Before (buggy):
+              22  TestMod.#f#0
+              23  slot₅/a
+              24  slot₆/b
+              25  Main.kws                                    # unwanted global
+              26  (call %₂₂ %₂₃ %₂₄ %₂₅ %₂₁ slot₃/#self#)    # extra argument
+
+              # After (fixed):
+              22  TestMod.#f#0
+              23  slot₅/a
+              24  slot₆/b
+              25  (call %₂₂ %₂₃ %₂₄ %₂₁ slot₃/#self#)        # correct - no global, no extra arg
           - source: "test"
             path: "JuliaLowering/test/functions_ir.jl"
-            loc: "1369-1448"
-            url: "https://github.com/JuliaLang/julia/blob/64d451869ff2fdb5964e4e327fb170d6a82ee296/JuliaLowering/test/functions_ir.jl#L1369-L1448"
+            loc: "1369-1451"
+            url: "https://github.com/JuliaLang/julia/blob/64d451869ff2fdb5964e4e327fb170d6a82ee296/JuliaLowering/test/functions_ir.jl#L1369-L1451"
             snippet: |
               # IR annotated: kwcall path omits any global slurp identifier
               slots: [slot₁/#self#(!read) slot₂/kws slot₃/#self# slot₄/kwtmp slot₅/a(single_assign) slot₆/b(single_assign)]
@@ -184,6 +223,7 @@ analysis:
               20  (call top.structdiff slot₂/kws %₁₉)
               21  (call top.pairs %₂₀)
               22  TestMod.#f_kw_slurp_dep#0
+              # Fixed call: no Main.kws global, passes remaining_kws from %₂₁ (pairs result)
               23  (call %₂₂ slot₅/a slot₆/b %₂₁ slot₃/#self#)
   performance:
     compile_time: []
@@ -196,3 +236,4 @@ analysis:
   open_questions: []
   recommendations:
     - "If downstream tools rely on kwcall IR argument counts, ensure they match the updated kwcall body signature for keyword slurps with dependent defaults."
+    - "JETLS and other static analysis tools that flag undefined globals will now produce correct results for keyword slurp functions with dependent defaults."
