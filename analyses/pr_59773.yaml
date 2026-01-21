@@ -1,0 +1,348 @@
+schema_version: "1.0"
+pr:
+  number: 59773
+  title: "Handle errors in jl_image_unpack_zstd better, especially on Windows"
+  url: "https://github.com/JuliaLang/julia/pull/59773"
+  author: "xal-0"
+  labels: []
+  merged_at: "2025-10-08T16:11:00Z"
+  merge_commit_sha: "4fbc8d4d85454e8964b7f7a7f259d502045e49d0"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59773.diff"
+  related_prs:
+    - number: 59340
+      description: "Original PR this was ported from"
+
+scope:
+  files_touched:
+    - "src/staticdata.c"
+  components:
+    - "Runtime"
+  pipeline_stages:
+    - "SystemImageLoading"
+
+analysis:
+  intent:
+    summary: |
+      Improve robustness of system image memory allocation in jl_image_unpack_zstd:
+      1. Avoid attempting large page allocation when GetLargePageMinimum() reports unsupported (returns 0)
+      2. Fall back to small pages if large page allocation fails (instead of trying only one or the other)
+      3. Provide informative error messages including the actual OS error when allocation fails
+    issue_links: []
+
+  direct_changes:
+    - summary: "Add check for large page support before attempting large page allocation on Windows"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/staticdata.c"
+          loc: "3539-3545"
+          url: "https://github.com/JuliaLang/julia/blob/4fbc8d4d85454e8964b7f7a7f259d502045e49d0/src/staticdata.c#L3539-L3545"
+          snippet: |
+            size_t large_page_size = GetLargePageMinimum();
+            image->data = NULL;
+            if (large_page_size > 0 && image->size > 4 * large_page_size) {
+                size_t aligned_size = LLT_ALIGN(image->size, large_page_size);
+                image->data = (char *)VirtualAlloc(
+                    NULL, aligned_size, MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES, PAGE_READWRITE);
+            }
+
+    - summary: "Add fallback from large pages to small pages if large page allocation fails"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/staticdata.c"
+          loc: "3546-3551"
+          url: "https://github.com/JuliaLang/julia/blob/4fbc8d4d85454e8964b7f7a7f259d502045e49d0/src/staticdata.c#L3546-L3551"
+          snippet: |
+            if (!image->data) {
+                /* Try small pages if large pages failed. */
+                image->data = (char *)VirtualAlloc(NULL, aligned_size, MEM_COMMIT | MEM_RESERVE,
+                                                   PAGE_READWRITE);
+            }
+            fail = !image->data;
+
+    - summary: "Add unified failure tracking across platforms with platform-specific allocation"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/staticdata.c"
+          loc: "3537-3556"
+          url: "https://github.com/JuliaLang/julia/blob/4fbc8d4d85454e8964b7f7a7f259d502045e49d0/src/staticdata.c#L3537-L3556"
+          snippet: |
+            int fail = 0;
+            #if defined(_OS_WINDOWS_)
+            size_t large_page_size = GetLargePageMinimum();
+            image->data = NULL;
+            if (large_page_size > 0 && image->size > 4 * large_page_size) {
+                size_t aligned_size = LLT_ALIGN(image->size, large_page_size);
+                image->data = (char *)VirtualAlloc(
+                    NULL, aligned_size, MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES, PAGE_READWRITE);
+            }
+            if (!image->data) {
+                /* Try small pages if large pages failed. */
+                image->data = (char *)VirtualAlloc(NULL, aligned_size, MEM_COMMIT | MEM_RESERVE,
+                                                   PAGE_READWRITE);
+            }
+            fail = !image->data;
+            #else
+            image->data = (char *)mmap(NULL, aligned_size, PROT_READ | PROT_WRITE,
+                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            fail = image->data == (void *)-1;
+            #endif
+
+    - summary: "Add descriptive error messages with OS error details"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/staticdata.c"
+          loc: "3557-3569"
+          url: "https://github.com/JuliaLang/julia/blob/4fbc8d4d85454e8964b7f7a7f259d502045e49d0/src/staticdata.c#L3557-L3569"
+          snippet: |
+            if (fail) {
+                const char *err;
+            #if defined(_OS_WINDOWS_)
+                char err_buf[256];
+                win32_formatmessage(GetLastError(), err_buf, sizeof(err_buf));
+                err = err_buf;
+            #else
+                err = strerror(errno);
+            #endif
+                jl_printf(JL_STDERR, "ERROR: failed to allocate memory for system image: %s\n",
+                          err);
+                jl_exit(1);
+            }
+
+  secondary_effects:
+    - effect: "Improved error diagnostics for sysimage loading failures"
+      mechanism: |
+        jl_image_unpack_zstd() [staticdata.c:3526]
+          -> VirtualAlloc or mmap fails
+          -> win32_formatmessage(GetLastError()) [dlload.c:72] OR strerror(errno)
+          -> jl_printf(JL_STDERR, "ERROR: ... %s\n", err)
+          -> User sees actual OS error instead of generic message
+      downstream_surfaces:
+        - "User-facing error messages when Julia fails to start"
+        - "Debugging system image loading issues"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Graceful degradation from large pages to small pages on Windows"
+      mechanism: |
+        jl_image_unpack_zstd() [staticdata.c:3526]
+          -> GetLargePageMinimum() returns 0 (unsupported) OR
+          -> VirtualAlloc with MEM_LARGE_PAGES fails (insufficient privileges, fragmentation)
+          -> Fallback to VirtualAlloc without MEM_LARGE_PAGES
+          -> System image loads successfully with small pages
+      downstream_surfaces:
+        - "Windows systems without large page support"
+        - "Windows systems where large page allocation fails due to fragmentation"
+        - "Windows users without SeLockMemoryPrivilege (required for large pages)"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Alignment difference between large and small page allocations"
+      mechanism: |
+        Large page allocation:
+          aligned_size = LLT_ALIGN(image->size, large_page_size)  [staticdata.c:3542]
+          Uses large_page_size alignment (typically 2MB on Windows)
+        Small page fallback:
+          aligned_size = LLT_ALIGN(image->size, page_size)  [staticdata.c:3536]
+          Uses regular page_size alignment (typically 4KB)
+        Both alignments are correct for their respective allocation types.
+      downstream_surfaces:
+        - "Memory layout when large page allocation succeeds vs fails"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - item: "Error message format changed"
+        description: |
+          Old: "ERROR: failed to allocate space for system image"
+          New: "ERROR: failed to allocate memory for system image: <OS error>"
+        impact: "low"
+        affected_tools: []
+      - item: "Large page allocation logic changed"
+        description: |
+          Old behavior on Windows:
+            - if image->size > 4 * large_page_size: try large pages
+            - else: try small pages
+            - No fallback if either fails
+          New behavior on Windows:
+            - if large_page_size > 0 AND image->size > 4 * large_page_size: try large pages
+            - if that fails or was skipped: try small pages
+            - Both attempts logged if they fail
+        impact: "low"
+        affected_tools: []
+
+  performance:
+    compile_time: []
+    runtime:
+      - item: "System image loading on Windows"
+        description: |
+          If GetLargePageMinimum() returns 0, the code no longer attempts
+          an allocation that will fail with MEM_LARGE_PAGES. This avoids
+          a wasted VirtualAlloc call in the unsupported case.
+          If large page allocation is attempted but fails, there is now an
+          additional VirtualAlloc call for the small page fallback.
+          ESTIMATED: Negligible impact (one syscall difference in edge cases)
+        impact: "low"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are isolated to system image loading, not compiler internals"
+      - "Fallback behavior is strictly more robust (handles more edge cases)"
+      - "Error handling changes only affect failure paths"
+      - "No changes to type inference, optimization, or code generation"
+      - "Uses existing win32_formatmessage function already used elsewhere in dlload.c"
+
+  open_questions: []
+
+  recommendations:
+    - "No action required for downstream packages"
+    - "Package developers debugging startup failures on Windows may see improved error messages"
+
+call_chain:
+  description: "System image loading path"
+  chain: |
+    jl_init_with_image_handle(handle) [jlapi.c:77]
+      -> jl_set_sysimg_so(handle) [jlapi.c:85]
+         OR
+    jl_restore_system_image(fname) [staticdata.c:3495]
+      -> jl_set_sysimg_so(jl_load_dynamic_library(...)) [staticdata.c:3498]
+
+    jl_set_sysimg_so(handle) [staticdata.c:3628]
+      -> get_image_buf(handle, is_pkgimage=0) [staticdata.c:3633]
+      -> (*unpack)(handle, &image) [staticdata.c:3612]
+           where unpack = jl_image_unpack_zstd for compressed images
+
+    jl_image_unpack_zstd(handle, image) [staticdata.c:3526]
+      -> ZSTD_getFrameContentSize() to determine decompressed size
+      -> VirtualAlloc (Windows) or mmap (Unix) to allocate buffer
+      -> ZSTD_decompress() decompresses into allocated buffer
+
+helper_function:
+  description: "Windows error message formatting"
+  path: "src/dlload.c"
+  loc: "72-96"
+  url: "https://github.com/JuliaLang/julia/blob/4fbc8d4d85454e8964b7f7a7f259d502045e49d0/src/dlload.c#L72-L96"
+  snippet: |
+    void win32_formatmessage(DWORD code, char *reason, int len) JL_NOTSAFEPOINT
+    {
+        DWORD res;
+        LPWSTR errmsg;
+        res = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER |
+                             FORMAT_MESSAGE_FROM_SYSTEM |
+                             FORMAT_MESSAGE_IGNORE_INSERTS |
+                             FORMAT_MESSAGE_MAX_WIDTH_MASK,
+                             NULL, code,
+                             MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
+                             (LPWSTR)&errmsg, 0, NULL);
+        if (!res && (GetLastError() == ERROR_MUI_FILE_NOT_FOUND ||
+                     GetLastError() == ERROR_RESOURCE_TYPE_NOT_FOUND)) {
+          res = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER |
+                               FORMAT_MESSAGE_FROM_SYSTEM |
+                               FORMAT_MESSAGE_IGNORE_INSERTS |
+                               FORMAT_MESSAGE_MAX_WIDTH_MASK,
+                               NULL, code,
+                               0, (LPWSTR)&errmsg, 0, NULL);
+        }
+        res = WideCharToMultiByte(CP_UTF8, 0, errmsg, -1, reason, len, NULL, NULL);
+        assert(res > 0 || GetLastError() == ERROR_INSUFFICIENT_BUFFER);
+        reason[len - 1] = '\0';
+        LocalFree(errmsg);
+    }
+
+before_after_comparison:
+  description: "Comparison of old vs new Windows allocation logic"
+  before:
+    loc: "3537-3550 (pre-PR)"
+    snippet: |
+      #if defined(_OS_WINDOWS_)
+      size_t large_page_size = GetLargePageMinimum();
+      if (image->size > 4 * large_page_size) {
+          size_t aligned_size = LLT_ALIGN(image->size, large_page_size);
+          image->data = (char *)VirtualAlloc(
+              NULL, aligned_size, MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES, PAGE_READWRITE);
+      }
+      else {
+          image->data = (char *)VirtualAlloc(NULL, aligned_size, MEM_COMMIT | MEM_RESERVE,
+                                             PAGE_READWRITE);
+      }
+      #else
+      image->data =
+          (char *)mmap(NULL, aligned_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      #endif
+      if (!image->data || image->data == (void *)-1) {
+          jl_printf(JL_STDERR, "ERROR: failed to allocate space for system image\n");
+          jl_exit(1);
+      }
+  after:
+    loc: "3537-3569 (post-PR)"
+    snippet: |
+      int fail = 0;
+      #if defined(_OS_WINDOWS_)
+      size_t large_page_size = GetLargePageMinimum();
+      image->data = NULL;
+      if (large_page_size > 0 && image->size > 4 * large_page_size) {
+          size_t aligned_size = LLT_ALIGN(image->size, large_page_size);
+          image->data = (char *)VirtualAlloc(
+              NULL, aligned_size, MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES, PAGE_READWRITE);
+      }
+      if (!image->data) {
+          /* Try small pages if large pages failed. */
+          image->data = (char *)VirtualAlloc(NULL, aligned_size, MEM_COMMIT | MEM_RESERVE,
+                                             PAGE_READWRITE);
+      }
+      fail = !image->data;
+      #else
+      image->data = (char *)mmap(NULL, aligned_size, PROT_READ | PROT_WRITE,
+                                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      fail = image->data == (void *)-1;
+      #endif
+      if (fail) {
+          const char *err;
+      #if defined(_OS_WINDOWS_)
+          char err_buf[256];
+          win32_formatmessage(GetLastError(), err_buf, sizeof(err_buf));
+          err = err_buf;
+      #else
+          err = strerror(errno);
+      #endif
+          jl_printf(JL_STDERR, "ERROR: failed to allocate memory for system image: %s\n",
+                    err);
+          jl_exit(1);
+      }
+
+downstream_impact:
+  summary: "None for typical downstream packages"
+  details: |
+    This PR affects the low-level system image loading mechanism, which runs
+    before any Julia code executes. Downstream packages like Turing.jl,
+    Enzyme.jl, GPUCompiler, JET, IRTools, and Cassette are not affected
+    because:
+
+    1. The change is in C runtime code, not the Julia compiler
+    2. No Julia-visible APIs are modified
+    3. The change only affects error handling and fallback behavior
+    4. System image loading happens at Julia startup, before package loading
+
+    The only user-visible change is improved error messages if Julia fails
+    to allocate memory for the system image at startup.
+
+reviewer_notes:
+  corrections_made:
+    - "Fixed line numbers throughout - original analysis had incorrect offsets"
+    - "Lines 3554-3556 corrected to 3539-3545 for large page check"
+    - "Lines 3560-3565 corrected to 3546-3551 for fallback"
+    - "Lines 3551-3570 corrected to 3537-3556 for unified tracking"
+    - "Lines 3571-3583 corrected to 3557-3569 for error messages"
+  additions_made:
+    - "Added before/after comparison showing exact code changes"
+    - "Added helper_function section with full win32_formatmessage code"
+    - "Added secondary effect about alignment difference between allocation types"
+    - "Added note about SeLockMemoryPrivilege requirement for Windows large pages"
+    - "Expanded call chain with specific file:line references"
+    - "Added behavioral compatibility note about large page logic change"
