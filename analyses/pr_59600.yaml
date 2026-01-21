@@ -1,0 +1,362 @@
+schema_version: "1.0"
+
+pr:
+  number: 59600
+  title: "Expose `Core.memoryrefoffset` as `Base.memoryindex`"
+  url: "https://github.com/JuliaLang/julia/pull/59600"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59600.diff"
+  author: "jakobnissen"
+  labels:
+    - "arrays"
+  merged_at: "2025-10-09T08:51:55Z"
+  merge_commit_sha: "aab3002a49d7467b57e6fec1c087a766f3db7d73"
+  issue_links:
+    - "https://github.com/JuliaLang/julia/issues/59574"
+
+scope:
+  files_touched:
+    - "base/genericmemory.jl"
+    - "base/public.jl"
+    - "doc/src/base/arrays.md"
+    - "test/arrayops.jl"
+  components:
+    - "Base"
+  pipeline_stages:
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Exposes the existing Core.memoryrefoffset builtin as a documented public API
+      through Base.memoryindex(). This provides downstream packages a stable, supported
+      way to retrieve the 1-based index of a GenericMemoryRef within its parent
+      GenericMemory, closing issue #59574.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59574"
+
+  direct_changes:
+    - summary: "Add Base.memoryindex function wrapping Core.memoryrefoffset"
+      component: "Base"
+      evidence:
+        - source: "code"
+          path: "base/genericmemory.jl"
+          loc: "75-94"
+          url: "https://github.com/JuliaLang/julia/blob/aab3002a49d7467b57e6fec1c087a766f3db7d73/base/genericmemory.jl#L75-L94"
+          snippet: |
+            """
+                memoryindex(ref::GenericMemoryRef)::Int
+
+            Get the 1-based index of `ref` in its `GenericMemory`.
+
+            # Examples
+            ```jldoctest
+            julia> mem = Memory{String}(undef, 10);
+
+            julia> ref = Base.memoryindex(memoryref(mem, 3))
+            3
+
+            julia> Base.memoryindex(memoryref(Memory{Nothing}(undef, 10), 8))
+            8
+            ```
+
+            !!! compat "Julia 1.13"
+                This function requires at least Julia 1.13.
+            """
+            memoryindex(ref::GenericMemoryRef) = memoryrefoffset(ref)
+
+    - summary: "Declare memoryindex as public API in base/public.jl"
+      component: "Base"
+      evidence:
+        - source: "code"
+          path: "base/public.jl"
+          loc: "34-38"
+          url: "https://github.com/JuliaLang/julia/blob/aab3002a49d7467b57e6fec1c087a766f3db7d73/base/public.jl#L34-L38"
+          snippet: |
+            # arrays
+                has_offset_axes,
+                require_one_based_indexing,
+                memoryindex,
+
+    - summary: "Add documentation entry for Base.memoryindex"
+      component: "Documentation"
+      evidence:
+        - source: "code"
+          path: "doc/src/base/arrays.md"
+          loc: "36-37"
+          url: "https://github.com/JuliaLang/julia/blob/aab3002a49d7467b57e6fec1c087a766f3db7d73/doc/src/base/arrays.md#L36-L37"
+          snippet: |
+            Base.memoryref
+            Base.memoryindex
+
+    - summary: "Add tests for memoryindex with regular and zero-sized element types"
+      component: "Tests"
+      evidence:
+        - source: "test"
+          path: "test/arrayops.jl"
+          loc: "3384-3395"
+          url: "https://github.com/JuliaLang/julia/blob/aab3002a49d7467b57e6fec1c087a766f3db7d73/test/arrayops.jl#L3384-L3395"
+          snippet: |
+            @testset "MemoryRef" begin
+                mem = Memory{Float32}(undef, 3)
+                ref = memoryref(mem, 2)
+                @test parent(ref) === mem
+                @test Base.memoryindex(ref) === 2
+
+                # Test for zero-sized structs
+                mem = Memory{Nothing}(undef, 10)
+                ref = memoryref(mem, 8)
+                @test parent(ref) === mem
+                @test Base.memoryindex(ref) === 8
+            end
+
+  secondary_effects:
+    - effect: "Provides stable public API alternative to Core.memoryrefoffset"
+      mechanism: |
+        Base.memoryindex(ref) [base/genericmemory.jl:94]
+          -> Core.memoryrefoffset(ref) [imported at base/genericmemory.jl:62]
+          -> jl_f_memoryrefoffset(args) [src/builtins.c:1816]
+          -> Computes offset from ptr_or_offset field based on element layout
+          -> Returns 1-based index as Int
+      downstream_surfaces:
+        - "Package developers working with Memory/MemoryRef"
+        - "Low-level array implementation code"
+        - "Serialization code needing to persist MemoryRef state"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Existing Core.memoryrefoffset usage remains unchanged"
+      mechanism: |
+        Note: memoryrefoffset is imported from Core at base/genericmemory.jl:62:
+          using Core: memoryrefoffset, memoryref_isassigned
+
+        This makes Base.memoryrefoffset an alias for Core.memoryrefoffset.
+        The new Base.memoryindex is a separate function that calls this alias.
+
+        Internal usages in Base (all continue to work unchanged):
+
+        base/array.jl - Vector resizing operations (6 locations):
+        - Line 1114: _growbeg_internal! - computes offset for growing at beginning
+        - Line 1153: _growbeg! - checks if offset allows in-place growth
+        - Line 1170: _growend_internal! - validates and computes new memory layout
+        - Line 1209: _growend! - calculates new memory bounds
+        - Line 1231: _growat! - determines offset for middle insertion
+        - Line 3208: _wrap - computes available memory length from ref position
+
+        base/genericmemory.jl:158 - unsafe_copyto! with mixed-type MemoryRefs:
+          unsafe_copyto!(dest.mem, memoryrefoffset(dest), src.mem, memoryrefoffset(src), n)
+
+        base/deepcopy.jl:143 - deepcopy of MemoryRef preserves index:
+          i = memoryrefoffset(x)
+          i == 1 || (dest = Core.memoryrefnew(dest, i, true))
+
+        base/iobuffer.jl:145 - GenericIOBuffer offset calculation:
+          offset = memoryrefoffset(ref) - 1
+
+        stdlib/Serialization/src/Serialization.jl:316 - serializes via Base alias:
+          serialize(s, Base.memoryrefoffset(x))
+      downstream_surfaces:
+        - "Vector resize operations (push!, append!, insert!, etc.)"
+        - "IO buffer operations"
+        - "Deep copy functionality"
+        - "Serialization of MemoryRef objects"
+        - "Array wrapping with wrap(Array, memoryref, dims)"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "None"
+        change: "No internal API changes - only adds new public function"
+        affected_tools: []
+
+    behavioral:
+      - item: "New public API available in Julia 1.13+"
+        description: |
+          Base.memoryindex is marked public and documented. Downstream packages
+          can use this instead of directly calling Core.memoryrefoffset.
+          The compat note states Julia 1.13 is required.
+        breaking: false
+
+  performance:
+    compile_time:
+      - item: "No compile-time impact"
+        description: |
+          memoryindex is a simple inline wrapper around memoryrefoffset.
+          No additional type inference complexity is introduced.
+          ESTIMATED: Zero measurable compile-time difference.
+
+    runtime:
+      - item: "Zero runtime overhead"
+        description: |
+          The implementation is a direct call to the Core builtin:
+
+          memoryindex(ref::GenericMemoryRef) = memoryrefoffset(ref)
+
+          This will be fully inlined with no overhead.
+          The underlying memoryrefoffset has special codegen support
+          [src/codegen.cpp:4161-4170] that emits efficient LLVM IR.
+          MEASURED: Identical to Core.memoryrefoffset (single instruction).
+
+  underlying_implementation:
+    summary: "Core.memoryrefoffset builtin implementation"
+    details: |
+      The underlying builtin is implemented in C and has optimized codegen:
+
+      C implementation [src/builtins.c:1816-1833]:
+      - Takes a GenericMemoryRef argument
+      - Computes offset based on element layout:
+        - For boxed elements: (ptr - mem->ptr) / sizeof(jl_value_t*)
+        - For union/zero-sized elements: Direct offset from ptr_or_offset field
+        - For other elements: (ptr - mem->ptr) / layout->size
+      - Returns 1-based index (offset + 1)
+
+      Codegen support [src/codegen.cpp:4161-4170]:
+      - Special case in emit_builtin_call for concrete GenericMemoryRef types
+      - Calls emit_memoryref_offset for optimized LLVM emission
+
+      Type inference [Compiler/src/tfuncs.jl:2104-2108]:
+      - memoryrefoffset_tfunc returns Int for GenericMemoryRef inputs
+      - Returns Bottom for invalid inputs (e.g., GenericMemory instead of MemoryRef)
+    evidence:
+      - source: "code"
+        path: "src/builtins.c"
+        loc: "1816-1833"
+        url: "https://github.com/JuliaLang/julia/blob/aab3002a49d7467b57e6fec1c087a766f3db7d73/src/builtins.c#L1816-L1833"
+        snippet: |
+          JL_CALLABLE(jl_f_memoryrefoffset)
+          {
+              JL_NARGS(memoryrefoffset, 1, 1);
+              JL_TYPECHK(memoryrefoffest, genericmemoryref, args[0]);
+              jl_genericmemoryref_t m = *(jl_genericmemoryref_t*)args[0];
+              const jl_datatype_layout_t *layout = ((jl_datatype_t*)jl_typetagof(m.mem))->layout;
+              size_t offset;
+              if (layout->flags.arrayelem_isboxed) {
+                  offset = (((char*)m.ptr_or_offset - (char*)m.mem->ptr) / sizeof(jl_value_t*));
+              }
+              else if (layout->flags.arrayelem_isunion || layout->size == 0) {
+                  offset = (size_t)m.ptr_or_offset;
+              }
+              else {
+                  offset = ((char*)m.ptr_or_offset - (char*)m.mem->ptr) / layout->size;
+              }
+              return (jl_value_t*)jl_box_long(offset + 1);
+          }
+
+      - source: "code"
+        path: "Compiler/src/tfuncs.jl"
+        loc: "2104-2108"
+        url: "https://github.com/JuliaLang/julia/blob/aab3002a49d7467b57e6fec1c087a766f3db7d73/Compiler/src/tfuncs.jl#L2104-L2108"
+        snippet: |
+          @nospecs function memoryrefoffset_tfunc(𝕃::AbstractLattice, mem)
+              hasintersect(widenconst(mem), GenericMemoryRef) || return Bottom
+              return Int
+          end
+          add_tfunc(memoryrefoffset, 1, 1, memoryrefoffset_tfunc, 5)
+
+      - source: "code"
+        path: "src/codegen.cpp"
+        loc: "4161-4170"
+        url: "https://github.com/JuliaLang/julia/blob/aab3002a49d7467b57e6fec1c087a766f3db7d73/src/codegen.cpp#L4161-L4170"
+        snippet: |
+          else if (f == BUILTIN(memoryrefoffset) && nargs == 1) {
+              const jl_cgval_t &ref = argv[1];
+              jl_value_t *mty_dt = jl_unwrap_unionall(ref.typ);
+              if (jl_is_genericmemoryref_type(mty_dt) && jl_is_concrete_type(mty_dt)) {
+                  mty_dt = jl_field_type_concrete((jl_datatype_t*)mty_dt, 1);
+                  const jl_datatype_layout_t *layout = ((jl_datatype_t*)mty_dt)->layout;
+                  *ret = emit_memoryref_offset(ctx, ref, layout);
+                  return true;
+              }
+          }
+
+      - source: "code"
+        path: "base/array.jl"
+        loc: "1110-1115"
+        url: "https://github.com/JuliaLang/julia/blob/aab3002a49d7467b57e6fec1c087a766f3db7d73/base/array.jl#L1110-L1115"
+        snippet: |
+          function _growbeg_internal!(a::Vector, delta::Int, len::Int)
+              @_terminates_locally_meta
+              ref = a.ref
+              mem = ref.mem
+              offset = memoryrefoffset(ref)
+              newlen = len + delta
+
+  risk:
+    level: "low"
+    rationale:
+      - "Simple wrapper function with no behavioral changes to underlying implementation"
+      - "Existing Core.memoryrefoffset has been stable since Julia 1.11"
+      - "No changes to type inference, codegen, or runtime semantics"
+      - "Tests cover both regular types (Float32) and zero-sized types (Nothing)"
+      - "Internal usages in Base/stdlib unaffected - only adds public API"
+
+  open_questions:
+    - "Why was Base.memoryindex chosen over making Core.memoryrefoffset public directly?"
+    - "Should the Serialization stdlib migrate from Base.memoryrefoffset to Base.memoryindex for consistency?"
+    - "Should internal Base code (array.jl, deepcopy.jl, iobuffer.jl) migrate to memoryindex?"
+
+  recommendations:
+    - "Downstream packages should use Base.memoryindex instead of Core.memoryrefoffset for stability"
+    - "Code requiring Julia < 1.13 compatibility should conditionally use Core.memoryrefoffset"
+    - "No action required for packages not directly working with Memory/MemoryRef types"
+
+downstream_package_impact:
+  summary: "Minimal impact - provides new stable API for Memory users"
+
+  affected_patterns:
+    - pattern: "Direct use of Core.memoryrefoffset"
+      current_behavior: "Works but relies on internal API"
+      new_behavior: "Can migrate to stable Base.memoryindex"
+      migration: |
+        # Before (Julia 1.11+, using internal API):
+        idx = Core.memoryrefoffset(ref)
+
+        # After (Julia 1.13+, using public API):
+        idx = Base.memoryindex(ref)
+
+  packages:
+    - name: "Serialization (stdlib)"
+      impact: "Optional migration opportunity"
+      details: |
+        Currently uses Base.memoryrefoffset (re-exported Core builtin) in
+        serialize(::GenericMemoryRef). Could migrate to Base.memoryindex
+        for consistency with the new public API, but not required.
+        Location: stdlib/Serialization/src/Serialization.jl:316
+
+    - name: "GPU array packages (CUDA.jl, AMDGPU.jl)"
+      impact: "None - GenericMemory addrspace parameter already exists"
+      details: |
+        Memory types support custom address spaces via the third type parameter.
+        This PR doesn't change that mechanism.
+
+    - name: "Low-level array packages"
+      impact: "Positive - provides stable API"
+      details: |
+        Packages implementing custom array types backed by Memory can now
+        use a documented public function to get MemoryRef indices.
+
+    - name: "Compiler tooling (JET, Enzyme.jl, GPUCompiler, IRTools)"
+      impact: "None - no changes to compiler internals"
+      details: |
+        The Compiler module imports memoryrefoffset separately at Compiler/src/Compiler.jl:43
+        and uses it for type inference (tfuncs.jl). This PR does not modify any
+        compiler internals - the memoryrefoffset_tfunc at Compiler/src/tfuncs.jl:2104-2108
+        remains unchanged. Downstream compiler tools that introspect or extend
+        the Julia compiler are unaffected.
+
+compiler_module_context:
+  summary: "Compiler module has separate import - unaffected by this PR"
+  details: |
+    The Compiler module imports Core.memoryrefoffset separately:
+      Compiler/src/Compiler.jl:43:
+        memoryrefget, memoryrefnew, memoryrefoffset, memoryrefset!, print, println, show, svec,
+
+    The type function and effect inference for memoryrefoffset are defined in tfuncs.jl
+    and remain unchanged. The function is listed in multiple effect-related tuples:
+    - Line 2372: T_IFUNC tuple (type functions)
+    - Line 2384: CONSISTENT_BUILTINS
+    - Line 2423: EFFECT_FREE_BUILTINS
+    - Line 2591: NOTHROW_BUILTINS
+
+    This ensures the compiler correctly optimizes code using Base.memoryindex,
+    which simply delegates to the same builtin.
