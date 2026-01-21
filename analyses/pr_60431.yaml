@@ -17,6 +17,8 @@ scope:
     - "JuliaLowering/src/closure_conversion.jl"
     - "JuliaLowering/src/compat.jl"
     - "JuliaLowering/src/desugaring.jl"
+    - "JuliaLowering/src/linear_ir.jl"
+    - "JuliaLowering/src/macro_expansion.jl"
     - "JuliaLowering/src/runtime.jl"
     - "JuliaLowering/src/scope_analysis.jl"
     - "JuliaLowering/test/compat.jl"
@@ -31,6 +33,7 @@ scope:
     - "Parsing"
     - "MacroExpansion"
     - "Lowering"
+    - "LinearIR"
 analysis:
   intent:
     summary: "Split AST node creation into explicit new-vs-copy operations, document provenance semantics, and tighten JuliaLowering node-construction APIs."
@@ -223,6 +226,45 @@ analysis:
                 else
                     ex0 = newleaf(syntax_graph(ctx1), g.srcref, K"Value", ex0)
                 end
+    - summary: "Linear IR generation now uses newleaf/newnode with explicit setattr! calls instead of makeleaf/makenode with attribute lists, affecting label creation, call/new IR construction, and binding renumbering."
+      component: "JuliaLowering"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/linear_ir.jl"
+          loc: "345-348"
+          url: "https://github.com/JuliaLang/julia/blob/7b92a2aa070bb4a15f9ec71292770737718206da/JuliaLowering/src/linear_ir.jl#L345-L348"
+          snippet: |
+            function make_label(ctx, srcref)
+                id = ctx.next_label_id[]
+                ctx.next_label_id[] += 1
+                setattr!(newleaf(ctx, srcref, K"label"), :id, id)
+            end
+        - source: "code"
+          path: "JuliaLowering/src/linear_ir.jl"
+          loc: "964-982"
+          url: "https://github.com/JuliaLang/julia/blob/7b92a2aa070bb4a15f9ec71292770737718206da/JuliaLowering/src/linear_ir.jl#L964-L982"
+          snippet: |
+            if k == K"BindingId"
+                id = ex.var_id
+                if haskey(ssa_rewrites, id)
+                    setattr!(newleaf(ctx, ex, K"SSAValue"), :var_id, ssa_rewrites[id])
+                else
+                    new_id = get(slot_rewrites, id, nothing)
+                    binfo = get_binding(ctx, id)
+                    if !isnothing(new_id)
+                        sk = binfo.kind == :local || binfo.kind == :argument ? K"slot"             :
+                             binfo.kind == :static_parameter                 ? K"static_parameter" :
+                             throw(LoweringError(ex, "Found unexpected binding of kind $(binfo.kind)"))
+                        setattr!(newleaf(ctx, ex, sk), :var_id, new_id)
+                    else
+                        if binfo.kind !== :global
+                            throw(LoweringError(ex, "Found unexpected binding of kind $(binfo.kind)"))
+                        end
+                        out = newleaf(ctx, ex, K"globalref")
+                        setattr!(out, :name_val, binfo.name)
+                        setattr!(out, :mod, binfo.mod)
+                    end
+                end
   secondary_effects:
     - effect: "AST provenance for macro-expanded trees is now explicitly rebuilt via copy_node/mknode and then re-stamped with a tuple source, which can change how downstream tools interpret :source as either a parsed span or a transformed-node reference."
       mechanism: |
@@ -235,7 +277,7 @@ analysis:
         - "SyntaxTree copying during macro interpolation"
       likelihood: "medium"
       impact: "low"
-    - effect: "Generated-function macro context now guarantees srcref is LineNumberNode/SourceRef and wraps non-Expr generator outputs as K\"Value\" leaves, which could affect custom generators that expected a SyntaxTree srcref." 
+    - effect: "Generated-function macro context now guarantees srcref is LineNumberNode/SourceRef and wraps non-Expr generator outputs as K\"Value\" leaves, which could affect custom generators that expected a SyntaxTree srcref."
       mechanism: |
         GeneratedFunctionStub.srcref is narrowed to Union{LineNumberNode,SourceRef}  [JuliaLowering/src/runtime.jl:292-298]
         -> MacroContext(syntax_graph(ctx1), g.srcref, layer, g.expr_compat_mode)
@@ -243,6 +285,18 @@ analysis:
       downstream_surfaces:
         - "@generated function expansion"
         - "MacroContext consumers in generated-function paths"
+      likelihood: "low"
+      impact: "low"
+    - effect: "Quote interpolation now uses mknode(ex, args) instead of makenode(ctx, ex, ex, args), which simplifies the provenance chain by always setting :source to the original node id via mkleaf."
+      mechanism: |
+        _interp_makenode(ctx::InterpolationContext, ex, args)  [JuliaLowering/src/runtime.jl:48]
+          changed from: makenode(ctx, ex, ex, args)
+          changed to: mknode(ex, args)
+        -> mknode(old, children) calls mkleaf(old)  [JuliaSyntax/src/porcelain/syntax_graph.jl:606-610]
+        -> mkleaf sets :source = old._id (provenance points to original)
+      downstream_surfaces:
+        - "Quote interpolation AST construction"
+        - "Provenance tracking for interpolated expressions"
       likelihood: "low"
       impact: "low"
   compatibility:
@@ -258,9 +312,19 @@ analysis:
           - "JuliaSyntax/src/porcelain/syntax_graph.jl:577-616"
           - "JuliaLowering/src/JuliaLowering.jl:20-24"
       - api: "GeneratedFunctionStub.srcref"
-        change: "srcref is now Union{LineNumberNode,SourceRef} instead of allowing SyntaxTree." 
+        change: "srcref is now Union{LineNumberNode,SourceRef} instead of allowing SyntaxTree."
         evidence:
           - "JuliaLowering/src/runtime.jl:292-298"
+      - api: "JuliaSyntax.makeleaf/makenode/mapleaf (removed)"
+        change: "Old node construction functions removed; replaced by newleaf/newnode for fresh nodes and mkleaf/mknode for transformations that preserve provenance."
+        evidence:
+          - "JuliaSyntax/src/porcelain/syntax_graph.jl (functions removed)"
+          - "JuliaLowering/src/JuliaLowering.jl:23-24 (no longer imports makeleaf/makenode)"
+      - api: "JuliaSyntax.tree_ids"
+        change: "New helper function added to convert SyntaxTree variadic args to NodeId array for use with newnode."
+        evidence:
+          - "JuliaSyntax/src/porcelain/syntax_graph.jl:463"
+          - "JuliaLowering/src/JuliaLowering.jl:24 (re-exported)"
     behavioral:
       - area: "@ast macro usage in tests"
         change: "Tests now pass a concrete graph and SyntaxTree srcref into @ast, reflecting the stricter srcref typing and new constructors." 
