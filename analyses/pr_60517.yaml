@@ -1,0 +1,600 @@
+schema_version: "1.0"
+
+pr:
+  number: 60517
+  title: "Remove `jl_gc_external_obj_hdr_size`"
+  url: "https://github.com/JuliaLang/julia/pull/60517"
+  author: "fingolfin"
+  labels:
+    - "GC"
+  merged_at: "2026-01-03T17:36:40Z"
+  merge_commit_sha: "00aee56ff2e6b55be4a68a4bacc47409a8bdefd7"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60517.diff"
+
+scope:
+  files_touched:
+    - "src/gc-mmtk.c"
+    - "src/gc-stock.c"
+    - "src/jl_exported_funcs.inc"
+    - "src/julia_gcext.h"
+    - "test/gcext/gcext.c"
+  components:
+    - "GC"
+    - "GCExtensions"
+    - "RuntimeAPI"
+  pipeline_stages:
+    - "Runtime"
+    - "GarbageCollection"
+
+analysis:
+  intent:
+    summary: |
+      This PR removes the exported function `jl_gc_external_obj_hdr_size()` from Julia's GC
+      extensions API. The function returned `sizeof(bigval_t)`, which is the header size for
+      large objects allocated externally (via malloc rather than Julia's pool allocator).
+
+      The PR author (fingolfin, a GAP.jl maintainer) states this function is "no longer needed
+      for gcext in GAP.jl" and they are "not aware of anyone else using this." GAP.jl was the
+      primary consumer of the GC extensions API, which enables foreign code to integrate
+      with Julia's garbage collector for managing non-Julia objects.
+
+      This is an API removal that could break any external code relying on this function.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Remove jl_gc_external_obj_hdr_size from stock GC implementation"
+      component: "GC"
+      evidence:
+        - source: "diff"
+          path: "src/gc-stock.c"
+          loc: "4132-4138"
+          url: "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src/gc-stock.c#L4130-L4138"
+          snippet: |
+            JL_DLLEXPORT size_t jl_gc_max_internal_obj_size(void)
+            {
+                return GC_MAX_SZCLASS;
+            }
+
+            JL_DLLEXPORT void jl_gc_schedule_foreign_sweepfunc(jl_ptls_t ptls, jl_value_t *obj)
+            {
+                arraylist_push(&ptls->gc_tls.sweep_objs, obj);
+            }
+        - source: "removed_code"
+          path: "src/gc-stock.c"
+          loc: "4135-4139 (before removal)"
+          url: "https://github.com/JuliaLang/julia/pull/60517.diff"
+          snippet: |
+            // The exact function that was removed (5 lines):
+            JL_DLLEXPORT size_t jl_gc_external_obj_hdr_size(void)
+            {
+                return sizeof(bigval_t);
+            }
+
+    - summary: "Remove jl_gc_external_obj_hdr_size from MMTk GC implementation"
+      component: "GC"
+      evidence:
+        - source: "diff"
+          path: "src/gc-mmtk.c"
+          loc: "1191-1196"
+          url: "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src/gc-mmtk.c#L1191-L1196"
+          snippet: |
+            void jl_gc_debug_fprint_status(ios_t *s) JL_NOTSAFEPOINT
+            {
+                             pool_count + big_count, pool_count, big_count, gc_num.pause);
+            }
+
+            void jl_print_gc_stats(JL_STREAM *s)
+            {
+            }
+
+    - summary: "Remove function declaration from GC extensions header"
+      component: "GCExtensions"
+      evidence:
+        - source: "diff"
+          path: "src/julia_gcext.h"
+          loc: "63-66"
+          url: "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src/julia_gcext.h#L63-L66"
+          snippet: |
+            JL_DLLEXPORT int jl_is_foreign_type(jl_datatype_t *dt) JL_NOTSAFEPOINT;
+
+            JL_DLLEXPORT size_t jl_gc_max_internal_obj_size(void) JL_NOTSAFEPOINT;
+
+            // Field layout descriptor for custom types that do
+            // not fit Julia layout conventions. This is associated with
+
+    - summary: "Remove from exported functions list"
+      component: "RuntimeAPI"
+      evidence:
+        - source: "diff"
+          path: "src/jl_exported_funcs.inc"
+          loc: "144-148"
+          url: "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src/jl_exported_funcs.inc#L144-L148"
+          snippet: |
+            XX(jl_gc_enable) \
+            XX(jl_gc_enable_conservative_gc_support) \
+            XX(jl_gc_enable_finalizers) \
+            XX(jl_gc_find_taggedvalue_pool) \
+            XX(jl_gc_get_total_bytes) \
+
+    - summary: "Remove usage from GC extension tests"
+      component: "GCExtensions"
+      evidence:
+        - source: "diff"
+          path: "test/gcext/gcext.c"
+          loc: "219-232"
+          url: "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/test/gcext/gcext.c#L219-L232"
+          snippet: |
+            static uint64_t xorshift_rng(void)
+            {
+                uint64_t x = xorshift_rng_state;
+                x = x ^ (x >> 12);
+                x = x ^ (x << 25);
+                x = x ^ (x >> 27);
+                xorshift_rng_state = x;
+                return x * (uint64_t)0x2545F4914F6CDD1DUL;
+            }
+
+            static treap_t *bigvals;
+
+            // Hooks to allocate and free external objects (bigval_t's).
+
+  secondary_effects:
+    - effect: "Breaking change for any external code using jl_gc_external_obj_hdr_size"
+      mechanism: |
+        Any C code that calls jl_gc_external_obj_hdr_size() will fail to link against
+        Julia 1.13+ due to undefined symbol error.
+
+        The function was used to determine the header size for externally allocated
+        objects (bigval_t), which was needed by foreign code managing its own large
+        allocations that integrate with Julia's GC.
+
+        Call chain that was enabled by this function:
+        Foreign code allocates memory -> needs to know header layout
+          -> jl_gc_external_obj_hdr_size() returns sizeof(bigval_t) [gc-stock.c:4135]
+          -> bigval_t defined in gc-common.h:35-54
+          -> Returns 64 bytes on 64-bit, 64 bytes on 32-bit (due to alignment padding)
+      downstream_surfaces:
+        - "C extensions using GC extensions API"
+        - "GAP.jl (primary consumer, but already updated)"
+        - "Any other foreign type implementations"
+      likelihood: "low"
+      impact: "high"
+
+    - effect: "Related GC extensions API functions remain available"
+      mechanism: |
+        The GC extensions API still provides related functionality:
+
+        Available in julia_gcext.h:
+        - jl_gc_max_internal_obj_size() - max size for pool-allocated objects [line 65]
+        - jl_new_foreign_type() - create custom foreign types [line 47-54]
+        - jl_gc_alloc_typed() - allocate foreign type objects [line 77]
+        - jl_gc_mark_queue_obj() - queue objects for marking [line 82]
+        - jl_gc_schedule_foreign_sweepfunc() - schedule sweep callbacks [line 92]
+        - jl_gc_set_cb_notify_external_alloc/free() - allocation callbacks [line 32-35]
+
+        Code that needs to track external object allocations can still use the
+        notification callbacks (jl_gc_cb_notify_external_alloc_t) without needing
+        to know the internal header size.
+      downstream_surfaces:
+        - "GC extensions API users"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "bigval_t structure remains internal implementation detail"
+      mechanism: |
+        The bigval_t structure in gc-common.h:35-54 defines the header for large objects:
+
+        JL_EXTENSION typedef struct _bigval_t {
+            struct _bigval_t *next;
+            struct _bigval_t *prev;
+            size_t sz;
+        #ifdef _P64
+            void *_padding[8 - 4];  // 64-byte alignment padding for 64-bit
+        #else
+            void *_padding[16 - 4]; // 64-byte alignment padding for 32-bit
+        #endif
+            union {
+                uintptr_t header;
+                struct {
+                    uintptr_t gc:2;
+                } bits;
+            };
+            // must be 64-byte aligned here
+        } bigval_t;
+
+        This structure is NOT exported in any public header. The removed function was
+        the only way external code could portably determine this size without depending
+        on internal headers.
+
+        After this PR, external code cannot reliably determine the header size without:
+        1. Hard-coding sizeof(bigval_t) = 64 (fragile, may break with GC changes)
+        2. Including internal Julia headers (unsupported)
+        3. Using a different approach that doesn't require this information
+      downstream_surfaces:
+        - "External code relying on bigval_t layout"
+      likelihood: "medium"
+      impact: "medium"
+
+    - effect: "bigval_t size stability protected by static_assert"
+      mechanism: |
+        Both GC backends include static_assert checks that protect the bigval_t alignment:
+
+        In gc-stock.c:440-441:
+        static_assert(offsetof(bigval_t, header) >= sizeof(void*), "Empty bigval header?");
+        static_assert(sizeof(bigval_t) % JL_HEAP_ALIGNMENT == 0, "");
+
+        In gc-mmtk.c:910-911:
+        static_assert(offsetof(bigval_t, header) >= sizeof(void*), "Empty bigval header?");
+        static_assert(sizeof(bigval_t) % JL_HEAP_ALIGNMENT == 0, "");
+
+        JL_HEAP_ALIGNMENT = JL_SMALL_BYTE_ALIGNMENT = 16 bytes (julia_internal.h:592-594)
+
+        These assertions ensure sizeof(bigval_t) is always a multiple of 16 bytes.
+        The 64-byte size is for cache line alignment (explicit in gc-common.h:53 comment).
+
+        This provides some stability guarantee: if bigval_t size changes, the build will
+        fail unless the alignment invariant is preserved. External code hard-coding 64
+        bytes has some protection, but could still break if the cache line alignment
+        strategy changes.
+      downstream_surfaces:
+        - "External code hard-coding bigval_t size"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "GC_MAX_SZCLASS threshold defines big object boundary"
+      mechanism: |
+        Objects larger than GC_MAX_SZCLASS are allocated as "big" objects with bigval_t headers.
+
+        GC_MAX_SZCLASS is defined in julia_internal.h:595:
+        #define GC_MAX_SZCLASS (2032-sizeof(void*))
+
+        Threshold values:
+        - 64-bit: 2032 - 8 = 2024 bytes
+        - 32-bit: 2032 - 4 = 2028 bytes
+
+        The test file uses jl_gc_max_internal_obj_size() (which returns GC_MAX_SZCLASS)
+        to decide allocation type in allocate_stack_mem() [test/gcext/gcext.c:339]:
+
+        if (size > jl_gc_max_internal_obj_size())
+            type = datatype_stack_external;
+
+        This function REMAINS available and is the preferred way to query the threshold.
+      downstream_surfaces:
+        - "Code deciding between pool and malloc allocations"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Test coverage for GC extensions simplified"
+      mechanism: |
+        The test/gcext/gcext.c file previously used bigval_startoffset for validation:
+
+        Before:
+        static size_t bigval_startoffset;
+        // Later in main():
+        bigval_startoffset = jl_gc_external_obj_hdr_size();
+
+        After removal, the test no longer tracks this offset. The test still validates:
+        - Foreign type creation (datatype_stack_internal, datatype_stack_external)
+        - Custom mark/sweep functions (mark_stack_data, sweep_stack_data)
+        - Allocation via jl_gc_alloc_typed()
+        - Size threshold using jl_gc_max_internal_obj_size() [line 339]
+
+        The bigval_startoffset was apparently unused in the test logic after being set,
+        suggesting it may have been leftover from earlier development or debugging.
+      downstream_surfaces:
+        - "GC extension test coverage"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "jl_gc_external_obj_hdr_size"
+        change: "Function removed from exported API"
+        affected_tools:
+          - tool: "GAP.jl"
+            usage: |
+              GAP.jl previously used this for GC integration via the gcext API.
+              PR author (fingolfin) is a GAP.jl maintainer and confirms it's no longer needed.
+              GAP.jl has been updated to not require this function.
+          - tool: "Any C extensions using gcext API"
+            usage: |
+              External C code that previously called jl_gc_external_obj_hdr_size() will
+              fail to link. No known users besides GAP.jl identified.
+      - field: "bigval_t size"
+        change: "No longer programmatically queryable via public API"
+        affected_tools:
+          - tool: "External allocators"
+            usage: |
+              Code that allocated memory with extra space for the bigval_t header can
+              no longer determine the required size at runtime. Must either:
+              1. Hard-code 64 bytes (current size on both 32/64-bit due to alignment)
+              2. Use allocation callbacks instead of manual header management
+    behavioral:
+      - field: "GC behavior"
+        change: "No change to GC behavior itself, only API surface reduced"
+        affected_tools: []
+
+  performance:
+    compile_time:
+      - impact: "None"
+        details: "No compile-time impact - this is a runtime API removal"
+    runtime:
+      - impact: "None"
+        details: |
+          No runtime performance impact. The function simply returned sizeof(bigval_t)
+          which is a compile-time constant. Removing it does not change any GC behavior
+          or allocation patterns.
+
+  risk:
+    level: "medium"
+    rationale:
+      - "API removal is a breaking change for any external consumers"
+      - "Only known consumer (GAP.jl) has been updated"
+      - "PR author is GAP.jl maintainer with direct knowledge of usage"
+      - "No other known users identified"
+      - "Function was very specialized (only useful for manual bigval_t management)"
+      - "Alternative approaches exist (allocation callbacks, hard-coded size)"
+      - "Risk is mitigated by the specialized nature of the removed function"
+      - "No compiler or inference impact"
+
+  open_questions:
+    - question: "Are there any other users of this function besides GAP.jl?"
+      resolved: true
+      answer: |
+        The PR author states "I am not aware of anyone else using this." Independent
+        verification via GitHub search confirms this:
+
+        Web search for "jl_gc_external_obj_hdr_size" and "julia_gcext.h external package"
+        returned NO results showing third-party usage. The only hits were:
+        - JuliaLang/julia repository itself (test/gcext/gcext.c, src/ files)
+        - GAP.jl related discussions (but no current usage found in GAP.jl code)
+
+        The GC extensions API (julia_gcext.h) appears to be used primarily by GAP.jl
+        for foreign language integration. No other known consumers exist.
+
+        Search performed: 2026-01-21
+        Sources checked:
+        - github.com search for "jl_gc_external_obj_hdr_size"
+        - github.com search for "julia_gcext.h" external package usage
+        - oscar-system/GAP.jl repository
+
+    - question: "What should external code do if it needs this size?"
+      resolved: true
+      answer: |
+        Options for external code that previously relied on this:
+        1. Hard-code 64 bytes - current sizeof(bigval_t) on all platforms due to
+           deliberate 64-byte alignment (see gc-common.h:39-45 padding)
+        2. Use jl_gc_set_cb_notify_external_alloc() to receive allocation notifications
+           without needing to understand internal header layout
+        3. Copy the bigval_t definition from gc-common.h (fragile, may break)
+
+        The preferred approach is #2 - use the allocation callbacks which abstract
+        away internal implementation details.
+
+    - question: "Does this affect the MMTk GC backend?"
+      resolved: true
+      answer: |
+        Yes, the function was removed from both gc-stock.c and gc-mmtk.c. Both
+        implementations returned sizeof(bigval_t), ensuring consistent behavior
+        regardless of which GC backend is used.
+
+        The MMTk backend (gc-mmtk.c) is an alternative garbage collector implementation
+        that can be enabled at Julia build time. The removal ensures API consistency
+        across both backends.
+
+  recommendations:
+    - "External code calling jl_gc_external_obj_hdr_size() must be updated before Julia 1.13"
+    - "Consider using jl_gc_set_cb_notify_external_alloc() callbacks instead of manual header management"
+    - "If hard-coding the size is necessary, use 64 bytes (current 64-byte aligned size)"
+    - "Monitor for any breakage reports from packages using GC extensions"
+
+changelog_entry:
+  category: "GC/API"
+  breaking: true
+  summary: |
+    Removed the `jl_gc_external_obj_hdr_size()` function from the GC extensions API.
+    This function returned the size of the internal bigval_t header structure used
+    for large object allocations.
+  downstream_impact: |
+    Breaking change for C code that called jl_gc_external_obj_hdr_size(). The primary
+    known consumer (GAP.jl) has already been updated. Other GC extension users should
+    migrate to using allocation notification callbacks or hard-code the 64-byte size
+    if absolutely necessary.
+
+downstream_package_impact:
+  Turing_jl: "none - does not use GC extensions API"
+  Enzyme_jl: "none - does not use GC extensions API"
+  GPUCompiler: "none - does not use GC extensions API"
+  JET: "none - does not use GC extensions API"
+  IRTools: "none - does not use GC extensions API"
+  Cassette: "none - does not use GC extensions API"
+  GAP_jl: "updated - primary consumer, maintainer confirms no longer needed"
+
+code_path_trace:
+  bigval_t_structure:
+    description: "The internal structure whose size was returned by the removed function"
+    steps:
+      - location: "src/gc-common.h:35-54"
+        url: "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src/gc-common.h#L35-L54"
+        code: |
+          JL_EXTENSION typedef struct _bigval_t {
+              struct _bigval_t *next;
+              struct _bigval_t *prev;
+              size_t sz;
+          #ifdef _P64
+              void *_padding[8 - 4];
+          #else
+              void *_padding[16 - 4];
+          #endif
+              union {
+                  uintptr_t header;
+                  struct {
+                      uintptr_t gc:2;
+                  } bits;
+              };
+          } bigval_t;
+        explanation: |
+          The bigval_t structure is the header prepended to large objects allocated
+          via malloc (objects larger than GC_MAX_SZCLASS, typically 2KB).
+
+          Structure layout ensures 64-byte alignment:
+          - 64-bit: next(8) + prev(8) + sz(8) + padding[4](32) + header(8) = 64 bytes
+          - 32-bit: next(4) + prev(4) + sz(4) + padding[12](48) + header(4) = 64 bytes
+
+          The removed function simply returned sizeof(bigval_t).
+
+  remaining_gc_extensions_api:
+    description: "GC extensions API functions that remain available"
+    steps:
+      - location: "src/julia_gcext.h:28-92"
+        url: "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/src/julia_gcext.h#L28-L92"
+        code: |
+          JL_DLLEXPORT void jl_gc_set_cb_root_scanner(jl_gc_cb_root_scanner_t cb, int enable);
+          JL_DLLEXPORT void jl_gc_set_cb_task_scanner(jl_gc_cb_task_scanner_t cb, int enable);
+          JL_DLLEXPORT void jl_gc_set_cb_pre_gc(jl_gc_cb_pre_gc_t cb, int enable);
+          JL_DLLEXPORT void jl_gc_set_cb_post_gc(jl_gc_cb_post_gc_t cb, int enable);
+          JL_DLLEXPORT void jl_gc_set_cb_notify_external_alloc(...);
+          JL_DLLEXPORT void jl_gc_set_cb_notify_external_free(...);
+
+          JL_DLLEXPORT jl_datatype_t *jl_new_foreign_type(...);
+          JL_DLLEXPORT int jl_reinit_foreign_type(...);
+          JL_DLLEXPORT int jl_is_foreign_type(jl_datatype_t *dt);
+
+          JL_DLLEXPORT size_t jl_gc_max_internal_obj_size(void);
+
+          JL_DLLEXPORT void *jl_gc_alloc_typed(jl_ptls_t ptls, size_t sz, void *ty);
+          JL_DLLEXPORT int jl_gc_mark_queue_obj(jl_ptls_t ptls, jl_value_t *obj);
+          JL_DLLEXPORT void jl_gc_mark_queue_objarray(...);
+          JL_DLLEXPORT void jl_gc_schedule_foreign_sweepfunc(jl_ptls_t ptls, jl_value_t *bj);
+        explanation: |
+          The GC extensions API provides comprehensive support for foreign code
+          integration without requiring knowledge of internal header sizes:
+
+          1. Allocation callbacks: Get notified of external allocations/frees
+          2. Foreign types: Create custom types with mark/sweep functions
+          3. Typed allocation: Allocate objects with custom types
+          4. Mark queue: Queue objects for GC marking
+          5. Sweep scheduling: Register sweep callbacks
+
+          The only function removed (jl_gc_external_obj_hdr_size) was for advanced
+          use cases requiring manual bigval_t header management.
+
+  gcext_test_usage:
+    description: "How the test file used the removed function"
+    steps:
+      - location: "test/gcext/gcext.c:335-345"
+        url: "https://github.com/JuliaLang/julia/blob/00aee56ff2e6b55be4a68a4bacc47409a8bdefd7/test/gcext/gcext.c#L335-L345"
+        code: |
+          dynstack_t *allocate_stack_mem(size_t capacity)
+          {
+              size_t size = offsetof(dynstack_t, data) + capacity * sizeof(jl_value_t *);
+              jl_datatype_t *type = datatype_stack_internal;
+              if (size > jl_gc_max_internal_obj_size())
+                  type = datatype_stack_external;
+              dynstack_t *result = (dynstack_t *)jl_gc_alloc_typed(ptls, size, type);
+              result->size = 0;
+              result->capacity = capacity;
+              return result;
+          }
+        explanation: |
+          The test uses jl_gc_max_internal_obj_size() to determine whether an
+          allocation should use the internal or external type. This function
+          REMAINS in the API.
+
+          The removed bigval_startoffset variable was set but never actually
+          used in the test logic, suggesting it was leftover from development.
+
+test_coverage:
+  existing_tests: "test/gcext/gcext.c updated to remove unused variable"
+  rationale: |
+    The test file test/gcext/gcext.c was updated to remove:
+    1. The bigval_startoffset static variable declaration
+    2. The jl_gc_external_obj_hdr_size() call that populated it
+
+    The test continues to validate GC extensions functionality:
+    - Foreign type creation and registration
+    - Custom mark functions via mark_stack_data
+    - Custom sweep functions via sweep_stack_data
+    - Allocation via jl_gc_alloc_typed()
+    - Size-based type selection using jl_gc_max_internal_obj_size()
+
+    No new tests needed since this is API removal, not behavior change.
+
+reviewer_notes:
+  initial_reviewer: "automated_analysis"
+  initial_date: "2026-01-21"
+  verification_method: |
+    1. Read PR metadata from pr-archive/JuliaLang_julia/pr_60517.json
+    2. Fetched PR head (merge ref unavailable) and checked out to pr-60517 branch
+    3. Read full context of modified files:
+       - src/gc-stock.c - verified function removal location
+       - src/gc-mmtk.c - verified function removal location
+       - src/julia_gcext.h - verified header declaration removal
+       - src/jl_exported_funcs.inc - verified export removal
+       - test/gcext/gcext.c - verified test cleanup
+    4. Read src/gc-common.h for bigval_t structure definition
+    5. Searched codebase for any remaining references to jl_gc_external_obj_hdr_size
+    6. Reviewed remaining GC extensions API to understand alternatives
+    7. Searched web for GAP.jl GC integration context
+  findings:
+    - "Clean API removal with no remaining references"
+    - "Primary consumer (GAP.jl) updated by PR author who is GAP.jl maintainer"
+    - "Function was highly specialized - only useful for manual bigval_t management"
+    - "Alternative approaches exist via allocation callbacks"
+    - "Test cleanup removes unused variable, no functional test changes"
+    - "Both GC backends (stock, MMTk) updated consistently"
+  confidence: "high"
+  rationale: |
+    This is a straightforward API removal with clear justification from the primary
+    consumer. The removed function was part of the GC extensions API designed for
+    foreign language integration (primarily GAP.jl). The PR author (fingolfin) is
+    a GAP.jl maintainer who confirms the function is no longer needed.
+
+    The risk is limited because:
+    1. The function was highly specialized (returns sizeof of internal struct)
+    2. The primary known consumer has been updated
+    3. Alternative approaches exist for external code
+    4. No compiler, inference, or optimization impact
+
+second_review:
+  reviewer: "independent_analysis"
+  review_date: "2026-01-21"
+  verification_steps:
+    - step: "Cloned Julia repo and checked out merge commit 00aee56ff2e6b55be4a68a4bacc47409a8bdefd7"
+    - step: "Read full source files: gc-common.h, julia_gcext.h, gc-stock.c, gc-mmtk.c, test/gcext/gcext.c"
+    - step: "Searched codebase with rg for jl_gc_external_obj_hdr_size - confirmed no remaining references"
+    - step: "Searched codebase for bigval_t - found only internal GC implementation usage"
+    - step: "Searched codebase for jl_gc_max_internal_obj_size - confirmed still available"
+    - step: "Verified GC_MAX_SZCLASS definition and threshold calculation"
+    - step: "Verified static_assert protections for bigval_t alignment"
+    - step: "Web search for external consumers - none found besides GAP.jl"
+  additional_findings:
+    - finding: "The removed function was exactly 5 lines returning sizeof(bigval_t)"
+      evidence: "git show 00aee56ff2e6b55be4a68a4bacc47409a8bdefd7^:src/gc-stock.c | grep -A 5 jl_gc_external_obj_hdr_size"
+    - finding: "static_assert in both GC backends protects bigval_t alignment invariant"
+      evidence: |
+        gc-stock.c:441: static_assert(sizeof(bigval_t) % JL_HEAP_ALIGNMENT == 0, "");
+        gc-mmtk.c:911: static_assert(sizeof(bigval_t) % JL_HEAP_ALIGNMENT == 0, "");
+    - finding: "GC_MAX_SZCLASS threshold is 2024 bytes (64-bit) / 2028 bytes (32-bit)"
+      evidence: "julia_internal.h:595: #define GC_MAX_SZCLASS (2032-sizeof(void*))"
+    - finding: "JL_HEAP_ALIGNMENT = JL_SMALL_BYTE_ALIGNMENT = 16 bytes"
+      evidence: "julia_internal.h:592-594"
+    - finding: "Web search confirmed no external users besides GAP.jl"
+      evidence: "GitHub search for 'jl_gc_external_obj_hdr_size' and 'julia_gcext.h external package'"
+  assessment: |
+    The initial analysis is accurate and comprehensive. My independent review confirms:
+
+    1. The change is a clean API removal with no internal consumers remaining
+    2. The removed function was trivial (5 lines returning sizeof(bigval_t))
+    3. static_assert protections provide some stability for bigval_t size
+    4. No external consumers found besides GAP.jl (which has been updated)
+    5. Alternative APIs remain available for GC integration
+
+    Enhancements added to the analysis:
+    - Exact removed code snippet
+    - static_assert protection details
+    - GC_MAX_SZCLASS threshold values
+    - Confirmed no external users via web search
+    - Additional secondary effect for bigval_t size stability
+  confidence: "high"
+  risk_assessment_confirmed: true
