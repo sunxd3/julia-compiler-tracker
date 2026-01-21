@@ -1,0 +1,264 @@
+schema_version: "1.0"
+
+pr:
+  number: 55455
+  title: "Stylistically disambiguate julia> in docstrings"
+  url: "https://github.com/JuliaLang/julia/pull/55455"
+  diff_url: "https://github.com/JuliaLang/julia/pull/55455.diff"
+  author: "tecosaur"
+  labels:
+    - "display and printing"
+    - "markdown"
+  created_at: "2024-08-11T05:31:34Z"
+  merged_at: "2025-12-30T23:28:07Z"
+  merge_commit_sha: "30dc61f34a8be6b733e09eec943a67c34e51da6c"
+
+scope:
+  files_touched:
+    - "stdlib/Markdown/src/Markdown.jl"
+  components:
+    - "Other"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Adds italic styling and bright green foreground color to the `julia>` prompt
+      displayed in docstring jldoctest/julia-repl code blocks, making it visually
+      distinguishable from the actual REPL Julia prompt. This prevents user confusion
+      when docstring examples appear similar to the interactive REPL prompt.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/54423"
+    quoted_from_pr: |
+      If the styling is exactly the same, occasionally this can produce a bit of confusion
+      or a double take when people mix it up with the REPL Julia prompt. This has come up
+      in OhMyREPL, and was brought up by @BioTurboNick after #54423 was merged.
+
+  direct_changes:
+    - summary: "Modified markdown_julia_prompt Face to add italic slant and bright_green foreground"
+      component: "Markdown"
+      evidence:
+        - source: "diff"
+          path: "stdlib/Markdown/src/Markdown.jl"
+          loc: "50"
+          url: "https://github.com/JuliaLang/julia/blob/30dc61f34a8be6b733e09eec943a67c34e51da6c/stdlib/Markdown/src/Markdown.jl#L50"
+          snippet: |
+            # BEFORE (removed):
+            :markdown_julia_prompt => Face(inherit=:repl_prompt_julia),
+
+            # AFTER (added):
+            :markdown_julia_prompt => Face(slant=:italic, foreground=:bright_green, inherit=:repl_prompt_julia),
+
+  pipeline_impact: []
+
+  secondary_effects:
+    - effect: "Visual rendering change for julia> prompt in terminal-displayed docstrings"
+      mechanism: |
+        The markdown_julia_prompt face is applied during terminal rendering of
+        jldoctest and julia-repl code blocks:
+
+        term(io::IO, md::Code, columns)  [render/terminal/render.jl:118]
+          -> checks md.language == "julia-repl" || startswith(md.language, "jldoctest")  [line 121]
+          -> eachmatch(r"(?:^|\n)julia>", hl)  [line 123]
+          -> StyledStrings.face!(match, :markdown_julia_prompt)  [line 124]
+
+        The face is registered at module initialization:
+          __init__() = foreach(addface!, MARKDOWN_FACES)  [Markdown.jl:59]
+
+        Registration call chain:
+          Markdown module loads -> __init__() called
+            -> foreach(addface!, MARKDOWN_FACES)
+            -> addface!(:markdown_julia_prompt => Face(...))
+            -> StyledStrings global face registry updated
+
+        Visual difference:
+        - BEFORE: Same style as :repl_prompt_julia (typically bold green)
+        - AFTER: Italic + bright_green + inherits from :repl_prompt_julia
+      downstream_surfaces:
+        - "Terminal display of docstrings containing jldoctest blocks"
+        - "help> REPL output showing function documentation"
+        - "Markdown terminal rendering in general"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "stdlib/Markdown/src/render/terminal/render.jl"
+          loc: "118-135"
+          url: "https://github.com/JuliaLang/julia/blob/30dc61f34a8be6b733e09eec943a67c34e51da6c/stdlib/Markdown/src/render/terminal/render.jl#L118-L135"
+          snippet: |
+            function term(io::IO, md::Code, columns)
+                code = if md.language == "julia"
+                    highlight(md.code)
+                elseif md.language == "julia-repl" || Base.startswith(md.language, "jldoctest")
+                    hl = AnnotatedString(md.code)
+                    for (; match) in eachmatch(r"(?:^|\n)julia>", hl)
+                        StyledStrings.face!(match, :markdown_julia_prompt)
+                        afterprompt = match.offset + ncodeunits(match) + 1
+                        _, exprend = Meta.parse(md.code, afterprompt, raise = false)
+                        highlight!(hl[afterprompt:prevind(md.code, exprend)])
+                        if (nextspace = findnext(' ', md.code, exprend)) |> !isnothing
+                            nextword = hl[exprend:prevind(hl, nextspace)]
+                            if nextword == "ERROR:"
+                                StyledStrings.face!(nextword, :error)
+                            end
+                        end
+                    end
+                    hl
+
+    - effect: "Compatibility with OhMyREPL and terminal customization"
+      mechanism: |
+        The change still inherits from :repl_prompt_julia, so any base styling
+        from that face is preserved. The additional italic and bright_green
+        properties overlay on top.
+
+        Face inheritance chain:
+          :markdown_julia_prompt
+            -> slant=:italic, foreground=:bright_green
+            -> inherit=:repl_prompt_julia (base styling preserved)
+
+        Note: The :repl_prompt_julia face is defined in StyledStrings.jl stdlib,
+        not in the Julia base repository. This face typically includes bold green
+        styling for the standard REPL prompt.
+
+        OhMyREPL users who customize :repl_prompt_julia will still see their
+        customizations, but the markdown prompt will additionally have italic
+        slant and bright_green foreground applied.
+
+        Expected ANSI terminal output:
+        - Italic: ESC[3m ... ESC[23m
+        - Bright green: ESC[92m (or bright_green from 16-color palette)
+      downstream_surfaces:
+        - "OhMyREPL"
+        - "Terminal theming packages"
+        - "Custom REPL configurations"
+      likelihood: "medium"
+      impact: "low"
+      evidence:
+        - source: "discussion"
+          path: "PR description"
+          snippet: |
+            This has come up in OhMyREPL, and was brought up by @BioTurboNick
+            after #54423 was merged.
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - summary: "Visual appearance of julia> in docstring code blocks changed"
+        evidence:
+          - source: "diff"
+            path: "stdlib/Markdown/src/Markdown.jl"
+            loc: "50"
+            snippet: |
+              The Face definition changed from:
+                Face(inherit=:repl_prompt_julia)
+              To:
+                Face(slant=:italic, foreground=:bright_green, inherit=:repl_prompt_julia)
+
+              This adds italic text styling and explicit bright_green color to
+              the julia> prompt in docstring code blocks, making it visually
+              distinct from the actual REPL prompt.
+
+  performance:
+    compile_time: []
+    runtime:
+      - summary: "No measurable runtime impact"
+        evidence:
+          - source: "code"
+            path: "stdlib/Markdown/src/Markdown.jl"
+            snippet: |
+              The change only modifies a Face definition which is a static data structure.
+              Face application happens at the same code path as before (StyledStrings.face!).
+              ESTIMATED: Zero additional overhead - same number of operations, different parameters.
+
+  tests:
+    changed_files: []
+    new_behavior_assertions: []
+    coverage_gaps:
+      - "No automated tests verify the specific Face styling properties"
+      - "Visual rendering tests would require screenshot comparison"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Purely cosmetic change affecting only terminal display of docstrings"
+      - "No compiler internals, type inference, or codegen affected"
+      - "No API changes - Face definition is internal to Markdown module"
+      - "Inherits from existing :repl_prompt_julia so base styling preserved"
+      - "Change is additive (adding properties) not breaking existing behavior"
+
+  open_questions:
+    - "Does the bright_green foreground work well with all terminal color schemes?"
+    - "Is italic rendering supported in all target terminals?"
+
+  recommendations:
+    - "No action required for downstream compiler packages"
+    - "This PR has zero impact on JET, Enzyme, IRTools, GPUCompiler, or Cassette"
+    - "OhMyREPL users may notice docstring prompts now have italic styling"
+
+classification:
+  type: "cosmetic"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false
+
+notes: |
+  This PR is NOT a compiler change - it modifies only the visual styling of the
+  `julia>` prompt when rendered in terminal markdown output (docstrings, help text).
+
+  Technical details:
+  - The MARKDOWN_FACES array defines Face objects for styled terminal rendering
+  - :markdown_julia_prompt is applied via StyledStrings.face!() in render/terminal/render.jl
+  - The Face is registered at Markdown module initialization via __init__()
+
+  The change addresses user confusion between:
+  1. The actual REPL prompt (julia>) where you type commands
+  2. The example prompts in docstrings showing usage examples
+
+  By making the docstring prompts italic and bright_green, users can more easily
+  distinguish them from the interactive prompt.
+
+  Callers of markdown_julia_prompt face:
+  $ rg "markdown_julia_prompt" julia/
+  stdlib/Markdown/src/render/terminal/render.jl:124:  StyledStrings.face!(match, :markdown_julia_prompt)
+  stdlib/Markdown/src/Markdown.jl:50:  :markdown_julia_prompt => Face(slant=:italic, foreground=:bright_green, inherit=:repl_prompt_julia),
+
+  This PR has absolutely NO impact on:
+  - Type inference
+  - Lowering or IR generation
+  - Optimization passes
+  - Code generation
+  - OpaqueClosure handling
+  - Generated functions
+  - World age / invalidation
+  - Any internal compiler APIs
+
+  It is safe to ignore for all compiler-focused downstream package analysis.
+
+reviewer_verification:
+  date: "2026-01-21"
+  independent_checks:
+    - check: "Verified single file changed"
+      result: "CONFIRMED - only stdlib/Markdown/src/Markdown.jl modified"
+    - check: "Verified code path accuracy"
+      result: "CONFIRMED - Face applied at render/terminal/render.jl:124 via StyledStrings.face!()"
+    - check: "Searched for all callers of :markdown_julia_prompt"
+      result: |
+        CONFIRMED - Only 2 references found:
+        - stdlib/Markdown/src/Markdown.jl:50 (definition)
+        - stdlib/Markdown/src/render/terminal/render.jl:124 (usage)
+    - check: "Verified no compiler impact"
+      result: "CONFIRMED - Change is purely cosmetic, affects only Markdown stdlib"
+    - check: "Verified YAML validity"
+      result: "CONFIRMED - python yaml.safe_load() succeeds"
+  additional_findings: |
+    The base face :repl_prompt_julia is defined in the StyledStrings.jl external
+    stdlib package, not in the Julia repository itself. This is why grep searches
+    for its definition in the Julia repo return no results.
+
+    The Face data structure from StyledStrings supports property inheritance,
+    allowing :markdown_julia_prompt to inherit from :repl_prompt_julia while
+    overriding slant and foreground properties.
+  conclusion: |
+    The original analysis is accurate and complete. This PR is correctly classified
+    as a cosmetic change with no compiler relevance. No action required for
+    downstream compiler-focused packages (JET, Enzyme, IRTools, GPUCompiler, Cassette).
