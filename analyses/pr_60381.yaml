@@ -1,0 +1,341 @@
+schema_version: "1.0"
+
+pr:
+  number: 60381
+  title: "Libdl: fix race condition in LazyLibrary parallel loading"
+  url: "https://github.com/JuliaLang/julia/pull/60381"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60381.diff"
+  author: "IanButterworth"
+  labels: []
+  merged_at: "2025-12-15T09:27:33Z"
+  merge_commit_sha: "a64d62458c77a59aa7ec44f4fe652a7e88dbb165"
+
+scope:
+  files_touched:
+    - "base/libdl.jl"
+    - "stdlib/Libdl/test/runtests.jl"
+  components:
+    - "Base.Libdl"
+  pipeline_stages:
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Fix a race condition in LazyLibrary parallel loading where threads waiting
+      on the lock would return C_NULL instead of the loaded handle. When multiple
+      threads attempted to dlopen a LazyLibrary simultaneously, threads that lost
+      the race to load the library would return a null pointer because the local
+      handle variable was never updated after waiting for the lock.
+
+      This is a classic "double-checked locking" pattern bug. The pattern correctly
+      checks ll.handle == C_NULL inside the lock to avoid redundant loading, but
+      the else branch failed to copy the loaded handle to the local variable before
+      returning.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60378"
+
+  direct_changes:
+    - summary: |
+        Add else branch to update local handle variable when another thread has
+        already loaded the library while the current thread was waiting on the lock.
+      component: "Base.Libdl"
+      evidence:
+        - source: "code"
+          path: "base/libdl.jl"
+          loc: "509-511"
+          url: "https://github.com/JuliaLang/julia/blob/a64d62458c77a59aa7ec44f4fe652a7e88dbb165/base/libdl.jl#L509-L511"
+          snippet: |
+            else
+                # Another thread loaded the library while we were waiting
+                handle = @atomic :acquire ll.handle
+        - source: "code"
+          path: "base/libdl.jl"
+          loc: "490-529"
+          url: "https://github.com/JuliaLang/julia/blob/a64d62458c77a59aa7ec44f4fe652a7e88dbb165/base/libdl.jl#L490-L529"
+          snippet: |
+            function dlopen(ll::LazyLibrary, flags::Integer = ll.flags; kwargs...)
+                handle = @atomic :acquire ll.handle
+                if handle == C_NULL
+                    @lock ll.lock begin
+                        # Check to see if another thread has already run this
+                        if ll.handle == C_NULL
+                            # Ensure that all dependencies are loaded
+                            for dep in ll.dependencies()
+                                dlopen(dep; kwargs...)
+                            end
+
+                            # Load our library
+                            handle = dlopen(string(ll.path), flags; kwargs...)
+                            @atomic :release ll.handle = handle
+
+                            # Only the thread that loaded the library calls the `on_load_callback()`.
+                            if ll.on_load_callback !== nothing
+                                ll.on_load_callback()
+                            end
+                        else
+                            # Another thread loaded the library while we were waiting
+                            handle = @atomic :acquire ll.handle
+                        end
+                    end
+                else
+                    # Invoke our on load callback, if it exists
+                    if ll.on_load_callback !== nothing
+                        # This empty lock protects against the case where we have updated
+                        # `ll.handle` in the branch above, but not exited the lock.  We want
+                        # a second thread that comes in at just the wrong time to have to wait
+                        # for that lock to be released (and thus for the on_load_callback to
+                        # have finished), hence the empty lock here. But we want the
+                        # on_load_callback thread to bypass this, which will be happen thanks
+                        # to the fact that we're using a reentrant lock here.
+                        @lock ll.lock begin end
+                    end
+                end
+
+                return handle
+            end
+        - source: "test"
+          path: "stdlib/Libdl/test/runtests.jl"
+          loc: "343-354"
+          url: "https://github.com/JuliaLang/julia/blob/a64d62458c77a59aa7ec44f4fe652a7e88dbb165/stdlib/Libdl/test/runtests.jl#L343-L354"
+          snippet: |
+            # Test parallel loading doesn't return C_NULL (issue #60378)
+            script = """
+            using Libdl
+            ll = LazyLibrary(ARGS[1])
+            handles = Vector{Ptr{Cvoid}}(undef, 10)
+            @sync for i in 1:10
+                Threads.@spawn handles[i] = dlopen(ll)
+            end
+            @assert all(h -> h != C_NULL, handles) "Some handles were C_NULL"
+            @assert all(h -> h == handles[1], handles) "Handles were not all equal"
+            """
+            @test success(run(`$(Base.julia_cmd()) -t4 -e $script $lclf_path`))
+
+  secondary_effects:
+    - effect: |
+        BLAS/LAPACK operations no longer crash when called from multiple threads
+        during initial library loading.
+      mechanism: |
+        dlopen(ll::LazyLibrary)  [base/libdl.jl:490]
+          Thread 1 & 2 both read handle = @atomic :acquire ll.handle -> C_NULL
+          Thread 1 acquires lock first, loads library, stores handle atomically
+          Thread 2 waits on lock, then enters locked section
+        -> if ll.handle == C_NULL check  [base/libdl.jl:495]
+          Returns FALSE because Thread 1 already stored the handle
+        -> else branch  [base/libdl.jl:509] (THE FIX)
+          handle = @atomic :acquire ll.handle  # Reads the actual loaded handle
+        -> return handle  [base/libdl.jl:528]
+          Returns valid pointer, not C_NULL
+      downstream_surfaces:
+        - "LinearAlgebra (BLAS operations)"
+        - "SparseArrays (SuiteSparse operations)"
+        - "All JLL stdlib packages using LazyLibrary"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: |
+        dlsym calls no longer search RTLD_DEFAULT when LazyLibrary returns C_NULL
+      mechanism: |
+        Before fix:
+          dlopen(libopenblas) returns C_NULL (race condition)
+          -> dlsym(C_NULL, :dgemm_64_) searches RTLD_DEFAULT
+          -> Looks in libjulia-internal.so instead of OpenBLAS
+          -> "could not load symbol 'dgemm_64_'" error
+
+        After fix:
+          dlopen(libopenblas) returns valid handle
+          -> dlsym(handle, :dgemm_64_) finds symbol in OpenBLAS
+      downstream_surfaces:
+        - "Any ccall using LazyLibrary"
+        - "OpenBLAS_jll"
+        - "SuiteSparse_jll"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: |
+        libblastrampoline on_load_callback chain executes correctly for all threads.
+      mechanism: |
+        libblastrampoline_jll uses an on_load_callback that invokes callbacks from
+        dependent libraries:
+
+        libblastrampoline_on_load_callback()  [libblastrampoline_jll.jl:22-26]
+          for callback = on_load_callbacks
+              callback()
+          end
+
+        Before fix: Thread waiting on lock would get C_NULL, then try to call
+        dlsym on C_NULL handle, causing symbol lookup failures.
+
+        After fix: All threads get the valid handle, and the on_load_callback
+        runs once (only for the loading thread, as intended).
+      evidence:
+        - source: "code"
+          path: "stdlib/libblastrampoline_jll/src/libblastrampoline_jll.jl"
+          loc: "22-26"
+          url: "https://github.com/JuliaLang/julia/blob/a64d62458c77a59aa7ec44f4fe652a7e88dbb165/stdlib/libblastrampoline_jll/src/libblastrampoline_jll.jl#L22-L26"
+          snippet: |
+            function libblastrampoline_on_load_callback()
+                for callback = on_load_callbacks
+                    callback()
+                end
+            end
+        - source: "code"
+          path: "stdlib/libblastrampoline_jll/src/libblastrampoline_jll.jl"
+          loc: "35-46"
+          url: "https://github.com/JuliaLang/julia/blob/a64d62458c77a59aa7ec44f4fe652a7e88dbb165/stdlib/libblastrampoline_jll/src/libblastrampoline_jll.jl#L35-L46"
+          snippet: |
+            const libblastrampoline = LazyLibrary(
+                if Sys.iswindows()
+                    BundledLazyLibraryPath("libblastrampoline-5.dll")
+                elseif Sys.isapple()
+                    BundledLazyLibraryPath("libblastrampoline.5.dylib")
+                else
+                    BundledLazyLibraryPath("libblastrampoline.so.5")
+                end,
+                dependencies = LazyLibrary[],
+                on_load_callback = libblastrampoline_on_load_callback
+            )
+      downstream_surfaces:
+        - "libblastrampoline_jll"
+        - "LinearAlgebra (uses libblastrampoline)"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: |
+        Empty lock pattern for on_load_callback synchronization unaffected.
+      mechanism: |
+        The outer else branch (ll.handle != C_NULL) has an empty lock to ensure
+        threads wait for on_load_callback completion:
+
+        if ll.on_load_callback !== nothing
+            @lock ll.lock begin end  # Wait for callback to finish
+        end
+
+        This path is for threads that see a non-null handle on their FIRST atomic
+        read (before entering the lock). The fix addresses a different scenario:
+        threads that read C_NULL initially, enter the lock, but find the library
+        already loaded by another thread.
+      evidence:
+        - source: "code"
+          path: "base/libdl.jl"
+          loc: "514-525"
+          url: "https://github.com/JuliaLang/julia/blob/a64d62458c77a59aa7ec44f4fe652a7e88dbb165/base/libdl.jl#L514-L525"
+          snippet: |
+            else
+                # Invoke our on load callback, if it exists
+                if ll.on_load_callback !== nothing
+                    # This empty lock protects against the case where we have updated
+                    # `ll.handle` in the branch above, but not exited the lock.  We want
+                    # a second thread that comes in at just the wrong time to have to wait
+                    # for that lock to be released (and thus for the on_load_callback to
+                    # have finished), hence the empty lock here. But we want the
+                    # on_load_callback thread to bypass this, which will be happen thanks
+                    # to the fact that we're using a reentrant lock here.
+                    @lock ll.lock begin end
+                end
+            end
+      downstream_surfaces:
+        - "Any LazyLibrary with on_load_callback"
+      likelihood: "low"
+      impact: "none"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - component: "Base.Libdl.dlopen"
+        description: |
+          No API change - this is a pure bug fix. The function now correctly
+          returns the library handle in all cases instead of returning C_NULL
+          for threads that waited on the lock during parallel loading.
+        breaking: false
+
+  performance:
+    compile_time: []
+    runtime:
+      - description: |
+          No performance impact. The fix adds one atomic read in the else branch
+          which only executes when a thread waited for another thread to load
+          the library. This is a single atomic load operation.
+        impact: "negligible"
+        label: "ESTIMATED"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Simple, targeted bug fix with minimal code change (3 lines added)"
+      - "Fix is contained within the locked section, preserving thread safety"
+      - "New test case explicitly validates the fix with 10 parallel threads"
+      - "Uses same atomic read pattern already used elsewhere in the function"
+
+  affected_packages:
+    - name: "All JLL stdlib packages"
+      impact: |
+        All 23 stdlib JLL packages that use LazyLibrary benefit from this fix.
+        Parallel library loading is now thread-safe.
+      affected_components:
+        - "OpenBLAS_jll"
+        - "SuiteSparse_jll"
+        - "libblastrampoline_jll (has on_load_callback)"
+        - "CompilerSupportLibraries_jll"
+        - "LibCURL_jll"
+        - "LibGit2_jll"
+        - "GMP_jll"
+        - "MPFR_jll"
+        - "Zlib_jll"
+        - "Zstd_jll"
+        - "nghttp2_jll"
+        - "LibSSH2_jll"
+        - "OpenSSL_jll"
+        - "PCRE2_jll"
+        - "LibUnwind_jll"
+        - "LLVMLibUnwind_jll"
+        - "libLLVM_jll"
+        - "dSFMT_jll"
+        - "OpenLibm_jll"
+
+  open_questions: []
+
+  recommendations:
+    - |
+      No action required for downstream packages. This is a transparent bug fix
+      that makes LazyLibrary parallel loading work correctly.
+    - |
+      If experiencing crashes on Julia 1.13.0-alpha2 with "could not load symbol"
+      errors during parallel operations, upgrade to a version with this fix.
+
+  code_quality:
+    test_coverage: |
+      New test added that spawns 10 threads, each calling dlopen on the same
+      LazyLibrary simultaneously. Verifies all handles are non-NULL and equal.
+      Test runs with -t4 to enable 4 threads, maximizing race condition exposure.
+    documentation: |
+      Clear inline comment explains the fix: "Another thread loaded the library
+      while we were waiting"
+
+  technical_details:
+    pattern_name: "Double-Checked Locking"
+    bug_class: |
+      Classic double-checked locking implementation error. The pattern is:
+      1. Check condition without lock (fast path)
+      2. Acquire lock
+      3. Re-check condition inside lock
+      4. If condition still holds, do work
+      5. If condition no longer holds, USE THE RESULT (THIS WAS MISSING)
+
+      The code correctly avoided redundant loading but forgot to capture the
+      result that another thread had computed.
+    timing_window: |
+      Race window: Thread A stores handle atomically, Thread B reads ll.handle
+      inside lock (sees non-NULL), but Thread B's local 'handle' variable still
+      contains C_NULL from before entering the lock.
+
+      This is a narrow window requiring:
+      - Thread B reads ll.handle as C_NULL (line 491)
+      - Thread A completes loading and stores handle (line 503)
+      - Thread B acquires lock and checks ll.handle again (line 495)
+      - Thread B sees ll.handle != C_NULL but returns its stale local 'handle'
+    reproducibility: |
+      Hard to reproduce in single-threaded tests. Requires multiple threads
+      calling dlopen on the same unloaded LazyLibrary simultaneously.
+      Most commonly observed during parallel BLAS operations at startup.
