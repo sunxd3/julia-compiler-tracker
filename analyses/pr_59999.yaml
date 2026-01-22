@@ -1,0 +1,326 @@
+schema_version: "1.0"
+
+pr:
+  number: 59999
+  title: "fix: TOML parsing of fractional seconds"
+  url: "https://github.com/JuliaLang/julia/pull/59999"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59999.diff"
+  author: "haakon-e"
+  labels:
+    - "bugfix"
+    - "TOML"
+    - "backport 1.10"
+  merged_at: "2025-10-31T11:22:06Z"
+  merge_commit_sha: "938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b"
+
+scope:
+  files_touched:
+    - "base/toml_parser.jl"
+    - "stdlib/TOML/test/values.jl"
+  components:
+    - "TOML"
+    - "Standard Library"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Fixes a bug where fractional seconds in TOML time values were incorrectly
+      interpreted. The bug caused ".12" to be parsed as 12 milliseconds instead
+      of 120 milliseconds (0.12 seconds = 120ms). The fix properly scales the
+      parsed fractional digits to milliseconds based on the number of digits.
+
+      BEFORE (buggy): "00:00:00.2" -> Time(0, 0, 0, 2)   # 2ms - WRONG
+      AFTER (fixed):  "00:00:00.2" -> Time(0, 0, 0, 200) # 200ms - CORRECT
+
+      This brings TOML parsing in line with ISO 8601 / RFC 3339 standards
+      and matches the behavior of Julia's Dates.Time constructor.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59997"
+
+  direct_changes:
+    - summary: "Fix fractional second to millisecond conversion in _parse_local_time"
+      component: "TOML"
+      evidence:
+        - source: "code"
+          path: "base/toml_parser.jl"
+          loc: "1112-1132"
+          url: "https://github.com/JuliaLang/julia/blob/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/base/toml_parser.jl#L1112-L1132"
+          snippet: |
+            # optional fractional second
+            millisecond = Int64(0)
+            if accept(l, '.')
+                set_marker!(l)
+                found_fractional_digit = false
+                for i in 1:3
+                    found_fractional_digit |= accept(l, isdigit)
+                end
+                if !found_fractional_digit
+                    return ParserError(ErrParsingDateTime)
+                end
+                # DateTime in base only manages 3 significant digits in fractional
+                # second. Interpret parsed digits as fractional seconds and scale to
+                # milliseconds precision (e.g., ".2" => 200ms, ".20" => 200ms).
+                ndigits = l.prevpos - l.marker
+                fractional_second = parse_int(l, false)::Int64
+                millisecond = fractional_second * 10^(3 - ndigits)
+                # Truncate off the rest eventual digits
+                accept_batch(l, isdigit)
+            end
+            return hour, minute, second, millisecond
+
+    - summary: "Rename variable from fractional_second to millisecond for clarity"
+      component: "TOML"
+      evidence:
+        - source: "diff"
+          path: "base/toml_parser.jl"
+          loc: "1113"
+          url: "https://github.com/JuliaLang/julia/blob/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/base/toml_parser.jl#L1113"
+          snippet: |
+            # Before: fractional_second = Int64(0)
+            # After:  millisecond = Int64(0)
+            # The variable now correctly describes its purpose after conversion.
+
+    - summary: "Add scaling formula to convert fractional digits to milliseconds"
+      component: "TOML"
+      evidence:
+        - source: "code"
+          path: "base/toml_parser.jl"
+          loc: "1126-1128"
+          url: "https://github.com/JuliaLang/julia/blob/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/base/toml_parser.jl#L1126-L1128"
+          snippet: |
+            ndigits = l.prevpos - l.marker
+            fractional_second = parse_int(l, false)::Int64
+            millisecond = fractional_second * 10^(3 - ndigits)
+            # Formula: parsed_value * 10^(3 - digit_count)
+            # Examples:
+            #   ".2"   -> 2 * 10^(3-1) = 2 * 100 = 200ms
+            #   ".20"  -> 20 * 10^(3-2) = 20 * 10 = 200ms
+            #   ".02"  -> 2 * 10^(3-2) = 2 * 10 = 20ms
+            #   ".234" -> 234 * 10^(3-3) = 234 * 1 = 234ms
+
+    - summary: "Parser state mechanism for digit counting"
+      component: "TOML"
+      evidence:
+        - source: "code"
+          path: "base/toml_parser.jl"
+          loc: "434, 1115-1118"
+          url: "https://github.com/JuliaLang/julia/blob/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/base/toml_parser.jl#L434"
+          snippet: |
+            # Line 434: marker records start position
+            @inline set_marker!(l::Parser) = l.marker = l.prevpos
+
+            # Lines 1115-1118: set_marker! before accepting digits
+            set_marker!(l)
+            found_fractional_digit = false
+            for i in 1:3
+                found_fractional_digit |= accept(l, isdigit)
+            end
+            # After loop: l.prevpos points past accepted digits
+            # ndigits = l.prevpos - l.marker gives exact digit count
+
+    - summary: "Add test cases for DateTime with various fractional second lengths"
+      component: "TOML Tests"
+      evidence:
+        - source: "code"
+          path: "stdlib/TOML/test/values.jl"
+          loc: "119-121"
+          url: "https://github.com/JuliaLang/julia/blob/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/stdlib/TOML/test/values.jl#L119-L121"
+          snippet: |
+            @test testval("2016-09-09T09:09:09.2"   , DateTime(2016 , 9 , 9 , 9 , 9 , 9  , 200))
+            @test testval("2016-09-09T09:09:09.20"  , DateTime(2016 , 9 , 9 , 9 , 9 , 9  , 200))
+            @test testval("2016-09-09T09:09:09.02"  , DateTime(2016 , 9 , 9 , 9 , 9 , 9  , 20))
+
+    - summary: "Fix existing test and add new test cases for Time values"
+      component: "TOML Tests"
+      evidence:
+        - source: "diff"
+          path: "stdlib/TOML/test/values.jl"
+          loc: "138"
+          url: "https://github.com/JuliaLang/julia/blob/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/stdlib/TOML/test/values.jl#L138"
+          snippet: |
+            # BEFORE (testing buggy behavior):
+            # @test testval("09:09:09.99", Time(9, 9, 9, 99))
+            # AFTER (testing correct behavior):
+            @test testval("09:09:09.99", Time(9, 9, 9, 990))
+            # Note: 0.99 seconds = 990 milliseconds, not 99
+        - source: "code"
+          path: "stdlib/TOML/test/values.jl"
+          loc: "138-143"
+          url: "https://github.com/JuliaLang/julia/blob/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/stdlib/TOML/test/values.jl#L138-L143"
+          snippet: |
+            @test testval("09:09:09.99"    , Time(9 , 9 , 9 , 990))
+            @test testval("09:09:09.99999" , Time(9 , 9 , 9 , 999))
+            @test testval("00:00:00.2"     , Time(0 , 0 , 0 , 200))
+            @test testval("00:00:00.20"    , Time(0 , 0 , 0 , 200))
+            @test testval("00:00:00.23"    , Time(0 , 0 , 0 , 230))
+            @test testval("00:00:00.234"   , Time(0 , 0 , 0 , 234))
+
+  secondary_effects:
+    - effect: "No compiler or inference impact"
+      mechanism: |
+        This change is isolated to the TOML parser in base/toml_parser.jl.
+        The TOML parser is a self-contained module that:
+        - Does not interact with JuliaSyntax (Julia source parsing)
+        - Does not affect JuliaLowering (code lowering)
+        - Does not touch Compiler/ (type inference, optimization)
+        - Does not modify src/ (runtime, codegen)
+        The fix only changes the millisecond value returned from _parse_local_time,
+        which flows to Time/DateTime constructors via try_return_time/try_return_datetime.
+      downstream_surfaces: []
+      likelihood: "none"
+      impact: "none"
+    - effect: "Behavioral change for TOML files with 1-2 digit fractional seconds"
+      mechanism: |
+        Any TOML file containing time values like "00:00:00.2" or "09:09:09.99"
+        will now parse differently:
+        - "00:00:00.2" -> Time(0, 0, 0, 200) instead of Time(0, 0, 0, 2)
+        - "09:09:09.99" -> Time(9, 9, 9, 990) instead of Time(9, 9, 9, 99)
+        This is a bugfix, so the new behavior is correct per RFC 3339/ISO 8601.
+        Code that was working around the bug may need adjustment.
+      downstream_surfaces:
+        - "TOML configuration files with time values"
+        - "Project.toml files (unlikely to have time values)"
+        - "Manifest.toml files (unlikely to have time values)"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - field: "TOML fractional seconds parsing"
+        change: |
+          Fractional seconds are now correctly interpreted as fractions of a second
+          rather than raw millisecond values. This is a BUG FIX but may affect code
+          that was working around the bug.
+        affected_tools:
+          - "Any Julia code parsing TOML files with time values containing 1-2 digit fractional seconds"
+
+  performance:
+    compile_time: []
+    runtime:
+      - impact: "negligible"
+        description: |
+          One additional integer multiplication per time value with fractional seconds.
+          ESTIMATED: <1 nanosecond per time value parsed, completely negligible.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Bugfix that corrects non-standard behavior"
+      - "Matches ISO 8601 / RFC 3339 standards"
+      - "Aligns TOML parsing with Julia's Dates module behavior"
+      - "Backported to 1.10 branch indicating high confidence in the fix"
+      - "Simple, well-understood mathematical formula for conversion"
+
+  downstream_impact:
+    packages: []
+    surfaces:
+      - "TOML file parsing with time values"
+    notes: |
+      This PR has NO impact on downstream compiler tooling packages (JET, IRTools,
+      Enzyme, GPUCompiler, Cassette, etc.) as it only affects TOML parsing in the
+      standard library.
+
+      For general Julia packages that parse TOML files with time values:
+      - If using 3-digit fractional seconds (e.g., ".123"), no change
+      - If using 1-2 digit fractional seconds (e.g., ".2" or ".12"), parsed values will now be correct
+      - Code that was working around the bug may need adjustment
+
+  open_questions: []
+
+  recommendations:
+    - "No action required by compiler tooling maintainers"
+    - "General Julia users benefit from correct TOML time parsing automatically"
+    - "Code that relied on the buggy behavior should be reviewed"
+
+classification:
+  type: "bugfix"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false
+
+changelog:
+  category: "Bugfixes"
+  entry: |
+    Fixed TOML parsing of fractional seconds to correctly interpret digits as
+    fractions of a second. Previously, ".2" was incorrectly parsed as 2ms; now
+    it correctly parses as 200ms (0.2 seconds). This aligns TOML parsing with
+    ISO 8601 / RFC 3339 standards and Julia's Dates module behavior.
+
+call_chain_analysis:
+  entry_points:
+    - function: "_parse_local_time"
+      path: "base/toml_parser.jl"
+      line: 1084
+      url: "https://github.com/JuliaLang/julia/blob/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/base/toml_parser.jl#L1084"
+      callers:
+        - function: "parse_datetime"
+          path: "base/toml_parser.jl"
+          line: 1019
+          url: "https://github.com/JuliaLang/julia/blob/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/base/toml_parser.jl#L1019"
+          context: "h, m, s, ms = @try _parse_local_time(l)"
+        - function: "parse_local_time"
+          path: "base/toml_parser.jl"
+          line: 1065
+          url: "https://github.com/JuliaLang/julia/blob/938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b/base/toml_parser.jl#L1065"
+          context: "_, m, s, ms = @try _parse_local_time(l, true)"
+  upstream_callers:
+    - function: "parse_number_or_date_start"
+      path: "base/toml_parser.jl"
+      line: 807
+      calls_to:
+        - "parse_local_time at line 849 and 874"
+        - "parse_datetime at line 872"
+    - function: "parse_value"
+      path: "base/toml_parser.jl"
+      line: 656
+      calls_to:
+        - "parse_number_or_date_start(l)"
+  flow: |
+    TOML.parse(str)                          [toml_parser.jl:241]
+      -> tryparse(l::Parser)                 [toml_parser.jl:265]
+        -> parse_toplevel(l)                 [toml_parser.jl:440]
+          -> parse_entry(l, d)               [toml_parser.jl:507]
+            -> parse_value(l)                [toml_parser.jl:637]
+              -> parse_number_or_date_start(l)  [toml_parser.jl:807]
+                -> parse_datetime(l)         [toml_parser.jl:979, for date-time strings]
+                  -> _parse_local_time(l)    [toml_parser.jl:1019]
+                OR
+                -> parse_local_time(l)       [toml_parser.jl:1062, for time-only strings]
+                  -> _parse_local_time(l, true)  [toml_parser.jl:1065]
+                    -> FIX APPLIED at lines 1126-1128:
+                       ndigits = l.prevpos - l.marker
+                       fractional_second = parse_int(l, false)::Int64
+                       millisecond = fractional_second * 10^(3 - ndigits)
+
+reviewer_verification:
+  verified_by: "independent_dual_analysis"
+  verification_date: "2026-01-22"
+  verification_notes: |
+    SECOND-PASS INDEPENDENT VERIFICATION:
+
+    Verified the fix by examining at merge commit 938b37db8b560c3fe7004f8da2ba3e1e6ace6b9b:
+    1. Full source of base/toml_parser.jl - confirmed fix at lines 1113-1132
+    2. Test file stdlib/TOML/test/values.jl - confirmed new tests and corrected existing test
+    3. PR archive metadata confirms issue #59997 linked and backport-1.10 label
+    4. Call chain verified via rg search:
+       - _parse_local_time called from line 1019 (parse_datetime) and line 1065 (parse_local_time)
+       - parse_local_time called from lines 849, 874 (parse_number_or_date_start)
+
+    Parser mechanism verified:
+    - set_marker!(l) stores l.prevpos at line 434
+    - For loop accepts up to 3 digits, advancing l.prevpos
+    - ndigits = l.prevpos - l.marker gives exact count of digits parsed
+    - Scaling formula correctly converts fractional seconds to milliseconds
+
+    The fix is mathematically correct:
+    - ".2" = 0.2 seconds = 200 milliseconds = 2 * 10^(3-1) = 2 * 100 = 200
+    - ".02" = 0.02 seconds = 20 milliseconds = 2 * 10^(3-2) = 2 * 10 = 20
+    - ".234" = 0.234 seconds = 234 milliseconds = 234 * 10^(3-3) = 234
+
+    IMPORTANT: Existing test corrected from Time(9,9,9,99) to Time(9,9,9,990)
+    for input "09:09:09.99" - the old test was verifying buggy behavior.
+
+    No compiler impact as this is purely standard library code for TOML parsing.
+    This PR does NOT affect JuliaSyntax, JuliaLowering, Compiler, or interpreter.

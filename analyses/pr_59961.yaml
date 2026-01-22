@@ -1,0 +1,495 @@
+schema_version: "1.0"
+
+pr:
+  number: 59961
+  title: "`map` in `+`/`-` for `Array`s"
+  url: "https://github.com/JuliaLang/julia/pull/59961"
+  author: "jishnub"
+  labels:
+    - "performance"
+    - "arrays"
+    - "latency"
+  created_at: "2025-10-27T12:49:13Z"
+  merged_at: "2025-11-11T06:12:25Z"
+  merge_commit_sha: "b05afe0f259f4830051088630b976e95c9a01ee3"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59961.diff"
+
+scope:
+  files_touched:
+    - "base/arraymath.jl"
+  components:
+    - "Other"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Replaces broadcast-based array arithmetic (+, -, /, \, *) with map-based
+      implementations for concrete Array types to improve runtime performance
+      and reduce compilation latency (TTFX). The key insight is that map uses
+      linear indexing while broadcast uses Cartesian indexing, and linear
+      indexing enables better SIMD vectorization for wide matrices with few rows.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/47873#issuecomment-1352472461"
+    quoted_from_pr: |
+      `map` is a simpler operation and uses linear indexing for `Array`s. This
+      often improves performance (occasionally enabling vectorization) and
+      improves TTFX in common cases. It also automatically returns the correct
+      result for 0-D arrays, unlike broadcasting that returns a scalar.
+
+  direct_changes:
+    - summary: |
+        Introduces new internal function `_broadcast_preserving_zero_d` with
+        specialized methods for Array types that dispatch to `map` instead of
+        `broadcast_preserving_zero_d`.
+      component: "base/arraymath.jl"
+      evidence:
+        - source: "diff"
+          path: "base/arraymath.jl"
+          loc: "5-22"
+          url: "https://github.com/JuliaLang/julia/blob/b05afe0f259f4830051088630b976e95c9a01ee3/base/arraymath.jl#L5-L22"
+          snippet: |
+            function _broadcast_preserving_zero_d(f, A, B)
+                broadcast_preserving_zero_d(f, A, B)
+            end
+
+            # Using map over broadcast enables vectorization for wide matrices with few rows.
+            # This is because we use linear indexing in `map` as opposed to Cartesian indexing in broadcasting.
+            # https://github.com/JuliaLang/julia/issues/47873#issuecomment-1352472461
+            function _broadcast_preserving_zero_d(f, A::Array, B::Array)
+                map(f, A, B)
+            end
+
+            function _broadcast_preserving_zero_d(f, A::Array, B::Number)
+                map(Fix2(f, B), A)
+            end
+
+            function _broadcast_preserving_zero_d(f, A::Number, B::Array)
+                map(Fix1(f, A), B)
+            end
+
+    - summary: |
+        Updates binary arithmetic operators (+, -) for AbstractArray pairs to use
+        `_broadcast_preserving_zero_d` instead of direct `broadcast_preserving_zero_d`.
+      component: "base/arraymath.jl"
+      evidence:
+        - source: "diff"
+          path: "base/arraymath.jl"
+          loc: "24-29"
+          url: "https://github.com/JuliaLang/julia/blob/b05afe0f259f4830051088630b976e95c9a01ee3/base/arraymath.jl#L24-L29"
+          snippet: |
+            for f in (:+, :-)
+                @eval function ($f)(A::AbstractArray, B::AbstractArray)
+                    promote_shape(A, B) # check size compatibility
+                    _broadcast_preserving_zero_d($f, A, B)
+                end
+            end
+
+    - summary: |
+        Updates variadic Array addition to use `map` directly instead of
+        `broadcast_preserving_zero_d`.
+      component: "base/arraymath.jl"
+      evidence:
+        - source: "diff"
+          path: "base/arraymath.jl"
+          loc: "31-36"
+          url: "https://github.com/JuliaLang/julia/blob/b05afe0f259f4830051088630b976e95c9a01ee3/base/arraymath.jl#L31-L36"
+          snippet: |
+            function +(A::Array, Bs::Array...)
+                for B in Bs
+                    promote_shape(A, B) # check size compatibility
+                end
+                map(+, A, Bs...)
+            end
+
+    - summary: |
+        Updates scalar-array multiplication and division operators to use
+        `_broadcast_preserving_zero_d`.
+      component: "base/arraymath.jl"
+      evidence:
+        - source: "diff"
+          path: "base/arraymath.jl"
+          loc: "38-45"
+          url: "https://github.com/JuliaLang/julia/blob/b05afe0f259f4830051088630b976e95c9a01ee3/base/arraymath.jl#L38-L45"
+          snippet: |
+            for f in (:/, :\, :*)
+                if f !== :/
+                    @eval ($f)(A::Number, B::AbstractArray) = _broadcast_preserving_zero_d($f, A, B)
+                end
+                if f !== :\
+                    @eval ($f)(A::AbstractArray, B::Number) = _broadcast_preserving_zero_d($f, A, B)
+                end
+            end
+
+  secondary_effects:
+    - effect: |
+        REGRESSION: Arrays with different ndims but compatible shapes produce
+        different output shapes. This was fixed in follow-up PR #60164.
+      mechanism: |
+        ROOT CAUSE: When `map(f, A, B)` is called on arrays with different ndims,
+        the shape information is lost due to how IteratorSize combines HasShape types.
+
+        Complete call chain with root cause:
+          map(+, ones(1), ones(1,1,1)) [abstractarray.jl:3390]
+            -> Generator(+, ones(1), ones(1,1,1)) [generator.jl:37]
+            -> Generator(a->+(a...), zip(ones(1), ones(1,1,1))) [generator.jl:37]
+
+        IteratorSize determination:
+          IteratorSize(Generator{Zip{...}}) [generator.jl:101]
+            -> IteratorSize(Zip{...}) [iterators.jl:460]
+            -> zip_iteratorsize(HasShape{1}(), HasShape{3}()) [iterators.jl:465]
+            -> and_iteratorsize(HasShape{1}(), HasShape{3}()) [iterators.jl:74]
+            -> SizeUnknown()  # CRITICAL: different HasShape{N} types fall through to default!
+
+        The key issue is in and_iteratorsize [iterators.jl:71-74]:
+          and_iteratorsize(isz::T, ::T) where {T} = isz      # same type -> return it
+          and_iteratorsize(::HasLength, ::HasShape) = HasLength()
+          and_iteratorsize(::HasShape, ::HasLength) = HasLength()
+          and_iteratorsize(a, b) = SizeUnknown()             # different types -> SizeUnknown!
+
+        HasShape{1}() and HasShape{3}() are different parametric types, so they fall
+        through to the `SizeUnknown()` fallback.
+
+        When collect_similar sees SizeUnknown:
+          _similar_shape(itr, ::SizeUnknown) = nothing [array.jl:687]
+            -> shape info is discarded
+          _collect with SizeUnknown grows array dynamically [array.jl:768-774]
+            -> result is 1-dimensional Vector
+      downstream_surfaces:
+        - "Any code relying on A + B preserving higher-dimensional shape"
+        - "Numerical computing packages working with mixed-dimension arrays"
+        - "Code mixing row vectors (1xN) with column vectors (Nx1)"
+      likelihood: "high"
+      impact: "high"
+      evidence:
+        - source: "diff"
+          path: "base/iterators.jl"
+          loc: "71-74"
+          url: "https://github.com/JuliaLang/julia/blob/b05afe0f259f4830051088630b976e95c9a01ee3/base/iterators.jl#L71-L74"
+          snippet: |
+            and_iteratorsize(isz::T, ::T) where {T} = isz
+            and_iteratorsize(::HasLength, ::HasShape) = HasLength()
+            and_iteratorsize(::HasShape, ::HasLength) = HasLength()
+            and_iteratorsize(a, b) = SizeUnknown()
+        - source: "diff"
+          path: "base/generator.jl"
+          loc: "37"
+          url: "https://github.com/JuliaLang/julia/blob/b05afe0f259f4830051088630b976e95c9a01ee3/base/generator.jl#L37"
+          snippet: |
+            Generator(f, I1, I2, Is...) = Generator(a->f(a...), zip(I1, I2, Is...))
+        - source: "issue"
+          path: "PR #60164"
+          url: "https://github.com/JuliaLang/julia/pull/60164"
+          snippet: |
+            This was broken in https://github.com/JuliaLang/julia/pull/59961, as
+            `map` deals with trailing singleton axes differently from broadcasting:
+            julia> map(+, ones(1), ones(1,1)) |> size
+            (1,)
+            julia> broadcast(+, ones(1), ones(1,1)) |> size
+            (1, 1)
+
+    - effect: |
+        Changed code generation and optimization paths for array arithmetic from
+        broadcast machinery to simpler map iteration with linear indexing.
+      mechanism: |
+        The broadcast machinery in Julia involves complex lazy evaluation:
+          broadcast_preserving_zero_d(f, As...) [broadcast.jl:880]
+            -> bc = broadcasted(f, As...) - creates lazy Broadcasted object
+            -> r = materialize(bc) - realizes the broadcast
+            -> copyto! with CartesianIndices iteration
+
+        The new map path is simpler and uses linear indexing:
+          map(f, A::AbstractArray) [abstractarray.jl:3390]
+            -> collect_similar(A, Generator(f,A))
+          For 2-arg map:
+            map(f, A, B) [generator.jl:37]
+            -> Generator(a->f(a...), zip(A, B))
+            -> uses eachindex which returns LinearIndices for Array
+
+        Key function for linear indexing [abstractarray.jl:394]:
+          eachindex(::IndexLinear, A::Union{Array, Memory}) = unchecked_oneto(length(A))
+
+        Linear indexing produces contiguous memory access patterns that LLVM can
+        vectorize more easily than Cartesian indexing.
+      downstream_surfaces:
+        - "LLVM optimization passes"
+        - "SIMD vectorization"
+        - "CPU cache utilization"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "diff"
+          path: "base/abstractarray.jl"
+          loc: "394"
+          url: "https://github.com/JuliaLang/julia/blob/b05afe0f259f4830051088630b976e95c9a01ee3/base/abstractarray.jl#L394"
+          snippet: |
+            eachindex(::IndexLinear, A::Union{Array, Memory}) = unchecked_oneto(length(A))
+        - source: "diff"
+          path: "base/broadcast.jl"
+          loc: "880-884"
+          url: "https://github.com/JuliaLang/julia/blob/b05afe0f259f4830051088630b976e95c9a01ee3/base/broadcast.jl#L880-L884"
+          snippet: |
+            @inline function broadcast_preserving_zero_d(f, As...)
+                bc = broadcasted(f, As...)
+                r = materialize(bc)
+                return length(axes(bc)) == 0 ? fill!(similar(bc, typeof(r)), r) : r
+            end
+
+    - effect: |
+        Uses Fix1/Fix2 partial application for scalar-array operations instead of
+        creating anonymous closures.
+      mechanism: |
+        Fix1 and Fix2 are concrete struct types that hold the function and fixed
+        argument, avoiding closure allocation:
+
+        struct Fix{N,F,T} <: Function [operators.jl:1181]
+            f::F
+            x::T
+        end
+
+        For `A::Array * B::Number`:
+          _broadcast_preserving_zero_d(*, A, B) [arraymath.jl:43]
+            -> map(Fix2(*, B), A) [arraymath.jl:17]
+
+        This creates a concrete Fix{2,typeof(*),typeof(B)} object which the
+        compiler can specialize on, rather than a closure type.
+      downstream_surfaces:
+        - "Type inference for array-scalar operations"
+        - "Method specialization"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "diff"
+          path: "base/operators.jl"
+          loc: "1181-1192"
+          url: "https://github.com/JuliaLang/julia/blob/b05afe0f259f4830051088630b976e95c9a01ee3/base/operators.jl#L1181-L1192"
+          snippet: |
+            struct Fix{N,F,T} <: Function
+                f::F
+                x::T
+
+                function Fix{N}(f::F, x) where {N,F}
+                    if !(N isa Int)
+                        throw(ArgumentError(LazyString("expected type parameter in `Fix` to be `Int`, but got `", N, "::", typeof(N), "`")))
+                    elseif N < 1
+                        throw(ArgumentError(LazyString("expected `N` in `Fix{N}` to be integer greater than 0, but got ", N)))
+                    end
+                    new{N,_stable_typeof(f),_stable_typeof(x)}(f, x)
+                end
+            end
+
+    - effect: |
+        IMPROVEMENT: 0-dimensional array operations now correctly return 0-D arrays
+        instead of scalars (which was the behavior with broadcast).
+      mechanism: |
+        The PR description explicitly mentions: "map...automatically returns the
+        correct result for 0-D arrays, unlike broadcasting that returns a scalar."
+
+        For 0-D arrays:
+          map(f, fill(x)) returns fill(f(x))  # preserves 0-D container
+          broadcast(f, fill(x)) returns f(x)  # extracts scalar
+
+        This affects operations like:
+          fill(1) + fill(2) == fill(3)  # now correctly returns 0-D Array
+          fill(1) + fill(2) isa AbstractArray{Int, 0}  # true
+
+        Existing test coverage confirms this behavior [test/arrayops.jl:3200-3214]:
+          @testset "0-dimensional container operations"
+      downstream_surfaces:
+        - "Code working with 0-dimensional arrays"
+        - "Broadcasting semantics for scalar containers"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "test"
+          path: "test/arrayops.jl"
+          loc: "3200-3214"
+          url: "https://github.com/JuliaLang/julia/blob/b05afe0f259f4830051088630b976e95c9a01ee3/test/arrayops.jl#L3200-L3214"
+          snippet: |
+            @testset "0-dimensional container operations" begin
+                for op in (-, conj, real, imag)
+                    @test op(fill(2)) == fill(op(2))
+                    @test op(fill(1+2im)) == fill(op(1+2im))
+                end
+                for op in (+, -)
+                    @test op(fill(1), fill(2)) == fill(op(1, 2))
+                    @test op(fill(1), fill(2)) isa AbstractArray{Int, 0}
+                end
+                @test fill(1) + fill(2) + fill(3) == fill(1+2+3)
+                @test fill(1) / 2 == fill(1/2)
+                @test 2 \ fill(1) == fill(1/2)
+                @test 2*fill(1) == fill(2)
+                @test fill(1)*2 == fill(2)
+            end
+
+  compatibility:
+    public_api:
+      - summary: |
+          No public API changes. The exported operators (+, -, *, /, \) maintain
+          their documented behavior for AbstractArray types.
+        evidence:
+          - source: "diff"
+            path: "base/arraymath.jl"
+            snippet: |
+              The function signatures remain unchanged:
+              +(A::AbstractArray, B::AbstractArray)
+              -(A::AbstractArray, B::AbstractArray)
+              *(A::Number, B::AbstractArray)
+              etc.
+
+    internal_api:
+      - summary: |
+          Introduces new internal function `_broadcast_preserving_zero_d` which
+          is not exported and should not be relied upon by external packages.
+        evidence:
+          - source: "diff"
+            path: "base/arraymath.jl"
+            loc: "5"
+            snippet: |
+              function _broadcast_preserving_zero_d(f, A, B)
+      - summary: |
+          Dates stdlib directly uses Broadcast.broadcast_preserving_zero_d for
+          Period types - this is NOT affected by this PR since the PR only
+          specializes for Array types.
+        evidence:
+          - source: "diff"
+            path: "stdlib/Dates/src/periods.jl"
+            loc: "93-94"
+            url: "https://github.com/JuliaLang/julia/blob/b05afe0f259f4830051088630b976e95c9a01ee3/stdlib/Dates/src/periods.jl#L93-L94"
+            snippet: |
+              (*)(A::Period, B::AbstractArray) = Broadcast.broadcast_preserving_zero_d(*, A, B)
+              (*)(A::AbstractArray, B::Period) = Broadcast.broadcast_preserving_zero_d(*, A, B)
+
+    behavioral:
+      - summary: |
+          REGRESSION: Arrays with different ndims but compatible shapes may produce
+          different output shapes than before. Fixed in PR #60164 (commit ee6bb20b).
+        evidence:
+          - source: "issue"
+            path: "PR #60164"
+            url: "https://github.com/JuliaLang/julia/pull/60164"
+            snippet: |
+              map(+, ones(1), ones(1,1)) |> size  # (1,) instead of (1,1)
+      - summary: |
+          IMPROVEMENT: 0-dimensional arrays now correctly preserve their container
+          type through arithmetic operations, whereas before broadcast could
+          unwrap them to scalars.
+        evidence:
+          - source: "test"
+            path: "test/arrayops.jl"
+            loc: "3206-3207"
+            snippet: |
+              @test op(fill(1), fill(2)) == fill(op(1, 2))
+              @test op(fill(1), fill(2)) isa AbstractArray{Int, 0}
+
+  performance:
+    compile_time:
+      - summary: |
+          MEASURED: ~58% reduction in time-to-first-execution (TTFX) for basic
+          array addition. From 0.174s to 0.073s for 3x3 matrix addition.
+        evidence:
+          - source: "discussion"
+            path: "PR body"
+            url: "https://github.com/JuliaLang/julia/pull/59961"
+            snippet: |
+              TTFX:
+              julia> A = ones(3,3);
+              julia> @time A + A;
+                0.174090 seconds (303.47 k allocations: 14.575 MiB, 99.98% compilation time) # v"1.13.0-DEV.1387"
+                0.072748 seconds (220.27 k allocations: 11.139 MiB, 99.95% compilation time) # this PR
+
+      - summary: |
+          MEASURED: ~27% reduction in allocations during first compilation
+          (303k -> 220k allocations).
+        evidence:
+          - source: "discussion"
+            path: "PR body"
+            url: "https://github.com/JuliaLang/julia/pull/59961"
+            snippet: |
+              303.47 k allocations -> 220.27 k allocations
+
+    runtime:
+      - summary: |
+          MEASURED: ~35% speedup for small matrix addition (3x3).
+          From 44.6ns to 29.0ns.
+        evidence:
+          - source: "discussion"
+            path: "PR body"
+            url: "https://github.com/JuliaLang/julia/pull/59961"
+            snippet: |
+              julia> A = ones(3,3);
+              julia> @btime $A + $A;
+                44.622 ns (2 allocations: 144 bytes) # v"1.13.0-DEV.1387"
+                29.047 ns (2 allocations: 144 bytes) # this PR
+
+      - summary: |
+          MEASURED: ~52% speedup for wide matrices (3x3000) enabling SIMD
+          vectorization. From 10.1us to 4.8us.
+        evidence:
+          - source: "discussion"
+            path: "PR body"
+            url: "https://github.com/JuliaLang/julia/pull/59961"
+            snippet: |
+              julia> A = ones(3,3000);
+              julia> @btime $A + $A;
+                10.095 us (3 allocations: 70.40 KiB) # v"1.13.0-DEV.1387"
+                4.787 us (3 allocations: 70.40 KiB) # this PR
+
+      - summary: |
+          MEASURED: ~31% speedup for chained operations on large matrices
+          (200x200, 6 arrays). From 93.9us to 64.8us.
+        evidence:
+          - source: "discussion"
+            path: "PR body"
+            url: "https://github.com/JuliaLang/julia/pull/59961"
+            snippet: |
+              julia> @btime A + B + C + D + E + F setup=(A = rand(200,200); ...)
+                93.910 us (3 allocations: 312.59 KiB) # v"1.13.0-DEV.1387"
+                64.813 us (9 allocations: 312.77 KiB) # this PR
+
+    memory:
+      - summary: |
+          Slightly more allocations for chained operations (3 -> 9 allocations)
+          due to intermediate arrays not being fused like with broadcast. However,
+          overall memory usage is similar and performance is still faster.
+        evidence:
+          - source: "discussion"
+            path: "PR body"
+            url: "https://github.com/JuliaLang/julia/pull/59961"
+            snippet: |
+              93.910 us (3 allocations: 312.59 KiB) # before
+              64.813 us (9 allocations: 312.77 KiB) # after
+
+  tests:
+    changed_files: []
+    new_behavior_assertions:
+      - "0-D array operations tested in test/arrayops.jl:3200-3214 verify correct behavior"
+    coverage_gaps:
+      - "No tests added for the new _broadcast_preserving_zero_d function"
+      - "No tests for arrays with different ndims - this led to regression fixed in PR #60164"
+      - "No regression tests for scalar-array operations with Fix1/Fix2"
+      - "No tests for Generator/Zip IteratorSize interaction with different HasShape types"
+
+  risk:
+    level: "medium"
+    rationale:
+      - "Performance-focused change affecting fundamental array operations"
+      - "Introduced regression for mixed-ndims arrays (fixed in follow-up PR #60164)"
+      - "No new tests added to catch edge cases"
+      - "Change is limited to concrete Array type, AbstractArray still uses broadcast"
+      - "Well-understood transformation (map vs broadcast) with predictable behavior"
+      - "0-D array behavior improved but could affect code relying on scalar extraction"
+
+  open_questions:
+    - "Why was the variadic `+(A::Array, Bs::Array...)` changed to use `map` directly instead of `_broadcast_preserving_zero_d`?"
+    - "Should similar optimizations be applied to other AbstractArray subtypes that support efficient linear indexing (e.g., StridedArray)?"
+    - "Are there other cases where map and broadcast differ that weren't caught besides the ndims issue?"
+    - "Should and_iteratorsize be enhanced to handle HasShape{N} types more gracefully?"
+
+  recommendations:
+    - "Ensure PR #60164 (commit ee6bb20b) is also applied to handle mixed-ndims arrays correctly"
+    - "Consider adding comprehensive tests for edge cases (0-D arrays, 1-D vs 2-D, different ndims with same length)"
+    - "Document the performance characteristics of map vs broadcast for array operations"
+    - "Downstream packages relying on shape preservation should verify behavior after upgrading"
+    - "GPU array packages (CUDA.jl, GPUArrays.jl) should verify their array arithmetic still works correctly as they may have their own specializations"
+    - "Consider adding a test for the Generator/Zip/IteratorSize interaction to prevent future regressions"

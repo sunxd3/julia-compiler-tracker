@@ -1,0 +1,325 @@
+schema_version: "1.0"
+pr:
+  number: 60290
+  title: "bootstrap: remove duplicated constructor definition warning"
+  url: "https://github.com/JuliaLang/julia/pull/60290"
+  author: "aviatesk"
+  labels: []
+  merged_at: "2025-12-02T00:33:54Z"
+  merge_commit_sha: "649b6a3f715fc985e3089aded92e32f2c1ee4040"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60290.diff"
+scope:
+  files_touched:
+    - "base/boot.jl"
+  components:
+    - "Bootstrap"
+    - "Core"
+  pipeline_stages:
+    - "TypeInference"
+analysis:
+  intent:
+    summary: "Remove duplicate constructor definition warnings during Julia bootstrap by moving constructor definitions from the eval(Core, quote ...) block to inline struct definitions for inference lattice types."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/60269"
+    quoted_from_pr: |
+      By defining Julia level constructor function definitions for types that
+      are moved from jltypes.c in #60269.
+    context: |
+      PR #60269 (by Keno) moved these inference lattice types from C (jltypes.c) to Julia (boot.jl)
+      with the rationale: "As a general rule, we should only define things in jltypes that cannot
+      be expressed in ordinary julia code." The types need to be in Core because codegen looks at
+      them and they are used in the global code cache, but they can be expressed in Julia.
+
+      However, PR #60269 only defined the struct layouts, leaving constructors in the eval block.
+      This created duplicate constructor warnings during bootstrap. PR #60290 completes the migration
+      by moving constructors inline with the struct definitions.
+  direct_changes:
+    - summary: "Moved Const constructor from eval(Core, quote ...) to inline struct definition."
+      component: "base/boot.jl"
+      evidence:
+        - source: "diff"
+          path: "base/boot.jl"
+          loc: "520-523"
+          url: "https://github.com/JuliaLang/julia/blob/649b6a3f715fc985e3089aded92e32f2c1ee4040/base/boot.jl#L520-L523"
+          snippet: |
+            struct Const
+                val
+                Const(@nospecialize(v)) = new(v)
+            end
+    - summary: "Moved PartialStruct internal constructor (_PartialStruct) to inline struct definition AND added type annotation for undefs field."
+      component: "base/boot.jl"
+      structural_change: true
+      evidence:
+        - source: "diff"
+          path: "base/boot.jl"
+          loc: "525-533"
+          url: "https://github.com/JuliaLang/julia/blob/649b6a3f715fc985e3089aded92e32f2c1ee4040/base/boot.jl#L525-L533"
+          snippet: |
+            struct PartialStruct
+                typ
+                undefs::Array{Union{Nothing,Bool}, 1}
+                fields::Array{Any, 1}
+                # N.B. The constructor for this struct is intentionally not defined here.
+                # It is defined in coreir.jl along with some validation logic.
+                global _PartialStruct
+                _PartialStruct(@nospecialize(typ), undef::Array{Union{Nothing,Bool}, 1}, fields::Array{Any, 1}) = new(typ, undef, fields)
+            end
+        - source: "diff_comparison"
+          path: "base/boot.jl"
+          note: "Before (PR #60269) vs After (PR #60290)"
+          snippet: |
+            # PR #60269 defined:
+            struct PartialStruct
+                typ
+                undefs           # <-- untyped (::Any)
+                fields::Array{Any, 1}
+            end
+
+            # PR #60290 changed to:
+            struct PartialStruct
+                typ
+                undefs::Array{Union{Nothing,Bool}, 1}  # <-- NOW TYPED
+                fields::Array{Any, 1}
+                ...
+            end
+    - summary: "Moved InterConditional constructor from eval(Core, quote ...) to inline struct definition."
+      component: "base/boot.jl"
+      evidence:
+        - source: "diff"
+          path: "base/boot.jl"
+          loc: "535-540"
+          url: "https://github.com/JuliaLang/julia/blob/649b6a3f715fc985e3089aded92e32f2c1ee4040/base/boot.jl#L535-L540"
+          snippet: |
+            struct InterConditional
+                slot::Int
+                thentype
+                elsetype
+                InterConditional(slot::Int, @nospecialize(thentype), @nospecialize(elsetype)) = new(slot, thentype, elsetype)
+            end
+    - summary: "Moved PartialOpaque constructor from eval(Core, quote ...) to inline struct definition."
+      component: "base/boot.jl"
+      evidence:
+        - source: "diff"
+          path: "base/boot.jl"
+          loc: "542-548"
+          url: "https://github.com/JuliaLang/julia/blob/649b6a3f715fc985e3089aded92e32f2c1ee4040/base/boot.jl#L542-L548"
+          snippet: |
+            struct PartialOpaque
+                typ::Type
+                env
+                parent::MethodInstance
+                source
+                PartialOpaque(@nospecialize(typ::Type), @nospecialize(env), parent::MethodInstance, source) = new(typ, env, parent, source)
+            end
+    - summary: "Removed duplicate constructor definitions from eval(Core, quote ...) block."
+      component: "base/boot.jl"
+      evidence:
+        - source: "diff"
+          path: "base/boot.jl"
+          loc: "573-577"
+          url: "https://github.com/JuliaLang/julia/blob/649b6a3f715fc985e3089aded92e32f2c1ee4040/base/boot.jl#L573-L577"
+          snippet: |
+            # These lines were REMOVED from the eval(Core, quote ...) block:
+            # Const(@nospecialize(v)) = $(Expr(:new, :Const, :v))
+            # _PartialStruct(@nospecialize(typ), undef, fields::Array{Any, 1}) = $(Expr(:new, :PartialStruct, :typ, :undef, :fields))
+            # PartialOpaque(@nospecialize(typ), @nospecialize(env), parent::MethodInstance, source) = $(Expr(:new, :PartialOpaque, :typ, :env, :parent, :source))
+            # InterConditional(slot::Int, @nospecialize(thentype), @nospecialize(elsetype)) = $(Expr(:new, :InterConditional, :slot, :thentype, :elsetype))
+  secondary_effects:
+    - effect: "Type annotation added to PartialStruct.undefs field provides better type stability for field access."
+      mechanism: |
+        Before PR 60269: undefs was defined in C (jltypes.c) with type jl_any_type
+        After PR 60269: undefs was untyped in Julia (::Any)
+        After PR 60290: undefs::Array{Union{Nothing,Bool}, 1} (explicit type annotation)
+
+        The Compiler uses a workaround function _getundefs() because direct field access
+        would return Any without the type annotation:
+
+        Call chain:
+          (x::PartialStruct).undefs  [direct access]
+            -> getfield(x, :undefs)  [lowered form]
+            -> return type: Any (without annotation) or Array{Union{Nothing,Bool},1} (with annotation)
+
+        Workaround in Compiler/src/typelattice.jl:789-791:
+          # a special getter for `PartialStruct` to achieve better type stability:
+          # `(x::PartialStruct).undefs` will be lowered to `getfield(x, :undefs)::Any` otherwise
+          _getundefs(p::PartialStruct) = Base.getproperty(p, :undefs)
+
+        The Base.getproperty override in base/coreir.jl:97-99 adds type assertion:
+          function Base.getproperty(pstruct::Core.PartialStruct, name::Symbol)
+              name === :undefs && return getfield(pstruct, :undefs)::Vector{Union{Nothing,Bool}}
+              return getfield(pstruct, name)
+          end
+
+        With the struct type annotation, getfield(x, :undefs) is now typed correctly,
+        though the workarounds remain for compatibility.
+      downstream_surfaces:
+        - "Compiler type inference on PartialStruct.undefs access"
+        - "Type stability in coreir.jl and typelattice.jl PartialStruct helpers"
+      likelihood: "medium"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/typelattice.jl"
+          loc: "789-791"
+          url: "https://github.com/JuliaLang/julia/blob/649b6a3f715fc985e3089aded92e32f2c1ee4040/Compiler/src/typelattice.jl#L789-L791"
+          snippet: |
+            # a special getter for `PartialStruct` to achieve better type stability:
+            # `(x::PartialStruct).undefs` will be lowered to `getfield(x, :undefs)::Any` otherwise
+            _getundefs(p::PartialStruct) = Base.getproperty(p, :undefs)
+        - source: "code"
+          path: "base/coreir.jl"
+          loc: "97-99"
+          url: "https://github.com/JuliaLang/julia/blob/649b6a3f715fc985e3089aded92e32f2c1ee4040/base/coreir.jl#L97-L99"
+          snippet: |
+            function Base.getproperty(pstruct::Core.PartialStruct, name::Symbol)
+                name === :undefs && return getfield(pstruct, :undefs)::Vector{Union{Nothing,Bool}}
+                return getfield(pstruct, name)
+            end
+        - source: "code"
+          path: "Compiler/src/typelattice.jl"
+          loc: "7-9"
+          url: "https://github.com/JuliaLang/julia/blob/649b6a3f715fc985e3089aded92e32f2c1ee4040/Compiler/src/typelattice.jl#L7-L9"
+          note: "These types are imported from Core because they need to be usable in the global code cache"
+          snippet: |
+            # N.B.: Const/PartialStruct/InterConditional are defined in Core, to allow them to be used
+            # inside the global code cache.
+            import Core: Const, InterConditional, PartialStruct
+    - effect: "Eliminates bootstrap warning messages about duplicate constructor definitions."
+      mechanism: |
+        Prior to this PR, the inference lattice types (Const, PartialStruct, InterConditional, PartialOpaque)
+        were defined as structs in boot.jl (from PR #60269), but their constructors were still defined
+        later in the eval(Core, quote ...) block using Expr(:new, ...).
+
+        This caused the Julia compiler to emit warnings during bootstrap about duplicate method definitions
+        since the default constructor was being overwritten by an explicitly defined one with the same signature.
+
+        Moving the constructors inline with the struct definitions eliminates this duplication.
+      downstream_surfaces:
+        - "Bootstrap log output (cleaner, no warnings)"
+      likelihood: "high"
+      impact: "low"
+    - effect: "_PartialStruct constructor parameter type tightened from Any to typed array."
+      mechanism: |
+        The internal _PartialStruct constructor signature changed:
+
+        Before (in eval block):
+          _PartialStruct(@nospecialize(typ), undef, fields::Array{Any, 1})
+          # undef parameter had no type constraint
+
+        After (inline):
+          _PartialStruct(@nospecialize(typ), undef::Array{Union{Nothing,Bool}, 1}, fields::Array{Any, 1})
+          # undef parameter now has explicit type constraint
+
+        This tighter signature provides better error messages at construction time if
+        an incorrect type is passed for the undef argument.
+      downstream_surfaces:
+        - "Error reporting when constructing PartialStruct with wrong undefs type"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/coreir.jl"
+          loc: "50-65"
+          url: "https://github.com/JuliaLang/julia/blob/649b6a3f715fc985e3089aded92e32f2c1ee4040/base/coreir.jl#L50-L65"
+          snippet: |
+            function Core.PartialStruct(typ::Type, undefs::Vector{Union{Nothing,Bool}}, fields::Vector{Any})
+                fldcnt = fieldcount_noerror(typ)
+                if fldcnt !== nothing
+                    @assert fldcnt == length(fields)
+                else
+                    @assert typ <: Tuple && isvarargtype(fields[end])
+                    @assert datatype_min_ninitialized(typ) == length(fields) - 1
+                    @assert undefs[end] === nothing
+                end
+                @assert length(fields) == length(undefs)
+                for i = 1:length(fields)
+                    if fields[i] === Union{}
+                        @assert undefs[i] === true "`Union{}` typed field should be strictly undefined"
+                    end
+                end
+                return Core._PartialStruct(typ, undefs, fields)
+            end
+  compatibility:
+    internal_api:
+      - summary: "No API changes for Const, InterConditional, PartialOpaque - constructor signatures remain identical."
+        evidence:
+          - source: "diff"
+            path: "base/boot.jl"
+            loc: "522"
+            url: "https://github.com/JuliaLang/julia/blob/649b6a3f715fc985e3089aded92e32f2c1ee4040/base/boot.jl#L522"
+            snippet: |
+              # Before (in eval block): Const(@nospecialize(v)) = $(Expr(:new, :Const, :v))
+              # After (inline):         Const(@nospecialize(v)) = new(v)
+              # Semantically identical
+      - summary: "_PartialStruct internal constructor has tighter type constraint on undef parameter."
+        field_change: "_PartialStruct undef parameter: Any -> Array{Union{Nothing,Bool}, 1}"
+        breaking: false
+        rationale: "All callers already pass correctly typed arrays; this just adds compile-time validation."
+    behavioral:
+      - summary: "No behavioral changes - the constructors produce identical results."
+        evidence:
+          - source: "code"
+            path: "base/boot.jl"
+            loc: "519-548"
+            url: "https://github.com/JuliaLang/julia/blob/649b6a3f715fc985e3089aded92e32f2c1ee4040/base/boot.jl#L519-L548"
+            snippet: |
+              # All constructors use new(...) with the same field order and types
+              # Const(@nospecialize(v)) = new(v)
+              # _PartialStruct(@nospecialize(typ), undef::Array{Union{Nothing,Bool}, 1}, fields::Array{Any, 1}) = new(typ, undef, fields)
+              # InterConditional(slot::Int, @nospecialize(thentype), @nospecialize(elsetype)) = new(slot, thentype, elsetype)
+              # PartialOpaque(@nospecialize(typ::Type), @nospecialize(env), parent::MethodInstance, source) = new(typ, env, parent, source)
+  performance:
+    compile_time:
+      - summary: "ESTIMATED: Negligible impact. Eliminates one redundant method definition per type during bootstrap, marginally faster bootstrap."
+    runtime:
+      - summary: "No runtime impact - constructor behavior is unchanged."
+      - summary: "ESTIMATED: Potential minor improvement in type inference for PartialStruct.undefs access due to field type annotation, but likely negligible since existing workarounds already provide type stability."
+  tests:
+    changed_files: []
+    new_behavior_assertions: []
+    coverage_gaps:
+      - "No explicit tests for the bootstrap warning - the change is verified by visual inspection of bootstrap output."
+      - "No tests specifically exercising _PartialStruct type checking."
+  risk:
+    level: "low"
+    rationale:
+      - "Primarily refactoring moving constructor definitions from one location to another."
+      - "Constructor signatures and behavior are semantically identical."
+      - "The only observable change is elimination of bootstrap warnings."
+      - "Types affected (Const, PartialStruct, InterConditional, PartialOpaque) are internal compiler lattice elements."
+      - "The structural type change on PartialStruct.undefs matches what was already in coreir.jl."
+  open_questions: []
+  recommendations:
+    - "No action required by downstream packages - this is an internal refactoring with no API or behavioral changes."
+    - "The _getundefs workaround in typelattice.jl could potentially be simplified now that undefs has a type annotation, but this is a minor cleanup opportunity, not a requirement."
+downstream_package_impact:
+  enzyme:
+    affected: false
+    rationale: "Enzyme uses compiled code paths; inference lattice type constructors are not part of its API surface."
+  gpucompiler:
+    affected: false
+    rationale: "GPUCompiler does not directly construct inference lattice types."
+  jet:
+    affected: false
+    rationale: |
+      JET reads inference results but does not construct Const/PartialStruct/etc directly
+      from boot.jl definitions. JET imports these types from Core.Compiler and uses them
+      for lattice operations, which are unaffected by this PR.
+  irtools:
+    affected: false
+    rationale: "IRTools operates on lowered IR, not inference lattice types."
+  cassette:
+    affected: false
+    rationale: "Cassette's overdubbing mechanism does not depend on inference lattice type construction."
+reviewer_notes:
+  independent_verification: |
+    Verified by checking out merge commit 649b6a3f715fc985e3089aded92e32f2c1ee4040 and examining:
+    1. Full context of base/boot.jl lines 500-600
+    2. Compiler/src/typelattice.jl for _getundefs usage
+    3. base/coreir.jl for Base.getproperty override
+    4. All callers of _PartialStruct via rg search
+    5. Parent PR #60269 context from pr-archive
+  additional_findings:
+    - "The type annotation change on undefs is more significant than the constructor move, as it affects the struct layout type information"
+    - "_getundefs is called 15 times in the Compiler, showing widespread use of the type stability workaround"
+    - "PartialStruct is documented extensively in base/coreir.jl with 40+ lines of docstring explaining the undefs semantics"

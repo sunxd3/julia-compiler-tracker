@@ -1,0 +1,534 @@
+schema_version: "1.0"
+
+pr:
+  number: 60130
+  title: "Fix overflow in complex //"
+  url: "https://github.com/JuliaLang/julia/pull/60130"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60130.diff"
+  author: "nhz2"
+  labels:
+    - "rationals"
+    - "complex"
+    - "bugfix"
+    - "minor change"
+  merged_at: "2025-11-22T00:13:30Z"
+  merge_commit_sha: "e95afe8820d129ee44926ddc38d29c8e2b4c0054"
+
+scope:
+  files_touched:
+    - "base/rational.jl"
+    - "test/rational.jl"
+  components:
+    - "Base"
+    - "Rationals"
+    - "Complex"
+  pipeline_stages:
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Fixes silent integer overflow bugs in complex rational division (`//`) that could
+      produce incorrect results. The original implementation used a naive formula
+      `//(x::Number, y::Complex) = x*conj(y)//abs2(y)` which overflows on intermediate
+      calculations even when the final result would fit.
+
+      The new implementation uses GCD reduction on the divisor's real and imaginary parts
+      before computing cross products, along with checked arithmetic to detect any
+      remaining overflow. This prevents incorrect results while improving performance
+      by reducing the magnitude of intermediate values.
+
+      Also fixes issue #60137 by making `//(::AbstractFloat, ::Complex)` throw
+      MethodError instead of silently failing.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/53435"
+      - "https://github.com/JuliaLang/julia/issues/60137"
+      - "https://github.com/JuliaLang/julia/issues/56245"
+
+  direct_changes:
+    - summary: "Add _complex_exact_inv helper for general Complex numbers"
+      component: "Base.Rationals"
+      evidence:
+        - source: "code"
+          path: "base/rational.jl"
+          loc: "111-119"
+          url: "https://github.com/JuliaLang/julia/blob/e95afe8820d129ee44926ddc38d29c8e2b4c0054/base/rational.jl#L111-L119"
+          snippet: |
+            function _complex_exact_inv(y::Complex)
+                c, d = reim(y)
+                num = if (isinf(c) | isinf(d))
+                    conj(zero(y))
+                else
+                    conj(y)
+                end
+                num, abs2(y)
+            end
+
+    - summary: "Add _complex_exact_inv specialization for Complex{<:Integer} with GCD reduction"
+      component: "Base.Rationals"
+      evidence:
+        - source: "code"
+          path: "base/rational.jl"
+          loc: "120-126"
+          url: "https://github.com/JuliaLang/julia/blob/e95afe8820d129ee44926ddc38d29c8e2b4c0054/base/rational.jl#L120-L126"
+          snippet: |
+            function _complex_exact_inv(y::Complex{<:Integer})
+                c, d = reim(y)
+                c_r, d_r = divgcd(c, d)
+                abs2y_r = checked_add(checked_mul(c, c_r), checked_mul(d, d_r))
+                num = complex(c_r, checked_neg(d_r))
+                num, abs2y_r
+            end
+
+    - summary: "Replace naive //(Number, Complex) with helper-based implementation"
+      component: "Base.Rationals"
+      evidence:
+        - source: "code_change"
+          path: "base/rational.jl"
+          loc: "128-131"
+          url: "https://github.com/JuliaLang/julia/blob/e95afe8820d129ee44926ddc38d29c8e2b4c0054/base/rational.jl#L128-L131"
+          before: |
+            //(x::Number, y::Complex) = x*conj(y)//abs2(y)
+          after: |
+            function //(x::Number, y::Complex)
+                num, den = _complex_exact_inv(y)
+                (x * num) // den
+            end
+
+    - summary: "Add specialized //(Integer, Complex{<:Integer}) method"
+      component: "Base.Rationals"
+      evidence:
+        - source: "code"
+          path: "base/rational.jl"
+          loc: "132-134"
+          url: "https://github.com/JuliaLang/julia/blob/e95afe8820d129ee44926ddc38d29c8e2b4c0054/base/rational.jl#L132-L134"
+          snippet: |
+            function //(x::Integer, y::Complex{<:Integer})
+                complex(x) // y
+            end
+
+    - summary: "Add optimized //(Complex{<:Integer}, Complex{<:Integer}) with GCD reduction"
+      component: "Base.Rationals"
+      evidence:
+        - source: "code"
+          path: "base/rational.jl"
+          loc: "135-143"
+          url: "https://github.com/JuliaLang/julia/blob/e95afe8820d129ee44926ddc38d29c8e2b4c0054/base/rational.jl#L135-L143"
+          snippet: |
+            function //(x::Complex{<:Integer}, y::Complex{<:Integer})
+                a, b, c, d = promote(reim(x)..., reim(y)...)
+                c_r, d_r = divgcd(c, d)
+                abs2y_r = checked_add(checked_mul(c, c_r), checked_mul(d, d_r))
+                complex(
+                    checked_add(checked_mul(a, c_r), checked_mul(b, d_r)),
+                    checked_add(checked_mul(b, c_r), checked_neg(checked_mul(a, d_r)))
+                )//abs2y_r
+            end
+
+    - summary: "Add tests for DivideError on complex zero division"
+      component: "Test"
+      evidence:
+        - source: "test"
+          path: "test/rational.jl"
+          loc: "218-222"
+          url: "https://github.com/JuliaLang/julia/blob/e95afe8820d129ee44926ddc38d29c8e2b4c0054/test/rational.jl#L218-L222"
+          snippet: |
+            @test_throws DivideError complex(1//0) // complex(1//0, 1//0)
+            @test_throws DivideError 1 // complex(0, 0)
+            @test_throws DivideError 0 // complex(0, 0)
+            @test_throws DivideError complex(1) // complex(0, 0)
+            @test_throws DivideError complex(0) // complex(0, 0)
+
+    - summary: "Add tests for OverflowError detection in complex integer division"
+      component: "Test"
+      evidence:
+        - source: "test"
+          path: "test/rational.jl"
+          loc: "226-228"
+          url: "https://github.com/JuliaLang/julia/blob/e95afe8820d129ee44926ddc38d29c8e2b4c0054/test/rational.jl#L226-L228"
+          snippet: |
+            @test_throws OverflowError (Int8(1)//Int8(1)) // (Int8(100) + Int8(100)im)
+            @test_throws OverflowError Int8(1) // (Int8(100) + Int8(100)im)
+            @test_throws OverflowError complex(Int8(1)) // (Int8(100) + Int8(100)im)
+
+    - summary: "Add tests for exact division by infinite complex numbers"
+      component: "Test"
+      evidence:
+        - source: "test"
+          path: "test/rational.jl"
+          loc: "254-261"
+          url: "https://github.com/JuliaLang/julia/blob/e95afe8820d129ee44926ddc38d29c8e2b4c0054/test/rational.jl#L254-L261"
+          snippet: |
+            @testset "exact division by an infinite complex number" begin
+                for y in (1 // 0, -1 // 0)
+                    @test (7 // complex(y)) == 0
+                    @test (Rational(7) // complex(y)) == 0
+                    @test (complex(7) // complex(y)) == 0
+                    @test (complex(Rational(7)) // complex(y)) == 0
+                end
+            end
+
+    - summary: "Add tests for MethodError on float // complex (issue #60137)"
+      component: "Test"
+      evidence:
+        - source: "test"
+          path: "test/rational.jl"
+          loc: "645-647"
+          url: "https://github.com/JuliaLang/julia/blob/e95afe8820d129ee44926ddc38d29c8e2b4c0054/test/rational.jl#L645-L647"
+          snippet: |
+            # issue #60137
+            @test_throws MethodError 3.0 // (1 + 0im)
+            @test_throws MethodError 3.0 // (1//0 + 0im)
+
+  algorithm_analysis:
+    old_algorithm:
+      description: |
+        The original one-liner directly computed:
+          x // (c + d*im) = x * conj(c + d*im) // abs2(c + d*im)
+                         = x * (c - d*im) // (c^2 + d^2)
+
+        For Complex{Int8} with c=-42, d=63:
+          c^2 = 1764 (overflows Int8 max 127)
+          d^2 = 3969 (overflows Int8 max 127)
+          c * d = -2646 (overflows)
+
+        These intermediate overflows caused wrong results without any error.
+
+    new_algorithm:
+      description: |
+        The new implementation uses GCD reduction before computing products:
+          g = gcd(|c|, |d|)
+          c_r = c / g   (reduced real part)
+          d_r = d / g   (reduced imaginary part)
+          abs2y_r = c * c_r + d * d_r = (c^2 + d^2) / g
+
+        For c=-42, d=63, g=21:
+          c_r = -2, d_r = 3
+          abs2y_r = (-42)*(-2) + 63*3 = 84 + 189 = 273
+
+        For numerator with a=-128, b=-81:
+          real_num = a*c_r + b*d_r = (-128)*(-2) + (-81)*3 = 256 - 243 = 13
+          imag_num = b*c_r - a*d_r = (-81)*(-2) - (-128)*3 = 162 + 384 = 546
+
+        Result: (13 + 546*im) // 273 = 13//273 + 546//273*im = 13//273 + 2//1*im
+
+        All intermediate values use checked arithmetic (checked_mul, checked_add,
+        checked_neg) to throw OverflowError if overflow still occurs after reduction.
+
+    complexity: |
+      O(log(min(|c|, |d|))) additional work for GCD computation via Euclidean algorithm.
+      Trade-off: slight computational overhead for correctness guarantee.
+
+  secondary_effects:
+    - effect: "Potential new OverflowErrors in previously silent code"
+      mechanism: |
+        Code that previously computed wrong results silently will now throw
+        OverflowError if intermediate values overflow even after GCD reduction.
+        Example: (Int8(-128) + Int8(-81)im) // (Int8(-42) + Int8(63)im)
+        Previously returned wrong result, now throws OverflowError.
+      downstream_surfaces:
+        - "User code relying on complex rational division with small integer types"
+        - "Numeric libraries using Complex{Int8}, Complex{Int16}, etc."
+      likelihood: "low"
+      impact: "medium"
+
+    - effect: "New MethodError for floating-point division to complex"
+      mechanism: |
+        The //(::Number, ::Complex) method previously accepted any Number including
+        AbstractFloat. The new specialized methods for Integer and Complex{<:Integer}
+        leave only the generic _complex_exact_inv path which doesn't handle floats.
+        3.0 // (1 + 0im) now throws MethodError instead of computing a result.
+      downstream_surfaces:
+        - "Code accidentally mixing float and complex in // operations"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Performance improvement for complex integer division"
+      mechanism: |
+        GCD reduction decreases intermediate value magnitudes, reducing the chance
+        of promotion to larger integer types. Benchmarks from PR:
+        - Integer // Complex{Integer}: 59.158 ns -> 15.447 ns (3.8x faster)
+        - Integer // Complex{Integer}: 16.122 ns -> 12.720 ns (1.3x faster)
+      downstream_surfaces:
+        - "Numeric computation using complex rationals"
+        - "Symbolic algebra packages"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Division by infinite complex numbers now returns zero"
+      mechanism: |
+        _complex_exact_inv checks isinf(c) | isinf(d) and returns conj(zero(y))
+        for the numerator, making x // complex(Inf) = 0 for any finite x.
+        This matches mathematical expectations for limits.
+      downstream_surfaces:
+        - "Code working with complex infinity values"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "OverflowError on checked_neg when divisor imaginary part is typemin"
+      mechanism: |
+        In _complex_exact_inv(y::Complex{<:Integer}), the line:
+          num = complex(c_r, checked_neg(d_r))
+        will throw OverflowError if d_r equals typemin(T).
+
+        This occurs when the divisor y has:
+        - imaginary part d = typemin(T) (e.g., Int8(-128))
+        - real part c coprime to |d| (e.g., any odd integer)
+
+        Example triggering case:
+          1 // complex(Int8(1), Int8(-128))
+          -> c=1, d=-128, g=gcd(1,128)=1
+          -> c_r=1, d_r=-128
+          -> checked_neg(-128) throws OverflowError
+
+        This is intentional - the correct result cannot be represented in the
+        input type without overflow, so throwing is correct behavior.
+      downstream_surfaces:
+        - "Code using typemin values in complex denominators"
+      likelihood: "very low"
+      impact: "low"
+
+    - effect: "Complex{Rational} uses generic path without GCD optimization"
+      mechanism: |
+        The type dispatch hierarchy is:
+          //(x::Complex{<:Integer}, y::Complex{<:Integer}) - optimized GCD path
+          //(x::Number, y::Complex) - generic path via _complex_exact_inv
+
+        Since Rational <: Real and NOT Rational <: Integer, the division:
+          complex(1//2, 1//3) // complex(1//4, 1//5)
+        dispatches to the generic //(Number, Complex) method.
+
+        This means Complex{Rational} division:
+        - Does NOT get the GCD reduction optimization
+        - Uses the generic _complex_exact_inv which returns (conj(y), abs2(y))
+        - Still produces correct results via the Rational constructor's own GCD
+
+        This is acceptable since Rational already handles overflow via checked
+        arithmetic in its constructor, and the element type is already exact.
+      downstream_surfaces:
+        - "Code using Complex{Rational} types"
+      likelihood: "medium"
+      impact: "none (correctness preserved)"
+
+  gcd_reduction_analysis:
+    description: |
+      The key insight is computing (c^2 + d^2) as c*(c/g) + d*(d/g) where g = gcd(c,d).
+      This factorization maintains exactness while reducing intermediate magnitudes.
+    mathematical_proof: |
+      Let g = gcd(c, d), c_r = c/g, d_r = d/g
+      Then: c * c_r + d * d_r = c * (c/g) + d * (d/g)
+                              = (c^2 + d^2) / g
+                              = abs2(y) / g
+
+      For the full division (a+bi)/(c+di):
+        = (a+bi)(c-di) / (c^2 + d^2)
+        = ((ac+bd) + (bc-ad)i) / (c^2 + d^2)
+
+      Using reduced values:
+        = ((a*c_r + b*d_r) + (b*c_r - a*d_r)i) * g / (c^2 + d^2)
+        = ((a*c_r + b*d_r) + (b*c_r - a*d_r)i) / ((c^2 + d^2)/g)
+        = ((a*c_r + b*d_r) + (b*c_r - a*d_r)i) / abs2y_r
+
+      The numerator products are smaller since c_r, d_r <= c, d.
+
+  checked_arithmetic_chain:
+    description: |
+      The implementation uses Base.Checked arithmetic throughout:
+    call_chain: |
+      //(x::Complex{<:Integer}, y::Complex{<:Integer}) [rational.jl:135]
+        -> promote(reim(x)..., reim(y)...) [promotes to common type]
+        -> divgcd(c, d) [rational.jl:59]
+          -> gcd(uabs(c), uabs(d)) [intfuncs.jl:53, reduces by GCD]
+          -> div(c, g), div(d, g) [exact integer division]
+        -> checked_mul(c, c_r) [checked.jl:295]
+          -> mul_with_overflow(x, y) [throws on overflow]
+        -> checked_mul(d, d_r)
+        -> checked_add(c*c_r, d*d_r) [checked.jl:173]
+          -> add_with_overflow(x, y) [throws on overflow]
+        -> checked_mul(a, c_r), checked_mul(b, d_r)
+        -> checked_add(...) [real part of numerator]
+        -> checked_mul(b, c_r), checked_mul(a, d_r)
+        -> checked_neg(a*d_r) [checked.jl:95]
+          -> checked_sub(T(0), x) [throws on typemin overflow]
+        -> checked_add(...) [imaginary part of numerator]
+        -> complex(real_num, imag_num) // abs2y_r
+          -> Rational constructor [rational.jl:31] with final GCD reduction
+
+    _complex_exact_inv_call_chain: |
+      _complex_exact_inv(y::Complex{<:Integer}) [rational.jl:120]
+        -> reim(y) [extracts real and imaginary parts]
+        -> divgcd(c, d) [rational.jl:59]
+          -> gcd(uabs(c), uabs(d)) [uses unsigned abs for safety]
+        -> checked_mul(c, c_r), checked_mul(d, d_r)
+        -> checked_add(...) [computes abs2y_r = (c^2+d^2)/gcd]
+        -> checked_neg(d_r) [checked.jl:95]
+          -> OVERFLOW if d_r == typemin(T) (e.g., Int8(-128))
+        -> returns (complex(c_r, -d_r), abs2y_r)
+
+  compatibility:
+    internal_api:
+      - field: "//(::Number, ::Complex) method signature"
+        change: "Now dispatches to _complex_exact_inv helper; behavior unchanged for valid inputs"
+        affected_tools: []
+
+      - field: "//(::AbstractFloat, ::Complex)"
+        change: "Now throws MethodError instead of computing (potentially wrong) result"
+        affected_tools:
+          - "Any code accidentally using float // complex syntax"
+
+    behavioral:
+      - change: "Complex integer division may throw OverflowError where it silently gave wrong result"
+        description: |
+          Code like (Int8(-128) + Int8(-81)im) // (Int8(-42) + Int8(63)im) previously
+          returned an incorrect result silently. Now throws OverflowError because
+          intermediate values overflow even after GCD reduction.
+        migration: "Use wider integer types (Int32, Int64) or BigInt for complex rationals"
+
+      - change: "Division by infinite complex numbers returns zero"
+        description: |
+          7 // complex(1//0) now returns 0 (correctly representing limit behavior)
+          rather than NaN or error.
+        migration: "No migration needed; this is mathematically correct behavior"
+
+  performance:
+    compile_time: []
+    runtime:
+      - description: |
+          MEASURED (from PR benchmarks):
+          - Integer // Complex{Integer}: 59.158 ns -> 15.447 ns (3.8x improvement)
+          - Integer // Complex{Integer} (simpler case): 16.122 ns -> 12.720 ns (1.3x improvement)
+
+          The speedup comes from GCD reduction keeping intermediate values smaller,
+          which avoids unnecessary promotion to larger integer types and reduces
+          the work in final GCD normalization of the Rational constructor.
+
+          Additional O(log(min(|c|,|d|))) GCD computation is more than offset by
+          smaller intermediate value handling.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Bug fix that makes previously incorrect code throw errors instead of returning wrong results"
+      - "No changes to type system, dispatch rules, or internal compiler APIs"
+      - "Performance improves on benchmarks (3.8x faster in some cases)"
+      - "Comprehensive test coverage added for edge cases"
+      - "Labels include 'bugfix' and 'minor change', indicating low risk"
+      - "Changes are localized to rational.jl with no ripple effects into compiler internals"
+
+  open_questions:
+    - question: |
+        Could the GCD reduction path still overflow for pathological inputs?
+      context: |
+        While the implementation uses checked arithmetic, there might be edge cases
+        where abs2y_r computation (c*c_r + d*d_r) still overflows even after reduction.
+        For example, if gcd(c,d)=1, no reduction occurs and c^2+d^2 may still overflow.
+        The tests confirm OverflowError is thrown, which is the intended behavior.
+
+    - question: |
+        Should there be a fallback to BigInt for automatic precision extension?
+      context: |
+        The current behavior throws OverflowError when intermediate values overflow.
+        An alternative design could automatically promote to BigInt to guarantee
+        a result. This would match the philosophy of // always giving exact results.
+
+    - question: |
+        Is the typemin overflow in checked_neg(d_r) intentional or a gap?
+      context: |
+        When dividing by complex(1, typemin(Int8)), the code computes:
+          d_r = div(typemin(Int8), gcd(1, 128)) = -128
+          checked_neg(-128) -> OverflowError
+
+        This could arguably be avoided by computing -d_r differently:
+          complex(c_r, flipsign(d_r, -1))  # or using a wider intermediate type
+
+        However, the OverflowError is arguably correct: the conjugate of
+        complex(1, -128) is complex(1, 128), which cannot be represented as
+        Complex{Int8} since 128 > typemax(Int8).
+
+        REVIEWER NOTE: This is correct behavior - the result type cannot represent
+        the intermediate conjugate value, so throwing is appropriate.
+
+    - question: |
+        Should Complex{Rational} get the GCD optimization?
+      context: |
+        Currently Complex{Rational} dispatches to the generic //(Number, Complex)
+        method and does not benefit from the GCD reduction in _complex_exact_inv.
+
+        Since Rational already uses GCD normalization internally, this is unlikely
+        to cause performance issues. However, a specialized method could potentially
+        avoid some redundant GCD computations.
+
+        REVIEWER NOTE: Not a bug - the Rational constructor handles normalization,
+        and adding complexity for marginal gains is not worth it.
+
+  recommendations:
+    - "This is a straightforward bugfix with improved performance - low risk for downstream"
+    - "Packages using Complex{Int8} or Complex{Int16} for rational division should verify their code still works, though incorrect results are now properly detected"
+    - "The MethodError for float // complex is intentional and aligns with // semantics (exact division only)"
+    - "Performance improvement is a nice bonus; no action needed from users"
+
+downstream_impact:
+  summary: |
+    This PR fixes a correctness bug in complex rational division. The main impact
+    is that code which previously produced wrong results silently will now throw
+    OverflowError. This is the correct behavior - detecting the error is better
+    than returning wrong results.
+
+    No compiler internals, type inference, or optimization passes are affected.
+    This is purely a Base library bugfix in the rationals/complex arithmetic code.
+
+  affected_packages:
+    - package: "General Julia users"
+      impact: "Positive - complex rational division now correct"
+      notes: "Code using small integer types (Int8, Int16) may see new OverflowErrors for previously-buggy computations"
+
+  migration_required: false
+  migration_notes:
+    - "If you encounter new OverflowErrors in complex // operations, use wider integer types (Int64, BigInt)"
+    - "If you relied on float // complex working (incorrectly), switch to using / or convert to Rational first"
+
+reviewer_notes:
+  initial_review:
+    reviewed_by: "First analyst"
+    review_date: "2026-01-22"
+    validation:
+      - "Verified algorithm correctness by tracing GCD reduction mathematics"
+      - "Confirmed checked arithmetic usage throughout implementation"
+      - "Verified test coverage for overflow, divide-by-zero, and infinite cases"
+      - "Confirmed performance claims from PR benchmarks"
+
+  secondary_review:
+    reviewed_by: "Independent reviewer"
+    review_date: "2026-01-22"
+    methodology: |
+      1. Checked out PR merge commit e95afe8820d129ee44926ddc38d29c8e2b4c0054
+      2. Read full source files (not just diffs) in base/rational.jl
+      3. Traced function call chains using grep/rg searches
+      4. Verified line numbers against actual file contents
+      5. Analyzed edge cases for checked arithmetic overflow
+      6. Reviewed test coverage for boundary conditions
+    corrections:
+      - "Fixed line number references (off by 1-2 in original analysis)"
+      - "Corrected test line references for infinite division tests (254-261, not 251-258)"
+      - "Updated checked arithmetic call chain with accurate file:line references"
+    additions:
+      - "Identified typemin overflow edge case in checked_neg(d_r)"
+      - "Documented Complex{Rational} dispatch behavior (uses generic path)"
+      - "Added detailed call chain for _complex_exact_inv function"
+      - "Expanded open questions with analysis of edge case correctness"
+    validation:
+      - "Confirmed mathematical proof of GCD reduction is correct"
+      - "Verified divgcd uses gcd(uabs(c), uabs(d)) for safe unsigned GCD"
+      - "Traced checked_neg -> checked_sub(T(0), x) overflow path"
+      - "Confirmed gcd(typemin(T), typemin(T)) throws OverflowError in intfuncs.jl:56-58"
+      - "Verified Bool <: Integer so Complex{Bool} uses Integer specialization (safe)"
+      - "Confirmed no NaN handling needed since Rationals cannot represent NaN"
+    test_coverage_gaps:
+      - "No explicit test for typemin imaginary part (e.g., 1 // complex(1, typemin(Int8)))"
+      - "No test for Complex{Bool} edge cases (though safe due to Bool value range)"
+    risk_assessment: |
+      CONFIRMED LOW RISK. The analysis correctly identifies this as a straightforward
+      bugfix with no compiler internals impact. The new OverflowErrors are intentional
+      and represent correct detection of previously-silent bugs. The typemin edge case
+      I identified is also correct behavior - throwing when the result type cannot
+      represent intermediate values.

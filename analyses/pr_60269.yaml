@@ -1,0 +1,326 @@
+schema_version: "1.0"
+pr:
+  number: 60269
+  title: "Define inference lattice types in boot.jl rather than jltypes"
+  url: "https://github.com/JuliaLang/julia/pull/60269"
+  author: "Keno"
+  labels: []
+  merged_at: "2025-11-28T18:31:29Z"
+  merge_commit_sha: "3e68422eb7732ece516de02e1278804c7ea57396"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60269.diff"
+
+scope:
+  files_touched:
+    - "base/boot.jl"
+    - "src/builtins.c"
+    - "src/jltypes.c"
+  components:
+    - "Core"
+    - "RuntimeTypes"
+  pipeline_stages:
+    - "TypeInference"
+    - "Codegen"
+
+analysis:
+  intent:
+    summary: |
+      Refactors inference lattice type definitions from C (jltypes.c) to Julia (boot.jl).
+      The PR moves Const, PartialStruct, InterConditional, and PartialOpaque type definitions
+      from C initialization code to ordinary Julia struct definitions. This is a code organization
+      change following the principle that "we should only define things in jltypes that cannot
+      be expressed in ordinary julia code."
+
+      The PR description notes: "They need to be in core (at the moment) because codegen looks
+      at them, but there is no reason to define them in jltypes.c."
+    issue_links: []
+
+  direct_changes:
+    - summary: "Added Julia struct definitions for inference lattice types in boot.jl"
+      component: "Core"
+      evidence:
+        - source: "code"
+          path: "base/boot.jl"
+          loc: "519-541"
+          url: "https://github.com/JuliaLang/julia/blob/3e68422eb7732ece516de02e1278804c7ea57396/base/boot.jl#L519-L541"
+          snippet: |
+            # inference lattice element types (moved from jltypes.c)
+            struct Const
+                val
+            end
+
+            struct PartialStruct
+                typ
+                undefs
+                fields::Array{Any, 1}
+            end
+
+            struct InterConditional
+                slot::Int
+                thentype
+                elsetype
+            end
+
+            struct PartialOpaque
+                typ::Type
+                env
+                parent::MethodInstance
+                source
+            end
+
+    - summary: "Added constructors for these types using Expr(:new, ...) in boot.jl"
+      component: "Core"
+      evidence:
+        - source: "code"
+          path: "base/boot.jl"
+          loc: "569-572"
+          url: "https://github.com/JuliaLang/julia/blob/3e68422eb7732ece516de02e1278804c7ea57396/base/boot.jl#L569-L572"
+          snippet: |
+            Const(@nospecialize(v)) = $(Expr(:new, :Const, :v))
+            _PartialStruct(@nospecialize(typ), undef, fields::Array{Any, 1}) = $(Expr(:new, :PartialStruct, :typ, :undef, :fields))
+            PartialOpaque(@nospecialize(typ), @nospecialize(env), parent::MethodInstance, source) = $(Expr(:new, :PartialOpaque, :typ, :env, :parent, :source))
+            InterConditional(slot::Int, @nospecialize(thentype), @nospecialize(elsetype)) = $(Expr(:new, :InterConditional, :slot, :thentype, :elsetype))
+
+    - summary: "Removed C jl_new_datatype() calls for these types from jl_init_types()"
+      component: "RuntimeTypes"
+      evidence:
+        - source: "diff"
+          path: "src/jltypes.c"
+          loc: "3727-3743 (removed)"
+          url: "https://github.com/JuliaLang/julia/pull/60269/files#diff-src-jltypes-c"
+          snippet: |
+            # REMOVED from jl_init_types():
+            jl_const_type = jl_new_datatype(jl_symbol("Const"), core, jl_any_type, jl_emptysvec,
+                                               jl_perm_symsvec(1, "val"),
+                                               jl_svec1(jl_any_type),
+                                               jl_emptysvec, 0, 0, 1);
+
+            jl_partial_struct_type = jl_new_datatype(jl_symbol("PartialStruct"), core, jl_any_type, jl_emptysvec,
+                                               jl_perm_symsvec(3, "typ", "undefs", "fields"),
+                                               jl_svec(3, jl_any_type, jl_any_type, jl_array_any_type),
+                                               jl_emptysvec, 0, 0, 3);
+
+            jl_interconditional_type = jl_new_datatype(jl_symbol("InterConditional"), core, jl_any_type, jl_emptysvec,
+                                              jl_perm_symsvec(3, "slot", "thentype", "elsetype"),
+                                              jl_svec(3, jl_long_type, jl_any_type, jl_any_type),
+                                              jl_emptysvec, 0, 0, 3);
+
+            jl_partial_opaque_type = jl_new_datatype(jl_symbol("PartialOpaque"), core, jl_any_type, jl_emptysvec,
+                jl_perm_symsvec(4, "typ", "env", "parent", "source"),
+                jl_svec(4, jl_type_type, jl_any_type, jl_method_instance_type, jl_any_type),
+                jl_emptysvec, 0, 0, 4);
+
+    - summary: "Added lookups for these types in post_boot_hooks() instead"
+      component: "RuntimeTypes"
+      evidence:
+        - source: "code"
+          path: "src/jltypes.c"
+          loc: "3977-3980"
+          url: "https://github.com/JuliaLang/julia/blob/3e68422eb7732ece516de02e1278804c7ea57396/src/jltypes.c#L3977-L3980"
+          snippet: |
+            jl_const_type = (jl_datatype_t*)core("Const");
+            jl_partial_struct_type = (jl_datatype_t*)core("PartialStruct");
+            jl_interconditional_type = (jl_datatype_t*)core("InterConditional");
+            jl_partial_opaque_type = (jl_datatype_t*)core("PartialOpaque");
+
+    - summary: "Removed add_builtin() calls for these types from jl_init_primitives()"
+      component: "RuntimeTypes"
+      evidence:
+        - source: "diff"
+          path: "src/builtins.c"
+          loc: "2611-2614 (removed)"
+          url: "https://github.com/JuliaLang/julia/pull/60269/files#diff-src-builtins-c"
+          snippet: |
+            # REMOVED from jl_init_primitives():
+            add_builtin("Const", (jl_value_t*)jl_const_type);
+            add_builtin("PartialStruct", (jl_value_t*)jl_partial_struct_type);
+            add_builtin("PartialOpaque", (jl_value_t*)jl_partial_opaque_type);
+            add_builtin("InterConditional", (jl_value_t*)jl_interconditional_type);
+
+  secondary_effects:
+    - effect: "No functional change to type inference behavior"
+      mechanism: |
+        The types retain identical structure and semantics. The change only affects
+        how they are initialized during Julia startup:
+
+        BEFORE:
+          jl_init_types() [src/jltypes.c:3100+]
+            -> jl_new_datatype("Const", ...) creates type in C
+            -> assigns to jl_const_type global
+          jl_init_primitives() [src/builtins.c:2611]
+            -> add_builtin("Const", jl_const_type) registers in Core module
+
+        AFTER:
+          boot.jl evaluation [base/boot.jl:519-541]
+            -> struct Const ... end creates type via normal Julia compilation
+          post_boot_hooks() [src/jltypes.c:3977-3980]
+            -> jl_const_type = core("Const") looks up the already-created type
+      downstream_surfaces:
+        - "None - purely internal change"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Type definitions are now visible in boot.jl source"
+      mechanism: |
+        The struct definitions are now plain Julia code in boot.jl, making them more
+        readable and maintainable. This follows the principle that Julia code should
+        be defined in Julia where possible.
+      downstream_surfaces:
+        - "Documentation/code readability"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "C globals are exported but not actively used in C/C++ code"
+      mechanism: |
+        Independent analysis confirms the C globals (jl_const_type, jl_partial_struct_type,
+        jl_interconditional_type, jl_partial_opaque_type) are:
+
+        1. Declared in src/jl_exported_data.inc:
+           XX(const_type, jl_datatype_t*)
+           XX(interconditional_type, jl_datatype_t*)
+           XX(partial_opaque_type, jl_datatype_t*)
+           XX(partial_struct_type, jl_datatype_t*)
+
+        2. Initialized in post_boot_hooks() after boot.jl evaluation
+
+        3. NOT used anywhere else in the C/C++ codebase beyond initialization
+
+        The PR description states "codegen looks at them" but search reveals no actual
+        usage in src/*.cpp files. These globals exist primarily for:
+        - Maintaining the exported C API surface
+        - Potential use by external tools via cglobal
+        - Future extensibility
+      downstream_surfaces:
+        - "External C extensions that might reference these type globals"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Additional constructors and documentation exist in base/coreir.jl"
+      mechanism: |
+        The base/coreir.jl file provides complementary functionality not shown in boot.jl:
+
+        1. Documentation strings for each type [base/coreir.jl:5-47]
+        2. Additional PartialStruct constructors with validation [base/coreir.jl:50-73]
+        3. Equality operator for PartialStruct [base/coreir.jl:95]
+        4. Custom getproperty for type stability [base/coreir.jl:97-100]
+        5. Additional InterConditional constructor taking SlotNumber [base/coreir.jl:115-116]
+
+        These are NOT affected by the PR - they existed before and continue to work
+        because they reference Core.Const, Core.PartialStruct, etc. which remain in Core.
+      downstream_surfaces:
+        - "None - complementary code unchanged"
+      likelihood: "low"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "jl_const_type, jl_partial_struct_type, jl_interconditional_type, jl_partial_opaque_type"
+        change: "Now initialized in post_boot_hooks() instead of jl_init_types()"
+        affected_tools: []
+        notes: |
+          These C globals are still exported via JL_EXPORTED_DATA_POINTERS in jl_exported_data.inc.
+          They remain accessible at the same memory locations after initialization completes.
+          No change to the exported API.
+
+          IMPORTANT: If C extensions access these globals, they must be accessed AFTER
+          post_boot_hooks() completes. During early initialization (before boot.jl runs),
+          these pointers will be NULL.
+
+      - field: "Core.Const, Core.PartialStruct, Core.InterConditional, Core.PartialOpaque"
+        change: "Type definitions moved from C to Julia"
+        affected_tools:
+          - tool: "Compiler module"
+            usage: |
+              Imports these types in Compiler/src/typelattice.jl:9:
+                import Core: Const, InterConditional, PartialStruct
+              Also imports PartialOpaque in Compiler/src/Compiler.jl:40-41:
+                using Core: ... PartialOpaque, ...
+          - tool: "JET.jl"
+            usage: "May use Core.Const for type inference results display"
+          - tool: "REPL completions"
+            usage: |
+              stdlib/REPL/src/REPLCompletions.jl:1260 checks Core.Const:
+                isa(objt, Core.Const) || return nothing
+        notes: |
+          The Julia-level API is unchanged. These types are still exported from Core
+          and can be used identically by downstream code.
+
+          The reason these must stay in Core is documented in Compiler/src/typelattice.jl:7-8:
+            "N.B.: Const/PartialStruct/InterConditional are defined in Core, to allow them
+            to be used inside the global code cache."
+
+    behavioral:
+      - impact_item: "No behavioral changes"
+        notes: |
+          This is a refactoring change with no observable behavior difference.
+          The types have the same fields, same names, same module (Core).
+
+          Field layouts verified identical:
+          - Const: 1 field (val::Any)
+          - PartialStruct: 3 fields (typ::Any, undefs::Any, fields::Array{Any,1})
+          - InterConditional: 3 fields (slot::Int, thentype::Any, elsetype::Any)
+          - PartialOpaque: 4 fields (typ::Type, env::Any, parent::MethodInstance, source::Any)
+
+  performance:
+    compile_time:
+      - impact_item: "Negligible change to startup time"
+        notes: |
+          ESTIMATED: <1ms difference in startup time.
+          The boot.jl struct definitions are compiled during Julia bootstrap,
+          replacing C type construction that happened earlier in initialization.
+          No measurable impact on typical usage.
+
+    runtime:
+      - impact_item: "No runtime impact"
+        notes: |
+          The types are structurally identical before and after this change.
+          Type checks, field access, and all operations are unchanged.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure refactoring with no semantic changes"
+      - "Types maintain identical field layouts and semantics"
+      - "C globals still exported through same mechanism (JL_EXPORTED_DATA_POINTERS)"
+      - "Compiler module imports unchanged (still imports from Core)"
+      - "Well-tested - these types are fundamental to type inference"
+      - "Independent review confirms no C/C++ codegen usage of these type globals"
+
+  open_questions:
+    - "The PR states 'codegen looks at them' but no actual C/C++ usage was found - is this referring to future planned usage or Julia-level codegen?"
+    - "Could these types eventually be moved out of Core into Compiler module now that Compiler is a separate swappable module?"
+
+  recommendations:
+    - "No action required for downstream packages"
+    - "This PR improves code organization by moving Julia-expressible definitions to Julia code"
+    - "If maintaining C extensions that directly reference these type globals, verify they're accessed after post_boot_hooks() completes"
+    - "For package authors using these types: continue importing from Core as before"
+
+changelog:
+  user_facing: |
+    No user-visible changes. This is an internal refactoring that moves inference
+    lattice type definitions (Const, PartialStruct, InterConditional, PartialOpaque)
+    from C code to Julia code for better maintainability.
+
+  developer_notes: |
+    The inference lattice types used by the Compiler module are now defined as
+    ordinary Julia structs in boot.jl rather than being created via jl_new_datatype()
+    in jltypes.c. The C global pointers (jl_const_type, etc.) are now initialized
+    in post_boot_hooks() by looking up the types from Core module.
+
+    This follows the principle that jltypes.c should only contain type definitions
+    that cannot be expressed in ordinary Julia code. Since these are simple structs
+    with no special requirements, they can be defined in Julia.
+
+    Key import locations for downstream package authors:
+    - Compiler/src/typelattice.jl imports Const, InterConditional, PartialStruct from Core
+    - Compiler/src/Compiler.jl imports PartialOpaque from Core
+    - REPL completions use Core.Const for inference result handling
+
+reviewer_notes: |
+  Independent review verified:
+  1. boot.jl struct definitions match the removed C jl_new_datatype() calls exactly
+  2. C globals (jl_const_type, etc.) are exported but NOT used in C/C++ code beyond initialization
+  3. base/coreir.jl provides complementary constructors/documentation that remain unchanged
+  4. REPL completions in stdlib/REPL/src/REPLCompletions.jl use Core.Const
+  5. The types must remain in Core for global code cache compatibility (per typelattice.jl comment)
+  6. No breaking changes to any downstream API consumers
