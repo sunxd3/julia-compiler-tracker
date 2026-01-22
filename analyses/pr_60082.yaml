@@ -1,0 +1,275 @@
+schema_version: "1.0"
+
+pr:
+  number: 60082
+  title: "fix string completion with cursor in the middle of text"
+  url: "https://github.com/JuliaLang/julia/pull/60082"
+  author: "KristofferC"
+  labels:
+    - "re-land"
+  merged_at: "2025-11-10T08:07:33Z"
+  merge_commit_sha: "0fff5a47705682909bfcae73f9235bf8edeeedb9"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60082.diff"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/src/REPLCompletions.jl"
+    - "stdlib/REPL/test/replcompletions.jl"
+  components:
+    - "REPL"
+    - "REPLCompletions"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Re-land of PR #60055 that fixes a regression in Julia 1.12 where REPL tab completion
+      for file paths only worked at the end of the line. This fix restores the previous
+      behavior where users can complete paths when the cursor is in the middle of a string,
+      such as completing `"/path/to/fo|/bar.toml"` where `|` represents cursor position.
+
+      The bug was caused by the string completion code using the entire string range
+      instead of just the portion up to the cursor position.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60050"
+
+  direct_changes:
+    - summary: "Restrict string unescape to portion before cursor position"
+      component: "REPLCompletions"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1045-1057"
+          url: "https://github.com/JuliaLang/julia/blob/0fff5a47705682909bfcae73f9235bf8edeeedb9/stdlib/REPL/src/REPLCompletions.jl#L1045-L1057"
+          snippet: |
+            # Complete ordinary strings:
+            #  "~/exa TAB         => "~/example.txt"
+            #  "~/example.txt TAB => "/home/user/example.txt"
+            r, closed = find_str(cur)
+            if r !== nothing
+                s = do_string_unescape(string[intersect(r, 1:pos)])  # FIX: intersect limits to cursor
+                ret, success = complete_path_string(s, hint; string_escape=true,
+                                                    dirsep=Sys.iswindows() ? '\\' : '/')
+                if length(ret) == 1 && !closed && close_path_completion(ret[1].path)
+                    ret[1] = PathCompletion(ret[1].path * '"')
+                end
+                success && return ret, r, success
+            end
+        - source: "diff"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1050"
+          url: "https://github.com/JuliaLang/julia/pull/60082/files"
+          snippet: |
+            # BEFORE (broken - used entire string range):
+            s = do_string_unescape(string[r])
+
+            # AFTER (fixed - intersects with cursor position):
+            s = do_string_unescape(string[intersect(r, 1:pos)])
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1180-1184"
+          url: "https://github.com/JuliaLang/julia/blob/0fff5a47705682909bfcae73f9235bf8edeeedb9/stdlib/REPL/src/REPLCompletions.jl#L1180-L1184"
+          snippet: |
+            function find_str(cur::CursorNode)
+                n = find_parent(cur, K"string")
+                n !== nothing || return nothing, nothing
+                find_delim(n, K"\"", K"\"")
+            end
+
+    - summary: "Add comprehensive tests for mid-line path completion"
+      component: "REPLCompletions tests"
+      evidence:
+        - source: "test"
+          path: "stdlib/REPL/test/replcompletions.jl"
+          loc: "198-199"
+          url: "https://github.com/JuliaLang/julia/blob/0fff5a47705682909bfcae73f9235bf8edeeedb9/stdlib/REPL/test/replcompletions.jl#L198-L199"
+          snippet: |
+            # Test helper: | marks cursor position, removed before calling completions
+            test_complete_pos(s) = map_completion_text(@inferred(completions(replace(s, '|' => ""), findfirst('|', s)-1)))
+        - source: "test"
+          path: "stdlib/REPL/test/replcompletions.jl"
+          loc: "1461-1498"
+          url: "https://github.com/JuliaLang/julia/blob/0fff5a47705682909bfcae73f9235bf8edeeedb9/stdlib/REPL/test/replcompletions.jl#L1461-L1498"
+          snippet: |
+            # Test path completion in the middle of a line (issue #60050)
+            mktempdir() do path
+                # Create test directory structure
+                foo_dir = joinpath(path, "foo_dir")
+                mkpath(foo_dir)
+                touch(joinpath(path, "foo_file.txt"))
+
+                # On Windows, use backslashes; on Unix, use forward slashes
+                sep = Sys.iswindows() ? "\\\\" : "/"
+                # On Windows, completion results have escaped backslashes
+                path_expected = Sys.iswindows() ? replace(path, "\\" => "\\\\") : path
+
+                # Completion at end of line should work
+                let (c, r, res) = test_complete("\"$(path)$(sep)foo")
+                    @test res
+                    @test length(c) == 2
+                    @test "$(path_expected)$(sep)foo_dir$(sep)" in c
+                    @test "$(path_expected)$(sep)foo_file.txt" in c
+                end
+
+                # Completion in middle of line should also work (regression in 1.12)
+                let (c, r, res) = test_complete_pos("\"$(path)$(sep)foo|$(sep)bar.toml\"")
+                    @test res
+                    @test length(c) == 2
+                    @test "$(path_expected)$(sep)foo_dir$(sep)" in c
+                    @test "$(path_expected)$(sep)foo_file.txt" in c
+                    # Check that the range covers only the part before the cursor
+                    @test findfirst("$(sep)bar", "\"$(path)$(sep)foo$(sep)bar.toml\"")[1] - 1 in r
+                end
+
+                # Completion in middle of function call with trailing arguments
+                let (c, r, res) = test_complete_pos("run_something(\"$(path)$(sep)foo|$(sep)bar.toml\"; kwarg=true)")
+                    @test res
+                    @test length(c) == 2
+                    @test "$(path_expected)$(sep)foo_dir$(sep)" in c
+                    @test "$(path_expected)$(sep)foo_file.txt" in c
+                end
+            end
+
+  secondary_effects: []
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "REPL path completion now works with cursor in middle of string"
+        impact: "Restores Julia 1.11 behavior - purely a UX improvement"
+        affected_code: "Interactive REPL usage only"
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "REPL stdlib change with no impact on compiler internals"
+      - "Fix is minimal: one additional intersect() call on the string range"
+      - "Re-land of previously merged PR with comprehensive test coverage"
+      - "Only affects interactive tab completion, not code execution"
+
+  open_questions: []
+
+  recommendations:
+    - "No action required for downstream packages"
+    - "This PR has zero impact on compiler internals, type inference, or code generation"
+    - "Only affects interactive REPL tab completion behavior"
+
+changelog_entry:
+  category: "REPL"
+  breaking: false
+  summary: "Fix path completion in strings when cursor is positioned mid-line (regression from 1.12)"
+  downstream_impact: "None - REPL UX fix only"
+
+downstream_package_impact:
+  Turing_jl: "none"
+  Enzyme_jl: "none"
+  GPUCompiler: "none"
+  JET: "none"
+  IRTools: "none"
+  Cassette: "none"
+
+reviewer_notes:
+  reviewer: "automated_analysis"
+  date: "2026-01-22"
+  verification_method: |
+    1. Read PR metadata from pr_60082.json
+    2. Examined full source of stdlib/REPL/src/REPLCompletions.jl (1403 lines)
+    3. Read test file additions at stdlib/REPL/test/replcompletions.jl
+    4. Fetched issue #60050 to understand the user-reported regression
+    5. Traced the call chain: completions() -> find_str() -> do_string_unescape()
+  findings:
+    - "This is NOT a compiler change - it's a REPL stdlib fix"
+    - "The fix is minimal and surgical: intersect(r, 1:pos) limits string processing to cursor position"
+    - "Issue #60050 describes the regression: path completion stopped working mid-line in 1.12"
+    - "Label 're-land' indicates this was previously merged (#60055), reverted, then re-merged"
+    - "Call chain: completions(string, pos) -> find_str(cur) returns range r -> intersect(r, 1:pos) fixes it"
+  call_chain_analysis: |
+    completions(string, pos, context_module, shift, hint)  [REPLCompletions.jl:994]
+      -> cur = seek_pos(node, pos)  [line 997]
+         Gets cursor node at position in parsed AST
+      -> find_str(cur)  [REPLCompletions.jl:1180-1184]
+         Returns (r, closed) where r is char range of string content (excluding quotes)
+      -> BEFORE FIX: do_string_unescape(string[r])  [line 1050]
+         Used entire string range including text after cursor
+      -> AFTER FIX: do_string_unescape(string[intersect(r, 1:pos)])  [line 1050]
+         Now only processes string up to cursor position pos
+      -> complete_path_string(s, hint; ...)  [line 1051-1052]
+         Performs actual filesystem path completion on truncated string
+
+    Note: The intersect(r, 1:pos) pattern is consistently used elsewhere in completions():
+      - Dict completion at line 1025: s = string[intersect(key, 1:pos)]
+      - Keyword arg completion at line 1094: s = string[intersect(r, 1:pos)]
+      - Identifier completion at lines 1103-1114: multiple uses
+  pr_body_context: |
+    PR body was null/empty. This is a re-land PR.
+    Original PR #60055 title: "fix string completion with cursor in the middle of text"
+    Fixes issue #60050 which reported:
+    "tab completion of file paths would work from anywhere in the line [in 1.11]
+    but now only at the end of the line [in 1.12]"
+
+    Example from issue:
+    run_something("input_files/f<tab>/bar.toml"; some_kwarg=true)
+    Should complete the directory name if unambiguous, but stopped working in 1.12.
+  confidence: "high"
+  rationale: |
+    This is a straightforward REPL UX bug fix with:
+    - Clear reproduction case (issue #60050)
+    - Minimal, targeted fix (one intersect() call)
+    - Comprehensive regression tests
+    - No compiler, inference, or codegen impact
+    - Only affects interactive string path completion in REPL
+
+secondary_review:
+  reviewer: "independent_analysis"
+  date: "2026-01-22"
+  verification_method: |
+    1. Read full source of REPLCompletions.jl
+    2. Traced find_str() function implementation at lines 1180-1184
+    3. Verified the intersect(r, 1:pos) pattern usage throughout the file
+    4. Checked shell_completions already handles this correctly
+    5. Reviewed test_complete_pos helper function implementation
+  independent_findings:
+    - finding: "Line number corrections"
+      detail: |
+        Corrected line references in call chain:
+        - completions() starts at line 994 (not 999)
+        - find_str() is at lines 1180-1184 (not 1187-1191)
+        - The actual fix is at line 1050
+    - finding: "Pattern consistency confirmed"
+      detail: |
+        The intersect(r, 1:pos) pattern is used consistently throughout completions():
+        - Line 1025: Dict completion
+        - Line 1094: Keyword argument completion
+        - Lines 1103-1114: Identifier/symbol completion
+        This fix brings string completion in line with existing code patterns.
+    - finding: "CmdString completion already correct"
+      detail: |
+        shell_completions() at line 1296 already handles cursor position correctly:
+        scs = str[1:pos]  # Line 1298 - truncates input to cursor
+        The ordinary string completion was the only path missing this truncation.
+    - finding: "Test helper uses pipe character as cursor marker"
+      detail: |
+        test_complete_pos(s) at line 199 uses '|' as cursor position marker:
+        - Removes '|' from string: replace(s, '|' => "")
+        - Uses position of '|' minus 1: findfirst('|', s)-1
+        This enables intuitive test cases like "\"path/foo|/bar.toml\""
+    - finding: "No secondary effects or downstream impact"
+      detail: |
+        Confirmed no secondary effects:
+        - find_str() is only called once in the codebase (line 1048)
+        - do_string_unescape() is called at 2 places; the other (line 1153)
+          operates on completion result paths, not user input
+        - completions() signature unchanged; only behavior change is correct
+          handling of mid-string cursor position
+        - No impact on compiler, inference, or downstream tooling
+  agreement_with_original: "Full agreement - original analysis is accurate"
+  enhancements_made:
+    - "Corrected line number references throughout"
+    - "Added find_str() function code as evidence"
+    - "Added test_complete_pos helper implementation"
+    - "Documented the intersect pattern consistency"
+    - "Verified CmdString completion already handles this correctly"
