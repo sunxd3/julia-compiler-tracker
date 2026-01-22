@@ -1,0 +1,405 @@
+schema_version: "1.0"
+pr:
+  number: 60576
+  title: "Enable JITLink everywhere"
+  url: "https://github.com/JuliaLang/julia/pull/60576"
+  author: "xal-0"
+  labels: []
+  merged_at: "2026-01-12T21:02:59Z"
+  merge_commit_sha: "ec97bd9cff25d6eb66279ff877dd84cfa761d02e"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60576.diff"
+
+scope:
+  files_touched:
+    - "src/jitlayers.h"
+  components:
+    - "LLVM_JIT"
+    - "Codegen"
+  pipeline_stages:
+    - "Codegen"
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Switches the default JIT runtime linker from RuntimeDyld (RTDyld) to JITLink on all platforms.
+      Previously JITLink was only enabled for ARM64, RISC-V64, and sanitizer builds due to maturity
+      concerns. This PR makes JITLink the universal default in preparation for removing RTDyld support
+      entirely in a future PR (#60031). The prerequisite PR #60105 added memory management optimizations
+      to JITLink to avoid OOM issues.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/60031"
+      - "https://github.com/JuliaLang/julia/pull/60105"
+
+  direct_changes:
+    - summary: "Simplify JL_USE_JITLINK conditional to enable everywhere except OProfile builds"
+      component: "LLVM_JIT"
+      evidence:
+        - source: "code"
+          path: "src/jitlayers.h"
+          loc: "47-58"
+          url: "https://github.com/JuliaLang/julia/blob/ec97bd9cff25d6eb66279ff877dd84cfa761d02e/src/jitlayers.h#L47-L58"
+          snippet: |
+            // JITLink is now used on all platforms by default.  The support for RuntimeDyld
+            // will be removed when we need the ability to manipulate JITLink LinkGraphs.
+            //
+            // Of the supported profilers, only OProfile has not been ported to JITLink.
+
+            #if defined(_COMPILER_ASAN_ENABLED_) || defined(_COMPILER_MSAN_ENABLED_) || defined(_COMPILER_TSAN_ENABLED_)
+            # define HAS_SANITIZER
+            #endif
+
+            #ifndef JL_USE_OPROFILE_JITEVENTS
+            #define JL_USE_JITLINK
+            #endif
+
+    - summary: "Remove platform-specific JITLink conditionals (ARM64, RISC-V64, sanitizers)"
+      component: "LLVM_JIT"
+      evidence:
+        - source: "diff"
+          path: "src/jitlayers.h"
+          loc: "44-58"
+          url: "https://github.com/JuliaLang/julia/pull/60576/files"
+          snippet: |
+            # BEFORE (removed):
+            // However, JITLink is a relatively young library and lags behind in platform
+            // and feature support (e.g. Windows, JITEventListeners for various profilers,
+            // etc.). Thus, we currently only use JITLink where absolutely required, that is,
+            // for Mac/aarch64 and Linux/aarch64.
+            #if defined(JL_FORCE_JITLINK) || defined(_CPU_AARCH64_) || defined(HAS_SANITIZER)
+            # define JL_USE_JITLINK
+            #endif
+            #if defined(_CPU_RISCV64_)
+            # define JL_USE_JITLINK
+            #endif
+
+            # AFTER:
+            #ifndef JL_USE_OPROFILE_JITEVENTS
+            #define JL_USE_JITLINK
+            #endif
+
+  secondary_effects:
+    - effect: "x86_64, i686, and Windows builds now use JITLink instead of RTDyld"
+      mechanism: |
+        JL_USE_JITLINK macro now defined unconditionally (unless OProfile enabled)
+          -> JuliaOJIT constructor [jitlayers.cpp:1922-1944]
+             #ifdef JL_USE_JITLINK selects:
+               MemMgr(createJITLinkMemoryManager())  [line 1931]
+               ObjectLayer(ES, *MemMgr)              [line 1932]
+             instead of RTDyld path:
+               MemMgr(createRTDyldMemoryManager())   [line 1934]
+               UnlockedObjectLayer(...) + LockLayerT [lines 1935-1943]
+          -> Uses orc::ObjectLinkingLayer instead of orc::RTDyldObjectLinkingLayer
+          -> JITLink plugins enabled [jitlayers.cpp:1952-1964]:
+             ObjectLayer.addPlugin(EHFrameRegistrationPlugin)
+             ObjectLayer.addPlugin(JLDebuginfoPlugin)
+             ObjectLayer.addPlugin(JLMemoryUsagePlugin)
+      downstream_surfaces:
+        - "All code generation paths"
+        - "JIT profiling (Intel VTune, Perf)"
+        - "Debug info registration"
+        - "EH frame registration"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "JIT profiler support changes - plugin-based API replaces JITEventListener"
+      mechanism: |
+        JITLink uses plugin-based profiler registration [jitlayers.cpp:2257-2317]:
+          enableJITDebuggingSupport() [line 2261-2275]:
+            -> GDBJITDebugInfoRegistrationPlugin for MachO targets
+            -> EPCDebugObjectRegistrar + DebugObjectManagerPlugin for ELF targets
+            -> Disabled under ASAN due to #51794 (duplicated sections spam)
+
+          enableIntelJITEventListener() [line 2277-2292]:
+            -> REQUIRES: JL_LLVM_VERSION >= 190000 (LLVM 19+)
+            -> VTuneSupportPlugin for ELF targets only
+            -> Uses llvm_orc_registerVTuneImpl and llvm_orc_unregisterVTuneImpl
+
+          enablePerfJITEventListener() [line 2300-2316]:
+            -> REQUIRES: JL_LLVM_VERSION >= 180000 (LLVM 18+)
+            -> PerfSupportPlugin for ELF targets only
+            -> Uses llvm_orc_registerJITLoaderPerfStart/End/Impl
+
+          enableOProfileJITEventListener() [line 2295-2298]:
+            -> STUBBED OUT: "implement when available in LLVM"
+            -> This is why OProfile build disables JITLink
+
+        RTDyld uses JITEventListener registration [jitlayers.cpp:2319-2339]:
+          RegisterJITEventListener(JITEventListener::createGDBRegistrationListener())
+          RegisterJITEventListener(JITEventListener::createIntelJITEventListener())
+          RegisterJITEventListener(JITEventListener::createOProfileJITEventListener())
+          RegisterJITEventListener(JITEventListener::createPerfJITEventListener())
+      downstream_surfaces:
+        - "Intel VTune profiling (requires LLVM 19+)"
+        - "Linux perf profiling (requires LLVM 18+)"
+        - "GDB JIT debugging"
+        - "OProfile JIT profiling (UNAVAILABLE with JITLink)"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Object layer emission synchronization model changes"
+      mechanism: |
+        RTDyld path uses LockLayerT wrapper [jitlayers.h:430-447] with EmissionMutex:
+          struct LockLayerT : public orc::ObjectLayer {
+              void emit(...) override {
+                  std::lock_guard<std::recursive_mutex> lock(EmissionMutex);
+                  BaseLayer.emit(std::move(R), std::move(O));
+              }
+              std::recursive_mutex EmissionMutex;
+          };
+
+        JITLink path uses orc::ObjectLinkingLayer directly [jitlayers.h:427]:
+          typedef orc::ObjectLinkingLayer ObjLayerT;
+        No LockLayerT wrapper - relies on JITLink's internal thread-safety.
+
+        Thread safety model:
+          RTDyld: External recursive mutex serializes all emission
+          JITLink: Internal fine-grained locking within LLVM's ObjectLinkingLayer
+      downstream_surfaces:
+        - "Multi-threaded compilation"
+        - "Concurrent JIT operations"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "Memory manager with fallback to MapperJITLinkMemoryManager"
+      mechanism: |
+        JLJITLinkMemoryManager::Create() [cgmemmgr.cpp:946-956]:
+          static std::unique_ptr<JITLinkMemoryManager> Create()
+          {
+              auto [ROAlloc, ExeAlloc] = get_preferred_allocators();
+              if (ROAlloc && ExeAlloc)
+                  return std::unique_ptr<JLJITLinkMemoryManager>(
+                      new JLJITLinkMemoryManager(std::move(ROAlloc), std::move(ExeAlloc)));
+
+              return cantFail(
+                  orc::MapperJITLinkMemoryManager::CreateWithMapper<orc::InProcessMemoryMapper>(
+                      /*Reservation Granularity*/ 16 * 1024 * 1024));
+          }
+
+        get_preferred_allocators() [cgmemmgr.cpp:777-787]:
+          Linux with /proc/self/mem: SelfMemAllocator (read-only) + SelfMemAllocator (exec)
+          Platforms with shared mapping: DualMapAllocator (read-only) + DualMapAllocator (exec)
+          Fallback: returns empty pair -> triggers MapperJITLinkMemoryManager
+
+        Memory allocation differs from RTDyld path:
+          JITLink: Uses jitlink::BasicLayout for segment allocation
+          RTDyld: SectionMemoryManager with individual section allocation
+      downstream_surfaces:
+        - "JIT memory layout"
+        - "Memory usage patterns"
+        - "Address space utilization"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "Memory usage tracking implementation differs"
+      mechanism: |
+        getTotalBytes() [jitlayers.cpp:2359-2367]:
+          size_t JuliaOJIT::getTotalBytes() const
+          {
+              auto bytes = jl_atomic_load_relaxed(&jit_bytes_size);
+          #ifndef JL_USE_JITLINK
+              size_t getRTDyldMemoryManagerTotalBytes(RTDyldMemoryManager *mm) JL_NOTSAFEPOINT;
+              bytes += getRTDyldMemoryManagerTotalBytes(MemMgr.get());
+          #endif
+              return bytes;
+          }
+
+        JITLink: Uses JLMemoryUsagePlugin [jitlayers.cpp:1151-1189] to track bytes
+          -> Accumulates block sizes in PostAllocationPasses
+          -> Writes to jit_bytes_size atomic
+
+        RTDyld: Uses getRTDyldMemoryManagerTotalBytes() [cgmemmgr.cpp:1079-1082]
+          -> Queries RTDyldMemoryManagerJL::getTotalBytes() directly
+      downstream_surfaces:
+        - "Memory statistics reporting"
+        - "Base.gc_live_bytes() and related introspection"
+      likelihood: "low"
+      impact: "low"
+
+  # REVIEWER NOTE: Corrected analysis - code model is NOT affected by this PR
+  code_model_clarification:
+    note: |
+      IMPORTANT CORRECTION: The code model selection is INDEPENDENT of JITLink/RTDyld choice.
+      The createTargetMachine() function [jitlayers.cpp:1376-1392] sets code model based on
+      architecture, not linker:
+        - 64-bit (x86_64, etc.): CodeModel::Large (line 1380)
+        - AArch64: CodeModel::Small (line 1385)
+        - RISC-V (LLVM < 20): CodeModel::Medium (line 1390)
+
+      JITLink CAN support Small code model, but Julia continues to use Large code model
+      on x86_64 regardless of this PR. The original analysis claiming "Small code model
+      now usable on x86_64" was INCORRECT.
+
+  compatibility:
+    internal_api:
+      - field: "JuliaOJIT::ObjLayerT"
+        change: "Type switches from RTDyldObjectLinkingLayer to ObjectLinkingLayer on most platforms"
+        affected_tools:
+          - tool: "Any code checking JIT layer types"
+            usage: "Internal Julia implementation detail, not exposed to packages"
+
+      - field: "JuliaOJIT::MemMgr"
+        change: "Type switches from shared_ptr<RTDyldMemoryManager> to unique_ptr<jitlink::JITLinkMemoryManager>"
+        code_reference: |
+          [jitlayers.h:668-674]
+          #ifdef JL_USE_JITLINK
+              const std::unique_ptr<jitlink::JITLinkMemoryManager> MemMgr;
+              ObjLayerT ObjectLayer;
+          #else
+              const std::shared_ptr<RTDyldMemoryManager> MemMgr;
+              ObjLayerT UnlockedObjectLayer;
+              LockLayerT ObjectLayer;
+          #endif
+        affected_tools:
+          - tool: "Internal Julia memory tracking"
+            usage: "getTotalBytes() implementation differs between paths [jitlayers.cpp:2359-2366]"
+
+      - field: "JuliaOJIT::RegisterJITEventListener"
+        change: "Method only exists when JL_USE_JITLINK is not defined"
+        code_reference: |
+          [jitlayers.h:575-577]
+          #ifndef JL_USE_JITLINK
+              void RegisterJITEventListener(JITEventListener *L) JL_NOTSAFEPOINT;
+          #endif
+        affected_tools:
+          - tool: "Custom profiler integrations"
+            usage: "Must use JITLink plugin API instead if building with JITLink"
+
+      - field: "LockLayerT wrapper"
+        change: "Only compiled when JL_USE_JITLINK is not defined"
+        code_reference: |
+          [jitlayers.h:429-447]
+          #ifndef JL_USE_JITLINK
+              struct LockLayerT : public orc::ObjectLayer { ... };
+          #endif
+        affected_tools:
+          - tool: "Code inspecting JIT layer implementation"
+            usage: "Internal implementation detail"
+
+    behavioral:
+      - change: "OProfile users must explicitly disable JITLink"
+        description: |
+          Users who rely on OProfile for JIT profiling must build Julia with
+          USE_OPROFILE_JITEVENTS=1 in Make.inc (or Make.user), which sets
+          JL_USE_OPROFILE_JITEVENTS and disables JL_USE_JITLINK.
+
+          Build system integration [Make.inc:77, 1638-1640]:
+            USE_OPROFILE_JITEVENTS ?= 0
+            ifeq ($(USE_OPROFILE_JITEVENTS), 1)
+            JCPPFLAGS += -DJL_USE_OPROFILE_JITEVENTS
+            endif
+        migration: "Set USE_OPROFILE_JITEVENTS=1 during build to retain RTDyld"
+
+      - change: "Memory allocation behavior differs between JITLink and RTDyld"
+        description: |
+          JITLink uses JLJITLinkMemoryManager (from PR #60105) which provides equivalent
+          functionality to RTDyldMemoryManagerJL. If the preferred allocators are unavailable,
+          it falls back to MapperJITLinkMemoryManager with 16MB reservation granularity.
+
+          Fallback path [cgmemmgr.cpp:953-955]:
+            return cantFail(
+                orc::MapperJITLinkMemoryManager::CreateWithMapper<orc::InProcessMemoryMapper>(
+                    /*Reservation Granularity*/ 16 * 1024 * 1024));
+        migration: "No action needed; memory manager port maintains equivalent behavior"
+
+      - change: "LLVM version requirements for profiler support"
+        description: |
+          JITLink profiler plugins have LLVM version requirements:
+            - Intel VTune: Requires LLVM 19+ (JL_LLVM_VERSION >= 190000)
+            - Linux perf: Requires LLVM 18+ (JL_LLVM_VERSION >= 180000)
+
+          Building with older LLVM versions will result in no-op profiler enablement.
+        migration: "Ensure LLVM 18+ for perf support, LLVM 19+ for VTune support"
+
+  performance:
+    compile_time:
+      - impact: "NEUTRAL"
+        description: |
+          JITLink is designed to be more efficient for incremental linking scenarios.
+          The JLJITLinkMemoryManager (from PR #60105) ports existing memory optimizations.
+          ESTIMATED: No significant compile-time change expected.
+
+          NOTE: Code model remains Large on x86_64, so no improvement from PC-relative
+          addressing is expected on that architecture.
+
+    runtime:
+      - impact: "NEUTRAL"
+        description: |
+          ESTIMATED: No significant runtime change expected.
+
+          NOTE: Previous analysis incorrectly suggested Small code model benefits on x86_64.
+          The code model is set independently of linker choice and remains Large on x86_64.
+          JITLink may have different code placement characteristics but no measured data exists.
+
+  risk:
+    level: "medium"
+    rationale:
+      - "JITLink is less battle-tested than RTDyld on x86_64/Windows, though LLVM has been actively developing it"
+      - "This is preparation for complete RTDyld removal in PR #60031"
+      - "Dependent on PR #60105 memory manager port to avoid OOM issues (NOTE: PR #60105 has 'reverted' label in GitHub - verify current status)"
+      - "OProfile users lose JIT profiling unless they explicitly opt out of JITLink"
+      - "PR author (xal-0) is Julia MEMBER with JIT expertise"
+      - "Change is easily revertible by building with OProfile enabled (USE_OPROFILE_JITEVENTS=1)"
+      - "Thread synchronization model changes from external mutex to internal JITLink locking"
+
+  open_questions:
+    - "How does Windows JITLink support compare to RTDyld? Windows uses ELF internally (force_elf = TheTriple.isOSWindows()) and may have edge cases."
+    - "What is the current status of PR #60105? It has a 'reverted' label but the memory manager code appears present."
+    - "Are there any downstream packages that inspect JIT internals and depend on RTDyld behavior?"
+    - "What is the memory usage delta between JITLink and RTDyld on typical workloads?"
+    - "Does the thread synchronization model change (LockLayerT removal) have any observable effects?"
+
+  recommendations:
+    - "Downstream package maintainers: No action required unless you build Julia with custom JIT options"
+    - "OProfile users: Add USE_OPROFILE_JITEVENTS=1 to your build configuration"
+    - "If encountering JIT-related issues on x86_64 or Windows, report to Julia issue tracker referencing this PR"
+    - "Monitor Julia CI for any platform-specific regressions after this change"
+    - "For profiler users: Verify your LLVM version meets requirements (18+ for perf, 19+ for VTune)"
+
+downstream_impact:
+  enzyme:
+    affected: false
+    reason: "Enzyme operates at LLVM IR level, not at the JIT linking layer"
+
+  gpucompiler:
+    affected: false
+    reason: "GPUCompiler generates code for GPU targets, not CPU JIT targets"
+
+  jet:
+    affected: false
+    reason: "JET performs static analysis on inference results, not JIT output"
+
+  irtools:
+    affected: false
+    reason: "IRTools manipulates Julia IR, not LLVM linking internals"
+
+  cassette:
+    affected: false
+    reason: "Cassette uses overdubbing at Julia IR level, not JIT linking"
+
+  turing:
+    affected: false
+    reason: "Turing is a PPL built on Julia, no direct JIT layer interaction"
+
+reviewer_notes:
+  independent_analysis_date: "2026-01-22"
+  key_corrections:
+    - issue: "Incorrect claim about Small code model on x86_64"
+      correction: |
+        The original analysis stated "Small code model now usable on x86_64" which is INCORRECT.
+        Code model selection in createTargetMachine() [jitlayers.cpp:1376-1392] is independent
+        of JITLink/RTDyld choice. x86_64 continues to use Large code model.
+    - issue: "Missing LLVM version requirements"
+      correction: |
+        Added explicit LLVM version requirements for profiler plugins:
+          - VTune: LLVM 19+ (JL_LLVM_VERSION >= 190000)
+          - Perf: LLVM 18+ (JL_LLVM_VERSION >= 180000)
+    - issue: "Missing fallback memory manager path"
+      correction: |
+        Documented the fallback to MapperJITLinkMemoryManager when preferred allocators
+        are unavailable [cgmemmgr.cpp:953-955].
+  additional_findings:
+    - "PR #60105 has 'reverted' label in GitHub but memory manager code appears present in codebase"
+    - "Thread synchronization changes from external recursive mutex (LockLayerT) to internal JITLink locking"
+    - "Windows uses ELF format internally (force_elf = TheTriple.isOSWindows())"
+    - "Full merge commit SHA: ec97bd9cff25d6eb66279ff877dd84cfa761d02e"
