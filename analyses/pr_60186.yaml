@@ -1,0 +1,382 @@
+schema_version: "1.0"
+
+pr:
+  number: 60186
+  title: "[release-1.13] Revert \"Make banner size depend on terminal size (#51811)\""
+  url: "https://github.com/JuliaLang/julia/pull/60186"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60186.diff"
+  author: "ararslan"
+  labels:
+    - "revert"
+  merged_at: "2025-11-21T11:09:37Z"
+  merge_commit_sha: "032cd2faf32e070d2cac8f750544b6ec78e99b6a"
+  reverts_pr: 51811
+  backport_of_pr: 59984
+
+scope:
+  files_touched:
+    - "base/client.jl"
+    - "src/jloptions.c"
+    - "stdlib/REPL/src/REPL.jl"
+    - "stdlib/REPL/src/precompile.jl"
+    - "stdlib/REPL/test/repl.jl"
+    - "test/cmdlineargs.jl"
+  components:
+    - "REPL"
+    - "Base.client"
+    - "jloptions"
+  pipeline_stages:
+    - "Runtime"
+    - "REPL/UI"
+
+analysis:
+  intent:
+    summary: |
+      Reverts PR #51811 which made the Julia REPL banner size adapt to terminal size.
+      The revert was necessary because the original change caused a deadlock during
+      REPL precompilation, making v1.13.0-alpha1 unbuildable. This is a backport of
+      the master revert PR #59984 to the release-1.13 branch.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/51811"
+      - "https://github.com/JuliaLang/julia/pull/59984"
+
+  direct_changes:
+    - summary: "Simplifies REPL.banner() function signature from positional Symbol to keyword Bool"
+      component: "REPL"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "1734-1802"
+          url: "https://github.com/JuliaLang/julia/blob/032cd2faf32e070d2cac8f750544b6ec78e99b6a/stdlib/REPL/src/REPL.jl#L1734-L1802"
+          snippet: |
+            function banner(io::IO = stdout; short = false)
+                if Base.GIT_VERSION_INFO.tagged_commit
+                    commit_string = Base.TAGGED_RELEASE_BANNER
+                elseif isempty(Base.GIT_VERSION_INFO.commit)
+                    commit_string = ""
+                else
+                    days = Int(floor((ccall(:jl_clock_now, Float64, ()) - Base.GIT_VERSION_INFO.fork_master_timestamp) / (60 * 60 * 24)))
+                    days = max(0, days)
+                    unit = days == 1 ? "day" : "days"
+                    distance = Base.GIT_VERSION_INFO.fork_master_distance
+                    commit = Base.GIT_VERSION_INFO.commit_short
+
+                    if distance == 0
+                        commit_string = "Commit $(commit) ($(days) $(unit) old master)"
+                    else
+                        branch = Base.GIT_VERSION_INFO.branch
+                        commit_string = "$(branch)/$(commit) (fork: $(distance) commits, $(days) $(unit))"
+                    end
+                end
+
+    - summary: "Removes terminal size-dependent banner selection (tiny, short, narrow, full variants)"
+      component: "REPL"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "patch"
+          snippet: |
+            # BEFORE (PR #51811): Banner variants selected based on terminal size
+            # sizenames = (:tiny, :short, :narrow, :full)
+            # maxsize = something(findfirst(==(preferred), sizenames), length(sizenames))
+            # size = min(if all(displaysize(io) .>= (8, 70)); 4 # Full size
+            #            elseif all(displaysize(io) .>= (8, 45)); 3 # Narrower
+            #            elseif all(displaysize(io) .>= (3, 50)); 2 # Tiny
+            #            else 1 end, max(0, maxsize))
+
+            # AFTER (revert): Only two variants - full and short
+            # function banner(io::IO = stdout; short = false)
+            #   if short ... else ... end
+
+    - summary: "Simplifies --banner CLI option from 6 values to 4 values"
+      component: "jloptions"
+      evidence:
+        - source: "code"
+          path: "src/jloptions.c"
+          loc: "625-635"
+          url: "https://github.com/JuliaLang/julia/blob/032cd2faf32e070d2cac8f750544b6ec78e99b6a/src/jloptions.c#L625-L635"
+          snippet: |
+            case opt_banner: // banner
+                if (!strcmp(optarg, "yes"))
+                    jl_options.banner = 1;
+                else if (!strcmp(optarg, "no"))
+                    jl_options.banner = 0;
+                else if (!strcmp(optarg, "auto"))
+                    jl_options.banner = -1;
+                else if (!strcmp(optarg, "short"))
+                    jl_options.banner = 2;
+                else
+                    jl_errorf("julia: invalid argument to --banner={yes|no|auto|short} (%s)", optarg);
+
+    - summary: "Simplifies banner value handling in repl_main()"
+      component: "Base.client"
+      evidence:
+        - source: "code"
+          path: "base/client.jl"
+          loc: "615-627"
+          url: "https://github.com/JuliaLang/julia/blob/032cd2faf32e070d2cac8f750544b6ec78e99b6a/base/client.jl#L615-L627"
+          snippet: |
+            function repl_main(_)
+                opts = Base.JLOptions()
+                interactiveinput = isa(stdin, Base.TTY)
+                b = opts.banner
+                auto = b == -1
+                banner = b == 0 || (auto && !interactiveinput) ? :no  :
+                         b == 1 || (auto && interactiveinput)  ? :yes :
+                         :short # b == 2
+
+                quiet                 = (opts.quiet != 0)
+                history_file          = (opts.historyfile != 0)
+                return run_main_repl(interactiveinput, quiet, banner, history_file)
+            end
+
+    - summary: "Removes precompilation hints for styled banner components"
+      component: "REPL"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/precompile.jl"
+          loc: "removed"
+          snippet: |
+            # Removed precompilation hints (caused deadlock):
+            # precompile(Tuple{typeof(Base.AnnotatedDisplay.ansi_write), typeof(Base.write), Base.TTY, Base.AnnotatedString{String}})
+            # precompile(Tuple{typeof(Base.all), Tuple{Bool, Bool}})
+            # precompile(Tuple{typeof(Base.get), Base.Dict{Tuple{Symbol, Any}, Int64}, Tuple{Symbol, REPL.StyledStrings.Face}, Int64})
+            # precompile(Tuple{typeof(REPL.banner), Base.TTY})
+            # ... and more AnnotatedString/Face-related precompile hints
+
+    - summary: "Removes styled string markup from banner output"
+      component: "REPL"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "commit_string"
+          snippet: |
+            # BEFORE: Used styled strings with Face annotations
+            # styled"""Commit {grey:$commit} ({warning:\u231b {italic:$days $unit}} old master)"""
+            # styled"""{emphasis:$branch}/{grey:$commit} ({italic:{success:{bold,(slant=normal):\u2191} $distance commits}, ...})"""
+
+            # AFTER: Plain string interpolation
+            commit_string = "Commit $(commit) ($(days) $(unit) old master)"
+            commit_string = "$(branch)/$(commit) (fork: $(distance) commits, $(days) $(unit))"
+
+    - summary: "Removes docstring from banner function"
+      component: "REPL"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "removed"
+          snippet: |
+            # Removed docstring from PR #51811:
+            # """
+            #     banner(io::IO = stdout, preferred::Symbol = :full)
+            #
+            # Print the "Julia" informative banner to `io`, using the `preferred` variant
+            # if reasonable and known.
+            #
+            # !!! warning
+            #     The particular banner selected by `preferred` is liable to being changed
+            #     without warning. The current variants are: `:tiny`, `:short`, `:narrow`, and `:full`.
+            # """
+            #
+            # The reverted function has no docstring (returns to pre-#51811 state)
+
+  secondary_effects:
+    - effect: "Precompilation deadlock resolved"
+      mechanism: |
+        The original PR #51811 used displaysize(io) during banner rendering, which
+        triggered during REPL precompilation. The deadlock occurred because:
+
+        1. precompile.jl added precompile hints including:
+           precompile(Tuple{typeof(REPL.banner), Base.TTY})
+
+        2. When banner(io::TTY) was called during precompilation, it invoked:
+           displaysize(io::TTY) at base/stream.jl:574
+
+        3. displaysize(io::TTY) acquires iolock via iolock_begin() at stream.jl:596:
+           iolock_begin()
+           check_open(io)
+           Base.uv_error("size (TTY)", ccall(:uv_tty_get_winsize, ...))
+           iolock_end()
+
+        4. During precompilation with multiple threads/tasks, the iolock contention
+           combined with styled string processing (AnnotatedDisplay.ansi_write)
+           caused a deadlock.
+
+        Call chain that caused deadlock:
+        precompile.jl hints [stdlib/REPL/src/precompile.jl]
+          -> REPL.banner(Base.TTY) [stdlib/REPL/src/REPL.jl:1704]
+          -> displaysize(io) [base/stream.jl:574]
+          -> iolock_begin() [base/stream.jl:596]
+          -> ccall(:uv_tty_get_winsize, ...) [base/stream.jl:598-600]
+          -> Deadlock with concurrent precompilation tasks
+      downstream_surfaces:
+        - "System image generation"
+        - "Package precompilation"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "REPL.banner API signature change"
+      mechanism: |
+        The function signature changed from:
+          banner(io::IO = stdout, preferred::Symbol = :full)
+        to:
+          banner(io::IO = stdout; short = false)
+
+        This changes how external code calls the banner function.
+      downstream_surfaces:
+        - "Any code calling REPL.banner() with a second argument"
+        - "Custom REPL implementations"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "CLI --banner option values reduced"
+      mechanism: |
+        The --banner command-line option previously accepted:
+          yes|no|auto|full|narrow|short|tiny
+        Now only accepts:
+          yes|no|auto|short
+
+        Users passing --banner=full, --banner=narrow, or --banner=tiny
+        will now get an error.
+      downstream_surfaces:
+        - "Build scripts using --banner=full/narrow/tiny"
+        - "CI configurations"
+        - "IDE integrations"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "StreamREPL internal caller unaffected"
+      mechanism: |
+        The run_frontend(repl::StreamREPL, ...) function at REPL.jl:1807 calls:
+          banner(repl.stream)
+
+        This call uses only the first argument with default `short=false`, so it
+        continues to work correctly with both old and new signatures.
+      downstream_surfaces:
+        - "StreamREPL implementations"
+      likelihood: "low"
+      impact: "none"
+
+    - effect: "Banner value integer mapping changed"
+      mechanism: |
+        JLOptions.banner integer values changed:
+          BEFORE (PR #51811):
+            -1 = auto, 0 = no, 1 = yes/full, 2 = narrow, 3 = short, 4 = tiny
+          AFTER (revert):
+            -1 = auto, 0 = no, 1 = yes, 2 = short
+
+        Any code directly reading JLOptions.banner and interpreting the integer
+        values needs to be aware of this change.
+      downstream_surfaces:
+        - "Tools reading JLOptions directly"
+        - "C/C++ code interfacing with jl_options"
+      likelihood: "low"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "REPL.banner signature"
+        change: "Changed from positional Symbol argument to keyword Bool argument"
+        affected_tools:
+          - tool: "Custom REPL implementations"
+            usage: "Any code calling REPL.banner(io, :short) must change to REPL.banner(io; short=true)"
+          - tool: "Code calling REPL.banner() with :tiny, :narrow, or :full symbols"
+            usage: "Must update to either banner(io) for full or banner(io; short=true) for short"
+      - field: "JLOptions.banner values"
+        change: |
+          BEFORE: -1=auto, 0=no, 1=yes/full, 2=narrow, 3=short, 4=tiny
+          AFTER:  -1=auto, 0=no, 1=yes, 2=short
+        affected_tools:
+          - tool: "Tools reading JLOptions.banner directly"
+            usage: "Interpretation of banner values changed; value 2 now means 'short' instead of 'narrow'"
+          - tool: "C/C++ code using jl_options.banner"
+            usage: "Must update interpretation of integer values"
+      - field: "REPL.banner docstring"
+        change: "Docstring removed - function is now undocumented (returns to pre-#51811 state)"
+        affected_tools:
+          - tool: "Documentation generators"
+            usage: "REPL.banner will not appear in generated documentation"
+    behavioral:
+      - description: "Banner no longer adapts to terminal size"
+        impact: "Users with small terminals will see the full banner instead of a compact version"
+      - description: "Removed --banner=full/narrow/tiny CLI options"
+        impact: "Scripts using these options will fail with error: 'invalid argument to --banner={yes|no|auto|short}'"
+      - description: "Banner styling simplified"
+        impact: "Banner output uses ANSI codes instead of semantic Face annotations from StyledStrings"
+
+  performance:
+    compile_time:
+      - description: "Removed ~14 precompile hints from REPL precompilation"
+        impact: |
+          ESTIMATED: Slight reduction in precompiled code size.
+          The removed hints were for AnnotatedDisplay, AnnotatedString, and
+          Face-related methods that are no longer used in the banner.
+    runtime:
+      - description: "Removed displaysize() query during banner display"
+        impact: |
+          ESTIMATED: Negligible. The displaysize query was only called once
+          during REPL startup.
+      - description: "Removed styled string processing from banner"
+        impact: |
+          ESTIMATED: Slight reduction in banner rendering time by avoiding
+          styled string annotation processing.
+
+  risk:
+    level: "low"
+    rationale:
+      - "This is a revert of a feature PR, returning to known-good behavior"
+      - "The change only affects REPL UI (banner display), not compiler internals"
+      - "No compiler, type inference, or codegen components are affected"
+      - "The revert was already successfully applied to master in PR #59984"
+      - "Primary impact is cosmetic (banner appearance) and CLI option availability"
+
+  open_questions:
+    - "Will PR #51811 be reimplemented with a fix for the precompilation deadlock?"
+
+  answered_questions:
+    - question: "What specifically in displaysize() or AnnotatedDisplay caused the deadlock?"
+      answer: |
+        The deadlock was caused by iolock contention in displaysize(io::TTY). The function
+        acquires iolock_begin() before calling uv_tty_get_winsize, and releases it after.
+        During precompilation, multiple concurrent tasks attempting to precompile banner-related
+        methods (including AnnotatedDisplay.ansi_write for styled strings) while holding or
+        waiting for this lock caused the deadlock. The specific code path is:
+          displaysize(io::TTY) at base/stream.jl:574-606
+            -> iolock_begin() at stream.jl:596
+            -> ccall(:uv_tty_get_winsize, ...) at stream.jl:598-600
+            -> iolock_end() at stream.jl:601
+
+  recommendations:
+    - "No action needed for downstream packages - this is REPL UI only"
+    - "If using REPL.banner() with a Symbol argument, update to keyword syntax: banner(io; short=true)"
+    - "If using --banner=full/narrow/tiny in scripts, change to --banner=yes or --banner=short"
+    - "This PR has no impact on compiler internals, type inference, or code generation"
+
+reviewer_notes:
+  verification_status: "Enhanced by independent review"
+  review_date: "2026-01-22"
+  findings:
+    - "Confirmed deadlock mechanism through iolock in displaysize(io::TTY)"
+    - "Added missing direct change: docstring removal"
+    - "Added missing secondary effect: StreamREPL internal caller unaffected"
+    - "Added missing secondary effect: banner value integer mapping change"
+    - "Enhanced compatibility section with specific value mappings"
+    - "Answered open question about deadlock cause"
+  code_verified:
+    - path: "base/stream.jl"
+      lines: "574-606"
+      description: "Verified displaysize(io::TTY) uses iolock_begin()/iolock_end()"
+    - path: "stdlib/REPL/src/REPL.jl"
+      lines: "1807"
+      description: "Verified StreamREPL calls banner(repl.stream) without Symbol argument"
+    - path: "src/jloptions.c"
+      lines: "625-635"
+      description: "Verified CLI option handling matches analysis"
+
+changelog:
+  category: "REPL"
+  breaking: false
+  summary: |
+    Reverts terminal-size-dependent banner feature to fix precompilation deadlock.
+    The REPL banner now only has two variants (full and short) instead of four.
+    The --banner CLI option now accepts: yes|no|auto|short.
