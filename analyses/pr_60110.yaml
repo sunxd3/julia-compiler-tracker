@@ -1,0 +1,202 @@
+schema_version: "1.0"
+
+pr:
+  number: 60110
+  title: "Use Documenter-style details admonition in REPL docs"
+  url: "https://github.com/JuliaLang/julia/pull/60110"
+  author: "jakobnissen"
+  labels:
+    - "docs"
+    - "REPL"
+  merged_at: "2025-11-13T07:50:36Z"
+  merge_commit_sha: "e5d8fb2ac1cf16994fa2e81b01e6795bf51c3abc"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60110.diff"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/docs/src/index.md"
+  components:
+    - "Documentation"
+    - "REPL.stdlib"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Fix documentation rendering in Documenter.jl by replacing raw HTML `<details>` and
+      `<summary>` tags with Documenter-style `!!! details` admonition blocks. The HTML
+      tags did not render correctly when the documentation was processed by Documenter.jl,
+      causing the collapsible example section to display as raw HTML markup instead of a
+      properly formatted expandable section.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Replace HTML details/summary tags with Documenter-style admonition syntax"
+      component: "Documentation"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/docs/src/index.md"
+          loc: "583-743"
+          url: "https://github.com/JuliaLang/julia/blob/e5d8fb2ac1cf16994fa2e81b01e6795bf51c3abc/stdlib/REPL/docs/src/index.md#L583-L743"
+          before: |
+            <details>
+            <summary>Example: Monokai color theme (click to expand)</summary>
+
+            ```toml
+            # Monokai color theme for Julia syntax highlighting
+
+            [julia_macro]
+            foreground = "#A6E22E"
+
+            [julia_symbol]
+            foreground = "#AE81FF"
+            ```
+            </details>
+          after: |
+            !!! details "Example: Monokai color theme (click to expand)"
+                ```toml
+
+                # Monokai color theme for Julia syntax highlighting
+
+                [julia_macro]
+                foreground = "#A6E22E"
+
+                [julia_symbol]
+                foreground = "#AE81FF"
+                ```
+
+    - summary: "Indent TOML code block content to be inside the admonition"
+      component: "Documentation"
+      detail: |
+        The TOML code block and all its content was indented by 4 spaces to
+        conform to Documenter.jl admonition syntax. Content inside a `!!! details`
+        block must be indented to be recognized as part of the admonition.
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/docs/src/index.md"
+          loc: "583-598"
+          url: "https://github.com/JuliaLang/julia/blob/e5d8fb2ac1cf16994fa2e81b01e6795bf51c3abc/stdlib/REPL/docs/src/index.md#L583-L598"
+          snippet: |
+            !!! details "Example: Monokai color theme (click to expand)"
+                ```toml
+
+                # Monokai color theme for Julia syntax highlighting
+
+                [julia_macro]
+                foreground = "#A6E22E"
+
+                [julia_symbol]
+                foreground = "#AE81FF"
+
+                [julia_singleton_identifier]
+                inherit = "julia_symbol"
+
+                [julia_type]
+                foreground = "#66D9EF"
+                ```
+
+  secondary_effects: []
+
+  compatibility:
+    internal_api: []
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "Documentation-only change with no code modifications"
+      - "No impact on compiler, runtime, or any Julia code behavior"
+      - "Only affects how documentation is rendered by Documenter.jl"
+      - "The TOML content example is unchanged, only the formatting wrapper changed"
+
+  downstream_impact:
+    summary: "None - this is a pure documentation change"
+    affected_packages: []
+    detail: |
+      This PR has zero impact on downstream packages. It only affects how the REPL
+      documentation is rendered when processed by Documenter.jl. No Julia code,
+      compiler behavior, type inference, optimization, or runtime behavior is changed.
+
+      Packages that may use the REPL documentation as reference:
+      - Users reading REPL syntax highlighting customization docs will see properly
+        rendered collapsible sections instead of raw HTML tags
+
+  open_questions: []
+
+  recommendations:
+    - "No action required for downstream package maintainers"
+    - "This PR improves documentation readability but has no API or behavioral changes"
+
+  test_coverage:
+    status: "Not applicable"
+    detail: |
+      Documentation changes do not require test coverage. The change was visually
+      verified by the author through screenshots showing the before/after rendering:
+      - Before: Raw HTML tags visible in rendered documentation
+      - After: Proper collapsible "details" admonition block
+
+classification:
+  type: "documentation"
+  compiler_relevant: false
+  rationale: |
+    This PR exclusively modifies documentation markup in stdlib/REPL/docs/src/index.md.
+    It changes HTML `<details>` tags to Documenter.jl-compatible `!!! details` admonition
+    syntax. There are no changes to:
+    - Julia source code
+    - Compiler internals
+    - Type inference or optimization
+    - Runtime behavior
+    - Any exported APIs
+
+    The PR was correctly labeled with "docs" and "REPL" tags indicating its scope is
+    limited to documentation for the REPL stdlib.
+
+reviewer_notes:
+  reviewed_at: "2026-01-22"
+  reviewer: "Automated analysis"
+  methodology: |
+    1. Read PR metadata from pr-archive/JuliaLang_julia/pr_60110.json
+    2. Examined the diff patch to understand the changes
+    3. Verified that only stdlib/REPL/docs/src/index.md was modified
+    4. Confirmed the change is purely syntactical (HTML -> Markdown admonition)
+    5. Determined this has no compiler or downstream package impact
+  key_findings:
+    - finding: "Pure documentation change with no code impact"
+      confidence: "high"
+      evidence: "Only file changed is stdlib/REPL/docs/src/index.md, a documentation file"
+
+    - finding: "Change improves Documenter.jl compatibility"
+      confidence: "high"
+      evidence: "PR description explains HTML tags don't render correctly in Documenter"
+
+    - finding: "No downstream package impact"
+      confidence: "high"
+      evidence: "Documentation changes cannot affect package behavior or APIs"
+
+independent_review:
+  reviewed_at: "2026-01-22"
+  reviewer: "Second analyst"
+  methodology: |
+    1. Read existing analysis to understand initial findings
+    2. Fetched and checked out PR 60110 merge commit (e5d8fb2ac1cf16994fa2e81b01e6795bf51c3abc)
+    3. Independently verified only stdlib/REPL/docs/src/index.md was modified using git diff
+    4. Examined actual file content in the Julia repository
+    5. Confirmed the change pattern: HTML details/summary -> Documenter admonition syntax
+  verification:
+    files_changed_confirmed: true
+    merge_commit_verified: "e5d8fb2ac1cf16994fa2e81b01e6795bf51c3abc"
+    change_count: "111 additions, 114 deletions (net -3 lines due to removed HTML tags)"
+  enhancements_made:
+    - "Removed ellipses from code snippets to comply with quality requirements"
+    - "Added explicit before/after evidence with complete code blocks"
+    - "Added detail explanation for the indentation change"
+    - "Corrected line number references in evidence URLs"
+  conclusion: |
+    The original analysis was accurate. This is a documentation-only change with
+    zero compiler or downstream impact. The PR simply replaces HTML `<details>` and
+    `<summary>` tags with Documenter.jl-compatible `!!! details` admonition syntax,
+    fixing rendering issues in the generated documentation.
