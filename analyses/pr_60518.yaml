@@ -1,0 +1,312 @@
+schema_version: "1.0"
+
+pr:
+  number: 60518
+  title: "Replace getproperty(::DirEntry,::Symbol) method"
+  url: "https://github.com/JuliaLang/julia/pull/60518"
+  author: "fingolfin"
+  labels: []
+  merged_at: "2026-01-03T13:02:38Z"
+  merge_commit_sha: "f6a0257c2eef9fefbb2f1158aafad314365270a8"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60518.diff"
+
+scope:
+  files_touched:
+    - "base/file.jl"
+    - "stdlib/REPL/src/docview.jl"
+    - "test/file.jl"
+  components:
+    - "Base.Filesystem"
+    - "stdlib/REPL"
+  pipeline_stages:
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Remove magic property access on DirEntry struct and replace with explicit path() function.
+      The getproperty override that provided obj.path was problematic because it caused recursion
+      issues (fixed in PR 60506) and is considered an anti-pattern for internal implementation details.
+      Users should now use path(obj) or joinpath(obj) instead of obj.path.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/60506"
+
+  direct_changes:
+    - summary: "Remove getproperty and propertynames overrides for DirEntry"
+      component: "Base.Filesystem"
+      evidence:
+        - source: "diff"
+          path: "base/file.jl"
+          loc: "1060-1068"
+          url: "https://github.com/JuliaLang/julia/blob/f6a0257c2eef9fefbb2f1158aafad314365270a8/base/file.jl#L1060-L1068"
+          snippet: |
+            # REMOVED (before PR 60518):
+            function Base.getproperty(obj::DirEntry, p::Symbol)
+                if p === :path
+                    return joinpath(getfield(obj, :dir), getfield(obj, :name))
+                else
+                    return getfield(obj, p)
+                end
+            end
+            Base.propertynames(::DirEntry) = (:dir, :name, :path, :rawtype)
+
+    - summary: "Add explicit path() function for DirEntry"
+      component: "Base.Filesystem"
+      evidence:
+        - source: "code"
+          path: "base/file.jl"
+          loc: "1060"
+          url: "https://github.com/JuliaLang/julia/blob/f6a0257c2eef9fefbb2f1158aafad314365270a8/base/file.jl#L1060"
+          snippet: |
+            path(obj::DirEntry) = joinpath(getfield(obj, :dir), getfield(obj, :name))
+
+    - summary: "Update all internal usages from obj.path to path(obj)"
+      component: "Base.Filesystem"
+      evidence:
+        - source: "code"
+          path: "base/file.jl"
+          loc: "1064-1073"
+          url: "https://github.com/JuliaLang/julia/blob/f6a0257c2eef9fefbb2f1158aafad314365270a8/base/file.jl#L1064-L1073"
+          snippet: |
+            joinpath(obj::DirEntry, args...) = joinpath(path(obj), args...)
+            isunknown(obj::DirEntry) =  obj.rawtype == UV_DIRENT_UNKNOWN
+            islink(obj::DirEntry) =     isunknown(obj) ? islink(path(obj)) : obj.rawtype == UV_DIRENT_LINK
+            isfile(obj::DirEntry) =     (isunknown(obj) || islink(obj)) ? isfile(path(obj))      : obj.rawtype == UV_DIRENT_FILE
+            isdir(obj::DirEntry) =      (isunknown(obj) || islink(obj)) ? isdir(path(obj))       : obj.rawtype == UV_DIRENT_DIR
+            isfifo(obj::DirEntry) =     (isunknown(obj) || islink(obj)) ? isfifo(path(obj))      : obj.rawtype == UV_DIRENT_FIFO
+            issocket(obj::DirEntry) =   (isunknown(obj) || islink(obj)) ? issocket(path(obj))    : obj.rawtype == UV_DIRENT_SOCKET
+            ischardev(obj::DirEntry) =  (isunknown(obj) || islink(obj)) ? ischardev(path(obj))   : obj.rawtype == UV_DIRENT_CHAR
+            isblockdev(obj::DirEntry) = (isunknown(obj) || islink(obj)) ? isblockdev(path(obj))  : obj.rawtype == UV_DIRENT_BLOCK
+            realpath(obj::DirEntry) = realpath(path(obj))
+
+    - summary: "Update REPL docview to use joinpath(entry) instead of entry.path"
+      component: "stdlib/REPL"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/docview.jl"
+          loc: "398-400"
+          url: "https://github.com/JuliaLang/julia/blob/f6a0257c2eef9fefbb2f1158aafad314365270a8/stdlib/REPL/src/docview.jl#L398-L400"
+          snippet: |
+            for entry in _readdirx(path; sort=true)
+                isfile(entry) && (lowercase(entry.name) in ["readme.md", "readme"]) || continue
+                return joinpath(entry)  # <-- was: return entry.path
+            end
+
+    - summary: "Update test to use joinpath instead of o.path"
+      component: "test"
+      evidence:
+        - source: "code"
+          path: "test/file.jl"
+          loc: "1784-1785"
+          url: "https://github.com/JuliaLang/julia/blob/f6a0257c2eef9fefbb2f1158aafad314365270a8/test/file.jl#L1784-L1785"
+          snippet: |
+            @test map(o->o.name, Base.Filesystem._readdirx()) == readdir()
+            @test map(joinpath, Base.Filesystem._readdirx()) == readdir(join=true)  # <-- was: map(o->o.path, ...)
+
+  secondary_effects:
+    - effect: "Breaking change for external code using .path property on DirEntry"
+      mechanism: |
+        External code accessing entry.path will now error:
+          getproperty(::DirEntry, ::Symbol) no longer intercepts :path
+          -> getfield(entry, :path) is called
+          -> ERROR: type DirEntry has no field path
+
+        Migration path:
+          entry.path -> path(entry)  or  joinpath(entry)
+      downstream_surfaces:
+        - "Any package using _readdirx and accessing .path on results"
+        - "Scripts using internal _readdirx API"
+      likelihood: "medium"
+      impact: "medium"
+
+    - effect: "REPLCompletions still works - uses entry.name not entry.path"
+      mechanism: |
+        REPLCompletions.jl uses _readdirx but only accesses:
+          - entry.name (still works, actual struct field)
+          - isfile(entry), isdir(entry) (still works, method dispatch)
+          - joinpath(entry, ...) (still works, method dispatch)
+
+        Call sites in REPLCompletions.jl [lines 394, 457, 459, 972]:
+          for entry in _readdirx(dir)
+              if isfile(entry)                    # method call, not property
+                  push!(PATH_cache, entry.name)   # actual field access
+      downstream_surfaces:
+        - "stdlib/REPL/src/REPLCompletions.jl"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Performance improvement - removes dynamic dispatch in property access"
+      mechanism: |
+        Before: obj.dir called getproperty(obj, :dir) which checked p === :path
+        After: obj.dir calls getfield(obj, :dir) directly (inlined)
+
+        The getproperty override intercepted ALL property access to check for :path,
+        even for actual fields like .dir, .name, .rawtype.
+      downstream_surfaces:
+        - "All DirEntry field access sites"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Stale docstring still references virtual .path property"
+      mechanism: |
+        The DirEntry docstring at base/file.jl:1050-1052 still states:
+          "The full path of the entry can be obtained lazily by accessing the `path` field."
+
+        This documentation is now incorrect after the PR. Users following the docstring
+        will encounter an error. The docstring should be updated to reference path(obj)
+        or joinpath(obj) instead.
+
+        Actual docstring code [base/file.jl:1047-1054]:
+          """
+              DirEntry
+
+          A type representing a filesystem entry that contains the name of the entry, the directory, and
+          the raw type of the entry. The full path of the entry can be obtained lazily by accessing the
+          `path` field. The type of the entry can be checked for by calling [`isfile`](@ref), [`isdir`](@ref),
+          [`islink`](@ref), [`isfifo`](@ref), [`issocket`](@ref), [`ischardev`](@ref), and [`isblockdev`](@ref)
+          """
+      downstream_surfaces:
+        - "Users reading DirEntry documentation"
+        - "IDE/editor tooltips showing docstrings"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "path() function is internal and not exported"
+      mechanism: |
+        The new path(obj::DirEntry) function is defined at base/file.jl:1060 but is NOT
+        exported from Base. This is consistent with _readdirx being an internal API.
+
+        Users must use fully-qualified access:
+          Base.Filesystem.path(entry)    # works but verbose
+          joinpath(entry)                 # preferred - is exported and works cross-version
+      downstream_surfaces:
+        - "External code migrating from entry.path"
+      likelihood: "medium"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "DirEntry.path"
+        change: "Virtual property .path removed; use path(obj) or joinpath(obj) instead"
+        affected_tools:
+          - tool: "Any code using _readdirx"
+            usage: "Code accessing entry.path must migrate to path(entry)"
+      - field: "propertynames(::DirEntry)"
+        change: "No longer overridden; returns only actual fields (:dir, :name, :rawtype)"
+        affected_tools:
+          - tool: "Reflection-based code"
+            usage: "Code introspecting DirEntry properties won't see :path listed"
+    behavioral:
+      - description: "Migration from .path to path() function"
+        before: |
+          for entry in Base.Filesystem._readdirx()
+              println(entry.path)  # magic property
+          end
+        after: |
+          for entry in Base.Filesystem._readdirx()
+              println(path(entry))     # explicit function
+              # or: println(joinpath(entry))  # also works
+          end
+        impact: "medium"
+        migration_path: "Replace entry.path with path(entry) or joinpath(entry)"
+
+  performance:
+    compile_time:
+      - description: "No significant compile-time impact"
+        impact: "negligible"
+    runtime:
+      - description: "Slight improvement in field access for DirEntry"
+        impact: |
+          ESTIMATED: Removes one method dispatch and Symbol comparison per field access.
+          Before: getproperty -> check p === :path -> getfield
+          After: getfield directly (compiler can inline)
+          Measurable only in tight loops over many DirEntry objects.
+
+  risk:
+    level: "medium"
+    rationale:
+      - "_readdirx is internal API (prefixed with underscore)"
+      - "DirEntry is documented but noted as implementation detail"
+      - "Some external code may have relied on .path property despite internal status"
+      - "Clear migration path exists: use path() or joinpath() instead"
+      - "Not backportable per PR author (unlike fix in PR 60506)"
+
+  open_questions:
+    - "How many packages in the ecosystem use _readdirx and access .path?"
+    - "Should path() be exported or remain internal like _readdirx?"
+    - "Should a follow-up PR fix the stale DirEntry docstring that still references .path?"
+    - "Pre-existing test bug at test/file.jl:34 uses o.names (plural) instead of o.name - unrelated to this PR but should be fixed"
+
+  recommendations:
+    - "Packages using _readdirx should migrate from entry.path to path(entry) or joinpath(entry)"
+    - "For cross-version compatibility, use joinpath(entry) which works in both old and new Julia"
+    - "Consider wrapping _readdirx usage in try-catch for forward compatibility"
+    - "DirEntry docstring at base/file.jl:1050-1052 needs updating to reflect removal of .path property"
+    - "Prefer joinpath(entry) over Base.Filesystem.path(entry) since joinpath is exported"
+
+context:
+  related_prs:
+    - number: 60506
+      title: "Fix JET warning by avoiding recursion in getproperty(::DirEntry)"
+      relationship: "Predecessor - fixed immediate recursion issue that led to this more complete solution"
+
+  stdlib_usages:
+    - file: "stdlib/REPL/src/REPLCompletions.jl"
+      lines: [14, 394, 457, 459, 972]
+      usage: |
+        Uses _readdirx for path completion; accesses entry.name and uses
+        isfile(entry), isdir(entry), joinpath(entry, ...) - does NOT use .path
+
+    - file: "stdlib/REPL/src/docview.jl"
+      lines: [398-400]
+      usage: |
+        Uses _readdirx to find README files; updated in this PR to use
+        joinpath(entry) instead of entry.path
+
+reviewer_notes:
+  reviewed_by: "second-pass-analysis"
+  review_date: "2026-01-22"
+  methodology: |
+    Independent analysis performed by checking out merge commit f6a0257c2eef9fefbb2f1158aafad314365270a8,
+    reading full source files, and searching for usages with rg.
+  additional_findings:
+    - finding: "Stale docstring for DirEntry"
+      severity: "documentation-bug"
+      description: |
+        The DirEntry docstring at base/file.jl:1050-1052 still references the now-removed
+        virtual .path property. This should be fixed in a follow-up PR.
+      evidence:
+        file: "base/file.jl"
+        line: 1051
+        content: "the raw type of the entry. The full path of the entry can be obtained lazily by accessing the"
+    - finding: "Pre-existing test bug with .names typo"
+      severity: "unrelated-bug"
+      description: |
+        test/file.jl:34 uses o.names (plural) instead of o.name. This predates PR 60518
+        and is unrelated to the changes, but should be fixed separately.
+      evidence:
+        file: "test/file.jl"
+        line: 34
+        content: "@test map(o->o.names, Base.Filesystem._readdirx(dirlink)) == map(o->o.names, Base.Filesystem._readdirx(subdir))"
+    - finding: "path() function is not exported"
+      severity: "note"
+      description: |
+        The new path(obj::DirEntry) function is internal. Users should prefer joinpath(entry)
+        which is exported and works on both old and new Julia versions.
+  verification:
+    - item: "Checked REPLCompletions.jl usages at lines 394, 409, 457, 459, 470-472, 972-989"
+      result: "Confirmed: only uses entry.name, isfile(entry), isdir(entry), joinpath(entry, ...) - no .path access"
+    - item: "Checked docview.jl usage at lines 398-400"
+      result: "Confirmed: correctly updated to use joinpath(entry)"
+    - item: "Checked exports.jl for path function"
+      result: "Confirmed: path is not exported from Base"
+    - item: "Verified line numbers in evidence sections"
+      result: "Corrected docview.jl from 397-401 to 398-400"
+  original_analysis_quality: "good"
+  enhancements_made:
+    - "Added secondary effect for stale docstring issue"
+    - "Added secondary effect noting path() is not exported"
+    - "Added open question about docstring fix follow-up"
+    - "Added open question about pre-existing test bug"
+    - "Added recommendations for docstring fix and preferring joinpath()"
+    - "Corrected docview.jl line numbers from 397-401 to 398-400"
