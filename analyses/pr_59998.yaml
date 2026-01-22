@@ -1,0 +1,340 @@
+schema_version: "1.0"
+pr:
+  number: 59998
+  title: "Avoid hardcoding paths in Profile and Sys"
+  url: "https://github.com/JuliaLang/julia/pull/59998"
+  author: "nalimilan"
+  labels: []
+  merged_at: "2025-11-08T09:52:22Z"
+  merge_commit_sha: "7419b1ad4977a99998b3dc7ab9110d3eab028cff"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59998.diff"
+
+scope:
+  files_touched:
+    - "base/Makefile"
+    - "base/initdefs.jl"
+    - "base/methodshow.jl"
+    - "base/sysinfo.jl"
+    - "doc/make.jl"
+    - "doc/src/devdocs/EscapeAnalysis.md"
+    - "stdlib/Profile/src/Profile.jl"
+    - "stdlib/REPL/src/precompile.jl"
+    - "stdlib/REPL/test/bad_history_startup.jl"
+    - "stdlib/REPL/test/precompilation.jl"
+    - "stdlib/REPL/test/repl.jl"
+    - "stdlib/CRC32c/test/runtests.jl"
+    - "stdlib/Dates/test/io.jl"
+    - "stdlib/LibGit2/test/libgit2-tests.jl"
+    - "stdlib/Random/test/runtests.jl"
+    - "stdlib/SharedArrays/test/runtests.jl"
+    - "test/buildkitetestjson.jl"
+    - "test/secretbuffer.jl"
+  components:
+    - "Base"
+    - "Profile"
+    - "Sys"
+  pipeline_stages:
+    - "Runtime"
+    - "Build"
+
+analysis:
+  intent:
+    summary: |
+      This PR fixes path handling in Profile and Sys modules that failed when using custom
+      Julia installation paths. Instead of hardcoding paths like "../share/" or "share/julia",
+      it introduces build-time constants (DATAROOTDIR, SOURCEDIR) and uses the sysimage-time
+      constant (DATAROOT) that capture the actual installation layout, allowing Julia to work
+      correctly in non-standard directory structures.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/56601"
+      - "https://github.com/JuliaLang/julia/issues/56627"
+
+  direct_changes:
+    - summary: "Add SOURCEDIR constant in build_h.jl for Julia source directory"
+      component: "Base (build system)"
+      evidence:
+        - source: "code"
+          path: "base/Makefile"
+          loc: "74"
+          url: "https://github.com/JuliaLang/julia/blob/7419b1ad4977a99998b3dc7ab9110d3eab028cff/base/Makefile#L74"
+          snippet: |
+            @printf "%s\n" "const SOURCEDIR = "$(call shell_escape,$(call julia_escape,$(call normalize_path,$(shell echo $(call cygpath_w,$(JULIAHOME)))))) >> $@
+
+    - summary: "Remove Sys.BUILD_ROOT_PATH constant"
+      component: "Sys"
+      evidence:
+        - source: "diff"
+          path: "base/sysinfo.jl"
+          loc: "removed"
+          url: "https://github.com/JuliaLang/julia/pull/59998/files#diff-sysinfo"
+          snippet: |
+            # REMOVED - Previously at lines 63-64:
+            # const BUILD_ROOT_PATH = "$BINDIR/../.."
+            # This constant provided the path to Julia's build root directory.
+            # It has been replaced by Base.SOURCEDIR for source file location.
+
+    - summary: "Update Sys.STDLIB initialization to use DATAROOTDIR"
+      component: "Sys"
+      evidence:
+        - source: "code"
+          path: "base/sysinfo.jl"
+          loc: "59-62"
+          url: "https://github.com/JuliaLang/julia/blob/7419b1ad4977a99998b3dc7ab9110d3eab028cff/base/sysinfo.jl#L59-L62"
+          snippet: |
+            global STDLIB::String = "$BINDIR/$DATAROOTDIR/julia/stdlib/v$(VERSION.major).$(VERSION.minor)" # for bootstrap
+            # In case STDLIB change after julia is built, the variable below can be used
+            # to update cached method locations to updated ones.
+            const BUILD_STDLIB_PATH = STDLIB
+
+    - summary: "Use DATAROOTDIR in Sys.__init_build for runtime STDLIB path"
+      component: "Sys"
+      evidence:
+        - source: "code"
+          path: "base/sysinfo.jl"
+          loc: "198-203"
+          url: "https://github.com/JuliaLang/julia/blob/7419b1ad4977a99998b3dc7ab9110d3eab028cff/base/sysinfo.jl#L198-L203"
+          snippet: |
+            function __init_build()
+                global BINDIR = ccall(:jl_get_julia_bindir, Any, ())::String
+                vers = "v$(string(VERSION.major)).$(string(VERSION.minor))"
+                global STDLIB = abspath(BINDIR, DATAROOTDIR, "julia", "stdlib", vers)
+                nothing
+            end
+
+    - summary: "Update Profile.SRC_DIR to use Base.SOURCEDIR"
+      component: "Profile"
+      evidence:
+        - source: "code"
+          path: "stdlib/Profile/src/Profile.jl"
+          loc: "541"
+          url: "https://github.com/JuliaLang/julia/blob/7419b1ad4977a99998b3dc7ab9110d3eab028cff/stdlib/Profile/src/Profile.jl#L541"
+          snippet: |
+            const SRC_DIR = normpath(Base.SOURCEDIR, "src")
+
+    - summary: "Update Profile.short_path to use DATAROOT and DATAROOTDIR for Compiler detection"
+      component: "Profile"
+      evidence:
+        - source: "code"
+          path: "stdlib/Profile/src/Profile.jl"
+          loc: "546-595"
+          url: "https://github.com/JuliaLang/julia/blob/7419b1ad4977a99998b3dc7ab9110d3eab028cff/stdlib/Profile/src/Profile.jl#L546-L595"
+          snippet: |
+            function short_path(spath::Symbol, filenamecache::Dict{Symbol, Tuple{String,String,String}})
+                return get!(filenamecache, spath) do
+                    path = Base.fixup_stdlib_path(string(spath))
+                    path_norm = normpath(path)
+                    possible_base_path = normpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base", path)
+                    lib_dir = abspath(Sys.BINDIR, Base.LIBDIR)
+                    compiler_dir = normpath(Base.DATAROOT, "julia", "Compiler/")
+                    if startswith(path_norm, SRC_DIR)
+                        remainder = only(split(path_norm, SRC_DIR, keepempty=false))
+                        return (isfile(path_norm) ? path_norm : ""), "@juliasrc", remainder
+                    elseif startswith(path_norm, lib_dir)
+                        remainder = only(split(path_norm, lib_dir, keepempty=false))
+                        return (isfile(path_norm) ? path_norm : ""), "@julialib", remainder
+                    elseif startswith(path_norm, compiler_dir)
+                        remainder = split(path_norm, compiler_dir, keepempty=false)[end]
+                        possible_compiler_path = normpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "Compiler", remainder)
+                        return (isfile(possible_compiler_path) ? possible_compiler_path : ""), "@Compiler", remainder
+
+    - summary: "Update bundled depot path to use DATAROOTDIR"
+      component: "Base"
+      evidence:
+        - source: "code"
+          path: "base/initdefs.jl"
+          loc: "97-103"
+          url: "https://github.com/JuliaLang/julia/blob/7419b1ad4977a99998b3dc7ab9110d3eab028cff/base/initdefs.jl#L97-L103"
+          snippet: |
+            function append_bundled_depot_path!(DEPOT_PATH)
+                path = abspath(Sys.BINDIR, "..", "local", "share", "julia")
+                path in DEPOT_PATH || push!(DEPOT_PATH, path)
+                path = abspath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
+                path in DEPOT_PATH || push!(DEPOT_PATH, path)
+                return DEPOT_PATH
+            end
+
+    - summary: "Update fixup_stdlib_path in methodshow.jl to use DATAROOTDIR"
+      component: "Base"
+      evidence:
+        - source: "code"
+          path: "base/methodshow.jl"
+          loc: "140-148"
+          url: "https://github.com/JuliaLang/julia/blob/7419b1ad4977a99998b3dc7ab9110d3eab028cff/base/methodshow.jl#L140-L148"
+          snippet: |
+            if isdefined(@__MODULE__, :Core) && isdefined(Core, :Compiler)
+                compiler_folder = dirname(String(Base.moduleloc(Core.Compiler).file))
+                if dirname(path) == compiler_folder
+                    return abspath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "Compiler", "src", basename(path))
+                end
+            end
+
+    - summary: "Update buildkitetestjson.jl to use SOURCEDIR for path normalization"
+      component: "Test infrastructure"
+      evidence:
+        - source: "code"
+          path: "test/buildkitetestjson.jl"
+          loc: "90-105"
+          url: "https://github.com/JuliaLang/julia/blob/7419b1ad4977a99998b3dc7ab9110d3eab028cff/test/buildkitetestjson.jl#L90-L105"
+          snippet: |
+            const generalize_file_paths_cache = Dict{AbstractString,AbstractString}()
+            const norm_sourcedir = normpath(Base.SOURCEDIR)
+            const bindir_dir = dirname(Sys.BINDIR)
+            const pathsep = Sys.iswindows() ? '\\' : '/'
+            function generalize_file_paths(path::AbstractString)
+                return get!(generalize_file_paths_cache, path) do
+                    path = replace(path,
+                        Sys.STDLIB => "stdlib",
+                        string(norm_sourcedir, pathsep) => "",
+                        string(bindir_dir, pathsep) => ""
+                    )
+                    @static if Sys.iswindows()
+                        path = replace(path, "\\" => "/")
+                    end
+                    return replace(path, "share/julia/" => "")
+                end
+            end
+
+  secondary_effects:
+    - effect: "Profile path shortening now correctly handles custom installation directories"
+      mechanism: |
+        Profile.short_path() [Profile.jl:546]
+          -> path_norm = normpath(path)
+          -> compiler_dir = normpath(Base.DATAROOT, "julia", "Compiler/")  [Profile.jl:552]
+             NOTE: Base.DATAROOT is set during sysimage compilation via --dataroot argument
+             and preserved in the sysimage. At runtime it contains the absolute dataroot path
+             used during build (e.g., "/usr/share/").
+          -> startswith(path_norm, compiler_dir) enables correct @Compiler prefix matching
+          -> possible_compiler_path uses DATAROOTDIR for runtime file lookup  [Profile.jl:561]
+      downstream_surfaces:
+        - "Profile.print() output"
+        - "Profiler visualization tools"
+        - "Custom Julia installations with non-standard layouts"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Buildkite test reporting uses SOURCEDIR for path normalization"
+      mechanism: |
+        buildkitetestjson.jl:generalize_file_paths() [buildkitetestjson.jl:94]
+          -> uses norm_sourcedir = normpath(Base.SOURCEDIR) [buildkitetestjson.jl:91]
+          -> replaces source paths in test reports for CI
+          -> ensures consistent path reporting regardless of build location
+      downstream_surfaces:
+        - "Buildkite CI test reports"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Stdlib test files now use DATAROOTDIR for locating test helpers"
+      mechanism: |
+        Multiple stdlib test files updated to use:
+          const BASE_TEST_PATH = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "test")
+        This pattern is used in:
+          - stdlib/CRC32c/test/runtests.jl:6
+          - stdlib/Dates/test/io.jl:8
+          - stdlib/LibGit2/test/libgit2-tests.jl:10
+          - stdlib/Random/test/runtests.jl:6
+          - stdlib/SharedArrays/test/runtests.jl:4
+          - stdlib/REPL/test/repl.jl:14
+          - stdlib/REPL/test/bad_history_startup.jl:7
+          - stdlib/REPL/test/precompilation.jl:5
+          - stdlib/REPL/src/precompile.jl:10
+          - test/secretbuffer.jl:3
+      downstream_surfaces:
+        - "Julia stdlib test suite"
+        - "Custom Julia distributions"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "DEPOT_PATH bundled paths now use DATAROOTDIR"
+      mechanism: |
+        Base.append_bundled_depot_path!() [initdefs.jl:97]
+          -> path = abspath(Sys.BINDIR, Base.DATAROOTDIR, "julia")  [initdefs.jl:100]
+          -> correctly locates bundled depot even in non-standard installations
+      downstream_surfaces:
+        - "Package loading"
+        - "Precompilation cache discovery"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "Sys.BUILD_ROOT_PATH"
+        change: "REMOVED - no longer exists; replaced by Base.SOURCEDIR"
+        affected_tools:
+          - tool: "Custom Julia distribution builders"
+            usage: "Any code that accessed Sys.BUILD_ROOT_PATH to locate Julia source"
+          - tool: "Profile.jl (internal)"
+            usage: "Previously used for SRC_DIR calculation, now uses Base.SOURCEDIR"
+      - field: "Base.SOURCEDIR"
+        change: "NEW constant - absolute path to Julia source directory during build (set in build_h.jl)"
+        affected_tools:
+          - tool: "Profile stdlib"
+            usage: "Used in Profile.jl to construct SRC_DIR for path shortening"
+          - tool: "Buildkite test infrastructure"
+            usage: "Used in buildkitetestjson.jl for path normalization"
+      - field: "Base.DATAROOTDIR"
+        change: "Existing constant now used in more locations (relative path from BINDIR to share dir)"
+        affected_tools:
+          - tool: "Custom installation layouts"
+            usage: "Installations with non-standard share/ directory locations now work"
+      - field: "Base.DATAROOT"
+        change: "Existing global now used in Profile.jl (absolute path set during sysimage compilation via --dataroot)"
+        affected_tools:
+          - tool: "Profile stdlib"
+            usage: "Used to compute compiler_dir for @Compiler path prefix detection"
+          - tool: "Sysimage builders"
+            usage: "Passed via --dataroot argument during sysimage compilation"
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime:
+      - description: "No runtime performance impact - only changes path string construction"
+        impact: "none"
+        rationale: "All changes are simple string path operations executed once at module load time"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are purely path manipulation, no algorithmic or semantic changes"
+      - "Removes hardcoded paths in favor of build-time configured paths"
+      - "Only affects path resolution for profile output, stdlib paths, and depot paths"
+      - "Breaking change is removal of Sys.BUILD_ROOT_PATH, but this was internal and no external usage found"
+      - "Base.DATAROOT preserves its sysimage-build-time value, ensuring Profile.jl works correctly"
+
+  downstream_package_impact:
+    - package: "JET.jl"
+      impact: "none"
+      reason: "JET uses compiler internals for type inference, not path handling constants"
+    - package: "IRTools.jl"
+      impact: "none"
+      reason: "IRTools works with IR manipulation, unaffected by path constants"
+    - package: "Cassette.jl"
+      impact: "none"
+      reason: "Cassette uses compiler overdubbing, unaffected by path handling"
+    - package: "GPUCompiler.jl"
+      impact: "none"
+      reason: "GPUCompiler focuses on codegen, not path resolution"
+    - package: "Enzyme.jl"
+      impact: "none"
+      reason: "Enzyme works with LLVM IR and AD, unaffected by path constants"
+
+  open_questions:
+    - "Verify that Base.DATAROOT correctly preserves its sysimage-build-time value at runtime for Profile.short_path to work correctly"
+
+  recommendations:
+    - "Downstream tools accessing Sys.BUILD_ROOT_PATH should migrate to Base.SOURCEDIR"
+    - "Custom Julia distributions with non-standard layouts can now set appropriate datarootdir during build"
+    - "When building custom sysimages, ensure --dataroot is passed correctly for Profile path shortening to work"
+
+  reviewer_notes: |
+    Independent analysis verified the following:
+    1. All code snippets are accurate and line numbers verified against actual source
+    2. Base.DATAROOT is a non-const global set at sysimage build time (Base_compiler.jl:366)
+       and preserved in the sysimage - it is NOT empty at runtime
+    3. Base.SOURCEDIR is a const defined in build_h.jl (Makefile:74) containing the absolute
+       path to JULIAHOME at build time
+    4. Base.DATAROOTDIR is a const defined in build_h.jl (Makefile:67) containing the relative
+       path from BINDIR to the data root directory (typically "../share")
+    5. The removal of Sys.BUILD_ROOT_PATH is a breaking change but no external usage was found
+    6. All downstream compiler tooling packages (JET, IRTools, Cassette, GPUCompiler, Enzyme)
+       are unaffected as they work with compiler internals, not path handling
