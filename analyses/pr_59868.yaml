@@ -1,0 +1,331 @@
+schema_version: "1.0"
+
+pr:
+  number: 59868
+  title: "share the parsing result between the REPL styling passes to not parse the same input many times"
+  url: "https://github.com/JuliaLang/julia/pull/59868"
+  author: "KristofferC"
+  labels:
+    - "REPL"
+  merged_at: "2025-10-17T09:10:35Z"
+  merge_commit_sha: "5f500169b8018d5e2b61797610717290e4cc96bd"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59868.diff"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/src/StylingPasses.jl"
+  components:
+    - "REPL"
+  pipeline_stages:
+    - "Parsing"
+
+analysis:
+  intent:
+    summary: |
+      Optimize REPL syntax highlighting by parsing input once and sharing the AST
+      across multiple styling passes, instead of each pass parsing independently.
+      Also removes redundant InterruptException rethrowing from error handlers.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Parse input once in apply_styling_passes() and pass AST to all passes"
+      component: "REPL.StylingPasses"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/StylingPasses.jl"
+          loc: "44-54"
+          url: "https://github.com/JuliaLang/julia/blob/5f500169b8018d5e2b61797610717290e4cc96bd/stdlib/REPL/src/StylingPasses.jl#L44-L54"
+          snippet: |
+            function apply_styling_passes(input::String, passes::Vector{StylingPass}, context::StylingContext)
+                if isempty(passes)
+                    return AnnotatedString(input)
+                end
+
+                # Parse once and share AST across all passes
+                ast = JuliaSyntax.parseall(JuliaSyntax.GreenNode, input; ignore_errors=true)
+
+                results = [apply_style(pass, input, ast, context) for pass in passes]
+                return merge_annotations(results)
+            end
+
+    - summary: "Modified apply_style signature to accept ast parameter"
+      component: "REPL.StylingPasses"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/StylingPasses.jl"
+          loc: "40-42"
+          url: "https://github.com/JuliaLang/julia/blob/5f500169b8018d5e2b61797610717290e4cc96bd/stdlib/REPL/src/StylingPasses.jl#L40-L42"
+          snippet: |
+            function apply_style(pass::StylingPass, input::String, ast, context::StylingContext)
+                return pass(input, ast, context)::AnnotatedString{String}
+            end
+
+    - summary: "SyntaxHighlightPass now uses pre-parsed AST via JuliaSyntaxHighlighting.highlight(input, ast)"
+      component: "REPL.StylingPasses.SyntaxHighlightPass"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/StylingPasses.jl"
+          loc: "59-66"
+          url: "https://github.com/JuliaLang/julia/blob/5f500169b8018d5e2b61797610717290e4cc96bd/stdlib/REPL/src/StylingPasses.jl#L59-L66"
+          snippet: |
+            function (::SyntaxHighlightPass)(input::String, ast, ::StylingContext)
+                try
+                    return JuliaSyntaxHighlighting.highlight(input, ast)
+                catch e
+                    @error "Error in SyntaxHighlightPass" exception=(e, catch_backtrace()) maxlog=1
+                    return AnnotatedString(input)
+                end
+            end
+
+    - summary: "RegionHighlightPass signature updated (ignores AST, uses ::Any)"
+      component: "REPL.StylingPasses.RegionHighlightPass"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/StylingPasses.jl"
+          loc: "71"
+          url: "https://github.com/JuliaLang/julia/blob/5f500169b8018d5e2b61797610717290e4cc96bd/stdlib/REPL/src/StylingPasses.jl#L71"
+          snippet: |
+            function (::RegionHighlightPass)(input::String, ::Any, context::StylingContext)
+
+    - summary: "EnclosingParenHighlightPass uses pre-parsed AST instead of calling parseall"
+      component: "REPL.StylingPasses.EnclosingParenHighlightPass"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/StylingPasses.jl"
+          loc: "91-110"
+          url: "https://github.com/JuliaLang/julia/blob/5f500169b8018d5e2b61797610717290e4cc96bd/stdlib/REPL/src/StylingPasses.jl#L91-L110"
+          snippet: |
+            function (pass::EnclosingParenHighlightPass)(input::String, ast, context::StylingContext)
+                result = AnnotatedString(input)
+
+                if isempty(input) || context.cursor_pos < 1
+                    return result
+                end
+
+                try
+                    paren_pairs = find_enclosing_parens(input, ast, context.cursor_pos)
+
+                    for (open_pos, close_pos) in paren_pairs
+                        annotate!(result, open_pos:open_pos, :face, pass.face)
+                        annotate!(result, close_pos:close_pos, :face, pass.face)
+                    end
+                catch e
+                    @error "Error in EnclosingParenHighlightPass" exception=(e, catch_backtrace()) maxlog=1
+                end
+
+                return result
+            end
+
+    - summary: "Removed InterruptException rethrowing from error handlers"
+      component: "REPL.StylingPasses"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/StylingPasses.jl"
+          loc: "62-63, 105-106"
+          url: "https://github.com/JuliaLang/julia/pull/59868.diff"
+          snippet: |
+            # BEFORE (in both SyntaxHighlightPass and EnclosingParenHighlightPass):
+            catch e
+                e isa InterruptException && rethrow()
+                @error "Error in ..." exception=(e, catch_backtrace()) maxlog=1
+
+            # AFTER:
+            catch e
+                @error "Error in ..." exception=(e, catch_backtrace()) maxlog=1
+
+  secondary_effects:
+    - effect: "Custom StylingPass implementations must update their call signature"
+      mechanism: |
+        Full call chain from REPL input handling:
+
+        refresh_multi_line(s::PromptState)  [LineEdit.jl:574]
+          -> if buf.size > 0 && buf.size <= max_highlight_size  [LineEdit.jl:631]
+             # Only applies styling for inputs <= 10KB
+          -> apply_styling_passes(full_input, passes, context)  [LineEdit.jl:651]
+
+        apply_styling_passes(input, passes, context)  [StylingPasses.jl:44]
+          -> ast = JuliaSyntax.parseall(JuliaSyntax.GreenNode, input; ignore_errors=true)
+          -> apply_style(pass, input, ast, context)  [StylingPasses.jl:40]
+
+        apply_style(pass, input, ast, context)  [StylingPasses.jl:40]
+          -> pass(input, ast, context)  # callable on StylingPass subtype
+
+        Any custom StylingPass subtype must now accept 3 arguments instead of 2:
+          BEFORE: (input::String, context::StylingContext)
+          AFTER:  (input::String, ast, context::StylingContext)
+      downstream_surfaces:
+        - "Custom StylingPass implementations"
+        - "REPL extensions that add styling passes"
+      likelihood: "low"
+      impact: "medium"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "631-651"
+          url: "https://github.com/JuliaLang/julia/blob/5f500169b8018d5e2b61797610717290e4cc96bd/stdlib/REPL/src/LineEdit.jl#L631-L651"
+          snippet: |
+            if buf.size > 0 && buf.size <= max_highlight_size
+                full_input = String(buf.data[1:buf.size])
+                if !isempty(full_input)
+                    passes = StylingPass[]
+                    context = StylingContext(buf_pos, regstart, regstop)
+                    # ... pass collection ...
+                    if !isempty(passes)
+                        styled_buffer = apply_styling_passes(full_input, passes, context)
+                    end
+                end
+            end
+
+    - effect: "InterruptException now caught and logged instead of propagated"
+      mechanism: |
+        catch e  [StylingPasses.jl:62, 105]
+          Previously: e isa InterruptException && rethrow()
+          Now: All exceptions including InterruptException are logged with @error
+        -> If user presses Ctrl+C during styling, it will be caught and logged
+           rather than immediately interrupting. The REPL continues gracefully.
+
+        Note: Styling passes run on every REPL refresh (each keystroke for small inputs).
+        The parse operation is fast enough that Ctrl+C during it is very unlikely.
+        Author's PR description: "remove the whole InterruptException rethrowing. It felt stupid."
+      downstream_surfaces:
+        - "REPL interrupt behavior during syntax highlighting"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "JuliaSyntaxHighlighting.highlight() now receives pre-parsed AST"
+      mechanism: |
+        apply_styling_passes()  [StylingPasses.jl:50]
+          ast = JuliaSyntax.parseall(JuliaSyntax.GreenNode, input; ignore_errors=true)
+        -> SyntaxHighlightPass()  [StylingPasses.jl:61]
+          JuliaSyntaxHighlighting.highlight(input, ast)
+
+        JuliaSyntaxHighlighting.highlight() supports optional AST parameter (verified):
+          highlight(content::AbstractString, ast::GreenNode; syntax_errors::Bool = false)
+        When AST is provided, it skips internal parsing and uses the provided tree directly.
+
+        The GreenNode tree is immutable, so sharing across passes is thread-safe.
+      downstream_surfaces:
+        - "JuliaSyntaxHighlighting internal parsing path"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "RegionHighlightPass receives AST it does not use"
+      mechanism: |
+        RegionHighlightPass signature changed to accept ast parameter:
+          function (::RegionHighlightPass)(input::String, ::Any, context::StylingContext)
+
+        The ::Any type annotation discards the AST - this pass only annotates a
+        selected region based on context.region_start/region_stop cursor positions.
+
+        Implication: If only RegionHighlightPass is enabled (no SyntaxHighlightPass or
+        EnclosingParenHighlightPass), parsing still occurs unnecessarily. However,
+        in default REPL configuration this is not an issue since SyntaxHighlightPass
+        and EnclosingParenHighlightPass are always enabled together.
+      downstream_surfaces:
+        - "REPL with custom pass configurations"
+      likelihood: "low"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "StylingPass callable signature"
+        change: |
+          BEFORE: pass(input::String, context::StylingContext)
+          AFTER:  pass(input::String, ast, context::StylingContext)
+        affected_tools:
+          - tool: "Custom REPL styling extensions"
+            usage: "Any package extending StylingPass must update method signatures"
+
+    behavioral:
+      - description: "InterruptException handling during styling"
+        change: |
+          BEFORE: InterruptException was rethrown, allowing immediate REPL interruption
+          AFTER: InterruptException is caught and logged, styling fails gracefully
+        impact: "low"
+
+  performance:
+    compile_time: []
+
+    runtime:
+      - description: "Reduced parsing overhead for REPL input styling"
+        change: |
+          BEFORE: Each styling pass that needed AST called JuliaSyntax.parseall() independently
+            - SyntaxHighlightPass: Called JuliaSyntaxHighlighting.highlight() which parsed internally
+            - EnclosingParenHighlightPass: Called JuliaSyntax.parseall() directly
+            - With 2 passes enabled by default, input was parsed 2 times per keystroke
+
+          AFTER: Single parse at the start of apply_styling_passes(), shared across all passes
+            - JuliaSyntax.parseall() called once in apply_styling_passes()
+            - AST passed to all styling passes
+            - Parsing reduced from N times to 1 time (where N = number of AST-using passes)
+
+          Protection mechanism (unchanged):
+            - max_highlight_size = 10000 bytes  [LineEdit.jl:572]
+            - Styling only applied when buf.size <= max_highlight_size
+            - Large inputs skip styling entirely, avoiding performance issues
+        impact: |
+          ESTIMATED: ~50% reduction in parsing overhead for default REPL configuration
+          (2 passes using AST -> 1 parse instead of 2)
+          Most noticeable for inputs approaching the 10KB limit.
+          Typical REPL inputs are much smaller, so per-keystroke impact is minimal
+          but cumulative savings add up during interactive sessions.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are confined to REPL styling module, no compiler impact"
+      - "No changes to parsing logic itself, only to when parsing occurs"
+      - "JuliaSyntaxHighlighting already supports receiving pre-parsed AST (verified in package source)"
+      - "Existing tests for syntax highlighting cover the modified functionality (repl.jl:2033-2152)"
+      - "Removed InterruptException handling is a simplification - author noted 'It felt stupid'"
+      - "GreenNode AST is immutable, sharing across passes is thread-safe"
+      - "StylingPass is only used within stdlib/REPL - no external callers found in codebase search"
+
+  open_questions:
+    - question: "Are there any downstream packages that implement custom StylingPass subtypes?"
+      status: "RESOLVED"
+      answer: |
+        Codebase search found no custom StylingPass implementations outside stdlib/REPL.
+        StylingPass is abstract type defined at StylingPasses.jl:24 with only 3 subtypes:
+          - SyntaxHighlightPass (line 57)
+          - RegionHighlightPass (line 69)
+          - EnclosingParenHighlightPass (line 85)
+        Risk of breaking external packages is very low since this is REPL-specific API.
+
+    - question: "Is the change in InterruptException handling desirable for all use cases?"
+      status: "RESOLVED"
+      answer: |
+        The styling pass runs on each keystroke for small inputs (<10KB).
+        Parse time is fast enough that user hitting Ctrl+C during parse is extremely unlikely.
+        If an exception does occur during styling, logging with @error maxlog=1 and
+        continuing gracefully (returning unstyled input) is reasonable behavior.
+        Author explicitly chose this simplification as unnecessary complexity.
+
+  recommendations:
+    - "Update any custom StylingPass implementations to accept the new 3-argument signature"
+    - "If immediate interrupt handling during styling is needed, consider implementing at a higher level"
+
+  reviewer_notes:
+    - note: "Verified JuliaSyntaxHighlighting.highlight() API supports pre-parsed AST"
+      evidence: |
+        Package source at github.com/JuliaLang/JuliaSyntaxHighlighting.jl shows:
+          highlight(content::AbstractString, ast::GreenNode; syntax_errors::Bool = false)
+        When AST is provided, the function skips internal parseall() call.
+
+    - note: "Test coverage is adequate"
+      evidence: |
+        Tests at stdlib/REPL/test/repl.jl lines 2033-2152 cover:
+          - Syntax highlighting passes are configured (lines 2048-2054)
+          - Keyword highlighting works (lines 2061-2074)
+          - Unicode handling (lines 2076-2092)
+          - Multi-line input (lines 2094-2103)
+          - Bracket/paren highlighting (lines 2105-2124)
+          - Styling can be disabled (lines 2130-2150)
+
+    - note: "Minor inefficiency identified but acceptable"
+      evidence: |
+        If only RegionHighlightPass is active (no syntax highlighting), parsing still
+        occurs but the AST is discarded (::Any parameter). This is acceptable because:
+        1. Default REPL always has SyntaxHighlightPass + EnclosingParenHighlightPass
+        2. RegionHighlightPass is only added when region_active (selection mode)
+        3. In practice, passes are always combined, never RegionHighlightPass alone
