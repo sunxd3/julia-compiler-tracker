@@ -1,0 +1,543 @@
+schema_version: "1.0"
+
+pr:
+  number: 59984
+  title: "Revert \"Make banner size depend on terminal size\""
+  url: "https://github.com/JuliaLang/julia/pull/59984"
+  author: "giordano"
+  labels:
+    - "REPL"
+    - "revert"
+  merged_at: "2025-10-29T22:00:31Z"
+  merge_commit_sha: "7638a58905b20cef12a3abceb722a04b9e745579"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59984.diff"
+
+scope:
+  files_touched:
+    - "base/client.jl"
+    - "src/jloptions.c"
+    - "stdlib/REPL/src/REPL.jl"
+    - "stdlib/REPL/src/precompile.jl"
+    - "stdlib/REPL/test/repl.jl"
+    - "test/cmdlineargs.jl"
+  components:
+    - "Other"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Reverts PR #51811 which made the Julia startup banner size dynamically adjust based
+      on terminal dimensions. The revert was necessary because the changes broke tests on
+      x86_64-darwin (macOS). This PR restores the simpler banner behavior with only three
+      options: yes (full), no, and short.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/51811"
+      - "https://github.com/JuliaLang/julia/pull/51811#issuecomment-3453821626"
+    quoted_from_pr: |
+      Reverts JuliaLang/julia#51811. This broke tests on x86_64-darwin, ref:
+      https://github.com/JuliaLang/julia/pull/51811#issuecomment-3453821626.
+
+  direct_changes:
+    - summary: |
+        Simplified --banner command-line option handling in jloptions.c.
+        BEFORE (PR 51811): Accepted yes|no|auto|full|narrow|short|tiny with values 0-4.
+        AFTER (revert): Accepts only yes|no|auto|short with values -1, 0, 1, 2.
+      component: "Runtime (jloptions.c)"
+      evidence:
+        - source: "diff"
+          path: "src/jloptions.c"
+          loc: "625-636"
+          url: "https://github.com/JuliaLang/julia/blob/7638a58905b20cef12a3abceb722a04b9e745579/src/jloptions.c#L625-L636"
+          snippet: |
+            case opt_banner: // banner
+                if (!strcmp(optarg, "yes"))
+                    jl_options.banner = 1;
+                else if (!strcmp(optarg, "no"))
+                    jl_options.banner = 0;
+                else if (!strcmp(optarg, "auto"))
+                    jl_options.banner = -1;
+                else if (!strcmp(optarg, "short"))
+                    jl_options.banner = 2;
+                else
+                    jl_errorf("julia: invalid argument to --banner={yes|no|auto|short} (%s)", optarg);
+                break;
+
+    - summary: |
+        Simplified help text for --banner option in jloptions.c.
+        BEFORE: "--banner={yes|no|auto*|<size>}" with mention of preferred size (tiny, short, narrow, full).
+        AFTER: "--banner={yes|no|short|auto*}" with simple description.
+      component: "Runtime (jloptions.c)"
+      evidence:
+        - source: "diff"
+          path: "src/jloptions.c"
+          loc: "241"
+          url: "https://github.com/JuliaLang/julia/blob/7638a58905b20cef12a3abceb722a04b9e745579/src/jloptions.c#L241"
+          snippet: |
+            " --banner={yes|no|short|auto*}                 Enable or disable startup banner\n"
+
+    - summary: |
+        Simplified banner symbol mapping in base/client.jl repl_main function.
+        BEFORE: Complex mapping of banner values 0-4 to symbols :no, :full, :narrow, :short, :tiny.
+        AFTER: Simple ternary mapping to :no, :yes, or :short.
+      component: "Base (client.jl)"
+      evidence:
+        - source: "diff"
+          path: "base/client.jl"
+          loc: "615-627"
+          url: "https://github.com/JuliaLang/julia/blob/7638a58905b20cef12a3abceb722a04b9e745579/base/client.jl#L615-L627"
+          snippet: |
+            function repl_main(_)
+                opts = Base.JLOptions()
+                interactiveinput = isa(stdin, Base.TTY)
+                b = opts.banner
+                auto = b == -1
+                banner = b == 0 || (auto && !interactiveinput) ? :no  :
+                         b == 1 || (auto && interactiveinput)  ? :yes :
+                         :short # b == 2
+
+                quiet                 = (opts.quiet != 0)
+                history_file          = (opts.historyfile != 0)
+                return run_main_repl(interactiveinput, quiet, banner, history_file)
+            end
+
+    - summary: |
+        Changed REPL.banner() function signature and simplified implementation.
+        BEFORE: banner(io::IO = stdout, preferred::Symbol = :full) with terminal size detection
+                and styled string output using StyledStrings.Face.
+        AFTER: banner(io::IO = stdout; short = false) with simple string interpolation.
+      component: "REPL stdlib"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "1734-1781"
+          url: "https://github.com/JuliaLang/julia/blob/7638a58905b20cef12a3abceb722a04b9e745579/stdlib/REPL/src/REPL.jl#L1734-L1781"
+          snippet: |
+            function banner(io::IO = stdout; short = false)
+                if Base.GIT_VERSION_INFO.tagged_commit
+                    commit_string = Base.TAGGED_RELEASE_BANNER
+                elseif isempty(Base.GIT_VERSION_INFO.commit)
+                    commit_string = ""
+                else
+                    days = Int(floor((ccall(:jl_clock_now, Float64, ()) - Base.GIT_VERSION_INFO.fork_master_timestamp) / (60 * 60 * 24)))
+                    days = max(0, days)
+                    unit = days == 1 ? "day" : "days"
+                    distance = Base.GIT_VERSION_INFO.fork_master_distance
+                    commit = Base.GIT_VERSION_INFO.commit_short
+
+                    if distance == 0
+                        commit_string = "Commit $(commit) ($(days) $(unit) old master)"
+                    else
+                        branch = Base.GIT_VERSION_INFO.branch
+                        commit_string = "$(branch)/$(commit) (fork: $(distance) commits, $(days) $(unit))"
+                    end
+                end
+
+                commit_date = isempty(Base.GIT_VERSION_INFO.date_string) ? "" : " ($(split(Base.GIT_VERSION_INFO.date_string)[1]))"
+
+                if get(io, :color, false)::Bool
+                    c = Base.text_colors
+                    tx = c[:normal] # text
+                    jl = c[:normal] # julia
+                    d1 = c[:bold] * c[:blue]    # first dot
+                    d2 = c[:bold] * c[:red]     # second dot
+                    d3 = c[:bold] * c[:green]   # third dot
+                    d4 = c[:bold] * c[:magenta] # fourth dot
+
+                    if short
+                        print(io,"""
+                          $(d3)o$(tx)  | Version $(VERSION)$(commit_date)
+                         $(d2)o$(tx) $(d4)o$(tx) | $(commit_string)
+                        """)
+                    else
+                        print(io,"""               $(d3)_$(tx)
+                           $(d1)_$(tx)       $(jl)_$(tx) $(d2)_$(d3)(_)$(d4)_$(tx)     |  Documentation: https://docs.julialang.org
+                          $(d1)(_)$(jl)     | $(d2)(_)$(tx) $(d4)(_)$(tx)    |
+                           $(jl)_ _   _| |_  __ _$(tx)   |  Type "?" for help, "]?" for Pkg help.
+                          $(jl)| | | | | | |/ _` |$(tx)  |
+                          $(jl)| | |_| | | | (_| |$(tx)  |  Version $(VERSION)$(commit_date)
+                         $(jl)_/ |\\__'_|_|_|\\__'_|$(tx)  |  $(commit_string)
+                        $(jl)|__/$(tx)                   |
+
+                        """)
+                    end
+                else
+                    # Non-color output
+                end
+            end
+
+    - summary: |
+        Updated banner call site in run_std_repl to use new keyword argument syntax.
+        BEFORE: REPL.banner(term, banner)
+        AFTER: REPL.banner(term, short=banner==:short)
+      component: "Base (client.jl)"
+      evidence:
+        - source: "diff"
+          path: "base/client.jl"
+          loc: "487"
+          url: "https://github.com/JuliaLang/julia/blob/7638a58905b20cef12a3abceb722a04b9e745579/base/client.jl#L487"
+          snippet: |
+            banner == :no || REPL.banner(term, short=banner==:short)
+
+    - summary: |
+        Removed StyledStrings-based precompilation hints that were added for the styled banner.
+        These precompiles were specific to the styled string handling in the reverted implementation.
+      component: "REPL stdlib (precompile.jl)"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/precompile.jl"
+          loc: "223-236 (removed)"
+          snippet: |
+            # REMOVED precompilation hints:
+            # precompile(Tuple{typeof(Base.AnnotatedDisplay.ansi_write), typeof(Base.write), Base.TTY, Base.AnnotatedString{String}})
+            # precompile(Tuple{typeof(Base.all), Tuple{Bool, Bool}})
+            # precompile(Tuple{typeof(Base.get), Base.Dict{...}, Tuple{Symbol, REPL.StyledStrings.Face}, Int64})
+            # ... and several more for styled string handling
+            # precompile(Tuple{typeof(REPL.banner), Base.TTY})
+
+  secondary_effects:
+    - effect: "Removal of terminal-size-adaptive banner display"
+      mechanism: |
+        Complete call chain for banner display:
+
+        BEFORE (PR 51811):
+          julia --banner=narrow  [jloptions.c:621]
+            -> jl_options.banner = 2  [jloptions.h:10: int8_t banner]
+            -> repl_main()  [client.jl:607]
+            -> bval = opts.banner = 2  [client.jl:609-621]
+            -> banner = :narrow  [client.jl:617]
+            -> run_main_repl(interactiveinput, quiet, :narrow, history_file)  [client.jl:627]
+            -> run_std_repl(REPL, quiet, :narrow, history_file)  [client.jl:526]
+            -> REPL.banner(term, :narrow)  [client.jl:487]
+            -> banner(io, preferred::Symbol) checks displaysize(io)  [REPL.jl:1733-1738]
+            -> size = min(detected_size, maxsize) based on terminal dimensions
+            -> renders appropriate variant: tiny (1 line), short (2 lines), narrow (rotated), full (8 lines)
+
+        AFTER (this revert):
+          julia --banner=short  [jloptions.c:620-621]
+            -> jl_options.banner = 2  [jloptions.h:10: int8_t banner]
+            -> repl_main()  [client.jl:607]
+            -> b = opts.banner = 2  [client.jl:610]
+            -> banner = :short  [client.jl:612-614]
+            -> run_main_repl(interactiveinput, quiet, :short, history_file)  [client.jl:618]
+            -> run_std_repl(REPL, quiet, :short, history_file)  [client.jl:526]
+            -> REPL.banner(term, short=banner==:short)  [client.jl:487]
+            -> banner(io; short=true) ignores terminal size  [REPL.jl:1703]
+            -> renders 2-line short banner
+
+        Value encoding changed:
+          BEFORE: -1=auto, 0=no, 1=full, 2=narrow, 3=short, 4=tiny
+          AFTER:  -1=auto, 0=no, 1=yes,  2=short
+      downstream_surfaces:
+        - "Julia REPL startup display"
+        - "Terminal emulators with small window sizes"
+        - "IDEs embedding Julia REPL"
+        - "Remote SSH sessions with constrained terminals"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "src/jloptions.h"
+          loc: "8-10"
+          url: "https://github.com/JuliaLang/julia/blob/7638a58905b20cef12a3abceb722a04b9e745579/src/jloptions.h#L8-L10"
+          snippet: |
+            typedef struct {
+                int8_t quiet;
+                int8_t banner;
+        - source: "code"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "1703"
+          url: "https://github.com/JuliaLang/julia/blob/7638a58905b20cef12a3abceb722a04b9e745579/stdlib/REPL/src/REPL.jl#L1703"
+          snippet: |
+            function banner(io::IO = stdout; short = false)
+
+    - effect: "Removal of styled string banner output"
+      mechanism: |
+        BEFORE (PR 51811):
+          banner() used Base.AnnotatedString and styled"..." string macro  [REPL.jl:1710-1765]
+            -> styled strings with :face => :shadow, :emphasis, :warning annotations
+            -> hyperlinks via :link attribute for documentation URLs
+            -> StyledStrings.Face-based formatting
+
+        AFTER (this revert):
+          banner() uses simple string interpolation with ANSI escape codes  [REPL.jl:1756-1781]
+            -> direct Base.text_colors[:bold], [:blue], etc.
+            -> plain string concatenation
+            -> no hyperlink support in banner
+      downstream_surfaces:
+        - "Julia REPL visual appearance"
+        - "Terminal emulators with hyperlink support"
+        - "REPL module precompilation"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "1756-1764"
+          snippet: |
+            if get(io, :color, false)::Bool
+                c = Base.text_colors
+                tx = c[:normal] # text
+                jl = c[:normal] # julia
+                d1 = c[:bold] * c[:blue]    # first dot
+                d2 = c[:bold] * c[:red]     # second dot
+                d3 = c[:bold] * c[:green]   # third dot
+                d4 = c[:bold] * c[:magenta] # fourth dot
+
+    - effect: "API change to REPL.banner function signature"
+      mechanism: |
+        BEFORE: REPL.banner(io::IO = stdout, preferred::Symbol = :full)
+          - positional argument preferred with default :full
+          - accepted symbols: :tiny, :short, :narrow, :full
+
+        AFTER: REPL.banner(io::IO = stdout; short = false)
+          - keyword argument short with default false
+          - boolean: false = full, true = short
+
+        Internal callers updated:
+          1. run_std_repl() [client.jl:487]
+             BEFORE: REPL.banner(term, banner)
+             AFTER:  REPL.banner(term, short=banner==:short)
+
+          2. run_frontend(repl::StreamREPL, ...) [REPL.jl:1776]
+             UNCHANGED: banner(repl.stream) - uses default arguments, compatible with both signatures
+      downstream_surfaces:
+        - "User code calling REPL.banner() directly"
+        - "Custom REPL implementations"
+        - "Testing code that calls REPL.banner with arguments"
+      likelihood: "medium"
+      impact: "medium"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "1773-1776"
+          url: "https://github.com/JuliaLang/julia/blob/7638a58905b20cef12a3abceb722a04b9e745579/stdlib/REPL/src/REPL.jl#L1773-L1776"
+          snippet: |
+            function run_frontend(repl::StreamREPL, backend::REPLBackendRef)
+                repl.frontend_task = current_task()
+                have_color = hascolor(repl)
+                banner(repl.stream)
+        - source: "diff"
+          path: "stdlib/REPL/test/repl.jl"
+          loc: "1804"
+          url: "https://github.com/JuliaLang/julia/blob/7638a58905b20cef12a3abceb722a04b9e745579/stdlib/REPL/test/repl.jl#L1804"
+          snippet: |
+            @test REPL.banner(io; short=true) === nothing
+
+    - effect: "StyledStrings removed from banner but still used elsewhere in REPL"
+      mechanism: |
+        The banner function no longer uses StyledStrings, reverting to simple ANSI codes.
+        However, StyledStrings is still actively used in other REPL components:
+
+        1. LineEdit.jl [line 13]: using StyledStrings
+        2. StylingPasses.jl [lines 7-8]: using StyledStrings; using StyledStrings: Face
+        3. REPL.jl [line 41]: using Base.Meta, Sockets, StyledStrings
+        4. History/History.jl [line 7]: using StyledStrings annotations
+
+        This means the REPL module still depends on StyledStrings - only the banner
+        output was simplified to avoid styled string rendering issues on macOS.
+      downstream_surfaces:
+        - "REPL StyledStrings dependency still present"
+        - "REPL syntax highlighting still uses StyledStrings"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "13"
+          snippet: |
+            using StyledStrings
+        - source: "code"
+          path: "stdlib/REPL/src/StylingPasses.jl"
+          loc: "7-8"
+          snippet: |
+            using StyledStrings
+            using StyledStrings: Face
+
+  compatibility:
+    public_api:
+      - summary: |
+          REPL.banner() function signature changed from positional Symbol argument to keyword Bool argument.
+          BEFORE: banner(io, :short) or banner(io, :tiny)
+          AFTER: banner(io; short=true) for short banner, banner(io) for full banner
+          The :tiny, :narrow, :full symbol variants are no longer accepted.
+        evidence:
+          - source: "diff"
+            path: "stdlib/REPL/src/REPL.jl"
+            loc: "1734"
+            snippet: |
+              function banner(io::IO = stdout; short = false)
+
+    internal_api: []
+
+    behavioral:
+      - summary: |
+          --banner command-line option no longer accepts "full", "narrow", or "tiny" values.
+          Users who explicitly used --banner=tiny or --banner=narrow will get an error.
+          --banner=full was aliased to --banner=yes, so users can switch to --banner=yes.
+        evidence:
+          - source: "diff"
+            path: "src/jloptions.c"
+            loc: "635"
+            snippet: |
+              jl_errorf("julia: invalid argument to --banner={yes|no|auto|short} (%s)", optarg);
+
+  performance:
+    compile_time:
+      - summary: |
+          Reduced REPL precompilation work by removing StyledStrings-related precompile hints.
+          14 precompile statements removed from stdlib/REPL/src/precompile.jl.
+          ESTIMATED: Minor reduction in REPL precompilation time and sysimage size.
+        evidence:
+          - source: "diff"
+            path: "stdlib/REPL/src/precompile.jl"
+            loc: "223-236"
+            snippet: |
+              # Removed 14 precompile hints for:
+              # - Base.AnnotatedDisplay.ansi_write
+              # - Base.all with Tuple{Bool, Bool}
+              # - Various Base.get/setindex! for StyledStrings dict types
+              # - REPL.banner with TTY
+
+    runtime:
+      - summary: |
+          Simpler banner rendering using string interpolation instead of styled strings.
+          ESTIMATED: Negligible difference in startup time, as banner is called once at REPL start.
+          BEFORE: styled"..." string macro with Face annotations and hyperlink attributes
+          AFTER: Simple string interpolation with Base.text_colors ANSI codes
+        evidence:
+          - source: "code"
+            path: "stdlib/REPL/src/REPL.jl"
+            loc: "1725-1733"
+            url: "https://github.com/JuliaLang/julia/blob/7638a58905b20cef12a3abceb722a04b9e745579/stdlib/REPL/src/REPL.jl#L1725-L1733"
+            snippet: |
+              if get(io, :color, false)::Bool
+                  c = Base.text_colors
+                  tx = c[:normal] # text
+                  jl = c[:normal] # julia
+                  d1 = c[:bold] * c[:blue]    # first dot
+                  d2 = c[:bold] * c[:red]     # second dot
+                  d3 = c[:bold] * c[:green]   # third dot
+                  d4 = c[:bold] * c[:magenta] # fourth dot
+
+  tests:
+    changed_files:
+      - "stdlib/REPL/test/repl.jl"
+      - "test/cmdlineargs.jl"
+    new_behavior_assertions:
+      - "REPL.banner(io; short=true) produces 2-line output (was 1 line for :tiny)"
+      - "--banner=short sets JLOptions().banner to 2 (was 3 in reverted PR)"
+      - "Removed tests for --banner=full, --banner=narrow, --banner=tiny options"
+    coverage_gaps:
+      - "No test for error when invalid --banner value is provided"
+    evidence:
+      - source: "test"
+        path: "stdlib/REPL/test/repl.jl"
+        loc: "1798-1807"
+        url: "https://github.com/JuliaLang/julia/blob/7638a58905b20cef12a3abceb722a04b9e745579/stdlib/REPL/test/repl.jl#L1798-L1807"
+        snippet: |
+          # banner
+          let io = IOBuffer()
+              @test REPL.banner(io) === nothing
+              seek(io, 0)
+              @test countlines(io) == 9
+              take!(io)
+              @test REPL.banner(io; short=true) === nothing
+              seek(io, 0)
+              @test countlines(io) == 2  # Changed from 1 (was :tiny) to 2 (now short)
+          end
+      - source: "test"
+        path: "test/cmdlineargs.jl"
+        loc: "322-336"
+        url: "https://github.com/JuliaLang/julia/blob/7638a58905b20cef12a3abceb722a04b9e745579/test/cmdlineargs.jl#L322-L336"
+        snippet: |
+          # --quiet, --banner
+          let p = "print((Base.JLOptions().quiet, Base.JLOptions().banner))"
+              @test read(`$exename                   -e $p`, String) == "(0, -1)"
+              @test read(`$exename -q                -e $p`, String) == "(1, 0)"
+              @test read(`$exename --quiet           -e $p`, String) == "(1, 0)"
+              @test read(`$exename --banner=no       -e $p`, String) == "(0, 0)"
+              @test read(`$exename --banner=yes      -e $p`, String) == "(0, 1)"
+              @test read(`$exename --banner=short    -e $p`, String) == "(0, 2)"
+              @test read(`$exename -q --banner=no    -e $p`, String) == "(1, 0)"
+              @test read(`$exename -q --banner=yes   -e $p`, String) == "(1, 1)"
+              @test read(`$exename -q --banner=short -e $p`, String) == "(1, 2)"
+              @test read(`$exename --banner=no  -q   -e $p`, String) == "(1, 0)"
+              @test read(`$exename --banner=yes -q   -e $p`, String) == "(1, 1)"
+              @test read(`$exename --banner=short -q -e $p`, String) == "(1, 2)"
+          end
+
+  risk:
+    level: "low"
+    rationale:
+      - "This is a revert to restore previously working behavior"
+      - "The reverted PR (51811) caused test failures on macOS (x86_64-darwin)"
+      - "Changes are isolated to REPL startup banner display, not compiler internals"
+      - "No effect on type inference, optimization, or code generation"
+      - "Public API change to REPL.banner() but this is rarely called directly by users"
+      - "Command-line option changes may affect scripts using --banner=tiny/narrow/full"
+
+  open_questions:
+    - "What specific test failure occurred on x86_64-darwin that prompted this revert?"
+    - "Will PR 51811 be reworked and re-submitted with fixes?"
+    - "Should REPL.banner signature change be documented as breaking in release notes?"
+
+  recommendations:
+    - "No action required for downstream compiler-related packages (JET, Enzyme, IRTools, etc.)"
+    - "Packages or scripts calling REPL.banner() with positional Symbol argument need to update to keyword syntax"
+    - "Users relying on --banner=tiny or --banner=narrow should use --banner=short instead"
+    - "This change has no impact on compiler behavior, type inference, or code generation"
+
+downstream_impact:
+  opaque_closure: "none"
+  generated_functions: "none"
+  world_age: "none"
+  internal_api_consumers:
+    - tool: "None affected (not a compiler change)"
+      usage: |
+        This PR changes REPL banner display, not compiler internals.
+        JET, IRTools, Cassette, Enzyme, GPUCompiler are unaffected.
+        Only code directly calling REPL.banner() with the old signature needs updates.
+
+additional_context:
+  revert_reason: |
+    PR 51811 introduced terminal-size-adaptive banners using StyledStrings and
+    displaysize() checks. This broke tests on x86_64-darwin (macOS with Intel).
+    The specific failure is referenced in the PR comment but details are in the
+    linked GitHub issue comment.
+
+  original_pr_features: |
+    PR 51811 added:
+    1. Terminal size detection using displaysize(io)
+    2. Four banner variants: tiny (1 line), short (2 lines), narrow (rotated), full (8 lines)
+    3. Styled strings with hyperlinks for documentation URL
+    4. StyledStrings.Face-based formatting with :shadow, :emphasis, :warning faces
+    5. Commit info with styled git branch/distance formatting
+
+reviewer_notes:
+  independent_verification: |
+    Second analyst verified all code paths by checking out merge commit
+    7638a58905b20cef12a3abceb722a04b9e745579 and reading source files directly.
+
+  key_findings:
+    - |
+      JLOptions.banner field (int8_t in jloptions.h) value encoding changed:
+      The value 2 now means "short" instead of "narrow", value 3 and 4 no longer used.
+    - |
+      StreamREPL compatibility preserved: run_frontend(repl::StreamREPL, ...) at REPL.jl:1776
+      calls banner(repl.stream) with no arguments, which works with both old and new signatures.
+    - |
+      StyledStrings dependency remains in REPL module - only removed from banner() function.
+      Other REPL components (LineEdit.jl, StylingPasses.jl, History.jl) still use StyledStrings.
+    - |
+      Complete call flow traced from command-line parsing through to banner display:
+      jl_parse_opts() -> repl_main() -> run_main_repl() -> run_std_repl() -> REPL.banner()
+
+  callers_of_banner_function: |
+    rg search for REPL.banner and banner( in stdlib/REPL found these call sites:
+      1. base/client.jl:487 - run_std_repl() calls REPL.banner(term, short=...)
+      2. stdlib/REPL/src/REPL.jl:1703 - function definition
+      3. stdlib/REPL/src/REPL.jl:1776 - run_frontend(StreamREPL) calls banner(repl.stream)
+      4. stdlib/REPL/test/repl.jl:1800,1804 - test calls
+
+  yaml_validation: "Structure and indentation verified for valid YAML"
