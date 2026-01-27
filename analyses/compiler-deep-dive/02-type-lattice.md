@@ -200,14 +200,14 @@ end
 
 c = Container(42)
 # Type says: Container (with value::Any)
-# Lattice tracks: PartialStruct(Container, [Const(42)])
+# Lattice tracks: PartialStruct(Container, [false], [Const(42)])
 #                 We know value is exactly 42!
 ```
 
 **Field definedness (`undefs` array)**:
-- `nothing` - field may be undefined
-- `false` - field is definitely defined
-- `true` - field is definitely undefined (only for `Union{}` fields)
+- `nothing` - definedness is unknown (may or may not be defined)
+- `false` - field is definitely defined at runtime
+- `true` - field is definitely undefined (impossible state, only for `Union{}` fields)
 
 **What this enables**:
 - Precise return types from field access: `c.value` returns `Const(42)`, not `Any`
@@ -335,6 +335,109 @@ By tracking *which* inference states caused the limitation, different call sites
 - Unlimited results are preferred when available
 - But the limited result is still usable as an upper bound
 
+### 3.6 `InterConditional` - Inter-Procedural Branch Refinement
+
+A variant of `Conditional` used for inter-procedural cached results:
+
+```julia
+struct InterConditional
+    slot::Int      # Which argument this condition tests
+    thentype       # Type in the true branch
+    elsetype       # Type in the false branch
+end
+```
+
+**Source**: [boot.jl#L535-L540](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/base/boot.jl#L535-L540)
+
+**Difference from `Conditional`**: `InterConditional` lacks the `ssadef` and `isdefined` fields found in `Conditional`. These fields track local SSA definitions and are not meaningful across function boundaries. When storing inference results in the method cache for later use by callers, `InterConditional` provides the essential branch refinement information without the local context.
+
+**Example**:
+```julia
+# When caching the return type of:
+function is_int(x::Union{Int, String})
+    return isa(x, Int)
+end
+
+# The cached result uses InterConditional(slot=1, thentype=Int, elsetype=String)
+# Callers can use this to refine their argument types after the call
+```
+
+### 3.7 `InterMustAlias` - Inter-Procedural Field Aliasing
+
+A variant of `MustAlias` for inter-procedural cached results:
+
+```julia
+struct InterMustAlias
+    slot::Int      # Which argument contains the aliased field
+    vartyp::Any    # Argument's type
+    fldidx::Int    # Which field
+    fldtyp::Any    # Field's type
+end
+```
+
+**Source**: [typelattice.jl#L118-L131](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/typelattice.jl#L118-L131)
+
+**Difference from `MustAlias`**: Like `InterConditional`, `InterMustAlias` omits the `ssadef` field since SSA definitions are local to a function's IR. This allows caching field aliasing information that callers can use to refine their understanding of arguments passed to the function.
+
+### 3.8 `PartialOpaque` - Opaque Closure Types
+
+Tracks partial information about opaque closures:
+
+```julia
+struct PartialOpaque
+    typ            # The opaque closure's declared type
+    env            # Captured environment type
+    parent         # Parent MethodInstance
+    source         # Source CodeInfo
+end
+```
+
+**Source**: [boot.jl#L542-L548](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/base/boot.jl#L542-L548)
+
+**What this enables**:
+- Precise type inference for opaque closures
+- Tracking the captured environment's types
+- Enabling inlining and optimization of opaque closure calls
+
+**Example**:
+```julia
+# For an opaque closure like:
+f = @opaque (x::Int) -> x + captured_value
+
+# The compiler may track:
+# PartialOpaque with env containing Const(captured_value)
+```
+
+### 3.9 `PartialTypeVar` - Partial Type Variable
+
+Tracks partial information about type variables:
+
+```julia
+struct PartialTypeVar
+    tv::TypeVar    # The TypeVar being tracked
+    lb_certain::Bool  # Is the lower bound certain?
+    ub_certain::Bool  # Is the upper bound certain?
+end
+```
+
+**Source**: [typelattice.jl#L142-L149](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/typelattice.jl#L142-L149)
+
+**What this enables**:
+- More precise reasoning about type parameters during inference
+- Tracking whether bounds on type variables are known exactly or approximated
+- Better handling of parametric polymorphism
+
+**Example**:
+```julia
+# When inferring:
+function identity(x::T) where T
+    return x
+end
+
+# The TypeVar T may be tracked as PartialTypeVar(T, lb_certain=true, ub_certain=false)
+# indicating the lower bound is known but the upper bound may be approximated
+```
+
 ---
 
 ## 4. Lattice Operations
@@ -433,8 +536,8 @@ function cond_merge(x::Union{Int,String,Float64}, flag)
     else
         cond = isa(x, String)  # Conditional(x, String, Union{Int,Float64})
     end
-    # tmerge gives: Conditional(x, Union{Int,String}, Float64)
-    # (thentype = union of thentypes, elsetype = intersection of elsetypes)
+    # tmerge gives: Conditional(x, Union{Int,String}, Union{Int,String,Float64})
+    # (thentype = tmerge of thentypes, elsetype = tmerge of elsetypes)
 end
 ```
 

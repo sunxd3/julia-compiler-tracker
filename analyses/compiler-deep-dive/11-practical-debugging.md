@@ -348,6 +348,13 @@ end
 
 ## 6. Base.infer_effects
 
+The `Base.infer_effects` function allows you to query the compiler's effect analysis for any method. There is also a convenient `@infer_effects` macro for interactive use:
+
+```julia
+julia> @infer_effects sin(1.0)
+(+c,+e,+n,+t,+s,+m,+u,+o,+r)
+```
+
 ### Reading Effect Strings
 
 ```julia
@@ -448,9 +455,11 @@ Select a call to descend into or ↩ to ascend.
 
 | Key | Action |
 |-----|--------|
+| `Enter` | Descend into selected call |
+| `Backspace` | Ascend to caller |
+| `↑`/`↓` | Navigate between calls |
+| `Space` | Toggle branch-folding |
 | `b` | Toggle bookmarks |
-| `d` | Descend into selected call |
-| `u` | Ascend to caller |
 | `o` | Toggle optimization (`optimize=true/false`) |
 | `t` | Toggle typed/untyped view |
 | `w` | Toggle warn mode (like `@code_warntype`) |
@@ -465,7 +474,7 @@ Select a call to descend into or ↩ to ascend.
 @descend_code_warntype problematic_function(args...)
 ```
 
-Then press `d` to descend into red-highlighted calls until you find the root cause.
+Then press `Enter` to descend into red-highlighted calls until you find the root cause.
 
 **Comparing optimized vs unoptimized:**
 
@@ -500,6 +509,10 @@ Pkg.add("SnoopCompile")
 using SnoopCompile
 ```
 
+**Note**: SnoopCompile API has evolved. For Julia 1.6+, the preferred macros are:
+- `@snoop_invalidations` (formerly `@snoopr`)
+- `@snoop_inference` (formerly `@snoopi_deep`)
+
 ### Finding Invalidations
 
 Invalidations occur when method definitions cause previously compiled code to become invalid.
@@ -507,7 +520,7 @@ Invalidations occur when method definitions cause previously compiled code to be
 ```julia
 # Record invalidations
 using SnoopCompileCore
-invalidations = @snoopr begin
+invalidations = @snoop_invalidations begin
     # Code that might cause invalidations
     using SomePackage
 end
@@ -536,7 +549,7 @@ This means:
 
 ```julia
 using SnoopCompileCore
-tinf = @snoopi_deep begin
+tinf = @snoop_inference begin
     # Code to analyze
     my_function(args...)
 end
@@ -561,7 +574,7 @@ end
 ```julia
 using SnoopCompile, ProfileView
 
-tinf = @snoopi_deep my_function(args...)
+tinf = @snoop_inference my_function(args...)
 
 # Generate flamegraph
 fg = flamegraph(tinf)
@@ -574,7 +587,7 @@ ProfileView.view(fg)
 
 ```julia
 # 1. Record what gets compiled
-tinf = @snoopi_deep begin
+tinf = @snoop_inference begin
     include("test/runtests.jl")
 end
 
@@ -622,10 +635,12 @@ using Cthulhu; @descend f(args...)
 
 | Want To... | Effect Needed | Check With |
 |------------|---------------|------------|
-| Constant fold | `+c+e+t+u` | `is_foldable(effects)` |
+| Constant fold | `+c+e+t` and (`+u` or `?u`) | `is_foldable(effects)` |
 | DCE unused calls | `+e+n+t` | `is_removable_if_unused(effects)` |
 | Cache results | `+c` | `is_consistent(effects)` |
 | Inline finalizer | `+n+s` | `is_finalizer_inlineable(effects)` |
+
+**Note**: For foldability, `?u` (NOUB_IF_NOINBOUNDS) is also acceptable, not just `+u`. This allows constant folding when bounds checking ensures no undefined behavior.
 
 ### Common Fixes
 
@@ -635,7 +650,7 @@ using Cthulhu; @descend f(args...)
 | Allocation in hot path | `@code_llvm` shows `jl_box_*` | Use concrete types |
 | Dynamic dispatch | `@code_llvm` shows `jl_apply_generic` | Add type annotations |
 | Cannot constant fold | `infer_effects` shows `-t` | Add `@assume_effects :terminates_globally` |
-| Invalidation storm | `@snoopr` shows many trees | Narrow method signatures |
+| Invalidation storm | `@snoop_invalidations` shows many trees | Narrow method signatures |
 
 ### Tool Selection Guide
 
@@ -648,8 +663,8 @@ Check optimization results              @code_typed optimize=true
 Investigate boxing/allocation           @code_llvm
 See generated assembly                  @code_native
 Interactive exploration                 Cthulhu.jl @descend
-Find invalidations                      SnoopCompile @snoopr
-Profile compilation                     SnoopCompile @snoopi_deep
+Find invalidations                      SnoopCompile @snoop_invalidations
+Profile compilation                     SnoopCompile @snoop_inference
 ```
 
 ### Useful One-Liners
@@ -680,3 +695,5 @@ which_method(f, args...) = which(f, typeof.(args))
 - [Effects System](./07-effects.md) - Complete effects documentation
 - [Cthulhu.jl Documentation](https://github.com/JuliaDebug/Cthulhu.jl)
 - [SnoopCompile Documentation](https://github.com/timholy/SnoopCompile.jl)
+
+Next: [12-method-dispatch.md](./12-method-dispatch.md)

@@ -1,7 +1,7 @@
 # Julia Compiler Deep Dive: The Type Inference Engine
 
 **Author**: Julia Compiler Documentation Project
-**Version**: Julia 1.13+ (based on commit `4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`)
+**Version**: Julia 1.14.0-DEV (based on commit `4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`)
 **Audience**: Julia developers familiar with the language but new to compiler internals
 
 ---
@@ -81,7 +81,7 @@ Type inference is the **first major phase** of Julia's compilation pipeline:
                      |
                      v
         +------------------------+
-        |     Lowering (C)       |  Produces CodeInfo (lowered AST)
+        |   Lowering (frontend)  |  Produces CodeInfo (lowered AST)
         +------------------------+
                      |
                      v
@@ -220,6 +220,10 @@ This process is guaranteed to terminate because:
 - Types can only get "wider" (more general) via `tmerge`
 - The type lattice has finite height (eventually reaches `Any`)
 
+### Async Continuation Model
+
+The actual implementation uses a `Future`-based async continuation model rather than simple recursive calls. This pattern avoids deep recursion when inferring chains of nested function calls, which could otherwise cause stack overflow. When a callee needs to be inferred, instead of recursively calling `typeinf`, the implementation schedules the work as a continuation and returns control to the main driver loop. This "trampoline" approach keeps the call stack shallow while still handling arbitrarily deep inference chains.
+
 ### The Type Merge Operation
 
 When control flow paths merge, types must be combined using `tmerge`:
@@ -238,7 +242,7 @@ When control flow paths merge, types must be combined using `tmerge`:
                 └─────────────────────┘
 ```
 
-The `tmerge` operation computes the **least upper bound** in the type lattice - the most specific type that contains both input types.
+The `tmerge` operation computes a **join** in the inference lattice. It is allowed to **widen** to preserve termination and limit complexity, so it is *not guaranteed* to be the mathematical least upper bound.
 
 ---
 
@@ -246,40 +250,42 @@ The `tmerge` operation computes the **least upper bound** in the type lattice - 
 
 ### InferenceState
 
-The central structure tracking inference progress for a single method. Defined in [inferencestate.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/inferencestate.jl#L261-L416):
+The central structure tracking inference progress for a single method. This is a **simplified** view; the real struct evolves across Julia versions. See [inferencestate.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/inferencestate.jl#L261-L416) for the full definition.
 
 ```julia
 mutable struct InferenceState
     # ─── Method Identity ───
-    linfo::MethodInstance      # Which specialization we're inferring
-    valid_worlds::WorldRange   # World age validity range
-    src::CodeInfo              # Lowered IR to analyze
-    cfg::CFG                   # Control flow graph
+    linfo::MethodInstance
+    valid_worlds::WorldRange
+    mod::Module
+    sptypes::Vector{VarState}
+    slottypes::Vector{Any}
+    src::CodeInfo
+    cfg::CFG
+    spec_info::SpecInfo
 
-    # ─── Worklist State ───
-    currbb::Int                # Current basic block being analyzed
-    currpc::Int                # Current program counter (statement index)
-    ip::BitSet                 # Worklist of basic blocks needing analysis
-
-    # ─── Type State ───
-    bb_vartables::Vector{Union{Nothing, VarTable}}
-                               # Variable types at each block entry
-    ssavaluetypes::Vector{Any} # Inferred type for each SSA value
-    stmt_info::Vector{CallInfo}# Call resolution info per statement
+    # ─── Local Analysis State ───
+    currbb::Int
+    currpc::Int
+    ip::BitSet
+    handler_info::Union{Nothing,HandlerInfo{TryCatchFrame}}
+    bb_vartables::Vector{Union{Nothing,VarTable}}
+    ssavaluetypes::Vector{Any}
+    ssaflags::Vector{UInt32}
+    edges::Vector{Any}
+    stmt_info::Vector{CallInfo}
 
     # ─── Interprocedural State ───
-    tasks::Vector{InferenceTask}
-                               # Pending inference tasks
+    tasks::Vector{WorkThunk}
     cycle_backedges::Vector{Tuple{InferenceState, Int}}
-                               # Callers waiting on this frame
-    callstack::Vector{AbsIntState}
-                               # Current inference call stack
-    cycleid::Int               # Cycle detection identifier
+    callstack
+    cycleid::Int
 
     # ─── Results ───
-    bestguess::Any             # Current return type estimate
-    exc_bestguess::Any         # Current exception type estimate
-    ipo_effects::Effects       # Interprocedural effects
+    result::InferenceResult
+    bestguess
+    exc_bestguess
+    ipo_effects::Effects
 end
 ```
 
@@ -294,16 +300,25 @@ end
 
 ### InferenceResult
 
-Stores the final inference results. Defined in [inferenceresult.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/inferenceresult.jl):
+Stores the final inference and optimization results (simplified view). Defined in [types.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/types.jl#L116-L164):
 
 ```julia
 mutable struct InferenceResult
-    argtypes::Vector{Any}      # Input argument types
-    result::Any                # Inferred return type
-    exc_result::Any            # Inferred exception type
-    ipo_effects::Effects       # Computed effects
-    valid_worlds::WorldRange   # World range where this is valid
-    ci::CodeInstance           # Cached compiled code
+    linfo::MethodInstance
+    argtypes::Vector{Any}
+    overridden_by_const::Union{Nothing,BitVector}
+
+    result        # lattice element if inferred
+    exc_result
+    src           # CodeInfo / IRCode / OptimizationState
+    valid_worlds::WorldRange
+    ipo_effects::Effects
+    effects::Effects
+    analysis_results::AnalysisResults
+    tombstone::Bool
+
+    ci::CodeInstance
+    ci_as_edge::CodeInstance
 end
 ```
 
@@ -324,16 +339,22 @@ end
 
 ### CallInfo Hierarchy
 
-Each call site gets a `CallInfo` describing resolution. Defined in [stmtinfo.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/stmtinfo.jl):
+Each call site gets a `CallInfo` describing resolution. Defined in [stmtinfo.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/stmtinfo.jl).
+
+**Common `CallInfo` types:**
 
 | Type | When Used |
 |------|-----------|
+| `NoCallInfo` | Statement has no call info |
 | `MethodMatchInfo` | Single method matches the call |
 | `UnionSplitInfo` | Union argument type -> multiple methods |
 | `InvokeCallInfo` | Explicit `invoke(f, types, args...)` |
-| `ConstCallInfo` | Constant propagation refined the call |
-| `OpaqueClosureCallInfo` | Opaque closure invocation |
 | `ApplyCallInfo` | `Core._apply_iterate` calls |
+| `OpaqueClosureCallInfo` | Opaque closure invocation |
+| `ReturnTypeCallInfo` | `Core.Compiler.return_type` call tracking |
+| `GlobalAccessInfo` | `getglobal`/`setglobal!` effects tracking |
+
+**Other specialized variants** (see source for full list): `InvokeCICallInfo`, `UnionSplitApplyCallInfo`, `OpaqueClosureCreateInfo`, `FinalizerInfo`, `ModifyOpInfo`, `MethodResultPure`, `VirtualMethodMatchInfo`.
 
 ---
 
@@ -357,6 +378,8 @@ end
 ### Walkthrough 1: The Main Driver (`typeinf`)
 
 **Location**: [abstractinterpretation.jl:4533-4620](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/abstractinterpretation.jl#L4533-L4620)
+
+> **Note**: The following is conceptual pseudocode showing the algorithm's essence. The actual implementation uses async continuations, goto labels, and additional state tracking. See the linked source for the full implementation.
 
 ```julia
 function typeinf(interp::AbstractInterpreter, frame::InferenceState)
@@ -386,6 +409,8 @@ function typeinf(interp::AbstractInterpreter, frame::InferenceState)
 end
 ```
 
+> **Note on return type**: The pseudocode shows `return frame.result` for clarity, but the actual implementation returns `Bool` (`is_inferred(frame)`) indicating whether inference completed successfully.
+
 **What's happening**:
 1. Frames are processed in a stack (depth-first)
 2. `typeinf_local` does the actual statement analysis
@@ -395,6 +420,8 @@ end
 ### Walkthrough 2: Per-Block Analysis (`typeinf_local`)
 
 **Location**: [abstractinterpretation.jl:4201-4447](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/abstractinterpretation.jl#L4201-L4447)
+
+> **Note**: The following is conceptual pseudocode showing the algorithm's essence. The actual implementation uses async continuations, goto labels, and additional state tracking. See the linked source for the full implementation.
 
 ```julia
 function typeinf_local(interp::AbstractInterpreter, frame::InferenceState)
@@ -451,6 +478,8 @@ BB4 (merge):                      %3 = 0.0
 
 When we hit `x + y`, the compiler needs to figure out which `+` method to call:
 
+> **Note**: The following is conceptual pseudocode showing the algorithm's essence. The actual implementation uses async continuations, goto labels, and additional state tracking. See the linked source for the full implementation.
+
 ```julia
 function abstract_call_gf_by_type(
     interp::AbstractInterpreter,
@@ -476,7 +505,7 @@ function abstract_call_gf_by_type(
         # Recursively infer the callee
         const_result = abstract_call_method(interp, match, arginfo, ...)
 
-        # Merge return type (least upper bound)
+        # Merge return type (join with widening)
         rettype = tmerge(typeinf_lattice(interp), rettype, const_result.rt)
 
         # Merge effects (most conservative)
@@ -638,7 +667,7 @@ The lattice defines the mathematical framework for types:
 
 | Function | Purpose |
 |----------|---------|
-| `tmerge(L, a, b)` | Compute least upper bound (for control flow merge) |
+| `tmerge(L, a, b)` | Compute join with widening (for control flow merge) |
 | `tmeet(L, a, b)` | Compute greatest lower bound (for type intersection) |
 | `a <= b` or `a <: b` | Check subtype relationship |
 | `widenconst(t)` | Convert lattice element to Julia type |
@@ -651,8 +680,11 @@ The lattice defines the mathematical framework for types:
 | `PartialStruct(T, fields)` | Known struct with typed fields |
 | `Conditional(slot, thentype, elsetype)` | Branch-dependent refinement |
 | `LimitedAccuracy(t)` | Widened to ensure termination |
+| `MustAlias(slot, vartyp, fldidx, fldtyp)` | Tracks aliasing for slot field access (typelattice.jl:94) |
+| `InterMustAlias(slot, vartyp, fldidx, fldtyp)` | Interprocedural must-alias for call arguments (typelattice.jl:118) |
+| `PartialTypeVar(tv, lb_certain, ub_certain)` | TypeVar with partially known bounds (typelattice.jl:142) |
 
-**See**: [Type Lattice Deep Dive](./02-type-lattice.md) (planned)
+**See**: [Type Lattice Deep Dive](./02-type-lattice.md)
 
 ### Effects System (T7)
 
@@ -683,7 +715,7 @@ is_foldable(effects)     # Can constant-fold at compile time?
 is_removable_if_unused() # Safe for dead code elimination?
 ```
 
-**See**: [Effects System Deep Dive](./07-effects.md) (planned)
+**See**: [Effects System Deep Dive](./07-effects.md)
 
 ### Caching System (T8)
 
@@ -712,7 +744,7 @@ end
 - Cached code is valid for a world range
 - When methods change, old caches are invalidated
 
-**See**: [Caching & Invalidation Deep Dive](./08-caching.md) (planned)
+**See**: [Caching & Invalidation Deep Dive](./08-caching.md)
 
 ### Type Functions (T3)
 
@@ -740,7 +772,19 @@ These "tfuncs" cover:
 - Type operations (`isa`, `typeof`, `apply_type`)
 - Arithmetic (when constant-foldable)
 
-**See**: [Type Functions Deep Dive](./03-tfuncs.md) (planned)
+**See**: [Type Functions Deep Dive](./03-tfuncs.md)
+
+### Method Dispatch (T12)
+
+Dispatch determines which method is called. Inference uses abstract dispatch to predict call targets and enable inlining.
+
+**See**: [Method Dispatch Deep Dive](./12-method-dispatch.md)
+
+### Specialization Limits (T15)
+
+Inference budgets cap precision to keep compilation fast.
+
+**See**: [Specialization Limits](./15-specialization-limits.md)
 
 ---
 
@@ -788,7 +832,7 @@ These "tfuncs" cover:
 |-------|----------|
 | Type Lattice | [02-type-lattice.md](./02-type-lattice.md) |
 | Type Functions | [03-tfuncs.md](./03-tfuncs.md) |
-| SSA IR | [04-ssair.md](./04-ssair.md) |
+| SSA IR | [04-ssa-ir.md](./04-ssa-ir.md) |
 | Optimization Passes | [05-optimization.md](./05-optimization.md) |
 | Escape Analysis | [06-escape-analysis.md](./06-escape-analysis.md) |
 | Effects System | [07-effects.md](./07-effects.md) |

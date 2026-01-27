@@ -105,7 +105,7 @@ Let us break down what happened to our one-liner `sqrt(p.x^2 + p.y^2)`:
 The lowered code is stored in a `CodeInfo` object:
 
 ```julia
-struct CodeInfo
+mutable struct CodeInfo
     code::Vector{Any}      # The statements
     slotnames::Vector{Symbol}  # Variable names
     slotflags::Vector{UInt8}   # Variable properties
@@ -210,7 +210,7 @@ Type inference also computes **effects** - what side effects the function might 
 
 ```julia
 julia> Base.infer_effects(magnitude, (Point,))
-(+c,+e,+n,+t,+s,+m,+u,+o)
+(+c,+e,+n,+t,+s,+m,+u,+o,+r)
 ```
 
 | Flag | Meaning | Value | Explanation |
@@ -220,9 +220,10 @@ julia> Base.infer_effects(magnitude, (Point,))
 | `+n` | nothrow | yes | Cannot throw (for valid inputs) |
 | `+t` | terminates | yes | Always terminates |
 | `+s` | notaskstate | yes | Doesn't access task-local state |
-| `+m` | inaccessiblememonly | yes | Only accesses argument memory |
+| `+m` | inaccessiblememonly | yes | Only accesses inaccessible or arg memory |
 | `+u` | noub | yes | No undefined behavior |
-| `+o` | nortcall | yes | No runtime dispatch |
+| `+o` | nonoverlayed | yes | No method overlays |
+| `+r` | nortcall | yes | No runtime `return_type` call |
 
 These effects enable aggressive optimization. With `effect_free` and `nothrow`, unused calls can be eliminated.
 
@@ -286,7 +287,11 @@ The typed CodeInfo is converted to **SSA (Static Single Assignment) IR** for opt
 
 ### The conversion process
 
-**Source**: [`ssair/slot2ssa.jl`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/slot2ssa.jl)
+The main entry points are defined in [`optimize.jl`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/optimize.jl):
+- [`convert_to_ircode`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/optimize.jl#L1139) (line 1139)
+- [`slot2reg`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/optimize.jl#L1327) (line 1327)
+
+Supporting functions for slot-to-SSA conversion are in [`ssair/slot2ssa.jl`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/slot2ssa.jl).
 
 ```
 CodeInfo (with slots/variables that can be reassigned)
@@ -339,17 +344,22 @@ This is where the magic happens. Julia runs a series of optimization passes that
 
 ```julia
 function run_passes_ipo_safe(ci::CodeInfo, sv::OptimizationState, ...)
-    @pass "CONVERT"   ir = convert_to_ircode(ci, sv)
-    @pass "SLOT2REG"  ir = slot2reg(ir, ci, sv)
-    @pass "COMPACT_1" ir = compact!(ir)
-    @pass "INLINING"  ir = ssa_inlining_pass!(ir, sv.inlining, ...)
-    @pass "COMPACT_2" ir = compact!(ir)
-    @pass "SROA"      ir = sroa_pass!(ir, sv.inlining)
-    @pass "ADCE"      (ir, _) = adce_pass!(ir, sv.inlining)
-    @pass "COMPACT_3" ir = compact!(ir, true)
+    @pass "CC: CONVERT"   ir = convert_to_ircode(ci, sv)
+    @pass "CC: SLOT2REG"  ir = slot2reg(ir, ci, sv)
+    @pass "CC: COMPACT 1" ir = compact!(ir)
+    @pass "CC: INLINING"  ir = ssa_inlining_pass!(ir, sv.inlining, ...)
+    @pass "CC: COMPACT 2" ir = compact!(ir)
+    @pass "CC: SROA"      ir = sroa_pass!(ir, sv.inlining)
+    @pass "CC: ADCE"      (ir, made_changes) = adce_pass!(ir, sv.inlining)
+    # COMPACT_3 only runs if ADCE made changes
+    if made_changes
+        @pass "CC: COMPACT 3" ir = compact!(ir, true)
+    end
     return ir
 end
 ```
+
+Note: The "CC: " prefix in pass names stands for "Compiler Core" and is used in the actual source code. The COMPACT_3 pass is conditional - it only runs when ADCE makes changes to avoid unnecessary compaction.
 
 Let us trace our function through each pass.
 
@@ -455,7 +465,7 @@ const IR_FLAGS_REMOVABLE = IR_FLAG_EFFECT_FREE | IR_FLAG_NOTHROW | IR_FLAG_TERMI
 
 After SROA eliminated the `getfield` uses, the `new(Point, ...)` statement has no uses and can be removed (since struct allocation is effect-free).
 
-**Source**: [`ssair/passes.jl:2099-2253`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/passes.jl#L2099-L2253)
+**Source**: [`ssair/passes.jl:2117-2253`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/passes.jl#L2117-L2253) (docstring starts at line 2098, function at 2117)
 
 ### Viewing the Optimized IR
 

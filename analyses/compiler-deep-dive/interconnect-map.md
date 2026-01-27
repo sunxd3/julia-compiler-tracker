@@ -2,7 +2,7 @@
 
 This document maps the connections between all compiler subsystems, identifying shared data structures, data flow patterns, and integration points.
 
-**Generated from**: Phase 1 exploration reports (T1-T8)
+**Generated from**: Phase 1 exploration reports (T1-T8), Phase 2 exploration reports (T12-T16)
 
 ---
 
@@ -60,10 +60,12 @@ This document maps the connections between all compiler subsystems, identifying 
 
 | Structure | Used By | Purpose |
 |-----------|---------|---------|
-| `MethodInstance` | T1, T5, T8 | Specialized method for type signature |
-| `CodeInstance` | T1, T8 | Compiled code with world age validity |
-| `CodeInfo` | T1, T4, T5 | Lowered IR before optimization |
-| `Method` | T1, T8 | Generic function definition |
+| `MethodInstance` | T1, T5, T8, T16 | Specialized method for type signature |
+| `CodeInstance` | T1, T8, T14, T16 | Compiled code with world age validity |
+| `CodeInfo` / `jl_code_info_t` | T1, T4, T5, T13 | Lowered IR before optimization (lowered AST) |
+| `Method` | T1, T8, T12 | Generic function definition |
+| `InferenceParams` | T1, T15 | Compilation budgets and limits |
+| `MethodLookupResult` | T1, T12 | Method search results with world-range |
 
 ### 2.2 Lattice Types (T2 → all)
 
@@ -210,7 +212,32 @@ Source Code
 
 ### T8: Caching & Invalidation
 **Depends on**: T1 (inference results), Core runtime
-**Provides to**: T1 (cached results), Runtime (compiled code)
+**Provides to**: T1 (cached results), Runtime (compiled code), T16 (CodeInstance)
+
+### T12: Method Dispatch
+**Depends on**: Core runtime (gf.c), T1
+**Provides to**: T1 (method lookup), T8 (cache keying)
+**Key Files**: gf.c, methodtable.jl
+
+### T13: Lowering
+**Depends on**: Parser (AST), macroexpand.scm
+**Provides to**: T1 (CodeInfo input), T4
+**Key Files**: ast.c, julia-syntax.scm, jlfrontend.scm
+
+### T14: Codegen
+**Depends on**: T4 (optimized IR), T5
+**Provides to**: Native code
+**Key Files**: codegen.cpp, cgutils.cpp, intrinsics.cpp, jitlayers.cpp
+
+### T15: Specialization Limits
+**Depends on**: T1 (InferenceParams)
+**Provides to**: T1 (budgets), T12
+**Key Files**: types.jl, typelimits.jl
+
+### T16: Precompilation
+**Depends on**: T8 (CodeInstance), T14
+**Provides to**: Startup latency reduction
+**Key Files**: precompile.jl, precompile.c, loading.jl
 
 ---
 
@@ -256,6 +283,38 @@ Source Code
 |----------|--------|--------|---------|
 | `flags_for_effects(e)` | T5 | T7 | Convert Effects to IR flags |
 | `stmt_effect_flags(...)` | T5 | T7 | Compute per-statement effects |
+
+### T1 ↔ T12 (Inference ↔ Method Dispatch)
+
+| Function | Source | Target | Purpose |
+|----------|--------|--------|---------|
+| `find_method_matches(...)` | T1 | T12 | Find matching methods for call signature |
+| `findall(...)` | T1 | T12 | Search method table for all matches |
+
+### T1 ↔ T15 (Inference ↔ Specialization Limits)
+
+| Function | Source | Target | Purpose |
+|----------|--------|--------|---------|
+| `get_max_methods(...)` | T1 | T15 | Get maximum methods limit for union splitting |
+| `unionsplitcost(...)` | T1 | T15 | Compute cost of union splitting |
+
+### T13 ↔ T1 (Lowering ↔ Inference)
+
+| Function | Source | Target | Purpose |
+|----------|--------|--------|---------|
+| `jl_lower(...)` | T13 | T1 | Lower AST to CodeInfo for inference input |
+
+### T5 ↔ T14 (Optimization ↔ Codegen)
+
+| Function | Source | Target | Purpose |
+|----------|--------|--------|---------|
+| `jl_emit_codeinst(...)` | T5 | T14 | Emit native code from optimized IR |
+
+### T8 ↔ T16 (Caching ↔ Precompilation)
+
+| Function | Source | Target | Purpose |
+|----------|--------|--------|---------|
+| `enqueue_specializations!(...)` | T8 | T16 | Queue specializations for precompilation |
 
 ---
 
@@ -348,5 +407,10 @@ bindinginvalidations.jl      EscapeAnalysis.jl
 | T6: Escape Analysis | 1 | ~1,400 | `analyze_escapes`, `has_no_escape` |
 | T7: Effects | 1 | ~370 | `Effects`, `merge_effects`, `is_foldable` |
 | T8: Caching | 4 | ~1,100 | `WorldRange`, `InternalCodeCache` |
+| T12: Method Dispatch | 2 | ~3,000 | `find_method_matches`, `findall` |
+| T13: Lowering | 3 | ~4,500 | `jl_lower`, CodeInfo construction |
+| T14: Codegen | 4 | ~15,000 | `jl_emit_codeinst`, LLVM IR generation |
+| T15: Specialization Limits | 2 | ~800 | `get_max_methods`, `unionsplitcost` |
+| T16: Precompilation | 3 | ~2,500 | `enqueue_specializations!`, cache serialization |
 
-**Total**: ~28,000 lines of Julia code in the Compiler package.
+**Total**: ~28,000 lines of Julia code in the Compiler package (T1-T8), plus additional C/C++ code for T12-T14, T16.

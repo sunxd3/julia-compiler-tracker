@@ -189,7 +189,7 @@ Statements in SSA IR can be:
 
 ### 2.5 IR Flags
 
-Each statement has associated flags that encode effect information:
+Each statement has associated flags that encode effect information. This is a **subset** of the full list:
 
 **Source**: [optimize.jl:18-62](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/optimize.jl#L18-L62)
 
@@ -201,9 +201,13 @@ const IR_FLAG_CONSISTENT  = 1 << 3   # Same inputs -> same output
 const IR_FLAG_EFFECT_FREE = 1 << 4   # No observable side effects
 const IR_FLAG_NOTHROW     = 1 << 5   # Cannot throw an exception
 const IR_FLAG_TERMINATES  = 1 << 6   # Always terminates
+const IR_FLAG_NOUB        = 1 << 10  # No undefined behavior
+const IR_FLAG_NORTCALL    = 1 << 13  # No runtime return_type call
+const IR_FLAG_REFINED     = 1 << 16  # Refinement info available
+const IR_FLAG_UNUSED      = 1 << 17  # Statement result unused
 ```
 
-These flags enable dead code elimination: if a statement is `EFFECT_FREE`, `NOTHROW`, and `TERMINATES`, and its result is unused, the statement can be safely removed.
+These flags enable dead code elimination: if a statement is `EFFECT_FREE`, `NOTHROW`, and `TERMINATES`, and its result is unused, the statement can be safely removed. See `optimize.jl` for the full flag list (including `INACCESSIBLEMEM`-related flags).
 
 ---
 
@@ -388,6 +392,7 @@ struct GenericDomTree{IsPostDom}
     idoms_bb::Vector{Int}       # Immediate dominator for each block
     nodes::Vector{DomTreeNode}  # Tree structure
 end
+# Note: PostDomTree is available via GenericDomTree{true} parameterization (line 235)
 ```
 
 ### 4.4 Key Dominator Functions
@@ -404,12 +409,14 @@ end
 
 Julia supports **incremental dominator tree updates** using Dynamic SNCA:
 
+**Source**: [domtree.jl:450-501](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/domtree.jl#L450-L501)
+
 ```julia
 # When an edge is added to the CFG
-domtree_insert_edge!(domtree, cfg, from_bb, to_bb)
+domtree_insert_edge!(domtree, cfg, from_bb, to_bb)  # domtree.jl:450-473
 
 # When an edge is removed
-domtree_delete_edge!(domtree, cfg, from_bb, to_bb)
+domtree_delete_edge!(domtree, cfg, from_bb, to_bb)  # domtree.jl:476-501
 ```
 
 This avoids rebuilding the entire dominator tree when the CFG changes during optimization.
@@ -479,6 +486,8 @@ mutable struct IncrementalCompact
 end
 ```
 
+*Note: Simplified - see source for complete field list (actual struct has 17 fields).*
+
 ### 5.3 How IncrementalCompact Works
 
 ```
@@ -506,6 +515,7 @@ Key insight: As we iterate, we:
 | `process_node!` | [ir.jl:1459-1698](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/ir.jl#L1459-L1698) | Process single instruction |
 | `insert_node!` | [ir.jl:975-1032](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/ir.jl#L975-L1032) | Insert new instruction |
 | `insert_node_here!` | [ir.jl:1050-1067](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/ir.jl#L1050-L1067) | Insert at current position |
+| `CFGTransformState` | [ir.jl:678-693](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/ir.jl#L678-L693) | Tracks CFG transformations during compaction |
 | `finish` | [ir.jl:2117-2121](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/ir.jl#L2117-L2121) | Complete compaction with DCE |
 | `compact!` | [ir.jl:2145-2150](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/ir.jl#L2145-L2150) | One-shot full compaction |
 
@@ -658,7 +668,7 @@ julia> ir.stmts.type
 @code_typed optimize=true f(args...)
 
 # At a specific pass (Julia 1.9+)
-# Use undocumented internal API:
+# Use undocumented internal API (may change across versions):
 # code_typed(f, types; optimize=true, optimize_until="CC: INLINING")
 ```
 
@@ -766,10 +776,10 @@ See [ssair/inlining.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f
 | File | Lines | Purpose |
 |------|-------|---------|
 | [ssair/ir.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/ir.jl) | ~2181 | IRCode, CFG, IncrementalCompact |
-| [ssair/basicblock.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/basicblock.jl) | ~31 | BasicBlock, StmtRange |
+| [ssair/basicblock.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/basicblock.jl) | ~32 | BasicBlock, StmtRange |
 | [ssair/domtree.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/domtree.jl) | ~728 | Dominator tree (SNCA algorithm) |
 | [ssair/slot2ssa.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/slot2ssa.jl) | ~896 | Slot-to-SSA conversion |
-| [ssair/legacy.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/legacy.jl) | ~113 | IRCode to/from CodeInfo |
+| [ssair/legacy.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/legacy.jl) | ~106 | IRCode to/from CodeInfo |
 
 ### 8.3 Key Functions Quick Reference
 

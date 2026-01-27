@@ -68,6 +68,8 @@ end
 # 156.789 ns (0 allocations: 0 bytes)
 ```
 
+**Note**: These timings are illustrative; exact numbers vary by Julia version, CPU, and data.
+
 The type-stable version is nearly **100x faster** and allocation-free. Something is seriously wrong with our original function.
 
 ---
@@ -96,9 +98,9 @@ Body::Union{Nothing, Float64}               # RED - return type unstable!
 
 ### What the Colors Mean
 
-- **Red text**: Indicates type instability (`Union` types or `Any`)
-- **Yellow text**: Small unions (2-3 types) - may or may not be a problem
-- **Normal text**: Concrete types - good
+- **Red text (bold)**: Non-dispatch-elem types (abstract types, `Any`) or `Core.Box`
+- **Yellow text**: "Expected" unions - small unions (<4 types) where ALL members are concrete dispatch elements
+- **Cyan text**: Concrete dispatch-elem types - good
 
 The key insight here is `result::Union{Nothing, Float64}`. The compiler cannot determine a single concrete type for `result`.
 

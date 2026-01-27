@@ -123,6 +123,7 @@ The `typeof` builtin returns the runtime type of its argument. The tfunc must co
 **Source**: [tfuncs.jl#L810-L857](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/tfuncs.jl#L810-L857)
 
 ```julia
+# Simplified for clarity
 @nospecs function typeof_tfunc(lattice::AbstractLattice, t)
     # Case 1: Constant value - return the exact type as a constant
     isa(t, Const) && return Const(typeof(t.val))
@@ -170,6 +171,7 @@ The `isa` builtin checks whether a value is an instance of a type. When the comp
 **Source**: [tfuncs.jl#L877-L909](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/tfuncs.jl#L877-L909)
 
 ```julia
+# Simplified for clarity
 @nospecs function isa_tfunc(lattice::AbstractLattice, v, tt)
     # Extract the type being tested against
     t, isexact = instanceof_tfunc(tt, true)
@@ -320,6 +322,12 @@ This pattern ensures that:
 InferenceLattice (most refined)
     |
     v
+AnyConditionalsLattice (handles Conditional types)
+    |
+    v
+AnyMustAliasesLattice (handles must-alias information)
+    |
+    v
 PartialsLattice (handles PartialStruct, Conditional)
     |
     v
@@ -354,14 +362,12 @@ The file defines lists categorizing builtins by their effects.
 
 ```julia
 const _PURE_BUILTINS = Any[
-    typeof, isa, typeassert,
-    ifelse,
+    tuple, svec, ===, typeof, nfields,
     # ...
 ]
 
 const _CONSISTENT_BUILTINS = Any[
     throw,
-    getfield, isdefined,
     # ...
 ]
 
@@ -378,6 +384,7 @@ This function computes effects for each builtin call.
 **Source**: [tfuncs.jl#L2631-L2708](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/tfuncs.jl#L2631-L2708)
 
 ```julia
+# Simplified for clarity
 function builtin_effects(lattice::AbstractLattice, @nospecialize(f::Builtin),
                          argtypes::Vector{Any}, @nospecialize(rt))
     if f === getfield
@@ -435,11 +442,11 @@ add_tfunc(typeof, 1, 1, typeof_tfunc, 1)
 
 # Expensive - avoid inlining unless necessary
 add_tfunc(apply_type, 1, INT_INF, apply_type_tfunc, 10)
-add_tfunc(memorynew, 2, 2, memorynew_tfunc, 20)
+add_tfunc(Core.memorynew, 2, 2, memorynew_tfunc, 10)
 
 # Very expensive - rarely inline
 add_tfunc(applicable, 1, INT_INF, applicable_tfunc, 40)
-add_tfunc(Core._typevar, 3, 5, typevar_tfunc, 100)
+add_tfunc(Core._typevar, 3, 3, typevar_tfunc, 100)
 ```
 
 ### Cost Interpretation

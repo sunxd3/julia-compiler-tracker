@@ -45,6 +45,8 @@ function run_passes_ipo_safe(ci::CodeInfo, sv::OptimizationState, ...)
 end
 ```
 
+**Note**: This is the "IPO-safe" pipeline. Other compilation modes and internal passes exist (e.g., additional inlining heuristics, IR cleanups, or experimental passes), so treat this as the core, stable slice of the pipeline.
+
 ### 1.2 Understanding Each Pass
 
 | Order | Pass | Function | What It Does |
@@ -150,15 +152,18 @@ Julia uses a cost model to decide whether inlining is profitable. The key consta
 ```julia
 const InlineCostType = UInt16
 const MAX_INLINE_COST = typemax(InlineCostType)  # 65535 - never inline
-const MIN_INLINE_COST = InlineCostType(10)       # threshold for auto-inline
+const MIN_INLINE_COST = InlineCostType(10)       # clamping floor for cost calculations
 ```
 
 **Key cost parameters:**
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
+| `inline_cost_threshold` | 100 | Maximum cost for auto-inlining (functions with cost <= this are inlined) |
 | `inline_nonleaf_penalty` | 1000 | Cost for calling a function that cannot itself be inlined |
 | `max_tuple_splat` | 32 | Maximum tuple size for splatting |
+
+**Note**: `MIN_INLINE_COST` (10) is a clamping floor used internally, not the inlining threshold. The actual threshold is `inline_cost_threshold` (default 100).
 
 ### 2.3 How Statement Costs Are Computed
 
@@ -293,7 +298,7 @@ The [`ir_inline_unionsplit!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b
                                           | Compute inline cost    |
                                           +------------------------+
                                                     |
-                                          cost <= MIN_INLINE_COST?
+                                          cost <= inline_cost_threshold (100)?
                                                  /        \
                                               yes          no
                                                |            |
@@ -466,7 +471,7 @@ end
 
 ## 4. ADCE: Aggressive Dead Code Elimination
 
-The [`adce_pass!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/passes.jl#L2099-L2253) removes code that has no effect on the program's result.
+The [`adce_pass!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/passes.jl#L2098-L2253) removes code that has no effect on the program's result.
 
 ### 4.1 What Makes Code "Dead"?
 
@@ -509,7 +514,7 @@ The `new Point(x, y)` is removed because nothing uses it (SROA lifted all the fi
 
 ### 4.3 PhiNode Simplification
 
-ADCE also simplifies PhiNodes. The [`reprocess_phi_node!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/passes.jl#L2099) function handles:
+ADCE also simplifies PhiNodes. The [`reprocess_phi_node!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/ir.jl#L1717-L1731) function handles:
 
 **Single-predecessor elimination:**
 
@@ -631,7 +636,7 @@ end
 
 ### 5.4 The Cost Threshold
 
-Without annotations, the compiler uses the cost model. Functions with cost below `MIN_INLINE_COST` (10) are auto-inlined. The actual threshold depends on compiler parameters.
+Without annotations, the compiler uses the cost model. Functions with cost at or below `inline_cost_threshold` (default 100) are auto-inlined. Note that `MIN_INLINE_COST` (10) is merely a clamping floor for cost calculations, not the inlining decision threshold.
 
 ```julia
 # Likely auto-inlined (very cheap)
@@ -697,7 +702,7 @@ end
 # SROA cannot eliminate the allocation
 ```
 
-For more details, see the [Escape Analysis exploration report](./exploration-T6-escape-analysis.md).
+For more details, see the [Escape Analysis deep dive](./06-escape-analysis.md).
 
 ### 6.2 Effects System Integration
 
@@ -750,7 +755,7 @@ end
 # ADCE cannot remove println
 ```
 
-For more details, see the [Effects System exploration report](./exploration-T7-effects.md).
+For more details, see the [Effects System deep dive](./07-effects.md).
 
 ### 6.3 The Integration Picture
 
@@ -817,10 +822,10 @@ For more details, see the [Effects System exploration report](./exploration-T7-e
 
 ### 7.3 Further Reading
 
-- [Type Inference exploration](./exploration-T1-type-inference.md)
-- [SSA IR exploration](./exploration-T4-ssa-ir.md)
-- [Escape Analysis exploration](./exploration-T6-escape-analysis.md)
-- [Effects System exploration](./exploration-T7-effects.md)
+- [Type Inference deep dive](./01-type-inference.md)
+- [SSA IR deep dive](./04-ssa-ir.md)
+- [Escape Analysis deep dive](./06-escape-analysis.md)
+- [Effects System deep dive](./07-effects.md)
 - [Interconnection Map](./interconnect-map.md)
 
 ### 7.4 Source Code References
@@ -830,5 +835,7 @@ For more details, see the [Effects System exploration report](./exploration-T7-e
 | Pass pipeline | [`optimize.jl`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/optimize.jl) | `run_passes_ipo_safe`, `statement_cost` |
 | Inlining | [`ssair/inlining.jl`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/inlining.jl) | `ssa_inlining_pass!`, `batch_inline!` |
 | SROA | [`ssair/passes.jl`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/passes.jl) | `sroa_pass!`, `sroa_mutables!` |
-| ADCE | [`ssair/passes.jl`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/passes.jl#L2099-L2253) | `adce_pass!` |
+| ADCE | [`ssair/passes.jl`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/passes.jl#L2098-L2253) | `adce_pass!` |
 | Escape Analysis | [`ssair/EscapeAnalysis.jl`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl) | `analyze_escapes` |
+
+Next: [06-escape-analysis.md](./06-escape-analysis.md)

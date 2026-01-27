@@ -101,14 +101,16 @@ The caching system is implemented in [`cicache.jl`](https://github.com/JuliaLang
 **Cache lookup** finds a CodeInstance valid for a given world:
 
 ```julia
-# From cicache.jl:58-70
-function get(cache::InternalCodeCache, mi::MethodInstance, owner)
+# From cicache.jl:58-64
+function get(wvc::InternalCodeCache, mi::MethodInstance, default)
     ci = ccall(:jl_rettype_inferred, Any,
                (Any, Any, UInt, UInt),
-               owner, mi, cache.min_world, cache.max_world)
+               wvc.owner, mi, wvc.min_world, wvc.max_world)
     return ci
 end
 ```
+
+Note: `InternalCodeCache` contains an `owner::Any` field that identifies the compilation owner (e.g., `:native` for native code generation), along with `min_world` and `max_world` fields defining the validity range.
 
 The runtime searches the linked list of CodeInstances for one where `min_world <= current_world <= max_world`.
 
@@ -134,16 +136,17 @@ The world age system is Julia's mechanism for tracking code changes and ensuring
 
 ### What is World Age?
 
-World age is a monotonically increasing counter maintained by the Julia runtime. Every time something that could affect compilation changes, the world age increments:
+World age is a monotonically increasing counter maintained by the Julia runtime. It increments on **code-changing events** such as:
 
 - Method definition or redefinition
 - Type definition
-- Global binding changes
+
+Global bindings can still affect inference and invalidation, but **not every binding change increments world age**. World age is primarily about new or replaced code.
 
 Each CodeInstance has `min_world` and `max_world` fields defining when that compiled code is valid:
 
 ```julia
-# From cicache.jl:3-28
+# From cicache.jl:3-14
 struct WorldRange
     min_world::UInt
     max_world::UInt
@@ -311,10 +314,8 @@ The [`insert_backedges()`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b8
 
 ```julia
 # From reinfer.jl:71-79
-function insert_backedges(interp::AbstractInterpreter,
-                          edges::SimpleVector,
-                          cis::Vector{CodeInstance})
-    # Scan new methods
+function insert_backedges(internal_methods::Vector{Any})
+    # Process internal methods containing CodeInstances and their edges
     # Verify each CodeInstance's dependencies are still valid
     # Either restore the CodeInstance or mark for re-inference
 end
@@ -489,6 +490,7 @@ Understanding this system helps you:
 ## Further Reading
 
 - [SnoopCompile documentation](https://timholy.github.io/SnoopCompile.jl/stable/) - Tools for analyzing compilation and invalidation
+- [Precompilation Deep Dive](./16-precompilation.md) - How caching and precompile statements reduce latency
 - [Julia Compiler source](https://github.com/JuliaLang/julia/tree/master/Compiler/src) - The implementation details
 - [Julia Developer Documentation](https://docs.julialang.org/en/v1/devdocs/eval/) - Official developer documentation on evaluation and world age
 

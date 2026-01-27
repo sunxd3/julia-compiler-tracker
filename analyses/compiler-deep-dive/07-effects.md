@@ -311,13 +311,20 @@ const MAGIC = factorial(10)  # Computed at compile time!
 The check for foldability is in [`is_foldable`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/effects.jl#L308-L313):
 
 ```julia
-function is_foldable(effects::Effects, check_rtcall::Bool=false)
-    return is_consistent(effects) &&
-           is_noub(effects) &&
-           is_effect_free(effects) &&
-           is_terminates(effects) &&
-           (!check_rtcall || is_nortcall(effects))
-end
+is_foldable(effects::Effects, check_rtcall::Bool=false) =
+    is_consistent(effects) &&
+    (is_noub(effects) || is_noub_if_noinbounds(effects)) &&
+    is_effect_free(effects) &&
+    is_terminates(effects) &&
+    (!check_rtcall || is_nortcall(effects))
+```
+
+There is also a related function `is_foldable_nothrow` which combines `is_foldable` with `is_nothrow`:
+
+```julia
+is_foldable_nothrow(effects::Effects, check_rtcall::Bool=false) =
+    is_foldable(effects, check_rtcall) &&
+    is_nothrow(effects)
 ```
 
 ### 3.3 Concrete Evaluation
@@ -405,7 +412,7 @@ end
 | `:notaskstate` | `notaskstate` | Doesn't access task-local state |
 | `:inaccessiblememonly` | `inaccessiblememonly` | Only accesses local memory |
 | `:noub` | `noub` | No undefined behavior |
-| `:nortcall` | `nortcall` | Doesn't call `return_type` |
+| `:nortcall` | `nortcall` | Doesn't call `Core.Compiler.return_type` (and callees don't either) |
 | `:foldable` | multiple | Shorthand for constant-foldable |
 | `:removable` | multiple | Shorthand for DCE-eligible |
 | `:total` | all | All effects guaranteed |
@@ -414,13 +421,17 @@ end
 
 ```julia
 # :foldable is equivalent to:
-# :consistent, :effect_free, :terminates_globally, :noub
+# :consistent, :effect_free, :terminates_globally, :noub, :nortcall
+#
+# Note: :foldable does NOT imply :nothrow. Constant folding may still record
+# a thrown error at compile time if it is consistent for the given inputs.
 
 # :removable is equivalent to:
 # :effect_free, :nothrow, :terminates_globally
 
 # :total is equivalent to:
-# :consistent, :effect_free, :nothrow, :terminates_globally, :notaskstate, :noub
+# :consistent, :effect_free, :nothrow, :terminates_globally, :notaskstate,
+# :inaccessiblememonly, :noub, :nortcall
 ```
 
 ### 4.4 Practical Examples
@@ -471,7 +482,7 @@ end
 
 ### 4.6 Override Implementation
 
-Effect overrides are applied in [`override_effects`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/abstractinterpretation.jl#L3583-L3605):
+Effect overrides are applied in [`override_effects`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/abstractinterpretation.jl#L3594-L3606):
 
 ```julia
 function override_effects(effects::Effects, override::EffectsOverride)
@@ -514,8 +525,8 @@ Special cases immediately taint effects ([`InferenceState` initialization](https
 
 ```julia
 ipo_effects = EFFECTS_TOTAL
-# Varargs functions taint effect_free (allocation required)
-if method.isva
+# Code coverage insertion taints effect_free
+if insert_coverage
     ipo_effects = Effects(ipo_effects; effect_free = ALWAYS_FALSE)
 end
 ```
@@ -566,7 +577,7 @@ merge_effectbits(old::Bool, new::Bool) = old & new  # AND for boolean
 
 ### 5.4 Post-Inference Refinement
 
-After inference completes, effects may be refined based on the inferred return type ([`adjust_effects`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/typeinfer.jl#L567-L611)):
+After inference completes, effects may be refined based on the inferred return type ([`adjust_effects`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/typeinfer.jl#L567-L622)):
 
 ```julia
 # If return type doesn't contain mutable objects,
@@ -818,7 +829,7 @@ end
 
 ## See Also
 
-- [Type Inference Deep Dive](./exploration-T1-type-inference.md) - How effects are inferred
-- [Optimization Passes](./exploration-T5-optimization.md) - How effects enable optimizations
-- [Escape Analysis](./exploration-T6-escape-analysis.md) - Interaction with memory analysis
+- [Type Inference Deep Dive](./01-type-inference.md) - How effects are inferred
+- [Optimization Passes](./05-optimization.md) - How effects enable optimizations
+- [Escape Analysis](./06-escape-analysis.md) - Interaction with memory analysis
 - [Compiler Interconnection Map](./interconnect-map.md) - How effects fit in the compiler architecture

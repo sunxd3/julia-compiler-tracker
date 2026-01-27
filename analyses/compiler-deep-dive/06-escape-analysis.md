@@ -61,11 +61,11 @@ If an object has **no escape**, the compiler can:
 
 ## 2. The Escape Lattice: Understanding Escape States
 
-Escape analysis uses a [lattice](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L85-L123) to represent escape states. The lattice provides a mathematical framework where states can be compared and combined.
+Escape analysis uses a [lattice](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L45-L123) to represent escape states. The lattice provides a mathematical framework where states can be compared and combined.
 
 ### The EscapeInfo Structure
 
-Each value in the IR has an associated [`EscapeInfo`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L85-L123):
+Each value in the IR has an associated [`EscapeInfo`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L45-L123):
 
 ```julia
 struct EscapeInfo
@@ -101,15 +101,19 @@ The lattice forms a hierarchy from "most optimizable" to "least optimizable":
               (before analysis runs)
 ```
 
+**Note**: This diagram is a simplification. `EscapeInfo` tracks multiple escape dimensions (return, throw, aliasing, liveness), and the analysis combines them with additional bookkeeping beyond a simple linear lattice.
+
 ### Convenience Constructors
 
 The module provides [constructors](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L139-L145) for common escape states:
 
 | Constructor | Description | Can Optimize? |
 |-------------|-------------|---------------|
+| `NotAnalyzed()` | Value has not been analyzed yet | N/A |
 | `NoEscape()` | Value does not escape anywhere | Yes |
 | `ArgEscape()` | Value is a function argument | Partially |
 | `ReturnEscape(pc)` | Value escapes via return at statement `pc` | No |
+| `AllReturnEscape()` | Value escapes via return (any statement) | No |
 | `ThrownEscape(pc)` | Value may be thrown at statement `pc` | No |
 | `AllEscape()` | Value escapes everywhere (conservative) | No |
 
@@ -136,7 +140,7 @@ Escape analysis uses a **backward dataflow algorithm**. This design choice is na
 The main entry point is [`analyze_escapes`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L560-L652):
 
 ```julia
-function analyze_escapes(ir::IRCode, nargs::Int, get_escape_cache)
+function analyze_escapes(ir::IRCode, nargs::Int, 𝕃ₒ::AbstractLattice, get_escape_cache)
     # 1. Initialize state
     estate = EscapeState(ir, nargs)
 
@@ -170,7 +174,7 @@ Each IR statement type has specific escape behavior:
 | `:invoke` | [`escape_invoke!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L947-L1004) | Uses cached interprocedural info |
 | `:new`, `:splatnew` | [`escape_new!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L1140-L1205) | Tracks field aliasing |
 | `:foreigncall` | [`escape_foreigncall!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L1027-L1060) | Conservative (may escape) |
-| `PhiNode` | [`escape_edges!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L384) | Creates aliases between branches |
+| `PhiNode` | [`escape_edges!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L852-L860) | Creates aliases between branches |
 | `GlobalRef` | Direct | `AllEscape` (top of lattice) |
 
 ### Backward Propagation Illustrated
@@ -199,6 +203,7 @@ The algorithm iterates until no changes occur. Each iteration may discover new e
 
 - [`propagate_changes!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L681-L694): Drives convergence loop
 - [`propagate_escape_change!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L696-L723): Updates escape info and aliases
+- [`propagate_liveness_change!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L726-L742): Propagates liveness information
 - [`propagate_alias_change!`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L745-L756): Merges alias sets
 
 ---
@@ -384,7 +389,7 @@ function validate_point(x, y)
 end
 ```
 
-**Analysis**: `p` appears in the exception message. Even though the happy path doesn't return `p`, it might be thrown. The compiler tracks this with [`ThrownEscape`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L922-L944).
+**Analysis**: `p` appears in the exception message. Even though the happy path doesn't return `p`, it might be thrown. The compiler tracks this with [`ThrownEscape`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl#L144).
 
 **Result**: Heap allocation required.
 
