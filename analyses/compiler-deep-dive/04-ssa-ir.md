@@ -806,7 +806,7 @@ See [ssair/inlining.jl](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f
 
 ## Further Reading
 
-- **Type Inference**: How types flow into the IR (see exploration-T1-type-inference.md)
-- **Optimization Passes**: How passes transform the IR (see exploration-T5-optimization.md)
-- **Escape Analysis**: How escape information guides optimization (see exploration-T6-escape-analysis.md)
-- **Effects System**: How effect flags enable dead code elimination (see exploration-T7-effects.md)
+- **Type Inference**: How types flow into the IR (see [01-type-inference.md](./01-type-inference.md))
+- **Optimization Passes**: How passes transform the IR (see [05-optimization.md](./05-optimization.md))
+- **Escape Analysis**: How escape information guides optimization (see [06-escape-analysis.md](./06-escape-analysis.md))
+- **Effects System**: How effect flags enable dead code elimination (see [07-effects.md](./07-effects.md))
