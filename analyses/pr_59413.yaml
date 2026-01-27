@@ -41,11 +41,11 @@ scope:
     - "REPL"
 analysis:
   intent:
-    summary: "Ensure inference regenerates inlineable IR when missing so that the optimizer can inline correctly, and track inference results per match to guide const-prop and inlining decisions."
+    summary: "Regenerate missing inlineable IR during inference; track per-match inference results for const-prop and inlining."
     issue_links:
       - "https://github.com/JuliaLang/julia/issues/59846"
   direct_changes:
-    - summary: "Method match metadata now stores per-match inferred call results, and generic-call inference records them for later compilation-signature inference."
+    - summary: "MethodMatchInfo stores per-match inferred call results; generic-call inference records them for later use."
       component: "Compiler.AbstractInterpretation / Compiler.StmtInfo"
       evidence:
         - source: "code"
@@ -91,7 +91,7 @@ analysis:
           snippet: |
             edges[edge_idx] = edge
             call_results[edge_idx] = call_result
-    - summary: "Edge inference now returns an InferenceResult in MethodCallResult.call_result when available, enabling later inlineability checks against the actual inferred source."
+    - summary: "typeinf_edge populates MethodCallResult.call_result with InferenceResult for inlineability checks."
       component: "Compiler.TypeInference"
       evidence:
         - source: "code"
@@ -126,7 +126,7 @@ analysis:
                 end)
                 return mresult
             end
-    - summary: "Const-prop heuristics and semi-concrete evaluation now consult the inferred source carried in call_result for inlineability decisions and irinterp setup."
+    - summary: "Const-prop heuristics and semi-concrete evaluation consult call_result.src for inlineability."
       component: "Compiler.AbstractInterpretation"
       evidence:
         - source: "code"
@@ -195,7 +195,7 @@ analysis:
                 end
                 nothing
             end
-    - summary: "Inlining tests now assert that a second inlining pass does not inline a call when inference recorded a noinline decision, even if the callsite flag is manually cleared."
+    - summary: "Inlining tests verify second pass respects inference-recorded noinline when callsite flags cleared."
       component: "Compiler.Inlining Tests"
       evidence:
         - source: "code"
@@ -218,7 +218,7 @@ analysis:
                 @test findfirst(isinvoke(:func_mul_int), ir.stmts.stmt) !== nothing
                 @test findfirst(iscall((ir, Core.Intrinsics.mul_int)), ir.stmts.stmt) === nothing
             end
-    - summary: "CodeInstance const-field metadata no longer marks analysis_results as const, and tests reflect the updated const list."
+    - summary: "CodeInstance const-field metadata no longer marks analysis_results as const."
       component: "Runtime"
       evidence:
         - source: "code"
@@ -242,7 +242,7 @@ analysis:
                     (Core.CodeInstance, [:def, :owner, :rettype, :exctype, :rettype_const, :time_infer_total, :time_infer_cache_saved, :time_infer_self]),
                     (Core.Method, [#=:name, :module, :file, :line, :primary_world, :sig, :slot_syms, :external_mt, :nargs, :called, :nospecialize, :nkw, :isva, :is_for_opaque_closure, :constprop=#]),
   secondary_effects:
-    - effect: "Inlining decisions become more stable because const-prop heuristics now consult the actual inferred source of callees, preventing a later inlining pass from undoing a noinline choice that inference already recorded."
+    - effect: "Inlining decisions stabilize: const-prop heuristics consult actual inferred source, preventing later passes from overriding inference-recorded noinline choices."
       mechanism: |
         abstract_call_gf_by_type() stores call_results per MethodMatchTarget [abstractinterpretation.jl:242]
           -> infercalls2() passes call_results to const_prop_methodinstance_heuristic() [abstractinterpretation.jl:306-307]
@@ -254,7 +254,7 @@ analysis:
         - "SSA inlining pass stability"
       likelihood: "high"
       impact: "medium"
-    - effect: "Semi-concrete evaluation (irinterp) now requires an InferenceResult-backed CodeInstance and inlineable source, which can reduce irinterp attempts on cached but non-inlineable code."
+    - effect: "Semi-concrete evaluation (irinterp) now requires InferenceResult-backed CodeInstance with inlineable source, reducing irinterp attempts on non-inlineable cached code."
       mechanism: |
         typeinf_edge() populates MethodCallResult.call_result with InferenceResult when isinferred [typeinfer.jl:1214-1221]
           -> semi_concrete_eval_call() retrieves call_result from result.call_result [abstractinterpretation.jl:1250]
@@ -266,7 +266,7 @@ analysis:
         - "Inlining preparation for cached CodeInstances"
       likelihood: "medium"
       impact: "low"
-    - effect: "Inlining system retrieves call_results via getresult() to compute joint effects and dispatch to appropriate result handlers based on result type."
+    - effect: "Inlining retrieves call_results via getresult() to compute joint effects and dispatch to result handlers by type."
       mechanism: |
         getresult(info, idx) returns call_results[idx] [types.jl:559 -> stmtinfo.jl:159]
           -> compute_inlining_cases() iterates over matches calling getresult() [ssair/inlining.jl:1305]
@@ -284,7 +284,7 @@ analysis:
         - "Effect inference during inlining"
       likelihood: "high"
       impact: "medium"
-    - effect: "Cached results with inlineable source now preserve InferenceResult as call_result for downstream inlining."
+    - effect: "Cached results with inlineable source preserve InferenceResult as call_result for downstream inlining."
       mechanism: |
         return_cached_result() for CodeInstance with src [typeinfer.jl:1005-1027]:
           -> creates InferenceResult with cached source [typeinfer.jl:1012-1019]
@@ -299,10 +299,10 @@ analysis:
   compatibility:
     internal_api:
       - field: "Core.Compiler.MethodMatchInfo.call_results"
-        change: "New per-match storage for InferredCallResult; downstream CallInfo consumers should tolerate or use the extra field."
+        change: "New per-match InferredCallResult storage; CallInfo consumers must handle this field."
         affected_tools:
           - tool: "REPLInterpreter"
-            usage: "REPL stdlib wraps MethodCallResult and forwards the new call_result field in concrete_eval_eligible."
+            usage: "REPL stdlib wraps MethodCallResult and forwards call_result in concrete_eval_eligible."
             evidence:
               - source: "code"
                 path: "stdlib/REPL/src/REPLCompletions.jl"
@@ -314,10 +314,10 @@ analysis:
                       result = CC.MethodCallResult(result.rt, result.exct, neweffects, result.edge,
                                                    result.edgecycle, result.edgelimited, result.call_result)
       - field: "Core.Compiler.MethodCallResult.call_result"
-        change: "Replaces the previous volatile_inf_result slot and now carries InferredCallResult for use in const-prop and irinterp."
+        change: "Replaces volatile_inf_result; carries InferredCallResult for const-prop and irinterp."
         affected_tools:
           - tool: "Custom AbstractInterpreter implementations"
-            usage: "Any custom MethodCallResult constructors must pass/forward call_result to preserve inference metadata (as REPLInterpreter does)."
+            usage: "Custom MethodCallResult constructors must forward call_result to preserve inference metadata (see REPLInterpreter)."
             evidence:
               - source: "code"
                 path: "Compiler/src/abstractinterpretation.jl"
@@ -339,10 +339,10 @@ analysis:
                       end
                   end
       - field: "Core.Compiler.getresult(info::CallInfo, idx::Int)"
-        change: "New API to retrieve call_results from CallInfo for use in inlining. Returns InferredCallResult or nothing."
+        change: "New API retrieving call_results from CallInfo for inlining; returns InferredCallResult or nothing."
         affected_tools:
           - tool: "Custom inlining implementations"
-            usage: "Inlining code using nsplit/getsplit should also call getresult() to obtain effects and source for inlining decisions."
+            usage: "Inlining code using nsplit/getsplit should call getresult() to obtain effects and source."
             evidence:
               - source: "code"
                 path: "Compiler/src/types.jl"
@@ -353,7 +353,7 @@ analysis:
                   getsplit(info::CallInfo, idx::Int) = getsplit_impl(info, idx)::MethodLookupResult
                   getresult(info::CallInfo, idx::Int) = getresult_impl(info, idx)
     behavioral:
-      - change: "Second inlining pass respects inference-recorded noinline decisions even if callsite flag is cleared, as enforced by updated tests."
+      - change: "Second inlining pass respects inference-recorded noinline decisions even when callsite flags are cleared."
         evidence:
           - source: "test"
             path: "Compiler/test/inline.jl"
@@ -376,7 +376,7 @@ analysis:
                   @test findfirst(iscall((ir, Core.Intrinsics.mul_int)), ir.stmts.stmt) === nothing
   performance:
     compile_time:
-      - impact: "ESTIMATED: additional storage and bookkeeping for call_results per method match; minor overhead proportional to number of applicable methods."
+      - impact: "ESTIMATED: Minor overhead from per-match call_results storage, proportional to applicable method count."
         evidence:
           - source: "code"
             path: "Compiler/src/stmtinfo.jl"
@@ -390,7 +390,7 @@ analysis:
                   call_results = fill!(Vector{Union{Nothing,InferredCallResult}}(undef, length(results)), nothing)
                   return new(results, mt, atype, fullmatch, edges, call_results)
     runtime:
-      - impact: "ESTIMATED: improved runtime in cases where previously-missing inlineable IR prevented inlining, by ensuring inference regenerates inlineable sources when needed."
+      - impact: "ESTIMATED: Improved runtime when inference regenerates previously-missing inlineable IR, enabling inlining."
         evidence:
           - source: "code"
             path: "Compiler/src/typeinfer.jl"
@@ -412,13 +412,13 @@ analysis:
   risk:
     level: "medium"
     rationale:
-      - "Touches inference/inlining heuristics and adds a new call_result dataflow; incorrect propagation could change inlining or const-prop behavior."
-      - "Modifies CodeInstance const-field metadata, which affects assumptions about mutability during optimization."
-      - "Changes to MethodCallResult constructor signature require downstream tools to update their MethodCallResult construction."
+      - "New call_result dataflow in inference/inlining; incorrect propagation could alter inlining or const-prop behavior."
+      - "CodeInstance const-field metadata changes affect mutability assumptions during optimization."
+      - "MethodCallResult constructor signature change requires downstream tools to update."
   open_questions:
-    - "Are there additional AbstractInterpreter implementations (outside stdlib) that construct MethodCallResult without forwarding call_result and need updates?"
-    - "Should the semi-concrete eval inlineability gate be revisited once #58183 and #48913 are resolved to avoid skipping irinterp when source is available but not inlineable?"
+    - "Do external AbstractInterpreter implementations construct MethodCallResult without forwarding call_result?"
+    - "Should the semi-concrete eval inlineability gate be revisited after #58183 and #48913?"
   recommendations:
-    - "Downstream compiler tooling that wraps or constructs MethodCallResult should forward call_result to preserve inference metadata."
-    - "Consider adding a small note in developer docs about MethodMatchInfo.call_results and MethodCallResult.call_result to avoid silent tooling breakage."
-    - "Custom AbstractInterpreter implementations that override concrete_eval_eligible or similar should follow the REPLInterpreter pattern for forwarding call_result."
+    - "Forward call_result when constructing MethodCallResult to preserve inference metadata."
+    - "Document MethodMatchInfo.call_results and MethodCallResult.call_result to prevent silent tooling breakage."
+    - "Custom AbstractInterpreter implementations should follow REPLInterpreter pattern for forwarding call_result."

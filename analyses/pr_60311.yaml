@@ -35,7 +35,7 @@ scope:
     - "Codegen"
 analysis:
   intent:
-    summary: "Add asymmetric atomic fences with light/heavy variants, extend Core.Intrinsics.atomic_fence to accept a syncscope, and provide OS-specific heavy-fence implementations."
+    summary: "Add asymmetric atomic fences (light/heavy variants), extend Core.Intrinsics.atomic_fence to accept syncscope, provide OS-specific heavy-fence implementations."
     issue_links:
       - "https://github.com/JuliaLang/julia/pull/60311"
     quoted_from_pr: |
@@ -46,7 +46,7 @@ analysis:
       where the fence is extremely cheap (only a compiler reordering barrier) and a `heavy`
       side where the fence is very expensive.
   direct_changes:
-    - summary: "Expose new public threading APIs for asymmetric fences and route the existing fence through a system syncscope."
+    - summary: "Expose public threading APIs for asymmetric fences; route existing fence through system syncscope."
       component: "Base.Threads"
       evidence:
         - source: "diff"
@@ -94,7 +94,7 @@ analysis:
             See [`atomic_fence_light`](@ref) for more details.
             """
             atomic_fence_heavy() = ccall(:jl_membarrier, Cvoid, ())
-    - summary: "Threading code that relied on Core.Intrinsics.atomic_fence now passes an explicit syncscope symbol."
+    - summary: "Threading code using Core.Intrinsics.atomic_fence passes explicit syncscope symbol."
       component: "Base.Threading"
       evidence:
         - source: "diff"
@@ -108,7 +108,7 @@ analysis:
                     # full barrier now for AsyncCondition
                     t isa Timer || Core.Intrinsics.atomic_fence(:acquire_release, :system)
                 else
-    - summary: "Extend the atomic_fence intrinsic to accept a syncscope and select LLVM syncscope at compile time when possible."
+    - summary: "Extend atomic_fence intrinsic to accept syncscope; select LLVM syncscope at compile time when possible."
       component: "Codegen.Intrinsics"
       evidence:
         - source: "diff"
@@ -140,7 +140,7 @@ analysis:
                 }
                 return emit_runtime_call(ctx, atomic_fence, argv, 2);
             }
-    - summary: "Runtime intrinsic validation adds syncscope checking, a single-thread compiler barrier, and error reporting for invalid syncscope symbols."
+    - summary: "Runtime intrinsic validation adds syncscope checking, single-thread compiler barrier, and error reporting for invalid syncscope."
       component: "Runtime.Intrinsics"
       evidence:
         - source: "diff"
@@ -163,7 +163,7 @@ analysis:
                     jl_fence();
                 return jl_nothing;
             }
-    - summary: "Introduce jl_membarrier with OS-specific heavy-fence implementations (Linux/FreeBSD, macOS, Windows)."
+    - summary: "Add jl_membarrier with OS-specific heavy-fence implementations (Linux/FreeBSD, macOS, Windows)."
       component: "Runtime.Signals"
       evidence:
         - source: "diff"
@@ -278,7 +278,7 @@ analysis:
             JL_DLLEXPORT void jl_membarrier(void) {
                 FlushProcessWriteBuffers();
             }
-    - summary: "Compiler tfuncs and intrinsic metadata updated for the new atomic_fence arity and syncscope argument."
+    - summary: "Update compiler tfuncs and intrinsic metadata for atomic_fence arity and syncscope argument."
       component: "Compiler.tfuncs"
       evidence:
         - source: "diff"
@@ -297,7 +297,7 @@ analysis:
           url: "https://github.com/JuliaLang/julia/blob/b399d93b9eaf5bd1f223fefbb667e111a824c151/src/intrinsics.h#L98"
           snippet: |
             ADD_I(atomic_fence, 2) \
-    - summary: "Tests updated to exercise new syncscope signature and asymmetric fence behavior."
+    - summary: "Update tests for syncscope signature and asymmetric fence behavior."
       component: "Tests"
       evidence:
         - source: "test"
@@ -352,7 +352,7 @@ analysis:
             end
             test_asymmetric_fence()
   secondary_effects:
-    - effect: "Light fences only emit a compiler barrier (single-thread syncscope) and therefore synchronize only with heavy fences, not with ordinary fences."
+    - effect: "Light fences emit only a compiler barrier (single-thread syncscope), synchronizing only with heavy fences."
       mechanism: |
         Threads.atomic_fence_light()  [base/atomics.jl:347]
           -> Core.Intrinsics.atomic_fence(:sequentially_consistent, :singlethread)
@@ -381,7 +381,7 @@ analysis:
                 }
                 if (order > jl_memory_order_monotonic)
                     ctx.builder.CreateFence(get_llvm_atomic_order(order), ssid);
-    - effect: "Heavy fence path may trigger system calls or thread suspension, causing cross-thread latency spikes on some OS/arch combinations."
+    - effect: "Heavy fence path may trigger system calls or thread suspension, causing cross-thread latency spikes on some platforms."
       mechanism: |
         Threads.atomic_fence_heavy()  [base/atomics.jl:356]
           -> ccall(:jl_membarrier, Cvoid, ())
@@ -421,7 +421,7 @@ analysis:
             next_thread:;
                 }
             }
-    - effect: "Invalid syncscope symbols now raise errors in runtime intrinsics, which may surface in tooling that calls Core.Intrinsics.atomic_fence directly."
+    - effect: "Invalid syncscope symbols raise errors in runtime intrinsics, surfacing in tooling calling Core.Intrinsics.atomic_fence directly."
       mechanism: |
         Core.Intrinsics.atomic_fence(order, syncscope)
           -> jl_atomic_fence(order_sym, syncscope_sym)  [src/runtime_intrinsics.c:625-639]

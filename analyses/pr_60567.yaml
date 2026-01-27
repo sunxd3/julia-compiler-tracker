@@ -25,7 +25,7 @@ scope:
     - "ScopeAnalysis"
 analysis:
   intent:
-    summary: "Implement a JuliaLowering def-use pass that mirrors flisp's lambda-optimize-vars! so captured, single-assigned locals/arguments avoid Core.Box allocations and reduce false-positive boxed-variable diagnostics."
+    summary: "Implement JuliaLowering def-use pass mirroring flisp's lambda-optimize-vars!; captured single-assigned locals/arguments avoid Core.Box allocations."
     issue_links:
       - "https://github.com/aviatesk/JETLS.jl/pull/452"
       - "https://github.com/JuliaLang/julia/issues/37690"
@@ -36,7 +36,7 @@ analysis:
       JuliaLowering's Box optimization roughly on par with flisp's `lambda-optimize-vars!`
       implementation.
   direct_changes:
-    - summary: "Added a new tree-based def/use pass (analyze_def_and_use!) that tracks captured single-assigned locals/arguments and marks them is_always_defined when proven always-defined and not modified after capture."
+    - summary: "Add tree-based def/use pass (analyze_def_and_use!) tracking captured single-assigned locals/arguments; mark is_always_defined when proven."
       component: "JuliaLowering/binding_analysis"
       evidence:
         - source: "diff"
@@ -203,7 +203,7 @@ analysis:
                     get_binding(ctx, id).is_always_defined = true
                 end
             end
-    - summary: "Scope resolution now runs analyze_def_and_use! after analyze_variables!, and the new binding_analysis pass is included in JuliaLowering.jl."
+    - summary: "Scope resolution runs analyze_def_and_use! after analyze_variables!; include new binding_analysis pass in JuliaLowering.jl."
       component: "JuliaLowering/scope_analysis"
       evidence:
         - source: "diff"
@@ -226,7 +226,7 @@ analysis:
                 analyze_def_and_use!(ctx3, ex2)
                 ctx3, ex2
             end
-    - summary: "Closure boxing decisions now treat captured single-assigned locals/arguments marked is_always_defined as unboxed, altering whether Core.Box is used in closure conversion."
+    - summary: "Closure boxing treats captured single-assigned locals/arguments marked is_always_defined as unboxed."
       component: "JuliaLowering/closure_conversion"
       evidence:
         - source: "diff"
@@ -263,7 +263,7 @@ analysis:
                 else
                     newleaf(ctx, ex, K"TOMBSTONE")
                 end
-    - summary: "New IR tests demonstrate unboxed captures for control-flow patterns (if, ternary, guard) and show labels still require boxing."
+    - summary: "Add IR tests for unboxed captures in control-flow patterns (if, ternary, guard); labels still require boxing."
       component: "JuliaLowering/tests"
       evidence:
         - source: "test"

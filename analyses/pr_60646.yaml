@@ -19,11 +19,11 @@ scope:
     - "Lowering"
 analysis:
   intent:
-    summary: "Skip def-use analysis for variables that belong to an outer lambda so closure boxing decisions are not based on inner-lambda captures of outer-owned locals."
+    summary: "Skip def-use analysis for variables owned by outer lambda; prevent incorrect unboxing of inner-lambda captures."
     issue_links:
       - "https://github.com/JuliaLang/JuliaLowering.jl/issues/134#issuecomment-3739626003"
   direct_changes:
-    - summary: "Filter def-use candidates to exclude locals captured from an outer lambda; only analyze locals owned by the current lambda that are captured and single-assigned."
+    - summary: "Filter def-use candidates to exclude outer-lambda locals; analyze only owned, captured, single-assigned locals."
       component: "JuliaLowering/src/binding_analysis.jl"
       evidence:
         - source: "code"
@@ -51,7 +51,7 @@ analysis:
                         end
                     end
                 end
-    - summary: "Add a regression test ensuring an outer local mutated inside an inner closure stays boxed and the outer value updates correctly."
+    - summary: "Add regression test: outer local mutated in inner closure stays boxed and updates correctly."
       component: "JuliaLowering/test/closures.jl"
       evidence:
         - source: "test"

@@ -32,7 +32,7 @@ analysis:
       - "https://github.com/JuliaLang/julia/pull/60105"
 
   direct_changes:
-    - summary: "Simplify JL_USE_JITLINK conditional to enable everywhere except OProfile builds"
+    - summary: "Simplify JL_USE_JITLINK conditional: enable everywhere except OProfile builds"
       component: "LLVM_JIT"
       evidence:
         - source: "code"

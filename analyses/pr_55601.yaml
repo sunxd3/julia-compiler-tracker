@@ -33,11 +33,11 @@ scope:
     - "AbstractInterpretation"
 analysis:
   intent:
-    summary: "Track reaching definitions for slots in inference to apply the SSA path-convergence criterion, and use that identity tracking to avoid stale Conditional/MustAlias refinements (fixing JuliaLang/julia#55548)."
+    summary: "Track reaching definitions for slots in inference, invalidating Conditional/MustAlias refinements after slot reassignment (fixes #55548)."
     issue_links:
       - "https://github.com/JuliaLang/julia/issues/55548"
   direct_changes:
-    - summary: "VarState now stores a reaching-definition id (ssadef), and Conditional/MustAlias records carry ssadef to tie refinements to a specific slot identity."
+    - summary: "VarState stores a reaching-definition ID (ssadef); Conditional/MustAlias carry ssadef to tie refinements to slot identity."
       component: "Compiler.TypeLattice / Compiler.Types"
       evidence:
         - source: "code"
@@ -115,7 +115,7 @@ analysis:
             end
             MustAlias(var::SlotNumber, ssadef::Int, @nospecialize(vartyp), fldidx::Int, @nospecialize(fldtyp)) =
                 MustAlias(slot_id(var), ssadef, vartyp, fldidx, fldtyp)
-    - summary: "is_same_conditionals now compares both slot AND ssadef, ensuring two Conditionals only merge when they refer to the same reaching definition."
+    - summary: "is_same_conditionals compares both slot and ssadef, merging Conditionals only when they share the same reaching definition."
       component: "Compiler.TypeLattice"
       evidence:
         - source: "code"
@@ -185,7 +185,7 @@ analysis:
                 end
                 return tmerge(widenlattice(lattice), typea, typeb)
             end
-    - summary: "VarTable merge now computes a reaching-definition id at control-flow joins (path-convergence), and stoverwrite1! no longer invalidates slot wrappers directly because Conditional validity is now checked by ssadef."
+    - summary: "VarTable merge computes reaching-definition ID at control-flow joins (path-convergence); stoverwrite1! no longer invalidates slot wrappers directly since ssadef tracks validity."
       component: "Compiler.TypeLattice"
       evidence:
         - source: "code"
@@ -280,7 +280,7 @@ analysis:
                 @assert condt.ssadef != typemin(Int)
                 return currstate[condt.slot].ssadef == condt.ssadef
             end
-    - summary: "Builtin conditionals (isa, ===) and interprocedural conditionals now record ssadef from VarTable, tying constraints to a specific reaching definition."
+    - summary: "Builtin conditionals (isa, ===) and interprocedural conditionals record ssadef from VarTable, tying constraints to reaching definitions."
       component: "Compiler.AbstractInterpretation"
       evidence:
         - source: "code"
@@ -429,22 +429,22 @@ analysis:
   compatibility:
     internal_api:
       - field: "Core.Compiler.VarState"
-        change: "VarState now has 3 fields: (typ, ssadef::Int, undef::Bool). Constructor requires all three."
+        change: "VarState has 3 fields: (typ, ssadef::Int, undef::Bool). Constructor requires all three."
         affected_tools:
           - tool: "Core.Compiler consumers"
             usage: "Any tooling that constructs VarState directly must pass ssadef; use 0 for arguments, statement PC for assignments."
       - field: "Core.Compiler.Conditional"
-        change: "Conditional constructor now takes ssadef::Int as second positional argument."
+        change: "Conditional constructor takes ssadef::Int as second positional argument."
         affected_tools:
           - tool: "Core.Compiler consumers"
             usage: "Construction sites must pass vtypes[slot].ssadef when building Conditional."
       - field: "Core.Compiler.MustAlias"
-        change: "MustAlias constructor now takes ssadef::Int as second positional argument."
+        change: "MustAlias constructor takes ssadef::Int as second positional argument."
         affected_tools:
           - tool: "Core.Compiler consumers"
             usage: "Construction sites must pass vtypes[slot].ssadef when building MustAlias."
       - field: "is_same_conditionals"
-        change: "For Conditional (not InterConditional), now compares both slot AND ssadef."
+        change: "For Conditional (not InterConditional), compares both slot and ssadef."
         affected_tools:
           - tool: "Custom lattice implementations"
             usage: "If extending ConditionalsLattice, be aware that Conditional equality is now identity-sensitive."

@@ -18,15 +18,13 @@ scope:
     - "TypeInference"
 analysis:
   intent:
-    summary: "Prevent invalidations of `isready()` when loading Distributed by giving boxed closure variables concrete `Future` types instead of `Any`."
+    summary: "Prevent isready() invalidations when loading Distributed by typing boxed closure variables as Future instead of Any."
     issue_links:
       - "https://github.com/JuliaLang/julia/pull/59165"
     context: |
-      This PR targets the release-1.12 branch specifically because the function
-      `abstract_eval_nonlinearized_foreigncall_name` is deleted entirely on master
-      by PR #59165. This is a targeted fix for 1.12 only.
+      Targets release-1.12 only; abstract_eval_nonlinearized_foreigncall_name is deleted on master by PR #59165.
   direct_changes:
-    - summary: "Add type annotations to captured locals `ai` and `res` in the evalargs closure to prevent them from being boxed as `Any`."
+    - summary: "Type-annotate captured locals ai and res as Future to prevent boxing as Any."
       component: "Compiler.AbstractInterpretation"
       evidence:
         - source: "diff"
@@ -52,7 +50,7 @@ analysis:
                     callresult = Future{CallMeta}()
                     i::Int = 1
                     nextstate::UInt8 = 0x0
-                    local ai::Future, res::Future  # <-- THE FIX: typed as Future instead of Any
+                    local ai::Future, res::Future  # <-- typed as Future instead of Any
                     function evalargs(interp, sv)
                         if nextstate === 0x1
                             @goto state1
@@ -84,7 +82,7 @@ analysis:
                     return Future(abstract_eval_basic_statement(interp, e, sstate, sv))
                 end
             end
-    - summary: "The `Future` struct and `isready` function that the typed locals dispatch on."
+    - summary: "Future struct and isready function used by the typed locals."
       component: "Compiler.InferenceState"
       evidence:
         - source: "code"
@@ -104,7 +102,7 @@ analysis:
                 Future(x::T) where {T} = new{T}(nothing, x)
             end
             isready(f::Future) = f.later === nothing || isassigned(f.later)
-    - summary: "Call sites for `abstract_eval_nonlinearized_foreigncall_name` showing its use from foreigncall evaluation."
+    - summary: "Call sites for abstract_eval_nonlinearized_foreigncall_name in foreigncall evaluation."
       component: "Compiler.AbstractInterpretation"
       evidence:
         - source: "rg"
@@ -124,26 +122,26 @@ analysis:
                     abstract_eval_value(interp, callee, sstate, sv)
                 end
   secondary_effects:
-    - effect: "Eliminates method table backedge invalidations triggered by loading Distributed on Julia 1.12."
+    - effect: "Eliminates method table backedge invalidations when loading Distributed on Julia 1.12."
       mechanism: |
-        The invalidation chain BEFORE this fix:
-        1. `local ai, res` (untyped) -> Julia boxes captured variables as `Any` in closure
-        2. `evalargs` closure captures `ai::Any` and `res::Any`
-        3. Calls `isready(ai)` dispatch on signature `Tuple{typeof(isready), Any}`
-        4. MethodInstance for `evalargs` records backedge on `Tuple{typeof(isready), Any}`
-        5. Loading Distributed adds: `isready(pool::Distributed.WorkerPool)`
-        6. New method invalidates ALL MethodInstances with backedges on `Tuple{typeof(isready), Any}`
-        7. Result: evalargs closure gets invalidated, along with 249 children
+        BEFORE:
+        1. Untyped `local ai, res` boxes captured variables as Any
+        2. evalargs closure captures ai::Any and res::Any
+        3. isready(ai) dispatches on Tuple{typeof(isready), Any}
+        4. MethodInstance records backedge on Tuple{typeof(isready), Any}
+        5. Loading Distributed adds isready(pool::WorkerPool)
+        6. New method invalidates ALL MethodInstances with Any backedges
+        7. evalargs closure invalidated with 249 children
 
-        AFTER this fix:
-        1. `local ai::Future, res::Future` -> captured as `Future` type
-        2. Calls `isready(ai)` dispatch on `Tuple{typeof(isready), Future}`
-        3. Adding `isready(::WorkerPool)` does NOT invalidate `isready(::Future)` backedges
+        AFTER:
+        1. `local ai::Future, res::Future` captures as Future type
+        2. isready(ai) dispatches on Tuple{typeof(isready), Future}
+        3. Adding isready(::WorkerPool) does NOT invalidate Future backedges
         4. No invalidation cascade
       downstream_surfaces:
         - "Core.Compiler inference task scheduling"
-        - "Inference cache stability when loading Distributed stdlib"
-        - "Any package that adds methods to `isready` for custom types"
+        - "Inference cache stability when loading Distributed"
+        - "Any package adding isready methods"
       likelihood: "high"
       impact: "medium"
       evidence:
@@ -157,29 +155,29 @@ analysis:
   compatibility:
     internal_api: []
     behavioral:
-      - change: "No user-visible semantic change. The evalargs closure behavior is identical; only its compiled representation changes to avoid invalidation."
+      - change: "No semantic change. The evalargs closure behaves identically; only its compiled representation changes."
         evidence:
           - source: "analysis"
             snippet: |
-              The type annotation `ai::Future` and `res::Future` does not change runtime behavior:
-              - `abstract_eval_nonlinearized_foreigncall_name` always returns `Future` (line 3487, 3489)
-              - `abstract_call` always returns `Future` (type signature)
-              - The annotation just makes this explicit to the compiler for closure capture typing
+              The type annotation does not change runtime behavior:
+              - abstract_eval_nonlinearized_foreigncall_name always returns Future
+              - abstract_call always returns Future
+              - The annotation makes this explicit for closure capture typing
   performance:
     compile_time:
-      - impact: "ESTIMATED: No measurable compile-time cost. Single type annotation evaluated once per closure creation."
+      - impact: "ESTIMATED: No measurable cost. Single type annotation evaluated once per closure creation."
     runtime:
-      - impact: "ESTIMATED: Significant reduction in invalidation churn when loading Distributed or any package that extends `isready`. The PR description shows 249 child MethodInstances were being invalidated before this fix."
+      - impact: "ESTIMATED: Significant reduction in invalidation churn when loading Distributed. PR shows 249 child MethodInstances were invalidated before this fix."
   risk:
     level: "low"
     rationale:
-      - "Single-line type annotation change with no control flow modifications."
-      - "The types being annotated (`Future`) exactly match what the functions already return."
-      - "No tests were modified because the behavioral semantics are unchanged."
-      - "Targeted at release-1.12 only; function is removed on master by PR #59165."
+      - "Single-line type annotation with no control flow changes."
+      - "Annotated types exactly match function return types."
+      - "No test modifications needed; semantics unchanged."
+      - "Targets release-1.12 only; function removed on master by PR #59165."
   open_questions:
-    - "Should a regression test be added to verify that loading Distributed no longer invalidates `isready` backedges from this closure?"
-    - "Are there other closures in the Compiler with similar untyped captured locals that could benefit from type annotations?"
+    - "Should a regression test verify that loading Distributed no longer invalidates isready backedges?"
+    - "Are there other Compiler closures with untyped captured locals calling generic functions?"
   recommendations:
-    - "For release-1.12 maintenance: audit other Compiler closures for untyped captured locals that call generic functions like `isready`, `wait`, etc."
-    - "The PR author notes: 'I think ideally it wouldn't use a closure at all' - on master this was addressed by PR #59165 which removes the function entirely."
+    - "For 1.12 maintenance: audit other Compiler closures for untyped captured locals calling generic functions like isready or wait."
+    - "On master this was addressed by PR #59165 which removes the function entirely."

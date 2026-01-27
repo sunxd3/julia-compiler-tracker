@@ -29,7 +29,7 @@ analysis:
       - "https://github.com/JuliaLang/julia/issues/60345"
       - "https://github.com/JuliaLang/julia/issues/60355"
   direct_changes:
-    - summary: "Introduces StoreKind enum to replace multiple boolean flags in store paths, centralizing operation naming and call sites."
+    - summary: "Add StoreKind enum replacing multiple boolean flags in store paths, centralizing operation naming and call sites."
       component: "Compiler.Codegen"
       evidence:
         - source: "code"
@@ -56,7 +56,7 @@ analysis:
                 }
                 return "";
             }
-    - summary: "Adds shared helpers for aliased loads/stores and centralizes union tag loading in typed_load, enabling union inline-root loads via ptindex." 
+    - summary: "Add shared helpers for aliased loads/stores; centralize union tag loading in typed_load via ptindex." 
       component: "Compiler.Codegen"
       evidence:
         - source: "code"
@@ -116,7 +116,7 @@ analysis:
                     }
                     return mark_julia_slot(fsz > 0 ? data : nullptr, jltype, tindex, tbaa);
                 }
-    - summary: "Refactors typed_store to handle unions via ptindex, including storing tag bytes and routing union loads/stores through shared helpers." 
+    - summary: "Refactor typed_store for union handling via ptindex, storing tag bytes and routing through shared helpers." 
       component: "Compiler.Codegen"
       evidence:
         - source: "code"
@@ -174,7 +174,7 @@ analysis:
                     emit_unbox_store(ctx, rhs, ptr, tbaa, MaybeAlign(), Align(alignment));
                 }
             }
-    - summary: "Updates union phi node assignment to correctly handle inline roots and pointer phis when union storage exists or inline roots are present." 
+    - summary: "Fix union phi node assignment to handle inline roots and pointer phis when union storage or inline roots exist." 
       component: "Compiler.Codegen"
       evidence:
         - source: "code"
@@ -226,7 +226,7 @@ analysis:
                     return;
                 }
             }
-    - summary: "Adds a regression test exercising union-typed phi nodes with inline roots to ensure correct lowering/codegen." 
+    - summary: "Add regression test for union-typed phi nodes with inline roots." 
       component: "Compiler.Tests"
       evidence:
         - source: "test"
@@ -243,7 +243,7 @@ analysis:
                 end
             end
             @test union_phi_inline_roots(true) === ("Q8", 1)
-    - summary: "Ensures union and ghost returns convert through union representation and adjusts union return ABI when inline roots exist." 
+    - summary: "Ensure union and ghost returns convert through union representation; adjust return ABI for inline roots." 
       component: "Compiler.Codegen"
       evidence:
         - source: "code"
@@ -334,7 +334,7 @@ analysis:
                 assert(fsig.size() == 1);
             }
   secondary_effects:
-    - effect: "Union-typed loads/stores now share a single path that always loads/stores the union tag (ptindex) and uses the same typed_load/typed_store helpers, which should reduce inconsistencies between union array element handling and generic memory ref handling."
+    - effect: "Union-typed loads/stores share a single path that loads/stores the union tag (ptindex) via typed_load/typed_store helpers, reducing inconsistencies between union array and memory ref handling."
       mechanism: |
         typed_store(ctx, ptr, rhs, ..., ptindex, tbaa_ptindex)  [src/cgutils.cpp:2504-2660]
           -> store_union(...) stores tag byte into ptindex and calls emit_unionmove(...)  [src/cgutils.cpp:2545-2552]
@@ -347,7 +347,7 @@ analysis:
         - "MemoryRef/atomic pointer operations that route through typed_load/typed_store"
       likelihood: "high"
       impact: "medium"
-    - effect: "Union phi nodes with inline roots now create ptr phi and root phis even when storage is only needed for inline roots, preventing missing root slots in IR for mixed inline-root unions."
+    - effect: "Union phi nodes with inline roots create ptr phi and root phis even when storage is only needed for inline roots, preventing missing root slots in IR."
       mechanism: |
         emit_phinode_assign(...)  [src/codegen.cpp:5886-5950]
           -> try_emit_union_alloca(...) computes inline_roots  [src/codegen.cpp:5910-5913]
@@ -359,7 +359,7 @@ analysis:
         - "GC root tracking for union values in SSA form"
       likelihood: "high"
       impact: "medium"
-    - effect: "Union return ABI now forces union_bytes storage when return_roots exist but union_bytes was computed as 0, so union return roots are handled via the union calling convention and julia.return_roots attribute." 
+    - effect: "Union return ABI forces union_bytes storage when return_roots exist but union_bytes is 0, routing return roots through the union calling convention." 
       mechanism: |
         get_specsig_function(...)  [src/codegen.cpp:8033-8137]
           -> union_alloca_type(..., return_roots)  [src/codegen.cpp:8055-8057]

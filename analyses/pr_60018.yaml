@@ -38,10 +38,10 @@ scope:
     - "Runtime module setup"
 analysis:
   intent:
-    summary: "Introduce syntax versioning for Julia code by routing parsing through a module-local parser hook, propagating parser version through module ASTs, and loading packages with syntax versions derived from Project/Manifest metadata."
+    summary: "Enable syntax versioning by routing parsing through module-local parser hooks, propagating version through ASTs, and loading packages with syntax versions from Project/Manifest metadata."
     issue_links: []
   direct_changes:
-    - summary: "Parsing now consults a module-local parser binding (_internal_julia_parse) before falling back to Core._parse, enabling per-module syntax selection."
+    - summary: "Parsing consults module-local _internal_julia_parse before falling back to Core._parse."
       component: "base/meta.jl + src/ast.c"
       evidence:
         - source: "code"
@@ -73,7 +73,7 @@ analysis:
                 }
         - source: "rg"
           path: "base/meta.jl, base/loading.jl, base/experimental.jl, src/ast.c"
-          loc: "rg -n \"_internal_julia_parse\" base src"
+          loc: "rg -n \"_internal_julia_parse\""
           url: "https://github.com/JuliaLang/julia/blob/4840ac9411/"
           snippet: |
             base/meta.jl
@@ -91,7 +91,7 @@ analysis:
 
             src/ast.c
             1319:        parser = jl_get_global(inmodule, jl_symbol("_internal_julia_parse"));
-    - summary: "Base.Experimental introduces VersionedParse and @set_syntax_version to bind _internal_julia_parse to a syntax-versioned parser hook."
+    - summary: "Base.Experimental provides VersionedParse and @set_syntax_version to bind _internal_julia_parse."
       component: "base/experimental.jl"
       evidence:
         - source: "code"
@@ -120,7 +120,7 @@ analysis:
                 #Core.declare_const(m, :_internal_julia_lower, lowerer)
                 nothing
             end
-    - summary: "Parser encodes syntax version into macrocall source locations and module nodes when parsing with JuliaSyntax >= 1.14."
+    - summary: "Parser encodes syntax version in macrocall source locations and module nodes for syntax >= 1.14."
       component: "JuliaSyntax/src/julia/parser.jl + JuliaSyntax/src/integration/expr.jl"
       evidence:
         - source: "code"
@@ -161,7 +161,7 @@ analysis:
           snippet: |
             elseif k == K"VERSION"
                 nv = numeric_flags(flags(nodehead))
-                return VersionNumber(1, nv ÷ 10, nv % 10)
+                return VersionNumber(1, nv / 10, nv % 10)
         - source: "code"
           path: "JuliaSyntax/src/integration/expr.jl"
           loc: "363-367"
@@ -172,7 +172,7 @@ analysis:
                 # matches what ordinary macros expect.
                 loc = Core.MacroSource(loc, popat!(args, 2))
             end
-    - summary: "Lowering recognizes module ASTs with an optional VERSION node, carries syntax version into begin_module, and runtime module setup receives it."
+    - summary: "Lowering recognizes optional VERSION node in module ASTs and passes syntax version to runtime."
       component: "JuliaLowering/src/eval.jl + src/toplevel.c"
       evidence:
         - source: "code"
@@ -254,7 +254,7 @@ analysis:
                 if (std_imports && jl_base_module != NULL) {
                     jl_setup_new_module(newm, syntax_version);
                 }
-    - summary: "Package loading now derives a syntax version from Project.toml/Manifest metadata and uses VersionedParse during include; tests exercise implicit/explicit environments."
+    - summary: "Package loading derives syntax version from Project.toml/Manifest and uses VersionedParse during include."
       component: "base/loading.jl + test/loading.jl"
       evidence:
         - source: "code"
@@ -347,7 +347,7 @@ analysis:
                     copy!(LOAD_PATH, old_load_path)
                 end
             end
-    - summary: "JuliaLowering tests confirm module ASTs now include a VERSION node when parsed with 1.14 syntax."
+    - summary: "JuliaLowering tests confirm module ASTs include VERSION node when parsed with 1.14 syntax."
       component: "JuliaLowering/test/macros.jl"
       evidence:
         - source: "code"
@@ -362,13 +362,13 @@ analysis:
                 end
                 )
             end
-            """) ≈ @ast_ [K"module"
+            """) == @ast_ [K"module"
                 v"1.14.0"::K"VERSION"
                 "AA"::K"Identifier"
                 [K"block"
                 ]
             ]
-    - summary: "JuliaSyntax core_parser_hook now accepts a syntax_version keyword argument, enabling versioned parsing from VersionedParse."
+    - summary: "JuliaSyntax core_parser_hook accepts syntax_version keyword for versioned parsing."
       component: "JuliaSyntax/src/integration/hooks.jl"
       evidence:
         - source: "code"
@@ -385,7 +385,7 @@ analysis:
                         code = Base.invokelatest(String, code)
                     end
                     stream = ParseStream(code, offset+1; version = syntax_version)
-    - summary: "Base._setup_module! calls set_syntax_version to configure module parser when syntax_version is provided."
+    - summary: "Base._setup_module! calls set_syntax_version when syntax_version is provided."
       component: "base/Base_compiler.jl"
       evidence:
         - source: "code"
@@ -404,7 +404,7 @@ analysis:
                 set_syntax_version(mod, syntax_ver)
                 return nothing
             end
-    - summary: "Core.MacroSource struct defined in boot.jl to wrap LineNumberNode with syntax version information for @VERSION macro."
+    - summary: "Core.MacroSource struct wraps LineNumberNode with syntax version for @VERSION macro."
       component: "base/boot.jl"
       evidence:
         - source: "code"
@@ -417,7 +417,7 @@ analysis:
                 lno::Any # ::LineNumberNode, but needs to be a pointer
                 syntax_ver::Any # ::VersionNumber =#
             end
-    - summary: "K\"VERSION\" added as a recognized keyword kind in JuliaSyntax tokenizer for special macro handling."
+    - summary: "K\"VERSION\" added as keyword kind in JuliaSyntax tokenizer."
       component: "JuliaSyntax/src/julia/tokenize.jl"
       evidence:
         - source: "code"
@@ -433,7 +433,7 @@ analysis:
             K"var",
             K"VERSION"
             ]
-    - summary: "JuliaSyntax literal_parsing.jl handles K\"VERSION\" nodes by decoding version from numeric_flags."
+    - summary: "JuliaSyntax literal_parsing handles K\"VERSION\" by decoding from numeric_flags."
       component: "JuliaSyntax/src/julia/literal_parsing.jl"
       evidence:
         - source: "code"
@@ -443,93 +443,93 @@ analysis:
           snippet: |
             elseif k == K"VERSION"
                 nv = numeric_flags(head)
-                return VersionNumber(1, nv ÷ 10, nv % 10)
+                return VersionNumber(1, nv / 10, nv % 10)
   secondary_effects:
-    - effect: "Macros named @VERSION receive a MacroSource with syntax version, enabling version-aware macro expansion while preserving ordinary macro argument order."
+    - effect: "@VERSION macros receive MacroSource with syntax version, enabling version-aware macro expansion."
       mechanism: |
-        maybe_parsed_special_macro() in JuliaSyntax/parser.jl emits an invisible K"VERSION" token for @VERSION calls when syntax >= 1.14 [parser.jl:1499-1505]
-        -> node_to_expr() converts K"VERSION" into a VersionNumber leaf [expr.jl:239-242]
-        -> _node_to_expr() sees secondchildhead == K"VERSION" and wraps loc in Core.MacroSource, inserting it into macrocall args [expr.jl:363-367]
-        -> Base.Experimental.@VERSION reads MacroSource.syntax_ver to surface syntax version [experimental.jl:834-840]
+        maybe_parsed_special_macro() emits invisible K"VERSION" for @VERSION when syntax >= 1.14 [parser.jl:1499-1505]
+        -> node_to_expr() converts K"VERSION" to VersionNumber [expr.jl:239-242]
+        -> _node_to_expr() wraps loc in Core.MacroSource for K"VERSION" child [expr.jl:363-367]
+        -> Base.Experimental.@VERSION reads MacroSource.syntax_ver [experimental.jl:834-840]
       downstream_surfaces:
-        - "Macro authors relying on @VERSION to gate syntax-sensitive transformations"
-        - "Tooling that inspects MacroSource vs LineNumberNode"
+        - "Macro authors using @VERSION for syntax-sensitive transformations"
+        - "Tooling inspecting MacroSource vs LineNumberNode"
       likelihood: "high"
       impact: "medium"
-    - effect: "Module creation records a syntax version, allowing include/eval inside the module to use a matching parser version."
+    - effect: "Module creation records syntax version; include/eval inside the module use matching parser version."
       mechanism: |
-        parser emits invisible K"VERSION" before module name for syntax >= 1.14 [parser.jl:2079-2085]
-        -> JuliaLowering.lower_step recognizes optional VERSION and emits Core.svec(:begin_module, version, newmod_name, std_defs, loc) [eval.jl:72-92]
-        -> jl_begin_new_module receives syntax_version and passes it to jl_setup_new_module [toplevel.c:132-155]
+        Parser emits invisible K"VERSION" before module name for syntax >= 1.14 [parser.jl:2079-2085]
+        -> JuliaLowering recognizes VERSION, emits Core.svec(:begin_module, version, ...) [eval.jl:72-92]
+        -> jl_begin_new_module passes syntax_version to jl_setup_new_module [toplevel.c:132-155]
         -> jl_setup_new_module calls Base._setup_module!(m, syntax_version) [toplevel.c:114-130]
         -> _setup_module! calls set_syntax_version(mod, syntax_ver) [Base_compiler.jl:146-156]
-        -> set_syntax_version declares _internal_julia_parse = VersionedParse(ver) in module [experimental.jl:778-784]
+        -> set_syntax_version declares _internal_julia_parse = VersionedParse(ver) [experimental.jl:778-784]
       downstream_surfaces:
         - "Code loading via include/require inside modules"
-        - "Packages that introspect module syntax settings"
-        - "Tools that create modules programmatically may need to call set_syntax_version explicitly"
+        - "Packages introspecting module syntax settings"
+        - "Tools creating modules programmatically"
       likelihood: "medium"
       impact: "medium"
-    - effect: "Package loading respects syntax.julia_version/compat.julia and sets module parser hook accordingly, which may change parsing of package source relative to REPL default."
+    - effect: "Package loading respects syntax.julia_version/compat.julia; parsing may differ from REPL default."
       mechanism: |
-        project_get_syntax_version() resolves syntax.julia_version or compat.julia minima, with fallback to VERSION [loading.jl:908-937]
-        -> _require_from_serialized / include path sets __toplevel__._internal_julia_parse = VersionedParse(spec.julia_syntax_version) for include [loading.jl:2900-2914]
+        project_get_syntax_version() resolves syntax.julia_version or compat.julia, falls back to VERSION [loading.jl:908-937]
+        -> _require path sets __toplevel__._internal_julia_parse = VersionedParse(spec.julia_syntax_version) [loading.jl:2900-2914]
         -> jl_parse consults module-local _internal_julia_parse before Core._parse [ast.c:1314-1323]
       downstream_surfaces:
-        - "Packages using previously ambiguous/buggy syntax that will be gated by syntax version"
-        - "Tools that parse package source outside of Base.require may need to set syntax version explicitly"
+        - "Packages using previously ambiguous syntax gated by version"
+        - "Tools parsing package source outside Base.require"
       likelihood: "high"
       impact: "medium"
-    - effect: "VersionedLower struct is defined but not yet active - signals future support for versioned lowering alongside versioned parsing."
+    - effect: "VersionedLower struct defined but inactive; signals future versioned lowering support."
       mechanism: |
-        VersionedLower struct defined in experimental.jl [experimental.jl:763-776]
-        -> set_syntax_version has commented-out code to also set _internal_julia_lower [experimental.jl:781-782]
-        -> __toplevel__ module has global _internal_julia_lower = Core._lower [loading.jl:2734]
+        VersionedLower struct defined [experimental.jl:763-776]
+        -> set_syntax_version has commented-out _internal_julia_lower code [experimental.jl:781-782]
+        -> __toplevel__ has global _internal_julia_lower = Core._lower [loading.jl:2734]
       downstream_surfaces:
-        - "Future lowering changes could be versioned similarly to parsing"
-        - "Downstream tools should be aware _internal_julia_lower hook may become active"
+        - "Future lowering changes could be versioned"
+        - "_internal_julia_lower hook may become active"
       likelihood: "low"
       impact: "low"
   compatibility:
     internal_api:
       - field: "Module._internal_julia_parse"
-        change: "New module-local parser hook consulted by Meta.parse and jl_parse; set via Base.Experimental.set_syntax_version and load pipeline."
+        change: "New module-local parser hook consulted by Meta.parse and jl_parse; set via Base.Experimental.set_syntax_version."
         affected_tools:
           - tool: "Custom loaders / static analyzers"
-            usage: "Tools that call Meta.parse with a module may need to honor module-local parser version."
+            usage: "Tools calling Meta.parse with a module may need to honor module-local parser version."
       - field: "Expr(:module) argument order"
-        change: "Module expressions may include a leading VersionNumber (from K\"VERSION\") when parsed under syntax >= 1.14."
+        change: "Module expressions may include leading VersionNumber when parsed under syntax >= 1.14."
         affected_tools:
           - tool: "Macro tooling / IR transforms"
             usage: "Code expecting Expr(:module, name, body) must handle Expr(:module, ver, name, body)."
       - field: "Core.MacroSource"
-        change: "New type wrapping LineNumberNode with syntax_ver field; passed to @VERSION macros instead of plain LineNumberNode."
+        change: "New type wrapping LineNumberNode with syntax_ver; passed to @VERSION macros."
         affected_tools:
           - tool: "Macro authors"
-            usage: "Macros that accept __source__::LineNumberNode may need to accept Union{LineNumberNode, Core.MacroSource} when targeting Julia 1.14+."
+            usage: "Macros accepting __source__::LineNumberNode may need Union{LineNumberNode, Core.MacroSource} for Julia 1.14+."
       - field: "JuliaSyntax.core_parser_hook"
-        change: "Now accepts syntax_version keyword argument (default v\"1.13\") to control parser version."
+        change: "Accepts syntax_version keyword (default v\"1.13\")."
         affected_tools:
           - tool: "Custom parsers / language servers"
-            usage: "Direct callers of core_parser_hook can now pass syntax_version to parse with specific Julia syntax version."
+            usage: "Direct callers can pass syntax_version for specific Julia syntax version."
     behavioral:
-      - "Packages with syntax.julia_version set may parse differently than the REPL when loaded, by design."
-      - "@VERSION macro receives syntax info via Core.MacroSource only when parsed with syntax >= 1.14; older syntax returns a default v\"1.13\"."
+      - "Packages with syntax.julia_version may parse differently than REPL, by design."
+      - "@VERSION receives syntax info via Core.MacroSource only for syntax >= 1.14; older returns v\"1.13\"."
   performance:
     compile_time:
-      - "ESTIMATED: Minimal overhead per parse from an extra module-global lookup and potential VersionedParse wrapper dispatch." 
+      - "ESTIMATED: Minimal overhead per parse from module-global lookup and VersionedParse dispatch."
     runtime:
-      - "No direct runtime overhead expected for non-parsing code; module setup adds one extra argument flow to jl_begin_new_module/jl_setup_new_module." 
+      - "No direct overhead for non-parsing code; module setup adds one argument to jl_begin_new_module."
   risk:
     level: "medium"
     rationale:
-      - "Syntax versioning affects how package source is parsed and could surface latent syntax ambiguities when packages opt into newer versions."
-      - "Internal AST shape change for :module may require downstream macro tooling adjustments."
+      - "Syntax versioning affects package parsing; may surface latent syntax ambiguities."
+      - "Internal AST shape change for :module requires downstream macro tooling adjustments."
   open_questions:
-    - "How should non-JuliaSyntax parsers (e.g., flisp bootstrap parser) expose or ignore syntax versions beyond 1.13?"
-    - "When should VersionedLower be enabled alongside VersionedParse (currently commented out)?"
+    - "How should non-JuliaSyntax parsers handle syntax versions beyond 1.13?"
+    - "When should VersionedLower be enabled alongside VersionedParse?"
   recommendations:
-    - "Downstream macro/AST tools should accept both (module name body) and (module version name body) forms when targeting Julia 1.14+."
-    - "Package loaders or analysis tools should call Base.set_syntax_version or respect syntax.julia_version when parsing sources out of band."
-    - "Macro authors using __source__ should handle Union{LineNumberNode, Core.MacroSource} to support the new @VERSION macro pattern."
-    - "Static analysis tools should account for VersionNumber nodes appearing as first child of K\"module\" ASTs when analyzing 1.14+ code."
+    - "Accept both (module name body) and (module version name body) forms for Julia 1.14+."
+    - "Call Base.set_syntax_version or respect syntax.julia_version when parsing sources out of band."
+    - "Handle Union{LineNumberNode, Core.MacroSource} in macros using __source__ for @VERSION support."
+    - "Account for VersionNumber nodes as first child of K\"module\" ASTs in 1.14+ code analysis."

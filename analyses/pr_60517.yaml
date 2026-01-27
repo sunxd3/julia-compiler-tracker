@@ -42,7 +42,7 @@ analysis:
     issue_links: []
 
   direct_changes:
-    - summary: "Remove jl_gc_external_obj_hdr_size from stock GC implementation"
+    - summary: "Remove jl_gc_external_obj_hdr_size from stock GC"
       component: "GC"
       evidence:
         - source: "diff"
@@ -70,7 +70,7 @@ analysis:
                 return sizeof(bigval_t);
             }
 
-    - summary: "Remove jl_gc_external_obj_hdr_size from MMTk GC implementation"
+    - summary: "Remove jl_gc_external_obj_hdr_size from MMTk GC"
       component: "GC"
       evidence:
         - source: "diff"
@@ -87,7 +87,7 @@ analysis:
             {
             }
 
-    - summary: "Remove function declaration from GC extensions header"
+    - summary: "Remove declaration from GC extensions header"
       component: "GCExtensions"
       evidence:
         - source: "diff"

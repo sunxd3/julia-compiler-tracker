@@ -36,10 +36,10 @@ scope:
     - "Testing"
 analysis:
   intent:
-    summary: "Vendor JuliaSyntax and JuliaLowering into the Julia repository, expose them as top-level packages, and wire build/test/sysimage plumbing to make the compiler frontend available in-tree."
+    summary: "Vendor JuliaSyntax and JuliaLowering into Julia repository as top-level packages; wire build/test/sysimage plumbing."
     issue_links: []
   direct_changes:
-    - summary: "Bootstrap the JuliaSyntax frontend in Base by loading it from the installed dataroot path rather than the build tree."
+    - summary: "Bootstrap JuliaSyntax frontend in Base from installed dataroot path."
       component: "Base"
       evidence:
         - source: "code"
@@ -54,7 +54,7 @@ analysis:
             # Compiler frontend
             Core.println("JuliaSyntax/src/JuliaSyntax.jl")
             include(@__MODULE__, string(DATAROOT, "julia/JuliaSyntax/src/JuliaSyntax.jl"))
-    - summary: "Add JuliaSyntax source files to the sysimage build so the parser frontend is compiled into Base."
+    - summary: "Add JuliaSyntax sources to sysimage build; compile parser frontend into Base."
       component: "BuildSystem"
       evidence:
         - source: "code"
@@ -135,7 +135,7 @@ analysis:
                 elseif t[1] == "JuliaLowering"
                     testpath = length(t) >= 2 ? t[2:end] : ("runtests_vendored",)
                     return joinpath(@__DIR__, "..", t[1], "test", testpath...)
-    - summary: "Import the JuliaSyntax parsing/tokenization API into the main tree with explicit public exports and parser includes."
+    - summary: "Import JuliaSyntax parsing/tokenization API with explicit public exports and parser includes."
       component: "JuliaSyntax"
       evidence:
         - source: "code"
@@ -251,7 +251,7 @@ analysis:
             include("precompile.jl")
 
             end
-    - summary: "Bring the JuliaLowering compiler frontend into-tree, including closure conversion and runtime helpers for closure type construction."
+    - summary: "Bring JuliaLowering compiler frontend into-tree with closure conversion and runtime helpers."
       component: "JuliaLowering"
       evidence:
         - source: "code"
@@ -302,7 +302,7 @@ analysis:
             function __init__()
                 _register_kinds()
             end
-    - summary: "JuliaLowering provides hooks to replace Core._lower with a Julia-based lowering pipeline, enabling opt-in replacement of flisp lowering."
+    - summary: "JuliaLowering provides hooks to replace Core._lower with Julia-based lowering pipeline (opt-in)."
       component: "JuliaLowering"
       evidence:
         - source: "code"
@@ -358,7 +358,7 @@ analysis:
                     Core._setlowerer!(Base.fl_lower)
                 end
             end
-    - summary: "JuliaLowering IR tests now assert closure capture boxing vs unboxing behavior, including the unboxed capture case."
+    - summary: "JuliaLowering IR tests assert closure capture boxing vs unboxing behavior."
       component: "JuliaLowering/Tests"
       evidence:
         - source: "test"
@@ -408,7 +408,7 @@ analysis:
                 6   slot₂/x
                 7   (= slot₄/z %₆)
                 8   (return %₆)
-    - summary: "JuliaLowering IR tests verify OpaqueClosure lowering emits new_opaque_closure and opaque_closure_method IR correctly."
+    - summary: "JuliaLowering IR tests verify OpaqueClosure lowering emits new_opaque_closure and opaque_closure_method IR."
       component: "JuliaLowering/Tests"
       evidence:
         - source: "test"
@@ -464,7 +464,7 @@ analysis:
                 2   (return %₁)
             5   (new_opaque_closure %₂ %₃ core.Any true %₄)
             6   (return %₅)
-    - summary: "Closure conversion uses is_boxed to decide capture boxing and to drive closure field metadata."
+    - summary: "Closure conversion uses is_boxed for capture boxing decisions and closure field metadata."
       component: "JuliaLowering"
       evidence:
         - source: "code"

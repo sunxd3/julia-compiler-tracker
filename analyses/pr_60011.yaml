@@ -20,11 +20,11 @@ scope:
     - "TypeInference"
 analysis:
   intent:
-    summary: "Fix pointer arithmetic type function so Const pointers are widened, matching runtime pointer arithmetic and preventing incorrect const propagation."
+    summary: "Fix pointer arithmetic tfunc to widen Const pointers, preventing incorrect const propagation."
     issue_links:
       - "https://github.com/JuliaLang/julia/issues/60009"
   direct_changes:
-    - summary: "Return widened pointer type for pointer arithmetic tfunc (instead of preserving Const pointer)."
+    - summary: "Return widened pointer type instead of preserving Const wrapper."
       component: "Compiler/src/tfuncs.jl"
       evidence:
         - source: "code"
@@ -32,7 +32,7 @@ analysis:
           loc: "710-712"
           url: "https://github.com/JuliaLang/julia/blob/97f880ae6d9c727a1ea8bb650b7578572f3e8972/Compiler/src/tfuncs.jl#L710-L712"
           snippet: |
-            @nospecs function pointerarith_tfunc(𝕃::AbstractLattice, ptr, offset)
+            @nospecs function pointerarith_tfunc(lattice::AbstractLattice, ptr, offset)
                 return widenconst(ptr)
             end
         - source: "code"
@@ -58,7 +58,7 @@ analysis:
             widenconst(::PartialTypeVar) = TypeVar
             widenconst(t::Core.PartialStruct) = t.typ
             widenconst(t::PartialOpaque) = t.typ
-    - summary: "Add regression test for pointer arithmetic from null pointer with offset (issue #60009)."
+    - summary: "Add regression test for pointer arithmetic from null pointer with offset."
       component: "Compiler/test/effects.jl"
       evidence:
         - source: "test"
@@ -72,49 +72,47 @@ analysis:
             end
             @test null_offset(Int(100)) == Ptr{UInt8}(UInt(100))
   secondary_effects:
-    - effect: "Pointer arithmetic on Const Ptr no longer yields a Const result type, fixing incorrect constant propagation for pointer addition/subtraction."
+    - effect: "Pointer arithmetic on Const Ptr no longer yields Const result, fixing incorrect const propagation."
       mechanism: |
-        Bug: Previously `return ptr` preserved Const wrappers. For example:
-          - Input: Const(Ptr{UInt8}(0)) + offset -> returned Const(Ptr{UInt8}(0))
-          - This is wrong because pointer arithmetic produces a runtime-dependent value
+        BUG: `return ptr` preserved Const wrappers:
+          Const(Ptr{UInt8}(0)) + offset -> Const(Ptr{UInt8}(0)) [wrong]
 
-        Fix: `widenconst(ptr)` strips the Const wrapper:
-          widenconst(c::Const) = (v = c.val; isa(v, Type) ? Type{v} : typeof(v))  [typelattice.jl:703]
-          - Input: Const(Ptr{UInt8}(0)) -> returns Ptr{UInt8} (the type, not constant value)
+        FIX: widenconst(ptr) strips Const wrapper:
+          widenconst(c::Const) returns typeof(c.val) [typelattice.jl:703]
+          Const(Ptr{UInt8}(0)) -> Ptr{UInt8} [correct]
 
-        Call chain for IntrinsicFunction (NOT Builtin, so uses T_IFUNC, not T_FFUNC_VAL):
-          add_tfunc(add_ptr, 2, 2, pointerarith_tfunc, 1)  [tfuncs.jl:756]
-          add_tfunc(sub_ptr, 2, 2, pointerarith_tfunc, 1)  [tfuncs.jl:757]
-          -> isa(f, IntrinsicFunction) branch  [tfuncs.jl:2820]
-          -> iidx = Int(reinterpret(Int32, f)) + 1  [tfuncs.jl:2821]
-          -> tf = T_IFUNC[iidx]  [tfuncs.jl:2826]
-          -> tf[3](𝕃ᵢ, argtypes...) dispatches to pointerarith_tfunc  [tfuncs.jl:2869]
-          -> pointerarith_tfunc returns widenconst(ptr)  [tfuncs.jl:710-712]
+        Call chain (IntrinsicFunction uses T_IFUNC, not T_FFUNC_VAL):
+          add_tfunc(add_ptr, ..., pointerarith_tfunc, 1) [tfuncs.jl:756]
+          -> isa(f, IntrinsicFunction) branch [tfuncs.jl:2820]
+          -> iidx = Int(reinterpret(Int32, f)) + 1 [tfuncs.jl:2821]
+          -> tf = T_IFUNC[iidx] [tfuncs.jl:2826]
+          -> tf[3](lattice, argtypes...) -> pointerarith_tfunc [tfuncs.jl:2869]
+          -> returns widenconst(ptr) [tfuncs.jl:710-712]
       downstream_surfaces:
-        - "Core.Compiler abstract interpreter (intrinsic pointer arithmetic inference)"
-        - "Const-propagation analysis that relies on inferred result types"
+        - "Core.Compiler abstract interpreter (intrinsic pointer arithmetic)"
+        - "Const-propagation relying on inferred result types"
       likelihood: "high"
       impact: "low"
-    - effect: "User-facing pointer + and - operators benefit from this fix via their connection to add_ptr/sub_ptr intrinsics."
+    - effect: "User-facing Ptr + and - operators benefit via add_ptr/sub_ptr intrinsics."
       mechanism: |
-        User-level pointer arithmetic uses add_ptr/sub_ptr intrinsics:
-          +(x::Ptr, y::Integer) = add_ptr(x, (y % UInt) % UInt)  [base/pointer.jl:314]
-          -(x::Ptr, y::Integer) = sub_ptr(x, (y % UInt) % UInt)  [base/pointer.jl:315]
+        User pointer arithmetic uses intrinsics:
+          +(x::Ptr, y::Integer) = add_ptr(x, (y % UInt) % UInt) [pointer.jl:314]
+          -(x::Ptr, y::Integer) = sub_ptr(x, (y % UInt) % UInt) [pointer.jl:315]
 
-        When Julia infers types for code like `Ptr{UInt8}(C_NULL) + offset`:
-          1. C_NULL is known constant -> Ptr{UInt8}(C_NULL) infers as Const(Ptr{UInt8}(0))
-          2. Before fix: add_ptr tfunc returned Const(Ptr{UInt8}(0)) regardless of offset
-          3. After fix: add_ptr tfunc returns Ptr{UInt8} (non-constant type)
-          4. Runtime correctly computes Ptr{UInt8}(0 + offset) = Ptr{UInt8}(offset)
+        For `Ptr{UInt8}(C_NULL) + offset`:
+          1. C_NULL known constant -> infers as Const(Ptr{UInt8}(0))
+          2. Before: add_ptr tfunc returned Const(Ptr{UInt8}(0)) regardless of offset
+          3. After: add_ptr tfunc returns Ptr{UInt8} (non-constant)
+          4. Runtime correctly computes Ptr{UInt8}(offset)
       downstream_surfaces:
-        - "All code using Ptr + Integer or Ptr - Integer arithmetic"
+        - "All Ptr + Integer or Ptr - Integer arithmetic"
         - "FFI code, unsafe memory operations, buffer manipulation"
       likelihood: "high"
       impact: "medium"
   compatibility:
     internal_api: []
     behavioral:
-      - change: "Inference results for pointer arithmetic on Const Ptr are widened to Ptr types (no Const result), matching runtime behavior in tests."
+      - change: "Pointer arithmetic on Const Ptr widens to Ptr type (no Const result), matching runtime."
         evidence:
           - path: "Compiler/src/tfuncs.jl"
             loc: "710-712"
@@ -124,13 +122,13 @@ analysis:
             url: "https://github.com/JuliaLang/julia/blob/97f880ae6d9c727a1ea8bb650b7578572f3e8972/Compiler/test/effects.jl#L1491-L1495"
   performance:
     compile_time:
-      - "ESTIMATED: no measurable change; tfunc still a constant-time return with one widenconst call."
+      - "ESTIMATED: No change; tfunc remains constant-time with one widenconst call."
     runtime:
-      - "ESTIMATED: no runtime performance change; affects inference/analysis only."
+      - "ESTIMATED: No change; affects inference only."
   risk:
     level: "low"
     rationale:
-      - "Change is localized to a single tfunc return value and covered by a targeted regression test."
+      - "Localized to single tfunc return; covered by regression test."
   open_questions: []
   recommendations:
-    - "Downstream inference tools that assume Const preservation for Ptr arithmetic should update expectations to widened Ptr types."
+    - "Downstream tools assuming Const preservation for Ptr arithmetic should expect widened types."

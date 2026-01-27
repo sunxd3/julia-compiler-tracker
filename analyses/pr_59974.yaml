@@ -20,11 +20,11 @@ scope:
     - "TypeInference"
 analysis:
   intent:
-    summary: "Ensure inference revisits all methods participating in recursive cycles so cached results do not get stuck at Union{}; keep cycle backedges lazy to avoid extra allocations."
+    summary: "Ensure inference revisits all methods in recursive cycles, preventing cached Union{} results; record backedges lazily to avoid allocations."
     issue_links:
       - "https://github.com/JuliaLang/julia/issues/59943"
   direct_changes:
-    - summary: "Cycle merging now only normalizes cycle IDs; it no longer adds backedges during the merge walk."
+    - summary: "Cycle merging only normalizes cycle IDs; no longer adds backedges during merge walk."
       component: "Compiler/src/typeinfer.jl"
       evidence:
         - source: "code"
@@ -45,7 +45,7 @@ analysis:
                     frame.cycleid = ancestorid
                 end
             end
-    - summary: "Adding a cycle backedge no longer updates caller world-age; it only records the (caller, pc) pair."
+    - summary: "Adding cycle backedge no longer updates caller world-age; only records (caller, pc) pair."
       component: "Compiler/src/typeinfer.jl"
       evidence:
         - source: "code"
@@ -58,7 +58,7 @@ analysis:
                 contains_is(frame.cycle_backedges, backedge) || push!(frame.cycle_backedges, backedge)
                 return frame
             end
-    - summary: "Cycle backedges are now recorded at two points in typeinf_edge: (1) in the deferred task callback when inference is not yet complete, and (2) at the immediate return path for already-detected cycles."
+    - summary: "Record cycle backedges at two points in typeinf_edge: (1) deferred task callback when inference incomplete, (2) immediate return for detected cycles."
       component: "Compiler/src/typeinfer.jl"
       evidence:
         - source: "code"
