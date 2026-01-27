@@ -1,9 +1,8 @@
 # Journey: Debugging Type Instability
 
-**Document**: Tutorial 10
-**Topic**: Diagnosing and Fixing a Real Type Inference Problem
-**Audience**: Julia developers who want to understand why code is slow and how to fix it
-**Prerequisites**: Basic familiarity with [Type Inference (01)](./01-type-inference.md) and [Type Lattice (02)](./02-type-lattice.md)
+Basic familiarity with [Type Inference (01)](./01-type-inference.md) and [Type Lattice (02)](./02-type-lattice.md) is recommended.
+
+**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
 
 ---
 
@@ -583,5 +582,3 @@ This separates:
 - [Cthulhu.jl](https://github.com/JuliaDebug/Cthulhu.jl) - Interactive type debugger
 
 ---
-
-*This journey document demonstrates how to apply compiler internals knowledge to solve real performance problems. Understanding why inference fails helps you write faster Julia code.*

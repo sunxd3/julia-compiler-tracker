@@ -1,8 +1,8 @@
-# Practical Debugging Guide: Julia Introspection Tools
+# Julia Compiler Deep Dive: Practical Debugging Guide
 
-**A Quick Reference for Inspecting Compiler Behavior**
+A quick reference for inspecting compiler behavior with Julia's introspection tools. This guide provides practical, ready-to-use information for developers who need to debug performance issues, understand type inference results, or investigate why code isn't being optimized as expected.
 
-This guide provides practical, ready-to-use information for developers who need to debug performance issues, understand type inference results, or investigate why code isn't being optimized as expected.
+**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
 
 ---
 

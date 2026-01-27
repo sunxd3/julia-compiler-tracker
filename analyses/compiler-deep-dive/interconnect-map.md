@@ -2,7 +2,20 @@
 
 This document maps the connections between all compiler subsystems, identifying shared data structures, data flow patterns, and integration points.
 
-**Generated from**: Phase 1 exploration reports (T1-T8), Phase 2 exploration reports (T12-T16)
+**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
+
+---
+
+## Table of Contents
+
+1. [Subsystem Dependency Graph](#1-subsystem-dependency-graph)
+2. [Shared Data Structures](#2-shared-data-structures)
+3. [Data Flow Between Subsystems](#3-data-flow-between-subsystems)
+4. [Cross-Reference Summary by Subsystem](#4-cross-reference-summary-by-subsystem)
+5. [Key Functions Crossing Subsystem Boundaries](#5-key-functions-crossing-subsystem-boundaries)
+6. [Architectural Patterns](#6-architectural-patterns)
+7. [File-Level Dependencies](#7-file-level-dependencies)
+8. [Summary Table](#8-summary-table)
 
 ---
 

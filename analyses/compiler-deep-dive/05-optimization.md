@@ -2,9 +2,7 @@
 
 This tutorial explains how Julia optimizes your code after type inference. We cover the optimization pipeline, inlining decisions, struct elimination (SROA), and dead code elimination (ADCE). By the end, you will understand what happens to your code between inference and codegen, and how to write code that optimizes well.
 
-**Target audience**: Julia developers who know Julia well but want to understand what the compiler does to their code.
-
-**Commit reference**: All GitHub permalinks reference [commit 4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c).
+**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
 
 ---
 

@@ -2,10 +2,7 @@
 
 This tutorial explains how Julia reduces latency using precompilation, sysimages, and cached code.
 
-**Target audience**: Package authors and performance-focused users.
-
 **Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
-**Version**: Julia 1.14.0-DEV
 
 ---
 

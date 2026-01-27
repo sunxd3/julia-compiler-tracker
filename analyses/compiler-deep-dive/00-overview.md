@@ -1,8 +1,41 @@
 # Julia Compiler Deep Dive: Overview and Index
 
-## Welcome
+A comprehensive guide to Julia's compiler internals for developers who want to understand how Julia transforms source code into optimized machine code.
 
-This documentation series provides a comprehensive guide to Julia's compiler internals for developers who want to understand how Julia transforms source code into optimized machine code. Whether you are debugging type inference issues, contributing to the Julia compiler, or simply curious about what happens under the hood, these tutorials will give you the foundational knowledge you need.
+**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
+
+---
+
+## Table of Contents
+
+| # | Tutorial | Topic | Key Concepts |
+|---|----------|-------|--------------|
+| 01 | [Type Inference](01-type-inference.md) | The core inference engine | `InferenceState`, worklist algorithm, abstract interpretation |
+| 02 | [Type Lattice](02-type-lattice.md) | Mathematical foundation | `Const`, `PartialStruct`, `tmerge`, `tmeet`, widening |
+| 03 | [tfuncs](03-tfuncs.md) | Builtin return types | `getfield_tfunc`, `builtin_tfunction`, cost model |
+| 04 | [SSA IR](04-ssa-ir.md) | Intermediate representation | `IRCode`, `CFG`, `IncrementalCompact`, dominator trees |
+| 05 | [Optimization Passes](05-optimization.md) | Code transformation | Inlining, SROA, ADCE, `@inline` |
+| 06 | [Escape Analysis](06-escape-analysis.md) | Allocation elimination | Escape lattice, alias tracking, stack allocation |
+| 07 | [Effects System](07-effects.md) | Purity tracking | `Effects`, `@assume_effects`, constant folding |
+| 08 | [Caching](08-caching.md) | Compiled code management | `CodeInstance`, world age, backedges, invalidation |
+| 09 | [Journey: Method Call](09-journey-method-call.md) | End-to-end trace | One function through the full pipeline |
+| 10 | [Journey: Type Instability](10-journey-type-instability.md) | Debugging workflow | `@code_warntype`, fixes, lattice reasoning |
+| 11 | [Practical Debugging](11-practical-debugging.md) | Introspection tools | `@code_*`, Cthulhu, SnoopCompile |
+| 12 | [Method Dispatch](12-method-dispatch.md) | Call resolution | Method tables, specificity, ambiguities |
+| 13 | [Lowering](13-lowering.md) | Front-end pipeline | AST expansion, lowering to `CodeInfo` |
+| 14 | [Codegen](14-codegen.md) | LLVM + native | LLVM IR, native code emission |
+| 15 | [Specialization Limits](15-specialization-limits.md) | Precision vs latency | `InferenceParams`, union splitting, widening |
+| 16 | [Precompilation](16-precompilation.md) | Latency control | sysimages, precompile statements |
+
+**Supplementary Material:**
+
+- [Interconnect Map](interconnect-map.md) - Detailed subsystem dependencies and data flow
+
+---
+
+## Introduction
+
+Whether you are debugging type inference issues, contributing to the Julia compiler, or simply curious about what happens under the hood, these tutorials will give you the foundational knowledge you need.
 
 **Snapshot**: Julia 1.14.0-DEV @ [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
 
@@ -132,33 +165,6 @@ Learn about Julia's dynamic nature:
 1. **[13 - Lowering](13-lowering.md)** - AST → lowered `CodeInfo`
 2. **[04 - SSA IR](04-ssa-ir.md)** - SSA construction and representation
 3. **[14 - Codegen](14-codegen.md)** - LLVM IR and native code
-
----
-
-## Table of Contents
-
-| # | Tutorial | Topic | Key Concepts |
-|---|----------|-------|--------------|
-| 01 | [Type Inference](01-type-inference.md) | The core inference engine | `InferenceState`, worklist algorithm, abstract interpretation |
-| 02 | [Type Lattice](02-type-lattice.md) | Mathematical foundation | `Const`, `PartialStruct`, `tmerge`, `tmeet`, widening |
-| 03 | [tfuncs](03-tfuncs.md) | Builtin return types | `getfield_tfunc`, `builtin_tfunction`, cost model |
-| 04 | [SSA IR](04-ssa-ir.md) | Intermediate representation | `IRCode`, `CFG`, `IncrementalCompact`, dominator trees |
-| 05 | [Optimization Passes](05-optimization.md) | Code transformation | Inlining, SROA, ADCE, `@inline` |
-| 06 | [Escape Analysis](06-escape-analysis.md) | Allocation elimination | Escape lattice, alias tracking, stack allocation |
-| 07 | [Effects System](07-effects.md) | Purity tracking | `Effects`, `@assume_effects`, constant folding |
-| 08 | [Caching](08-caching.md) | Compiled code management | `CodeInstance`, world age, backedges, invalidation |
-| 09 | [Journey: Method Call](09-journey-method-call.md) | End-to-end trace | One function through the full pipeline |
-| 10 | [Journey: Type Instability](10-journey-type-instability.md) | Debugging workflow | `@code_warntype`, fixes, lattice reasoning |
-| 11 | [Practical Debugging](11-practical-debugging.md) | Introspection tools | `@code_*`, Cthulhu, SnoopCompile |
-| 12 | [Method Dispatch](12-method-dispatch.md) | Call resolution | Method tables, specificity, ambiguities |
-| 13 | [Lowering](13-lowering.md) | Front-end pipeline | AST expansion, lowering to `CodeInfo` |
-| 14 | [Codegen](14-codegen.md) | LLVM + native | LLVM IR, native code emission |
-| 15 | [Specialization Limits](15-specialization-limits.md) | Precision vs latency | `InferenceParams`, union splitting, widening |
-| 16 | [Precompilation](16-precompilation.md) | Latency control | sysimages, precompile statements |
-
-**Supplementary Material:**
-
-- [Interconnect Map](interconnect-map.md) - Detailed subsystem dependencies and data flow
 
 ---
 

@@ -2,8 +2,6 @@
 
 This tutorial explains how Julia caches compiled code and handles method redefinition. Understanding this system is essential for writing performant Julia code and diagnosing unexpected recompilation.
 
-**Target audience**: Julia developers familiar with the language but not the compiler internals.
-
 **Source commit**: [`4d04bb6b3b`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
 
 ---

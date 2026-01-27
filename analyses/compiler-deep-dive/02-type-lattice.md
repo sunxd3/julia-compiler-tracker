@@ -1,9 +1,6 @@
 # Julia Compiler Deep Dive: The Type Lattice
 
-**Document**: Tutorial 02
-**Topic**: Mathematical Foundation of Type Inference
-**Audience**: Julia developers familiar with Julia's type system, seeking compiler internals knowledge
-**Commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
+**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
 
 ---
 

@@ -1,8 +1,6 @@
 # Julia Compiler Deep Dive: The Type Inference Engine
 
-**Author**: Julia Compiler Documentation Project
-**Version**: Julia 1.14.0-DEV (based on commit `4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`)
-**Audience**: Julia developers familiar with the language but new to compiler internals
+**Source commit**: `4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`
 
 ---
 
@@ -838,6 +836,3 @@ Inference budgets cap precision to keep compilation fast.
 | Effects System | [07-effects.md](./07-effects.md) |
 | Caching & Invalidation | [08-caching.md](./08-caching.md) |
 
----
-
-*Document generated for Julia compiler internals study. Based on Julia commit `4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`.*

@@ -1,7 +1,5 @@
 # Julia Compiler Deep Dive: SSA IR Representation
 
-**Target audience**: Julia developers familiar with the language who want to understand how code is represented during optimization.
-
 **Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
 
 ---

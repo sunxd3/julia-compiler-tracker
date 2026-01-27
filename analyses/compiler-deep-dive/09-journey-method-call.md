@@ -2,8 +2,6 @@
 
 This document traces a concrete example through every stage of Julia's compilation pipeline. By following a simple function from source code to machine code, we will see how all the compiler subsystems work together to produce efficient executables.
 
-**Target audience**: Julia developers who have read the individual deep-dive documents and want to see how the pieces connect.
-
 **Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
 
 ---
@@ -698,5 +696,3 @@ Here is the complete journey of `magnitude(Point(3.0, 4.0))`:
 - [interconnect-map.md](./interconnect-map.md) - How all subsystems connect
 
 ---
-
-*Document generated for Julia compiler internals study. Based on Julia commit [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c).*

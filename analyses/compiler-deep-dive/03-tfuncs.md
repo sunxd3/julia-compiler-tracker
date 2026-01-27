@@ -1,8 +1,8 @@
-# Understanding Julia's Type Functions (tfuncs)
+# Julia Compiler Deep Dive: Type Functions (tfuncs)
 
-**A Deep Dive into How the Compiler Knows Return Types of Builtins**
+A deep dive into how the compiler knows return types of builtins.
 
-This tutorial explains how Julia's compiler determines the return type of builtin operations. When you write `getfield(x, :name)`, how does the compiler know what type that expression produces? The answer lies in the **tfuncs** subsystem.
+**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
 
 ---
 

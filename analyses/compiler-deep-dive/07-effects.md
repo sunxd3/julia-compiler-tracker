@@ -1,8 +1,8 @@
-# The Julia Compiler Effects System
+# Julia Compiler Deep Dive: The Effects System
 
-**A Deep Dive for Julia Developers**
+How Julia tracks code purity to enable aggressive optimizations.
 
-The effects system is one of Julia's most powerful but least understood compiler features. It allows the compiler to reason about what your code *does* (or doesn't do), enabling aggressive optimizations that would otherwise be unsafe. This tutorial explains how Julia tracks code purity and how you can leverage this knowledge to write faster code.
+**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
 
 ---
 
