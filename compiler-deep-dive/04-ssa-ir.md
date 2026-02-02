@@ -1,6 +1,6 @@
 # Julia Compiler Deep Dive: SSA IR Representation
 
-**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
+The intermediate representation used by Julia's optimizer: `IRCode`, basic blocks, and SSA values.
 
 ---
 

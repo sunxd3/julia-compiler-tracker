@@ -1,8 +1,6 @@
 # Julia Compiler Interconnection Map
 
-This document maps the connections between all compiler subsystems, identifying shared data structures, data flow patterns, and integration points.
-
-**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
+How compiler subsystems connect: shared data structures, data flow, and integration points.
 
 ---
 

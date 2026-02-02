@@ -1,8 +1,6 @@
 # Journey: Debugging Type Instability
 
-Basic familiarity with [Type Inference (01)](./01-type-inference.md) and [Type Lattice (02)](./02-type-lattice.md) is recommended.
-
-**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
+Diagnosing and fixing type instability issues using compiler introspection tools.
 
 ---
 

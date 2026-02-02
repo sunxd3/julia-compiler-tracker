@@ -1,6 +1,6 @@
 # Julia Compiler Deep Dive: The Type Inference Engine
 
-**Source commit**: `4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`
+How Julia infers types through abstract interpretation using a worklist-based forward dataflow algorithm.
 
 ---
 

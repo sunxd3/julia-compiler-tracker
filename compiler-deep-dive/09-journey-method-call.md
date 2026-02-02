@@ -1,8 +1,6 @@
 # Journey: Tracing a Method Call Through Julia's Compiler
 
-This document traces a concrete example through every stage of Julia's compilation pipeline. By following a simple function from source code to machine code, we will see how all the compiler subsystems work together to produce efficient executables.
-
-**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
+Following a simple function from source code to machine code through every compilation stage.
 
 ---
 

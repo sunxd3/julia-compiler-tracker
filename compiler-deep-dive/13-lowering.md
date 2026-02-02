@@ -1,10 +1,6 @@
 # Julia Compiler Deep Dive: Lowering (AST -> CodeInfo)
 
-This tutorial explains Julia's **lowering** phase: how parsed syntax and macros become a lowered `CodeInfo` object that the compiler can analyze.
-
-**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
-
-**Source anchors**: `julia/src/ast.c`, `julia/src/ast.scm`, `julia/src/julia-syntax.scm`, `julia/src/jlfrontend.scm`, and `julia/src/macroexpand.scm`.
+How parsed syntax and macros become a lowered `CodeInfo` object for the compiler.
 
 ---
 

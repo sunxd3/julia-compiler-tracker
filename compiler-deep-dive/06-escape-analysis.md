@@ -1,8 +1,6 @@
 # Julia Compiler Deep Dive: Escape Analysis
 
-**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
-
-**Primary source file**: [`Compiler/src/ssair/EscapeAnalysis.jl`](https://github.com/JuliaLang/julia/blob/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c/Compiler/src/ssair/EscapeAnalysis.jl)
+How Julia tracks object lifetimes to enable stack allocation and other optimizations.
 
 ---
 

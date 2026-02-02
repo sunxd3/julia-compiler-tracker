@@ -1,10 +1,6 @@
 # Julia Compiler Deep Dive: Specialization Limits and Inference Budgets
 
-Julia balances **precision** and **latency**. This tutorial explains the limits and heuristics that cause inference to widen or stop specializing, and how to recognize them.
-
-**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
-
-**Source anchor**: `Compiler/src/types.jl` (`InferenceParams` documentation).
+The limits and heuristics that cause inference to widen or stop specializing.
 
 ---
 

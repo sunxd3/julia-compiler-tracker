@@ -1,10 +1,6 @@
 # Julia Compiler Deep Dive: Method Dispatch
 
-This tutorial explains how Julia decides *which* method to call for a given function invocation, and how that decision interacts with inference, caching, and performance.
-
-**Source commit**: [`4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c`](https://github.com/JuliaLang/julia/tree/4d04bb6b3b1b879f4dbb918d194c5c939a1e7f3c)
-
-**Source anchor**: Runtime dispatch lives in `julia/src/gf.c` (generic functions), while inference-side call resolution is in `Compiler/src/abstractinterpretation.jl`.
+How Julia selects which method to call and how dispatch interacts with inference and caching.
 
 ---
 
