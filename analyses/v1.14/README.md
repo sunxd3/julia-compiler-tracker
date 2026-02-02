@@ -5,7 +5,7 @@ This directory contains detailed YAML analyses of compiler-related PRs merged to
 ## Branch Information
 
 - **Status**: Development branch (not yet released)
-- **Base**: master branch after 1.13 branch point (2025-10-27)
+- **Base**: master branch after 1.13 branch point (2025-10-28)
 - **Core PRs**: 26
 
 ## PR List
