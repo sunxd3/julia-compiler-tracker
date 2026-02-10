@@ -62,21 +62,4 @@ For downstream packages using compiler internals:
 
 ### Output
 
-Write YAML to `analyses/{version}/pr_{number}.yaml`:
-
-```yaml
-pr:
-  number: int
-  title: string
-  merge_commit_sha: string
-scope:
-  files_touched: [string]
-  pipeline_stages: [string]
-analysis:
-  summary: string
-  changes:
-    - description: string
-      evidence: string
-  downstream_impact: [string]
-  risk: low|medium|high
-```
+Write markdown to `analyses/{version}/pr_{number}.md`. See [ANALYSIS_GUIDE.md](ANALYSIS_GUIDE.md) for the full format and guidelines.
