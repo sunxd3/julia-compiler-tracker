@@ -4,7 +4,7 @@ A Claude Code plugin that helps developers of Julia compiler-dependent packages 
 
 ## What it does
 
-Analyzes breaking changes in Julia compiler internals — struct layouts, function signatures, inference behavior, IR shape — and produces actionable migration guides for packages like JET.jl, Mooncake.jl, Enzyme.jl, GPUCompiler.jl, Diffractor.jl, and Cthulhu.jl.
+Analyzes breaking changes in Julia compiler internals — struct layouts, function signatures, inference behavior, IR shape — and produces actionable migration guides for packages that depend on compiler internals.
 
 ## Install
 

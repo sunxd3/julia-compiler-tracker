@@ -1,6 +1,6 @@
 {
   "name": "julia-compiler",
-  "description": "Help developers of Julia compiler-dependent packages (JET.jl, Mooncake.jl, Enzyme.jl, GPUCompiler.jl, Diffractor.jl, Cthulhu.jl) migrate between Julia versions. Analyzes breaking changes in compiler internals — struct layouts, function signatures, inference behavior, IR shape — and produces actionable migration guides.",
+  "description": "Help developers of Julia compiler-dependent packages migrate between Julia versions. Analyzes breaking changes in compiler internals — struct layouts, function signatures, inference behavior, IR shape — and produces actionable migration guides.",
   "version": "0.1.0",
   "author": {
     "name": "Xianda Sun"
