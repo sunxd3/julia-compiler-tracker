@@ -1,9 +1,2 @@
-# Python
-__pycache__/
-*.py[cod]
-
-# Local files
-*.local.*
-
-# Local analysis dependencies
+# Julia repo workspace (cloned on demand for investigations)
 julia/

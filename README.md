@@ -1,30 +1,29 @@
-# Julia Compiler Tracker
+# julia-compiler — Claude Code Plugin
 
-Track and analyze compiler-related changes in Julia for downstream package maintainers.
+A Claude Code plugin that helps developers of Julia compiler-dependent packages migrate between Julia versions.
+
+## What it does
+
+Analyzes breaking changes in Julia compiler internals — struct layouts, function signatures, inference behavior, IR shape — and produces actionable migration guides for packages like JET.jl, Mooncake.jl, Enzyme.jl, GPUCompiler.jl, Diffractor.jl, and Cthulhu.jl.
+
+## Install
+
+```bash
+# Local development
+claude --plugin-dir ./julia-compiler-tracker
+
+# Or use the skill directly
+/julia-compiler:julia-migration
+```
 
 ## Structure
 
 ```
-├── analyses/
-│   ├── v1.13/             # PR analyses (.md) + missing_prs.md tracking
-│   └── v1.14/             # PR analyses
-├── data/
-│   └── v1.13/
-│       ├── all_prs.txt        # All 1,274 PRs between 1.12 and 1.13
-│       └── compiler_prs.txt   # 269 compiler-related PRs with titles
-├── changelogs/            # Human-readable version changelogs
-├── compiler-deep-dive/    # Julia compiler internals documentation
-├── julia/                 # Julia repo workspace (checkout PRs here)
-├── ANALYSIS_GUIDE.md      # How to write PR analyses
-└── CLAUDE.md              # Agent instructions
+├── .claude-plugin/
+│   └── plugin.json                     # Plugin manifest
+├── skills/
+│   └── julia-migration/
+│       ├── SKILL.md                    # Skill definition
+│       └── references/
+│           └── compiler-internals.md   # Compiler subsystem reference
 ```
-
-## Writing analyses
-
-See [ANALYSIS_GUIDE.md](ANALYSIS_GUIDE.md) for the full guide. Each analysis is a markdown file at `analyses/{version}/pr_{number}.md`.
-
-## Version info
-
-| Version | Branch point | Commit | Total PRs | Compiler PRs |
-|---------|-------------|--------|-----------|-------------|
-| 1.13 | 2025-10-28 | `abd8457` | 1,274 | 269 |
