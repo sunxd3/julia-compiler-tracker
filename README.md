@@ -1,29 +1,16 @@
-# julia-compiler — Claude Code Plugin
+# julia-compiler-tracker
 
-A Claude Code plugin that helps developers of Julia compiler-dependent packages migrate between Julia versions.
+Tracks Julia compiler PRs and their downstream impact on packages that depend on compiler internals.
 
-## What it does
+## Contents
 
-Analyzes breaking changes in Julia compiler internals — struct layouts, function signatures, inference behavior, IR shape — and produces actionable migration guides for packages that depend on compiler internals.
+- `analyses/`: per-PR analyses by Julia version
+- `changelogs/`: version-level compiler change summaries
+- `compiler-deep-dive/`: reference material on compiler internals
+- `.agents/skills/` and `.claude/skills/`: `julia-migration` skill definitions
 
-## Install
+## Workflow
 
-```bash
-# Local development
-claude --plugin-dir ./julia-compiler-tracker
+Use a separate `julia/` checkout to inspect a PR, then write the result to `analyses/{version}/pr_{number}.md`.
 
-# Or use the skill directly
-/julia-compiler:julia-migration
-```
-
-## Structure
-
-```
-├── .claude-plugin/
-│   └── plugin.json                     # Plugin manifest
-├── skills/
-│   └── julia-migration/
-│       ├── SKILL.md                    # Skill definition
-│       └── references/
-│           └── compiler-internals.md   # Compiler subsystem reference
-```
+See `AGENTS.md` and `ANALYSIS_GUIDE.md` for the analysis process and output format.
