@@ -1,0 +1,421 @@
+49675|transition `@timeit` in `Core.Compiler` to use tracy instead
+49933|Allow for :foreigncall to transition to GC safe automatically
+54372|Add takestring!(x) to create a string from the content of x, emptying it
+54835|NFC: Add `fprint` variants of internal print functions
+54836|Add error dialog for critical errors on Windows
+55864|Fix late gc lowering pass for vector intrinsics
+56130|Bump LLVM to v19.1.7+1
+56201|use stmt instead of `Instruction` in `populate_def_use_map!`
+56334|Add hook to initialize Julia on-the-fly during thread adoption
+56823|Make version of opaque closure constructor in world
+56890|Enable getting non-boxed LLVM type from Julia Type
+56987|staticdata: remove `reinit_ccallable`
+57010|codegen: add a pass for late conversion of known modify ops to call atomicrmw
+57012|Replace -> with :: where appropriate in docstrings
+57074|[internals] add time metrics for every CodeInstance
+57129|clarify that time_ns is monotonic
+57176|[mmtk-julia] Allow building Julia with variations of the binding
+57193|CompilerDevTools: add proof of concept for caching runtime calls
+57208|Teach alloc-opt to handle atomics a bit better
+57209|Always add the frame-pointer=all attribute
+57214|Refactoring code in `mk_symbol` to remove stock specific code
+57222|Inference: propagate struct initialization info on `setfield!`
+57226|cfunction: reimplement, as originally planned, for reliable performance
+57229|staticdata: Close data race after backedge insertion
+57237|Refactoring code that is specific to stock GC write barriers
+57248|improve concurrency safety for `Compiler.finish!`
+57252|Refactoring write barrier for copying generic memory, but moving it from `genericmemory.c`
+57253|bpart: Fully switch to partitioned semantics
+57272|Support adding `CodeInstance`s to JIT for interpreters defining a codegen cache
+57275|Compiler: fix unsoundness of getfield_tfunc on Tuple Types
+57293|Fix getfield_tfunc when order or boundscheck is Vararg
+57299|Add missing latestworld after parameterized type alias
+57302|Add explicit imports for types and fix bugs
+57304|Extend  `PartialStruct` to represent non-contiguously defined fields
+57308|Emit enter handler during codegen instead of after optimization
+57311|Add a warning for auto-import of types
+57317|internals: add _defaultctor function for defining ctors
+57341|bpart: When backdating replace the entire bpart chain
+57342|trimming: make sure to fail / warn on `Expr(:call, ...)`
+57344|Add missing type asserts when taking the queue out of the task struct
+57346|lowering: Only try to define the method once
+57352|Initial support for LLVM 20
+57357|Only implicitly `using` Base, not Core
+57359|use an empty symbol instead of module name as placeholder for module `file` metadata
+57375|Sink CodeInfo transformation into `transform_result_for_cache`, continued
+57378|print admonition for auto-import only once per module
+57380|Make late_gc_lowering more robust
+57381|staticdata: Set min validation world to require world
+57383|staticdata: Fix typo in recursive edge revalidation
+57385|bpart: Move kind enum into its intended place
+57386|Only strip invariant.load from special pointers
+57392|[LateLowerGCFrame] fix PlaceGCFrameReset for returns_twice
+57395|lowering: fix has_fcall computation
+57398|Make remaining float intrinsics require float arguments
+57405|bpart: Also partition the export flag
+57406|bpart: Ignore guard bindings for ambiguity purposes
+57407|staticdata: corrected implementation of jl_collect_new_roots
+57410|codegen: cleanup gcstack call frames somewhat earlier
+57416|lowering: Don't mutate lambda in `linearize`
+57419|generated: Switch resolution module back to what it was before
+57420|Compiler: Fix check for IRShow definedness
+57421|bpart: Skip implicit import reval if using'd export set is unchanged
+57425|Prohibit binding replacement in closed modules during precompile
+57426|Prohibit `import`ing or `using` Main during incremental compilation
+57432|test: Compiler: relax flaky codegen test
+57433|bpart: Track whether any binding replacement has happened in image modules
+57447|Don't return null pointer when asking for the type of a declared global
+57449|bpart: Also partition ->deprecated
+57452|Convert some julia-repl examples to doctests
+57453|Revert "Make emitted egal code more loopy (#54121)"
+57467|using/import: ensure world update after each observable operation
+57470|Fix error message when using `const` inside a function, require the LHS to be global, and prohibit "const x[] = 1"
+57471|staticdata: Don't use `newm` pointer after it has been invalidated
+57480|lowering: Handle malformed `...` expressions
+57499|strip Module filename from metadata
+57500|make compile go faster with native caches
+57511|Fix typo in printed message and clarify a printed hint
+57520|move to a simpler versioning policy for the Compiler.jl stdlib
+57523|Remove usages of weak symbols
+57530|[Compiler] begin new approach to verify --trim output
+57531|some updates for trimming
+57532|cleanup old builtins
+57541|inference: allow `PartialStruct` to represent strict undef field
+57542|staticdata: Refactor sysimage loading
+57545|[Compiler] fix some cycle_fix_limited usage
+57551|Fix uninitialized variable warning
+57553|Compiler: avoid type instability in access to `PartialStruct` field
+57554|lowering: Allow chaining of `>:` in `where`
+57561|Remove `jl_init__threading` and `jl_init_with_image__threading`
+57562|Make no-body `function` declaration implicitly `global`
+57563|Walk to imports in `isconst(::GlobalRef)`
+57564|Fix C compiler warning when using pre-C11 compiler
+57567|Always disallow assignments to constants
+57582|Compiler: abstract calls: type assert to help stability
+57586|Update callsite `@noinline` docstring to make clear it applies to calls in arguments too
+57587|trimming: Restore JLL support
+57588|use `@main` for juliac executable entry point
+57602|bpart: Allow inference/codegen to merge multiple partitions
+57614|bpart: Rename partition flags, turn binding flags atomic
+57625|Align module base between invalidation and edge tracking
+57626|Disallow non-lhs all-underscore variable names
+57633|Compiler/ssair/passes: `_lift_svec_ref`: improve type stability
+57640|CompilerDevTools: use `transform_result_for_cache` instead of `optimize`
+57648|lowering: Fix captured vars shadowed by an inner global declaration
+57650|Compiler: Fix pre-compilation as separate package
+57653|typeinfer: Add `force_enable_inference` to override Module-level inference settings
+57654|Fix julia.h for use in MSVC
+57657|trimming: improve output on failure
+57662|Clarify objectid doc
+57681|Fix unused variable warnings
+57684|Compiler: `abstract_apply`: declare type of two closure captures
+57720|inference: avoid creating `PartialStruct` that never exists at runtime
+57741|[LateLowerGC] Fix typo sret handling so we properly handle selects in the worklist
+57743|inference: exclude uncached frames from callstack
+57755|bpart: Redesign representation of implicit imports
+57757|Fix documentation of `jl_gc_collect`
+57760|remove old cruft from jl_set_typeinf_func
+57763|add the ability to specify the external name of a ccallable
+57765|batch some binding changes
+57774|lowering: Don't closure-convert in `import` or `using`
+57775|print admonition for auto-import only once per module
+57778|fix missing `!` in a strip-metadata case
+57793|Adapt some more code for LLVM 20
+57800|fix _apply_pure deprecation
+57804|add missing wb in jl_maybe_reresolve_implicit
+57806|effects: fix effects of atomic pointer operations
+57822|Mark UInt8 field as UInt8 in CodInstance
+57824|Add option to force emission of const return function
+57828|Fix package precompilation (PrecompileTools)
+57833|precompile_utils: Don't auto-enqueue `macro` methods for pre-compilation
+57837|restore method count after redefinition to hide old definition
+57845|codegen: fix alignment of source in typed_load from a unsafe_load
+57849|Fix `fargs` handling for `form_partially_defined_struct`
+57856|effects: give the most conservative effects to unhandled builtins
+57859|`Compiler`: `walk_to_defs`, `collect_leaves`: specialize for `predecessors`
+57860|`Compiler`: `abstract_eval_invoke_inst`: type assert `Expr`
+57865|Switch RISC-V to large model on LLVM 20
+57878|inference: add internal SOURCE_MODE_GET_SOURCE mode
+57879|add trimming of new usings_backedges and scanned_methods fields
+57889|Fix typo in codegen for `isdefinedglobal`
+57892|Fix corner case of double module import
+57896|inference: fix exct modeling of `setglobal!`
+57897|overload lattice ops within `abstract_eval_isdefinedglobal`
+57907|only update fragmentation data for pages that are not lazily freed
+57911|Support "Functor-like" `code_typed` invocation
+57917|staticdata: Memoize `type_in_worklist` query
+57925|fix generated_body_to_codeinfo to avoid `string` (which is not always defined)
+57927|fix trimming size regression due to handling binding backedges in the wrong place
+57928|fix opaque_closure sparam capture
+57934|Be more careful about iterator invalidation during recursive invalida…
+57961|Add set to temporary roots to avoid O(N) check
+57965|Add builtin functions Core._import, Core._using; implement import/using logic in Julia
+57973|inference: model `Core._svec_ref`
+57979|Move inlinability determination into cache transform
+57987|Run Compiler tests in parallel for `Pkg.test`, continued
+57988|much faster code-coverage for packages
+57989|debuginfo: improve robustness of code slightly
+57995|Merge adjacent implicit binding partitions
+57999|Add matches for invoke invalidations
+58014|trimming: Support finalizers
+58026|inference: simplify `abstract_eval_globalref`
+58027|inference: re-enable inference overload for basic statements
+58033|verify that `optimize_until` is a valid pass
+58035|optimizer: fix various `optimize_until` misuses
+58043|Make delete_binding operate in the latest world
+58056|fix #58013, error for too few arguments in `invokelatest`
+58064|prevent allocation of Memory (layout and object) when not concrete
+58069|[CompilerDevTools] Use `with_new_compiler` directly
+58070|fix called-argument analysis for calls with splat
+58072|Fix missing CodeInstance owner lookup in _jl_invoke
+58074|[CompilerDevTools] Properly handle builtins in with_new_compiler
+58076|Align `:method` Expr return value between interpreter and codegen
+58078|remove some more serialized junk from the sysimg
+58082|Drop sources for constabi results in local cache
+58083|Always set `result.src` to the result of transform_result_for_cache
+58100|Support field name in `fieldoffset`
+58106|gf.c: Fix backedge de-duplication bug
+58117|De-duplicate edges in `typeinfer` instead of `gf.c`
+58118|Fix some typos in comments and tests
+58119|Export `fieldindex`
+58124|Log a backtrace on entrance to type inference
+58128|fix static show in some edge cases
+58131|make just one MethodTable
+58137|Ensure completion of invalidation log
+58141|Make trimmed binaries initialize on first call
+58142|Bump LLVM to v20
+58147|Clean up lowering API
+58150|Revert "remove some more serialized junk from the sysimg"
+58154|inference: minor refactoring on abstractinterpretation.jl
+58155|Fix `jl_set_precompile_field_replace` for 0-size fields
+58156|staticdata: prune backedges table during serialization
+58165|inference: allow specialization of `scan_specified_partitions`
+58166|staticdata: fix many mistakes in staticdata stripping
+58167|gf: make dispatch heuristic representation explicit
+58172|staticdata: stop compressing and storing large IR
+58182|Revert #57979 (and following #58083 #58082)
+58184|fix performance regression introduced by #58027
+58187|Lower `const x = ...` to new builtin `Core.setconst!`
+58203|Reland #57979 (and following #58083 #58082)
+58205|reduce places where Builtins are listed
+58207|Lowering API: Allow for switching to JuliaLowering
+58213|transition @zone in Core.Compiler to directly use jl_timing
+58216|optimize Type method table queries and insertions
+58219|Tracy: annotate timings in `JIT_Total` zone with function names
+58220|improve isdefined precision for 0 field types
+58226|Add binding invalidations to log
+58231|Refactor julia initialization by finding and loading the sysimage earlier
+58235|add `TYPE_CACHE_INSERT` to the disabled frequent event list
+58249|inference: prevent nested slot wrappers in abstract_call_builtin
+58253|Add manual chapter on world age and binding partition
+58254|Strengthen language around `@assume_effects` :consistent
+58258|Make build_id.lo more random
+58261|fix isconst definition/accessor issues with binding partitions
+58266|add backdate_admonition to depwarn=error
+58271|bpart: Fix a hang in a particular corner case
+58273|Prevent type infer hang of "simple" recursive functions
+58274|Core._eval_import: don't throw away "from" path
+58279|Remove :globaldecl and :global lowered forms; add Core.declare_global
+58289|Revert code changes from "strengthen assume_effects doc" PR
+58291|replace incorrect Method.deleted_world with more useful Method.dispatch_status enum
+58304|gf.c: Add some comments to `ml_matches` (NFC)
+58307|Fix lowering failure with type parameter in opaque closure
+58311|trimming: follow-ups to finalizer support
+58320|Don't use sigatomic before current task is available
+58322|Fix removal of globals with addrspaces in removeAddrspaces
+58324|Attach source edges to `:uninferred` generator `CodeInstance`
+58325|improve robustness of `Vararg` checks in newly added `abstract_eval_xxx`
+58327|use `src.nargs` for `validate_code!`
+58328|Use getsplit interface for InvokeCallInfo
+58333|type-stabilize `eval_import_path`
+58335|extend Method.dispatch_status optimization to ml_matches_visitor also
+58343|Defer global caching of `CodeInstance` to post-optimization step
+58344|[deps] enable zstd support
+58347|atomics: avoid iterator invalidation in C++
+58349|InteractiveUtils: Fully support broadcasting expressions for code introspection macros 
+58356|codegen: remove readonly from abstract type calling convention
+58365|Apply debug_compile_units hack also in remove-addrspaces
+58371|Allow constant propagation of mutables with const fields
+58390|Fix signedness typo in world range update
+58393|Remove `jl_line_info_node_t` (no longer used)
+58394|Use `get_ci_mi` in `store_backedges`
+58399|Use a nonzero initial size with llvm::SmallSet.
+58407|Add `Compiler._verify_trim_world_age` for better printing
+58410|fix `hasmethod` with kwargs to exclude positional arg names
+58411|reflection: Label "dynamic invoke" in `code_typed`
+58412|don't strip keyword argument names with --strip-metadata
+58420|change the Compiler.jl stdlib version to 0.1.0
+58423|Expose native_code's jl_sysimg_gvars.
+58425|Fix MethodError in IR validator
+58426|Don't create a type parameter in the closure for captured @nospecialize arguments
+58429|codegen: Unify printing of and add some more internal IR validity errors
+58430|stacktraces: Add an extension point for printing custom-owner CIs
+58437|[Compiler] Add more tests for non-power-of-two primitive types
+58443|ir/verify: Give more correct errors in two places
+58452|avoid deadlock if crashing inside profile_wr_lock
+58467|ir: Consider Argument a useref
+58477|ir: Don't fail if :invoke has zero arguments
+58483|Fix tbaa usage when storing into heap allocated immutable structs
+58487|Introduce a few GC controls to limit the heap size when running benchmarks
+58488|avoid error just computing coverage of generated functions
+58510|Don't filter `Core` methods from newly-inferred list
+58512|Make more types jl_static_show unambiguously
+58540|fix breakage with `jl_get_global`
+58549|fix Module for Base.jl for Revise.jl
+58573|Rollup misc doc and infrastructure tweaks
+58579|Work around LLVM JITLink stack overflow issue.
+58582|fix `@invokelatest` performance regression
+58584|Make `Ptr` values static-show w/ type-information
+58590|make _jl_gc_collect jl_notsafepoint
+58594|Convert julia-repl blocks to jldoctest format
+58599|Revert "Introduce a few GC controls to limit the heap size when running benchmarks"
+58600|reland: hard heap limit flag
+58611|Fix `linearize` of global with complex type
+58631|codegen: More robustness for invalid :invoke IR
+58636|better handling of missing backedges
+58637|Make late gc lower handle insertelement of alloca use.
+58639|ircode: handle content outside of a module
+58642|Support `debuginfo` context option in IRShow for `IRCode`/`IncrementalCompact`
+58650|fix serializer compat with CodeInfos from v1.11
+58651|module: Tweak backdate-warning-turned error
+58658|Create 'JL_GC_DECODE_NROOTS' macro to avoid writing explicit bitshifts in a few places
+58659|Make pool allocator stats from gc_page_fragmentation_stats more visible for Julia user code
+58661|refine IR model queries
+58662|add support for storing just the inferred inlining_cost in CodeInstance
+58683|Add 0 predecessor to entry basic block and handle it in inlining
+58684|cfunction: store `fptr` / `world` contiguously
+58697|[NFC] codegen: introduce `jl_abi_t` type for ABI adapter API
+58713|GC Always Full Flag
+58718|[NFC] codegen: Move target ABI calculation into `jl_jit_abi_converter`
+58722|aotcompile: Fix early-exit if CI not found for `cfunction`
+58743|inference: improve `isdefined_tfunc` accuracy for `MustAlias`
+58744|bump Compiler.jl version to 0.1.1
+58768|expand memoryrefnew capabilities
+58774|Update docs for various type predicates
+58792|codegen: gc wb for atomic FCA stores
+58794|codegen: slightly optimize gc-frame allocation
+58803|Allow underscore (unused) args in presence of kwargs
+58804|codegen: ensure safepoint functions can read the pgcstack
+58805|Add `Base.isprecompilable`
+58809|use more canonical way to check binding existence
+58812|Add `cfunction` support for `--trim`
+58815|jl_dlfind: do not find symbols in library dependencies
+58817|Add `trim_mode` parameter to JIT type-inference entrypoint
+58825|add METHOD_SIG_LATEST_ONLY optimization to MethodInstance too
+58828|codegen: relaxed jl_tls_states_t.safepoint load
+58830|bpart: Properly track methods with invalidated source after require_world
+58842|staticdata: Don't discard inlineable code that inference may need
+58843|bpart: Skip inserting image backedges while we're generating a pkgimage
+58851|debuginfo: Memoize object symbol lookup
+58860|Re-add old function name for backward compatibility in init
+58861|correctly encode and validate fully_covers as edges
+58871|trimming: Add `_uv_hook_close` support
+58872|model ccall binding access in inference
+58877|Add missing module qualifier
+58880|Fix data race in jl_new_module__
+58884|Update lock hierarchy devdocs
+58891|Support "functors" for code reflection utilities
+58893|IRShow: Print arg0 type when necessary to disambiguate `invoke`
+58924|Binding invalidation data race fixes
+58925|Add one-argument `argtypes` methods to source reflection functions
+58939|Use relaxed atomics to load/update jl_lineno and jl_filename
+58940|add `@__FUNCTION__` and `Expr(:thisfunction)` as generic function self-reference
+58948|stored method interference graph
+58950|Fix LLVM TaskDispatcher implementation issues
+58955|chore: remove redundant words in comment
+58964|remove comment from julia-syntax that is no longer true
+58970|Add 'sysimage' keyword for `JULIA_CPU_TARGET` to match (or extend) the sysimage target
+58976|bpart: Tweak `isdefinedglobal` on backdated constant
+58997|add array element mutex offset in print and gc
+59003|Roll up msys2/clang/windows build fixes
+59012|Improve --trace-dispatch coverage: emit in "full-cache" fast path as well.
+59018|Don't inline generated functions if we can't invoke their generator
+59034|Add ThreadSanitzer hooks for jl_mutex_t
+59059|Use a dedicated parameter attribute to identify the gstack arg.
+59105|inference: Make test indepdent of the `Complex` method table
+59112|Add builtin function name to add methods error
+59143|convert Tarjan algorithms to iterative structure
+59155|Fix desugaring of `const x::T = y` for complex `y`
+59158|rename `GlobalMethods` to `methodtable` :bike: :house: 
+59165|ccall: make distinction of pointer vs name a syntactic distinction
+59182|inference: avoid `LimitedAccuracy` within slot wrappers
+59187|inference: propagate more `LimitedAccuracy` information
+59192|Export jl_declare_constant_val
+59202|compiler: eliminate most of unused variables in the compiler
+59205|fix identification of argument occurrences in optional arg defaults
+59210|fix runtime cglobal builtin function implementation
+59216|remove jl_function_t typealias
+59220|Include inference time in `--trace-compile-timing`
+59225|[LLVM] Bump LLVM to 20.1.8
+59227|System image compression with zstd
+59234|Drop sysimage caches for --code-coverage=all
+59238|compiler: consolidate staticdata.jl and invalidations.jl into Compiler proper [NFCI]
+59239|Rewrite most gensym macros to use automatic hygiene instead
+59276|add `macroexpand!` function and add `legacyscope` kwarg
+59320|Make `haskey(::@Kwargs{item::Bool}, :item)` constant-fold
+59327|Fix nospecializing Functions in `Union{Nothing,Function}` params
+59329|aotcompile: destroy LLVM context after serializing combined module
+59342|coverage: handle cases where `di.def` is `nothing`
+59349|method: remove unused `eager_resolve` argument from `resolve_definition_effects`
+59361|precompile: move precompile_utils logic from C to julia
+59362|init: pre-allocate shared runtime types
+59363|Fixup measurement for --trace-compile-timing w/ nested compilations.
+59368|bpart: Fix reresolution logic on export value changes
+59389|Print task backtraces on sigquit
+59400|begin to encapsulate global state variables
+59408|fix a couple static variable data-races
+59414|Remove all uses of the term `functor` from the documentation
+59427|codegen: fix bug in jl_set_ptls_rng
+59431|Fixup ccall docstring
+59436|precompile: fix a number of mistakes in handling precompiled code instance caches
+59451|fix some crashy behavior of `invoke` with builtins
+59455|`Compiler.IRShow`: prevent a closure capture boxing with the usual workaround
+59482|convert more recursive algorithms from stack to heap space (iterative)
+59486|Replace SimpleCompiler to avoid a copy and createObjectFile
+59492|Revert "Enable getting non-boxed LLVM type from Julia Type"
+59498|Allow linking a system image with jl_image_unpack with libjulia
+59517|Add lock around coverage operations
+59519|trim: fix corrupt dispatch tables
+59520|Use invokelatest for exiting because exit doesn't exist in the compiler
+59525|fix potential null deref in `merge_vararg_unions`
+59548|optimizations: better modeling and codegen for apply and svec calls
+59555|Adding `ptls` argument to `permobj`
+59557|Fix assume effects handling for gc_safe
+59559|codegen: mark write barrier field load as volatile
+59560|Use jl_dlsym with search_deps=1 for ccalls
+59601|optimizations: improve `Core._apply_iterate` call conversion in #59548
+59604|C API for module creation
+59630|Fix warnings redundant redeclaration of `jl_n_gcthreads`
+59631|Set world bounds on `CodeInfo` created for `OpaqueClosure(::IRCode)`
+59634|Fix several Windows build warnings
+59635|Change delayed delete mechanism to prevent cross-drive mv failure for in-use DLL
+59638|Fix clang 21 warnings
+59644|Add `fprint` variants of `jl_gc_debug_*` for MMTK
+59649|Work around debug_compile_units skipping nodebug CUs
+59671|Minor fixes for IRInterp in presence of ABI overrides
+59672|[Compiler] fix stdout/stderr to point to Core
+59703|lowering: increment world age after toplevel expressions
+59706|effects: improve nothrow modeling for `Core._svec_len`
+59709|improve compile-ability of method errors
+59720|Compiler: fix inferred nothrow effects for add_ptr and sub_ptr
+59722|do not specialze for `abstract_eval_nonlinearized_foreigncall_name`
+59736|Revert "Restrict COFF to a single thread when symbol count is high (#50874)"
+59762|Allow globalref on lhs of op=
+59766|Align interpreter and codegen error behavior of setglobal! and friends
+59772|Avoid method instance normalization for opaque closure methods
+59773|Handle errors in jl_image_unpack_zstd better, especially on Windows
+59775|deprecate `merge(::Callable ..)` in favor of `mergewith`
+59784|Make `=` and `const` toplevel-preserving syntax
+59785|Fix missing GC root
+59840|signals: acquire loader lock during stackwalk on Win32
+59841|Libdl: Add documentation for LazyLibrary and friends
+59843|fix: trigger error hints on exception supertypes too
+59877|[Profile] further improvements for Windows-only
+59878|fix accidental save (and restore) of sigmask when interpreting try
+59886|Type-assert `DataType.layout` in some Base functions
+59888|Type-assert `isfinite(::AbstractFloat)`
+59908|absint: allow ad-hoc cancellation of concrete evaluation
+59915|reflection: enable `Base._which` with non-base `Compiler.MethodTableView`
+59916|Use jl_effective_threads for container-aware CPU detection
+59937|Names docstring: compat & implicit using
+59972|Get rid of all PointerType::get call with element type
