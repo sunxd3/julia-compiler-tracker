@@ -1,0 +1,217 @@
+schema_version: "1.0"
+pr:
+  number: 59812
+  title: "[Test] Allow passing `time_start` as a keyword argument to `DefaultTestSet`"
+  url: "https://github.com/JuliaLang/julia/pull/59812"
+  author: "giordano"
+  labels:
+    - "testsystem"
+  merged_at: "2025-10-12T15:48:38Z"
+  merge_commit_sha: "01c020dca73f6d156285a37f4761230d5a9c1fa3"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59812.diff"
+
+scope:
+  files_touched:
+    - "stdlib/Test/src/Test.jl"
+    - "stdlib/Test/test/runtests.jl"
+  components:
+    - "Test stdlib"
+  pipeline_stages:
+    - "Testing infrastructure"
+
+analysis:
+  intent:
+    summary: |
+      This PR adds a `time_start` keyword argument to the `DefaultTestSet` constructor.
+      PR #59374 made `time_start` a `const` field for thread-safety reasons, but this
+      inadvertently removed the ability to instantiate a `DefaultTestSet` with a custom
+      `time_start` value without specifying all other fields via positional arguments.
+      This PR restores that capability via a keyword argument.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59374"
+
+  direct_changes:
+    - summary: "Add `time_start` keyword argument to DefaultTestSet constructor"
+      component: "Test stdlib"
+      evidence:
+        - source: "code"
+          path: "stdlib/Test/src/Test.jl"
+          loc: "1238-1258"
+          url: "https://github.com/JuliaLang/julia/blob/01c020dca73f6d156285a37f4761230d5a9c1fa3/stdlib/Test/src/Test.jl#L1238-L1258"
+          snippet: |
+            function DefaultTestSet(desc::AbstractString;
+                                    verbose::Bool = something(Base.ScopedValues.get(VERBOSE_TESTSETS)),
+                                    showtiming::Bool = true,
+                                    failfast::Union{Nothing,Bool} = nothing,
+                                    source = nothing,
+                                    time_start::Float64 = time(),
+                                    rng = nothing,
+                                    )
+                if isnothing(failfast)
+                    # pass failfast state into child testsets
+                    parent_ts = get_testset()
+                    if parent_ts isa DefaultTestSet
+                        failfast = parent_ts.failfast
+                    else
+                        failfast = global_fail_fast()
+                    end
+                end
+                return DefaultTestSet(String(desc)::String,
+                    verbose, showtiming, failfast, extract_file(source),
+                    time_start, rng, 0, 0., 0x00, ReentrantLock(), Any[])
+            end
+
+    - summary: "Update test to use new time_start keyword argument for deterministic timing"
+      component: "Test stdlib tests"
+      evidence:
+        - source: "test"
+          path: "stdlib/Test/test/runtests.jl"
+          loc: "2018-2041"
+          url: "https://github.com/JuliaLang/julia/blob/01c020dca73f6d156285a37f4761230d5a9c1fa3/stdlib/Test/test/runtests.jl#L2018-L2041"
+          snippet: |
+            @testset "io argument for Test output functions" begin
+                # Test print_test_results and print_test_errors with io redirection
+                io = IOBuffer()
+
+                # Create a testset with passing and failing tests
+                ts = Test.DefaultTestSet("IO Test"; time_start=1.36071654e9)
+                Test.record(ts, Test.Pass(:test, nothing, nothing, nothing, LineNumberNode(1), false))
+                fail = Test.Fail(:test, "1 == 2", nothing, nothing, LineNumberNode(2, Symbol("test.jl")))
+                push!(ts.results, fail)
+
+                # Test print_test_results with io
+                Test.print_test_results(io, ts)
+                output = String(take!(io))
+                @test occursin("Test Summary:", output)
+                @test occursin("IO Test", output)
+                @test occursin("Pass", output)
+                @test occursin("Fail", output)
+
+                # Test print_test_errors with io
+                Test.print_test_errors(io, ts)
+                output = String(take!(io))
+                @test occursin("Error in testset", output)
+                @test occursin("1 == 2", output)
+            end
+
+  secondary_effects:
+    - effect: "Improved API ergonomics for test infrastructure tools"
+      mechanism: |
+        DefaultTestSet constructor signature change:
+          function DefaultTestSet(desc::AbstractString; ...) [Test.jl:1238]
+            -> adds time_start::Float64 = time() keyword argument
+            -> enables custom time_start without positional args
+            -> useful for test result deserialization/reconstruction
+      downstream_surfaces:
+        - "Test result serialization/deserialization tools"
+        - "Custom test runners that aggregate results"
+        - "CI/CD test reporting tools"
+        - "Julia's own test/runtests.jl (parallel test aggregation)"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Enables deterministic test output for testing Test itself"
+      mechanism: |
+        Test suite for Test stdlib can now create testsets with fixed timestamps:
+          ts = Test.DefaultTestSet("IO Test"; time_start=1.36071654e9)  [runtests.jl:2023]
+        This allows testing of timing-dependent output formatting without
+        non-determinism from time() calls.
+      downstream_surfaces:
+        - "Test stdlib test suite"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "DefaultTestSet constructor"
+        change: "New optional keyword argument `time_start::Float64` with default `time()`"
+        affected_tools:
+          - tool: "Custom test infrastructure"
+            usage: "Tools creating DefaultTestSet instances can now specify time_start"
+          - tool: "Julia's test runner (test/runtests.jl)"
+            usage: |
+              Currently creates DefaultTestSet and accesses time_start field:
+                fake = Test.DefaultTestSet(testname)
+                @atomic fake.time_end = fake.time_start + duration
+              Could use new kwarg in future to set time_start directly.
+        breaking: false
+        notes: |
+          Backward compatible - existing code continues to work unchanged.
+          Note: DefaultTestSet is NOT exported from Test module (internal API).
+          Users access it as `Test.DefaultTestSet`.
+    behavioral:
+      - description: "No behavioral changes for existing code"
+        impact: "none"
+
+  performance:
+    compile_time:
+      - description: "No measurable compile-time impact"
+        impact: "none"
+        notes: "Single additional keyword argument parsing; ESTIMATED <0.1% increase"
+    runtime:
+      - description: "No runtime impact"
+        impact: "none"
+        notes: "Only changes argument passing, not computation"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Purely additive change - new keyword argument with sensible default"
+      - "Backward compatible - existing code unaffected"
+      - "Limited scope - only affects Test stdlib"
+      - "Test included demonstrating correct behavior"
+      - "DefaultTestSet is internal API (not exported)"
+
+  open_questions: []
+
+  recommendations:
+    - "No action needed for downstream packages"
+    - "Test infrastructure tools can now use `time_start` keyword for test result reconstruction"
+    - "Consider using this pattern in test/runtests.jl for more precise timing control"
+
+downstream_impact:
+  summary: |
+    This is a non-compiler PR affecting the Test stdlib. It has minimal downstream
+    impact since it's a backward-compatible additive change to the internal API of
+    DefaultTestSet (not exported). Packages that directly instantiate Test.DefaultTestSet
+    (rare outside of custom test runners) can now specify a custom start time.
+
+  affected_packages:
+    - name: "Custom test runners/reporters"
+      impact: "positive"
+      notes: "Can now reconstruct DefaultTestSet with original time_start"
+    - name: "BuildkiteTestJSON.jl (used by Julia CI)"
+      impact: "positive"
+      notes: |
+        Julia's test/runtests.jl uses DefaultTestSet for result aggregation
+        and already accesses time_start field for duration calculation.
+
+  not_affected:
+    - "Compiler tooling (JET, GPUCompiler, Enzyme)"
+    - "Standard test usage via @testset macro"
+
+changelog_entry:
+  category: "Test stdlib"
+  summary: "Allow passing `time_start` as a keyword argument to `DefaultTestSet`"
+  details: |
+    The `DefaultTestSet` constructor now accepts an optional `time_start::Float64`
+    keyword argument (defaulting to `time()`). This enables creating test sets with
+    custom start times without needing to specify all fields via positional arguments,
+    which is useful for test result reconstruction and serialization scenarios.
+    Note: `DefaultTestSet` is an internal API accessed as `Test.DefaultTestSet`.
+  breaking: false
+  version_added: "1.13"
+
+reviewer_notes:
+  enhancements_made:
+    - "Corrected line numbers (was 1520-1539, actual is 1238-1258)"
+    - "Added complete test snippet showing full testset context"
+    - "Added merge commit SHA (01c020dca73f6d156285a37f4761230d5a9c1fa3)"
+    - "Clarified that DefaultTestSet is NOT exported (internal API)"
+    - "Added evidence of existing usages in test/runtests.jl"
+    - "Added secondary effect about deterministic test output"
+    - "Added BuildkiteTestJSON.jl to affected packages"
+  verification:
+    - "Confirmed line numbers via grep on checked-out PR branch"
+    - "Reviewed test/runtests.jl for existing DefaultTestSet usage patterns"
+    - "Verified exports list in Test.jl (DefaultTestSet not exported)"

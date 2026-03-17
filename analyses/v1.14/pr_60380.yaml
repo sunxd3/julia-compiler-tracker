@@ -1,0 +1,278 @@
+schema_version: "1.0"
+pr:
+  number: 60380
+  title: "REPLCompletions: Add some more keywords to completion list"
+  url: "https://github.com/JuliaLang/julia/pull/60380"
+  author: "aviatesk"
+  labels: []
+  merged_at: "2025-12-16T08:28:17Z"
+  merge_commit_sha: "d5d2f1b94630a5b6a6788cf08615ef911ae15c69"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60380.diff"
+scope:
+  files_touched:
+    - "stdlib/REPL/src/REPLCompletions.jl"
+  components:
+    - "REPL"
+    - "stdlib"
+  pipeline_stages:
+    - "REPL/User Interface"
+analysis:
+  intent:
+    summary: "Extend REPL keyword tab-completion to include previously missing Julia keywords (as, in, isa, outer, public, where) by dynamically sourcing from JuliaSyntax.Tokenize.kws instead of maintaining a hardcoded list."
+    issue_links: []
+    quoted_from_pr: |
+      Add `as`, `outer`, `public`, and `where` to the keyword completion list.
+  direct_changes:
+    - summary: "Replace hardcoded sorted_keywords list with dynamic generation from JuliaSyntax.Tokenize.kws, filtering out internal tokens and adding compound keywords."
+      component: "REPL/REPLCompletions"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "291-301"
+          url: "https://github.com/JuliaLang/julia/blob/d5d2f1b94630a5b6a6788cf08615ef911ae15c69/stdlib/REPL/src/REPLCompletions.jl#L291-L301"
+          snippet: |
+            const sorted_keywords = let
+                keywords = map(string, Base.JuliaSyntax.Tokenize.kws)
+                excluded = ("type", "doc", "var", "VERSION")
+                filter!(∉(excluded), keywords)
+                compound = ("abstract", "mutable", "primitive")
+                filter!(∉(compound), keywords)
+                push!(keywords, "abstract type", "mutable struct", "primitive type")
+                # Register additional keywords, not in JuliaSyntax keywords
+                push!(keywords, "ccall")
+                sort!(keywords)
+            end
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "288-294 (before PR, from git show d5d2f1b~1)"
+          snippet: |
+            const sorted_keywords = [
+                "abstract type", "baremodule", "begin", "break", "catch", "ccall",
+                "const", "continue", "do", "else", "elseif", "end", "export",
+                "finally", "for", "function", "global", "if", "import",
+                "let", "local", "macro", "module", "mutable struct",
+                "primitive type", "quote", "return", "struct",
+                "try", "using", "while"]
+          note: "Old list had 31 keywords. New dynamic list has 37 keywords (6 added: as, in, isa, outer, public, where)."
+    - summary: "JuliaSyntax.Tokenize.kws provides the authoritative list of Julia keywords, including newer ones like 'public', 'as', 'outer', 'where', 'in', 'isa'."
+      component: "JuliaSyntax/Tokenize"
+      evidence:
+        - source: "code"
+          path: "JuliaSyntax/src/julia/tokenize.jl"
+          loc: "1275-1317"
+          url: "https://github.com/JuliaLang/julia/blob/d5d2f1b94630a5b6a6788cf08615ef911ae15c69/JuliaSyntax/src/julia/tokenize.jl#L1275-L1317"
+          snippet: |
+            kws = [
+            K"baremodule",
+            K"begin",
+            K"break",
+            K"catch",
+            K"const",
+            K"continue",
+            K"do",
+            K"else",
+            K"elseif",
+            K"end",
+            K"export",
+            K"finally",
+            K"for",
+            K"function",
+            K"global",
+            K"if",
+            K"import",
+            K"let",
+            K"local",
+            K"macro",
+            K"module",
+            K"public",
+            K"quote",
+            K"return",
+            K"struct",
+            K"try",
+            K"using",
+            K"while",
+            K"in",
+            K"isa",
+            K"where",
+
+            K"abstract",
+            K"as",
+            K"doc",
+            K"mutable",
+            K"outer",
+            K"primitive",
+            K"type",
+            K"var",
+            K"VERSION"
+            ]
+  secondary_effects:
+    - effect: "REPL tab-completion now offers 6 additional keywords that were previously missing: 'as', 'in', 'isa', 'outer', 'public', 'where'."
+      mechanism: |
+        complete_keyword!(suggestions, s)  [REPLCompletions.jl:303-304]
+          -> complete_from_list!(suggestions, KeywordCompletion, sorted_keywords, s)  [REPLCompletions.jl:277-288]
+          -> sorted_keywords now includes all JuliaSyntax.Tokenize.kws (minus excluded)
+          -> User typing "pu" + TAB now completes to "public"
+          -> User typing "wh" + TAB now includes "where" alongside "while"
+      downstream_surfaces:
+        - "REPL interactive tab-completion"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1147-1149"
+          url: "https://github.com/JuliaLang/julia/blob/d5d2f1b94630a5b6a6788cf08615ef911ae15c69/stdlib/REPL/src/REPLCompletions.jl#L1147-L1149"
+          snippet: |
+            if comp_keywords
+                complete_keyword!(suggestions, s)
+                complete_keyval!(suggestions, s)
+            end
+    - effect: "Three newly-added keywords (in, isa, where) are classified as 'word operators' in JuliaSyntax, meaning they function as both keywords and infix operators depending on context."
+      mechanism: |
+        JuliaSyntax defines is_word_operator()  [kinds.jl:1173]
+          is_word_operator(k::Kind) = (k == K"in" || k == K"isa" || k == K"where")
+        These tokens are both:
+          - Keywords: for x in xs, x isa T, T where T<:S
+          - Infix operators: 1 in [1,2,3] returns Bool, x isa Type returns Bool
+        REPL completes them as keywords, which is correct for statement-initial positions
+      downstream_surfaces:
+        - "User expectations: 'in' completion may surprise when user expects identifier"
+        - "Completion context: word operators complete as keywords even in operator positions"
+      likelihood: "medium"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "JuliaSyntax/src/julia/kinds.jl"
+          loc: "1172-1173"
+          url: "https://github.com/JuliaLang/julia/blob/d5d2f1b94630a5b6a6788cf08615ef911ae15c69/JuliaSyntax/src/julia/kinds.jl#L1172-L1173"
+          snippet: |
+            is_operator(k::Kind) = K"BEGIN_OPS" <= k <= K"END_OPS"
+            is_word_operator(k::Kind) = (k == K"in" || k == K"isa" || k == K"where")
+    - effect: "Future keyword additions to JuliaSyntax.Tokenize.kws will automatically appear in REPL completions without requiring manual updates to REPLCompletions."
+      mechanism: |
+        sorted_keywords is computed at module load time from Base.JuliaSyntax.Tokenize.kws
+          -> Any new keyword added to JuliaSyntax/src/julia/tokenize.jl kws array
+          -> Automatically included in REPL completions (unless explicitly excluded)
+      downstream_surfaces:
+        - "Future Julia language evolution"
+        - "Maintainability of REPLCompletions"
+      likelihood: "high"
+      impact: "low"
+    - effect: "LanguageServer.jl (Julia VSCode extension) maintains its own keyword completion list and is NOT affected by this change."
+      mechanism: |
+        LanguageServer.jl has its own keyword completion implementation
+          -> Added 'public' keyword support separately in LanguageServer.jl PR #1365
+          -> Does not call REPLCompletions.completions() for keyword suggestions
+          -> IDE users will only see these new keywords after LanguageServer.jl is updated
+      downstream_surfaces:
+        - "VSCode Julia extension users"
+        - "Other LSP-based editors using LanguageServer.jl"
+      likelihood: "high"
+      impact: "low"
+      note: "This clarifies that the claim 'IDE integrations using REPLCompletions API' is inaccurate for LanguageServer.jl specifically."
+  compatibility:
+    internal_api:
+      - summary: "No internal API changes; sorted_keywords is a module-level constant not exported or documented as public API."
+        evidence:
+          - source: "code"
+            path: "stdlib/REPL/src/REPLCompletions.jl"
+            loc: "291"
+            snippet: |
+              const sorted_keywords = let
+    behavioral:
+      - summary: "User-visible behavior change: REPL now completes 6 additional keywords (as, in, isa, outer, public, where) that were previously missing."
+        evidence:
+          - source: "diff"
+            path: "stdlib/REPL/src/REPLCompletions.jl"
+            loc: "291-301"
+            snippet: |
+              # New keywords now included:
+              # - "as"     : import Foo as Bar
+              # - "in"     : for x in collection
+              # - "isa"    : x isa Type
+              # - "outer"  : for outer x in ...
+              # - "public" : public foo (Julia 1.11+)
+              # - "where"  : function f(x::T) where T
+  performance:
+    compile_time:
+      - summary: "ESTIMATED: Negligible compile-time impact. The sorted_keywords computation runs once at module load, performing O(n) filtering and sorting on ~40 keywords."
+        evidence:
+          - source: "code"
+            path: "stdlib/REPL/src/REPLCompletions.jl"
+            loc: "291-301"
+            snippet: |
+              const sorted_keywords = let
+                  keywords = map(string, Base.JuliaSyntax.Tokenize.kws)
+                  # ... filter and sort ~40 strings once
+                  sort!(keywords)
+              end
+    runtime:
+      - summary: "ESTIMATED: No runtime performance change. The sorted_keywords list size increases by 6 entries (~15% larger), but binary search in complete_from_list! remains O(log n)."
+        evidence:
+          - source: "code"
+            path: "stdlib/REPL/src/REPLCompletions.jl"
+            loc: "277-288"
+            snippet: |
+              function complete_from_list!(suggestions::Vector{Completion}, T::Type, list::Vector{String}, s::String)
+                  r = searchsorted(list, s)  # Binary search: O(log n)
+                  i = first(r)
+                  n = length(list)
+                  while i <= n && startswith(list[i],s)
+                      r = first(r):i
+                      i += 1
+                  end
+                  for kw in list[r]
+                      push!(suggestions, T(kw))
+                  end
+                  return suggestions
+              end
+  tests:
+    changed_files: []
+    new_behavior_assertions:
+      - "No new tests added in this PR"
+    existing_related_tests:
+      - path: "stdlib/REPL/test/replcompletions.jl"
+        loc: "273-282"
+        description: "Tests 'isa' completion but as identifier/symbol (e.g., isapprox), not as keyword"
+        snippet: |
+          s = "!is"
+          c, r = test_complete(s)
+          @test "isa" in c
+          @test s[r] == "is"
+          @test !("!" in c)
+    coverage_gaps:
+      - "No explicit tests for keyword-specific completion (KeywordCompletion type)"
+      - "No tests verifying the 6 new keywords (as, in, isa, outer, public, where) complete correctly"
+      - "No tests for excluded keywords (type, doc, var, VERSION) being filtered out"
+      - "Relies on existing REPL completion test infrastructure"
+  risk:
+    level: "low"
+    rationale:
+      - "Change is purely additive: adds 6 missing keywords to tab-completion"
+      - "No compiler semantics affected; only REPL user experience"
+      - "Dynamic sourcing from JuliaSyntax.Tokenize.kws ensures consistency with parser"
+      - "Excluded keywords (type, doc, var, VERSION) are internal/contextual tokens not useful for standalone completion"
+  open_questions:
+    - "Should 'ccall' be added to JuliaSyntax.Tokenize.kws rather than hardcoded in REPLCompletions?"
+    - "Are there other contextual keywords that users might expect to complete (e.g., 'new' in constructors)?"
+    - "Should word operators (in, isa, where) have different completion behavior in operator vs keyword positions?"
+  recommendations:
+    - "Consider adding tests for keyword completions to prevent future regressions."
+    - "The excluded list (type, doc, var, VERSION) should be reviewed if JuliaSyntax adds new internal tokens."
+    - "LanguageServer.jl maintainers should be notified to update their keyword list for consistency with REPL."
+    - "Note: REPLCompletions.completions() is the public API; downstream tools calling it will benefit, but LanguageServer.jl uses its own implementation."
+reviewer_notes:
+  independent_verification:
+    date: "2026-01-22"
+    findings:
+      - "Verified 6 new keywords by comparing git show d5d2f1b~1 (old list) vs current code"
+      - "Confirmed ccall is NOT in JuliaSyntax.Tokenize.kws (grep found no matches)"
+      - "Identified word operator nuance: in, isa, where are both keywords and operators per is_word_operator() in kinds.jl:1173"
+      - "Clarified LanguageServer.jl does NOT use REPLCompletions for keywords (has own implementation, PR #1365 added 'public')"
+      - "Found existing test for 'isa' at replcompletions.jl:275-282 but tests identifier completion, not keyword"
+    enhancements_made:
+      - "Added secondary effect about word operators (in, isa, where)"
+      - "Added secondary effect clarifying LanguageServer.jl independence"
+      - "Enhanced before/after evidence with actual old code from git history"
+      - "Added existing_related_tests section with specific test details"
+      - "Expanded coverage_gaps with more specific items"

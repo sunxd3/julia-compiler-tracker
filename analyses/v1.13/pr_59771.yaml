@@ -1,0 +1,288 @@
+schema_version: "1.0"
+pr:
+  number: 59771
+  title: "Test: avoid identifying `..` calls as broadcasting calls"
+  url: "https://github.com/JuliaLang/julia/pull/59771"
+  author: "KristofferC"
+  labels:
+    - "test"
+    - "regression"
+  merged_at: "2025-10-07T16:37:22Z"
+  milestone: "1.13"
+  merge_commit_sha: "76a35b60c916205f65b59319faa26e308e8cc5d9"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59771.diff"
+
+scope:
+  files_touched:
+    - "stdlib/Test/src/Test.jl"
+    - "stdlib/Test/test/runtests.jl"
+  components:
+    - "Test stdlib"
+  pipeline_stages:
+    - "Macro expansion"
+    - "Test evaluation"
+
+analysis:
+  intent:
+    summary: |
+      Fix a regression where the `@test` macro incorrectly identified the `..` operator
+      as a broadcast operator (like `.==`), causing test failures with custom `..` operators.
+      The bug was introduced in commit d934b032ea5bf63b35 (PR #57839) which added
+      broadcast function call support to the `@test` macro.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/commit/d934b032ea5bf63b35"
+      - "https://s3.amazonaws.com/julialang-reports/nanosoldier/pkgeval/by_hash/6353098_vs_7522b24/TokenIterators.primary.log"
+
+  direct_changes:
+    - summary: "Fix broadcast operator detection in _escape_call to exclude `..` operator"
+      component: "Test stdlib (_escape_call function)"
+      evidence:
+        - source: "code"
+          path: "stdlib/Test/src/Test.jl"
+          loc: "630-640"
+          url: "https://github.com/JuliaLang/julia/blob/76a35b60c916205f65b59319faa26e308e8cc5d9/stdlib/Test/src/Test.jl#L630-L640"
+          snippet: |
+            if isa(ex, Expr) && ex.head === :call
+                # Update broadcast comparison calls to the function call syntax
+                # (e.g. `1 .== 1` becomes `(==).(1, 1)`)
+                func_str = string(ex.args[1])
+                # Check if this is a broadcast operator (starts with '.' and has more characters that aren't '.')
+                is_broadcast = length(func_str) >= 2 && first(func_str) == '.' && any(c -> c != '.', func_str[2:end])
+                escaped_func = if is_broadcast
+                    esc(Expr(:., Symbol(func_str[2:end])))
+                else
+                    esc(ex.args[1])
+                end
+
+    - summary: "Add test case for `..` operator in @test macro"
+      component: "Test stdlib tests"
+      evidence:
+        - source: "test"
+          path: "stdlib/Test/test/runtests.jl"
+          loc: "27-30"
+          url: "https://github.com/JuliaLang/julia/blob/76a35b60c916205f65b59319faa26e308e8cc5d9/stdlib/Test/test/runtests.jl#L27-L30"
+          snippet: |
+            # Test custom .. operator (not a broadcast operator)
+            ..(x, y) = x == y
+            @test 'a' .. 'a'
+            @test !('a' .. 'b')
+
+    - summary: "Add unit test for _escape_call with `..` operator"
+      component: "Test stdlib tests"
+      evidence:
+        - source: "test"
+          path: "stdlib/Test/test/runtests.jl"
+          loc: "1957-1958"
+          url: "https://github.com/JuliaLang/julia/blob/76a35b60c916205f65b59319faa26e308e8cc5d9/stdlib/Test/test/runtests.jl#L1957-L1958"
+          snippet: |
+            # Test that .. operator is not treated as a broadcast operator
+            @test _escape_call(:(x .. y)) == (; func=esc(:(..)), args, kwargs, quoted_func=:(:..))
+
+  secondary_effects:
+    - effect: "Restores correct behavior for packages using custom `..` operators with @test"
+      mechanism: |
+        _escape_call(ex) [Test.jl:629]
+          checks ex.head === :call
+          -> func_str = string(ex.args[1])  [Test.jl:633]
+          -> OLD: first(func_str) == '.' triggered broadcast path for ".."
+          -> NEW: is_broadcast = length(func_str) >= 2 && first(func_str) == '.' && any(c -> c != '.', func_str[2:end])  [Test.jl:635]
+          -> This ensures ".." (all dots) does NOT match, while ".==" (dot + non-dots) DOES match
+      downstream_surfaces:
+        - "TokenIterators.jl package tests"
+        - "Any package defining custom `..` operator and testing with @test"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "Consistency note: @inferred macro uses different approach for `..` handling"
+      mechanism: |
+        The @inferred macro at Test.jl:2258 already handles `..` differently using explicit symbol comparison:
+          if isa(farg, Symbol) && farg !== :.. && first(string(farg)) == '.'
+
+        This PR's fix in _escape_call uses a general pattern-based approach:
+          any(c -> c != '.', func_str[2:end])
+
+        Both approaches correctly handle `..`, but the general approach is more robust
+        for hypothetical future operators like `...` (though `...` is syntactic, not a call).
+      downstream_surfaces:
+        - "Test stdlib macro internals"
+      likelihood: "low"
+      impact: "low"
+      notes: "Not a bug, but a design difference worth noting for consistency"
+
+  compatibility:
+    internal_api:
+      - field: "_escape_call internal function"
+        change: "Now correctly distinguishes between broadcast operators (like .==) and the `..` operator"
+        affected_tools: []
+        notes: "_escape_call is an internal function, not public API"
+
+    behavioral:
+      - change: "@test with `..` operator no longer throws UndefVarError"
+        before: |
+          # Before fix, `@test 'a' .. 'b'` would fail with:
+          # UndefVarError: `.` not defined in `Main`
+          # Because _escape_call tried to extract "." from ".." as the broadcast base function
+        after: |
+          # After fix, `@test 'a' .. 'b'` correctly evaluates the `..` operator
+          # The `..` operator is passed through unchanged: func=esc(:(..))
+        compatibility_level: "fix"
+
+  performance:
+    compile_time: []
+    runtime:
+      - description: "Negligible overhead from additional character check"
+        impact: "ESTIMATED: <0.1% - single pass through operator string characters"
+        notes: "Only affects @test macro expansion time, not test execution"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Simple, targeted fix with clear before/after behavior"
+      - "Only affects Test stdlib macro expansion"
+      - "Comprehensive test coverage added"
+      - "Regression fix for shipped functionality"
+
+  open_questions: []
+
+  recommendations:
+    - "No action required for downstream packages - this is a fix that restores expected behavior"
+    - "Packages using custom `..` operators with @test should work correctly after this fix"
+
+test_analysis:
+  new_tests:
+    - path: "stdlib/Test/test/runtests.jl"
+      description: "Integration test: custom `..` operator with @test macro"
+      behavior_locked: |
+        Verifies that defining ..(x, y) = x == y and using @test 'a' .. 'a'
+        correctly evaluates to Pass, not UndefVarError
+
+    - path: "stdlib/Test/test/runtests.jl"
+      description: "Unit test: _escape_call does not treat `..` as broadcast"
+      behavior_locked: |
+        Verifies _escape_call(:(x .. y)) returns func=esc(:(..)) (plain operator)
+        instead of trying to construct a broadcast expression
+
+regression_context:
+  introduced_by:
+    commit: "d934b032ea5bf63b35"
+    pr: 57839
+    title: "Show evaluated test arguments from broadcast functions"
+    description: |
+      PR #57839 added support for displaying evaluated arguments from broadcast
+      function calls in @test failures. It introduced logic to detect broadcast
+      operators by checking if the function name starts with '.'. This incorrectly
+      matched the `..` operator (which is NOT a broadcast operator - it's a
+      user-definable binary operator in Julia).
+
+  bug_mechanism: |
+    Original code in _escape_call:
+      escaped_func = if first(func_str) == '.'
+          esc(Expr(:., Symbol(func_str[2:end])))
+      else
+          esc(ex.args[1])
+      end
+
+    For ".." operator:
+      - func_str = ".."
+      - first(func_str) == '.' is TRUE
+      - func_str[2:end] = "."
+      - Creates: Expr(:., Symbol(".")) which tries to access a field named "."
+      - Result: UndefVarError: `.` not defined
+
+  fix_mechanism: |
+    New code adds proper broadcast detection:
+      is_broadcast = length(func_str) >= 2 && first(func_str) == '.' && any(c -> c != '.', func_str[2:end])
+
+    For ".." operator:
+      - func_str = ".."
+      - length(func_str) >= 2: TRUE
+      - first(func_str) == '.': TRUE
+      - any(c -> c != '.', func_str[2:end]): FALSE (func_str[2:end] = "." - all dots)
+      - is_broadcast = FALSE -> uses plain esc(ex.args[1]) path
+
+    For ".==" operator:
+      - func_str = ".=="
+      - length(func_str) >= 2: TRUE
+      - first(func_str) == '.': TRUE
+      - any(c -> c != '.', func_str[2:end]): TRUE (func_str[2:end] = "==" - has non-dots)
+      - is_broadcast = TRUE -> correctly creates broadcast expression
+
+downstream_impact:
+  affected_packages:
+    - name: "TokenIterators.jl"
+      impact: "Test suite was failing due to `..` operator usage"
+      evidence_url: "https://s3.amazonaws.com/julialang-reports/nanosoldier/pkgeval/by_hash/6353098_vs_7522b24/TokenIterators.primary.log"
+      resolution: "Fixed by this PR"
+
+  unaffected_areas:
+    - "Compiler internals (no changes)"
+    - "Type inference (no changes)"
+    - "Code generation (no changes)"
+    - "Runtime behavior (no changes except Test stdlib)"
+
+# Reviewer's independent verification
+reviewer_verification:
+  edge_case_analysis:
+    description: |
+      Traced through the is_broadcast logic for various operator patterns to verify correctness.
+      Formula: is_broadcast = length(func_str) >= 2 && first(func_str) == '.' && any(c -> c != '.', func_str[2:end])
+
+    test_cases:
+      - operator: ".."
+        func_str: ".."
+        length_check: "2 >= 2 = TRUE"
+        first_check: "first('..') == '.' = TRUE"
+        any_non_dot: "any(c -> c != '.', '.') = FALSE (all dots)"
+        result: "is_broadcast = FALSE"
+        verdict: "CORRECT - `..` passed through as regular operator"
+
+      - operator: ".=="
+        func_str: ".=="
+        length_check: "3 >= 2 = TRUE"
+        first_check: "first('.==') == '.' = TRUE"
+        any_non_dot: "any(c -> c != '.', '==') = TRUE (has '=' chars)"
+        result: "is_broadcast = TRUE"
+        verdict: "CORRECT - recognized as broadcast equality"
+
+      - operator: ".+"
+        func_str: ".+"
+        length_check: "2 >= 2 = TRUE"
+        first_check: "first('.+') == '.' = TRUE"
+        any_non_dot: "any(c -> c != '.', '+') = TRUE"
+        result: "is_broadcast = TRUE"
+        verdict: "CORRECT - recognized as broadcast plus"
+
+      - operator: "+"
+        func_str: "+"
+        length_check: "1 >= 2 = FALSE (short-circuits)"
+        result: "is_broadcast = FALSE"
+        verdict: "CORRECT - regular operator"
+
+      - operator: "=="
+        func_str: "=="
+        length_check: "2 >= 2 = TRUE"
+        first_check: "first('==') == '.' = FALSE (short-circuits)"
+        result: "is_broadcast = FALSE"
+        verdict: "CORRECT - regular equality"
+
+  related_code_discovered:
+    - location: "stdlib/Test/src/Test.jl:2258"
+      code: "if isa(farg, Symbol) && farg !== :.. && first(string(farg)) == '.'"
+      context: "@inferred macro has similar logic but uses explicit :.. symbol comparison"
+      observation: "Different approach to same problem - both work, but _escape_call's general approach is more extensible"
+
+  callers_verified:
+    - function: "_escape_call"
+      callers:
+        - "Test.jl:735 - called from @test macro expansion when _should_escape_call returns true"
+      verification: "rg '_escape_call' julia/stdlib/Test/"
+
+  test_coverage_assessment:
+    integration_test: "Lines 27-30 test @test with custom `..` operator - verifies end-to-end behavior"
+    unit_test: "Line 1957-1958 tests _escape_call output directly - verifies internal correctness"
+    broadcast_tests_preserved: "Lines 153-157, 245-258 verify .== and (==). still work correctly"
+
+  conclusion: |
+    The fix is correct and complete. The general pattern-based approach (checking for any non-dot
+    character after the leading dot) correctly distinguishes broadcast operators from the `..`
+    operator without needing special-case symbol comparison. All edge cases verified.

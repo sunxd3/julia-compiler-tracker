@@ -1,0 +1,676 @@
+schema_version: "1.0"
+pr:
+  number: 59847
+  title: "add support for automatic bracket completion in REPL input"
+  url: "https://github.com/JuliaLang/julia/pull/59847"
+  author: "KristofferC"
+  labels:
+    - "REPL"
+  merged_at: "2025-10-17T20:21:40Z"
+  merge_commit_sha: "5557a8757ddb56513226abc99859a9114fc3ce69"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59847.diff"
+scope:
+  files_touched:
+    - "NEWS.md"
+    - "stdlib/REPL/docs/src/index.md"
+    - "stdlib/REPL/src/LineEdit.jl"
+    - "stdlib/REPL/src/REPL.jl"
+    - "stdlib/REPL/src/options.jl"
+    - "stdlib/REPL/test/lineedit.jl"
+    - "stdlib/REPL/test/repl.jl"
+  components:
+    - "REPL"
+    - "LineEdit"
+  pipeline_stages:
+    - "UserInterface"
+analysis:
+  intent:
+    summary: "Port the automatic bracket completion feature from OhMyREPL to the Julia REPL, automatically inserting closing brackets, parentheses, braces, and quotes when the user types an opening character."
+    quoted_from_pr: |
+      This ports the bracket completion feature from OhMyREPL to the Julia REPL.
+      With this and https://github.com/JuliaLang/julia/pull/59819 all features
+      (except perhaps a good API for prompts) have been ported to the Julia REPL
+      and OhMyREPL can be deprecated.
+    issue_links:
+      - "https://kristofferc.github.io/OhMyREPL.jl/latest/features/bracket_complete/"
+    context: |
+      This PR is part of an effort to incorporate popular OhMyREPL features into
+      Julia's standard REPL, reducing the need for external packages. The feature
+      is enabled by default (auto_insert_closing_bracket = true) and provides:
+      - Automatic insertion of closing brackets (), {}, []
+      - Automatic insertion of closing quotes "", '', ``
+      - Smart backspace that removes both brackets when cursor is between them
+      - Transpose detection for single quotes (A' should not auto-complete)
+      - Unmatched quote detection (typing " inside a string closes it)
+      - Skip-over behavior when typing closing character
+  direct_changes:
+    - summary: "Add bracket_insert_keymap constant with handlers for brackets, quotes, and backspace"
+      component: "stdlib/REPL/src/LineEdit.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "2105-2238"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/LineEdit.jl#L2105-L2238"
+          snippet: |
+            # Keymap for automatic bracket/quote insertion and completion
+            const bracket_insert_keymap = AnyDict()
+            let
+                # Determine when we should not close a bracket/quote
+                function should_skip_closing_bracket(left_peek, v)
+                    # Don't close if we already have an open quote immediately before (triple quote case)
+                    # For quotes, also check for transpose expressions: issue JuliaLang/OhMyREPL.jl#200
+                    left_peek == v && return true
+                    if v == '\''
+                        tr_expr = isletter(left_peek) || isnumeric(left_peek) || left_peek == '_' || left_peek == ']'
+                        return tr_expr
+                    end
+                    return false
+                end
+    - summary: "Add left bracket handler that inserts both opening and closing bracket"
+      component: "stdlib/REPL/src/LineEdit.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "2159-2169"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/LineEdit.jl#L2159-L2169"
+          snippet: |
+            for (left, right) in bracket_pairs
+                # Left bracket: insert both and move cursor between them
+                bracket_insert_keymap[left] = (s::MIState, o...) -> begin
+                    buf = buffer(s)
+                    edit_insert(buf, left)
+                    if eof(buf) || peek(buf, Char) in right_brackets_ws
+                        edit_insert(buf, right)
+                        edit_move_left(buf)
+                    end
+                    refresh_line(s)
+                end
+    - summary: "Add right bracket handler that skips over matching bracket or inserts"
+      component: "stdlib/REPL/src/LineEdit.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "2171-2181"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/LineEdit.jl#L2171-L2181"
+          snippet: |
+            # Right bracket: skip over if next char matches, otherwise insert
+            bracket_insert_keymap[right] = (s::MIState, o...) -> begin
+                buf = buffer(s)
+                if !eof(buf) && peek(buf, Char) == right
+                    edit_move_right(buf)
+                else
+                    edit_insert(buf, right)
+                end
+                refresh_line(s)
+            end
+    - summary: "Add quote handler with transpose detection and unmatched quote detection"
+      component: "stdlib/REPL/src/LineEdit.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "2183-2204"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/LineEdit.jl#L2183-L2204"
+          snippet: |
+            # Quote characters (need special handling for transpose detection)
+            for quote_char in ('"', '\'', '`')
+                bracket_insert_keymap[quote_char] = (s::MIState, o...) -> begin
+                    buf = buffer(s)
+                    if !eof(buf) && peek(buf, Char) == quote_char
+                        # Skip over closing quote
+                        edit_move_right(buf)
+                    elseif position(buf) > 0 && should_skip_closing_bracket(peek_char_left(buf), quote_char)
+                        # Don't auto-close (e.g., for transpose or triple quotes)
+                        edit_insert(buf, quote_char)
+                    elseif quote_char in ('"', '\'', '`') && has_unmatched_quote(buf, quote_char)
+                        # For quotes, check if we're closing an existing string
+                        edit_insert(buf, quote_char)
+                    else
+                        # Insert both quotes
+                        edit_insert(buf, quote_char)
+                        edit_insert(buf, quote_char)
+                        edit_move_left(buf)
+                    end
+                    refresh_line(s)
+                end
+            end
+    - summary: "Add peek_char_left helper with proper UTF-8 handling"
+      component: "stdlib/REPL/src/LineEdit.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "2120-2125"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/LineEdit.jl#L2120-L2125"
+          snippet: |
+            function peek_char_left(b::IOBuffer)
+                p = position(b)
+                c = char_move_left(b)
+                seek(b, p)
+                return c
+            end
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "789-794"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/LineEdit.jl#L789-L794"
+          snippet: |
+            function char_move_left(buf::IOBuffer)
+                while position(buf) > 0
+                    seek(buf, position(buf)-1)
+                    c = peek(buf)
+                    (((c & 0x80) == 0) || ((c & 0xc0) == 0xc0)) && break
+                end
+    - summary: "Add has_unmatched_quote helper to detect if we're inside an unclosed string"
+      component: "stdlib/REPL/src/LineEdit.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "2127-2153"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/LineEdit.jl#L2127-L2153"
+          snippet: |
+            # Check if there's an unmatched opening quote before the cursor
+            function has_unmatched_quote(buf::IOBuffer, quote_char::Char)
+                pos = position(buf)
+                content = String(buf.data[1:pos])
+                isempty(content) && return false
+
+                # Count unescaped quotes before cursor position
+                count = 0
+                i = 1
+                while i <= length(content)
+                    if content[i] == quote_char
+                        # Check if escaped by counting preceding backslashes
+                        num_backslashes = 0
+                        j = i - 1
+                        while j >= 1 && content[j] == '\\'
+                            num_backslashes += 1
+                            j -= 1
+                        end
+                        # If even number of backslashes (including zero), the quote is not escaped
+                        if num_backslashes % 2 == 0
+                            count += 1
+                        end
+                    end
+                    i = nextind(content, i)
+                end
+                return isodd(count)
+            end
+    - summary: "Add smart backspace that removes both brackets when cursor is between them"
+      component: "stdlib/REPL/src/LineEdit.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "2206-2237"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/LineEdit.jl#L2206-L2237"
+          snippet: |
+            # Backspace - also remove matching closing bracket/quote
+            bracket_insert_keymap['\b'] = (s::MIState, o...) -> begin
+                if is_region_active(s)
+                    return edit_kill_region(s)
+                elseif isempty(s) || position(buffer(s)) == 0
+                    # Handle transitioning to main mode
+                    repl = Base.active_repl
+                    mirepl = isdefined(repl, :mi) ? repl.mi : repl
+                    main_mode = mirepl.interface.modes[1]
+                    buf = copy(buffer(s))
+                    transition(s, main_mode) do
+                        state(s, main_mode).input_buffer = buf
+                    end
+                    return
+                end
+
+                buf = buffer(s)
+                left_brackets = ('(', '{', '[', '"', '\'', '`')
+                right_brackets = (')', '}', ']', '"', '\'', '`')
+
+                if !eof(buf) && position(buf) > 0
+                    left_char = peek_char_left(buf)
+                    i = findfirst(isequal(left_char), left_brackets)
+                    if i !== nothing && peek(buf, Char) == right_brackets[i]
+                        # Remove both the left and right bracket/quote
+                        edit_delete(buf)
+                        edit_backspace(buf)
+                        return refresh_line(s)
+                    end
+                end
+                return edit_backspace(s)
+            end
+    - summary: "Add auto_insert_closing_bracket option to REPL Options struct"
+      component: "stdlib/REPL/src/options.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/options.jl"
+          loc: "31"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/options.jl#L31"
+          snippet: |
+            auto_insert_closing_bracket::Bool # automatically insert closing brackets, quotes, etc.
+        - source: "code"
+          path: "stdlib/REPL/src/options.jl"
+          loc: "54"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/options.jl#L54"
+          snippet: |
+            auto_insert_closing_bracket = true,
+    - summary: "Conditionally add bracket_insert_keymap to REPL keymaps based on option"
+      component: "stdlib/REPL/src/REPL.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "1685-1690"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/REPL.jl#L1685-L1690"
+          snippet: |
+            # Build keymap list - add bracket insertion if enabled
+            base_keymaps = Dict{Any,Any}[skeymap, repl_keymap, prefix_keymap, LineEdit.history_keymap]
+            if repl.options.auto_insert_closing_bracket
+                push!(base_keymaps, LineEdit.bracket_insert_keymap)
+            end
+            push!(base_keymaps, LineEdit.default_keymap, LineEdit.escape_defaults)
+    - summary: "Handle bracket skip-over for ] key in Pkg mode transition"
+      component: "stdlib/REPL/src/REPL.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "1501-1514"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/REPL.jl#L1501-L1514"
+          snippet: |
+            else
+                # Use bracket insertion if enabled, otherwise just insert
+                if repl.options.auto_insert_closing_bracket
+                    buf = LineEdit.buffer(s)
+                    if !eof(buf) && LineEdit.peek(buf, Char) == ']'
+                        LineEdit.edit_move_right(buf)
+                    else
+                        edit_insert(buf, ']')
+                    end
+                    LineEdit.refresh_line(s)
+                else
+                    edit_insert(s, ']')
+                end
+                LineEdit.check_show_hint(s)
+            end
+  secondary_effects:
+    - effect: "REPL user experience improvement with automatic bracket matching"
+      mechanism: |
+        When a user types an opening bracket/quote, the REPL now automatically:
+        1. Inserts the closing bracket/quote
+        2. Positions cursor between them
+        3. Allows skip-over when typing closing character
+        4. Smart backspace removes both when cursor is between them
+
+        This reduces typing errors and provides IDE-like editing experience.
+      downstream_surfaces:
+        - "Julia REPL user experience"
+        - "OhMyREPL users migrating to standard REPL"
+      likelihood: "high"
+      impact: "low"
+    - effect: "Keymap priority interaction - ] key handled specially for Pkg mode"
+      mechanism: |
+        The `]` key has special handling in REPL.jl (line 1469-1516) that takes
+        precedence over bracket_insert_keymap due to keymap ordering:
+
+        Keymap chain order (higher priority first):
+        1. skeymap
+        2. repl_keymap (contains ] handler for Pkg mode)
+        3. prefix_keymap
+        4. LineEdit.history_keymap
+        5. bracket_insert_keymap (if enabled)
+        6. default_keymap
+        7. escape_defaults
+
+        Consequence:
+        - `]` at position 0: transitions to Pkg mode (from repl_keymap)
+        - `]` NOT at position 0: uses custom skip-over logic in REPL.jl lines 1502-1513
+          (not the generic bracket_insert_keymap handler)
+
+        This is intentional - Pkg mode must intercept `]` at position 0.
+      downstream_surfaces:
+        - "Pkg mode interaction"
+        - "Custom REPL keymap extensions"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "1685-1690"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/REPL.jl#L1685-L1690"
+          snippet: |
+            # Build keymap list - add bracket insertion if enabled
+            base_keymaps = Dict{Any,Any}[skeymap, repl_keymap, prefix_keymap, LineEdit.history_keymap]
+            if repl.options.auto_insert_closing_bracket
+                push!(base_keymaps, LineEdit.bracket_insert_keymap)
+            end
+            push!(base_keymaps, LineEdit.default_keymap, LineEdit.escape_defaults)
+    - effect: "Backspace at position 0 depends on Base.active_repl global state"
+      mechanism: |
+        The backspace handler in bracket_insert_keymap (line 2207-2219) has special
+        behavior when the buffer is empty or cursor is at position 0:
+
+        bracket_insert_keymap['\b'] = (s::MIState, o...) -> begin
+            if is_region_active(s)
+                return edit_kill_region(s)
+            elseif isempty(s) || position(buffer(s)) == 0
+                # Handle transitioning to main mode
+                repl = Base.active_repl
+                mirepl = isdefined(repl, :mi) ? repl.mi : repl
+                main_mode = mirepl.interface.modes[1]
+                ...
+
+        This relies on Base.active_repl being set, which is global mutable state.
+        In non-standard REPL configurations where Base.active_repl is not set,
+        this could cause errors.
+      downstream_surfaces:
+        - "Custom REPL implementations"
+        - "Embedded Julia usage without standard REPL"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "2210-2219"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/LineEdit.jl#L2210-L2219"
+          snippet: |
+            elseif isempty(s) || position(buffer(s)) == 0
+                # Handle transitioning to main mode
+                repl = Base.active_repl
+                mirepl = isdefined(repl, :mi) ? repl.mi : repl
+                main_mode = mirepl.interface.modes[1]
+                buf = copy(buffer(s))
+                transition(s, main_mode) do
+                    state(s, main_mode).input_buffer = buf
+                end
+                return
+            end
+    - effect: "Transpose expression detection prevents false auto-completion for single quotes"
+      mechanism: |
+        should_skip_closing_bracket() function checks for transpose expressions:
+          - A' (letter followed by ')
+          - x123' (identifier followed by ')
+          - arr]' (closing bracket followed by ')
+          - _var' (underscore identifier followed by ')
+
+        In these cases, the single quote is interpreted as the transpose operator,
+        not the start of a character literal, so no auto-completion occurs.
+      downstream_surfaces:
+        - "Linear algebra code entry in REPL"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "2108-2117"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/LineEdit.jl#L2108-L2117"
+          snippet: |
+            function should_skip_closing_bracket(left_peek, v)
+                # Don't close if we already have an open quote immediately before (triple quote case)
+                # For quotes, also check for transpose expressions: issue JuliaLang/OhMyREPL.jl#200
+                left_peek == v && return true
+                if v == '\''
+                    tr_expr = isletter(left_peek) || isnumeric(left_peek) || left_peek == '_' || left_peek == ']'
+                    return tr_expr
+                end
+                return false
+            end
+    - effect: "Context-aware quote handling closes strings instead of auto-completing"
+      mechanism: |
+        has_unmatched_quote() counts unescaped quotes before cursor.
+        If odd count (inside a string), typing quote closes the string
+        instead of inserting a new pair.
+
+        Example: include("myfile.jl[cursor]
+        Typing " at cursor closes the string: include("myfile.jl")
+        Instead of: include("myfile.jl"")
+      downstream_surfaces:
+        - "String entry in REPL"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "test"
+          path: "stdlib/REPL/test/lineedit.jl"
+          loc: "1106-1111"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/test/lineedit.jl#L1106-L1111"
+          snippet: |
+            # Test context-aware quote closing: typing " inside include("myfile.jl should close the string
+            s = LineEdit.init_state(term, interface)
+            write_input(s, "include(\"myfile.jl")
+            write_input(s, "\"")
+            @test content(s) == "include(\"myfile.jl\")"
+            @test position(buffer(s)) == 19
+    - effect: "Triple quote detection prevents auto-completion after two consecutive quotes"
+      mechanism: |
+        should_skip_closing_bracket() returns true when left_peek == v (same quote char).
+        This prevents auto-completion when entering triple-quoted strings:
+        "" -> typing " gives """ (not """")
+      downstream_surfaces:
+        - "Docstring and multi-line string entry in REPL"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "test"
+          path: "stdlib/REPL/test/lineedit.jl"
+          loc: "1058-1068"
+          url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/test/lineedit.jl#L1058-L1068"
+          snippet: |
+            # Test triple quotes don't auto-complete
+            s = LineEdit.init_state(term, interface)
+            write_input(s, "\"")
+            @test content(s) == "\"\""
+            @test position(buffer(s)) == 1
+            write_input(s, "\"")
+            @test content(s) == "\"\""
+            @test position(buffer(s)) == 2
+            write_input(s, "\"")
+            @test content(s) == "\"\"\""
+            @test position(buffer(s)) == 3
+  compatibility:
+    internal_api:
+      - summary: "New exported constant bracket_insert_keymap in LineEdit module"
+        evidence:
+          - source: "code"
+            path: "stdlib/REPL/src/LineEdit.jl"
+            loc: "2106"
+            url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/LineEdit.jl#L2106"
+            snippet: |
+              const bracket_insert_keymap = AnyDict()
+      - summary: "New field auto_insert_closing_bracket in REPL.Options struct"
+        evidence:
+          - source: "code"
+            path: "stdlib/REPL/src/options.jl"
+            loc: "31"
+            url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/options.jl#L31"
+            snippet: |
+              auto_insert_closing_bracket::Bool # automatically insert closing brackets, quotes, etc.
+    behavioral:
+      - summary: "REPL default behavior changed to auto-insert closing brackets (enabled by default)"
+        evidence:
+          - source: "code"
+            path: "stdlib/REPL/src/options.jl"
+            loc: "54"
+            url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/src/options.jl#L54"
+            snippet: |
+              auto_insert_closing_bracket = true,
+  performance:
+    compile_time:
+      - summary: "ESTIMATED: Negligible impact; keymap is constructed once at REPL startup"
+        evidence:
+          - source: "code"
+            path: "stdlib/REPL/src/LineEdit.jl"
+            loc: "2106"
+            snippet: |
+              const bracket_insert_keymap = AnyDict()
+    runtime:
+      - summary: "ESTIMATED: Minimal per-keystroke overhead; O(1) keymap lookup, O(n) quote counting only for quote characters"
+        evidence:
+          - source: "code"
+            path: "stdlib/REPL/src/LineEdit.jl"
+            loc: "2127-2153"
+            snippet: |
+              # has_unmatched_quote scans buffer content to count unescaped quotes
+              # Only called when typing a quote character, not for brackets
+              # O(n) where n = cursor position, typically small for interactive input
+  tests:
+    changed_files:
+      - "stdlib/REPL/test/lineedit.jl"
+      - "stdlib/REPL/test/repl.jl"
+    new_behavior_assertions:
+      - description: "Left bracket at EOF triggers auto-complete"
+        evidence:
+          - source: "test"
+            path: "stdlib/REPL/test/lineedit.jl"
+            loc: "963-966"
+            url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/test/lineedit.jl#L963-L966"
+            snippet: |
+              # Test left bracket at EOF triggers auto-complete
+              write_input(s, "(")
+              @test content(s) == "()"
+              @test position(buffer(s)) == 1
+      - description: "Right bracket skips over matching bracket"
+        evidence:
+          - source: "test"
+            path: "stdlib/REPL/test/lineedit.jl"
+            loc: "968-971"
+            url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/test/lineedit.jl#L968-L971"
+            snippet: |
+              # Test right bracket skips over matching bracket
+              write_input(s, ")")
+              @test content(s) == "()"
+              @test position(buffer(s)) == 2
+      - description: "Backspace removes both brackets"
+        evidence:
+          - source: "test"
+            path: "stdlib/REPL/test/lineedit.jl"
+            loc: "973-978"
+            url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/test/lineedit.jl#L973-L978"
+            snippet: |
+              # Test backspace removes both brackets
+              s = LineEdit.init_state(term, interface)
+              write_input(s, "(")
+              write_input(s, "\b")
+              @test content(s) == ""
+              @test position(buffer(s)) == 0
+      - description: "Transpose detection - single quote after letter doesn't auto-complete"
+        evidence:
+          - source: "test"
+            path: "stdlib/REPL/test/lineedit.jl"
+            loc: "991-996"
+            url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/test/lineedit.jl#L991-L996"
+            snippet: |
+              # Test transpose detection - single quote after letter shouldn't auto-complete
+              s = LineEdit.init_state(term, interface)
+              write_input(s, "A")
+              write_input(s, "'")
+              @test content(s) == "A'"
+              @test position(buffer(s)) == 2
+      - description: "Nested brackets work correctly"
+        evidence:
+          - source: "test"
+            path: "stdlib/REPL/test/lineedit.jl"
+            loc: "1037-1046"
+            url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/test/lineedit.jl#L1037-L1046"
+            snippet: |
+              # Test nested brackets
+              s = LineEdit.init_state(term, interface)
+              write_input(s, "(")
+              write_input(s, "[")
+              @test content(s) == "([])"
+              @test position(buffer(s)) == 2
+              write_input(s, "]")
+              @test position(buffer(s)) == 3
+              write_input(s, ")")
+              @test position(buffer(s)) == 4
+      - description: "Bracket not inserted when next char is not whitespace"
+        evidence:
+          - source: "test"
+            path: "stdlib/REPL/test/lineedit.jl"
+            loc: "1005-1011"
+            url: "https://github.com/JuliaLang/julia/blob/5557a8757ddb56513226abc99859a9114fc3ce69/stdlib/REPL/test/lineedit.jl#L1005-L1011"
+            snippet: |
+              # Test bracket not inserted when next char is not whitespace
+              s = LineEdit.init_state(term, interface)
+              write_input(s, "x")
+              charseek(buffer(s), 0)
+              write_input(s, "(")
+              @test content(s) == "(x"
+              @test position(buffer(s)) == 1
+    coverage_gaps:
+      - "No explicit tests for escaped quote handling (e.g., typing \\\" inside a string)"
+      - "No tests for interaction with bracketed paste mode"
+      - "No tests for backspace at position 0 in non-main modes (relies on Base.active_repl)"
+      - "No tests for Unicode characters adjacent to brackets (e.g., Greek letters before ')"
+  risk:
+    level: "low"
+    rationale:
+      - "Feature is additive and does not modify any compiler internals"
+      - "Feature can be disabled via repl.options.auto_insert_closing_bracket = false"
+      - "Comprehensive test coverage (184 new lines of tests)"
+      - "Ports well-tested functionality from OhMyREPL package"
+      - "Author (KristofferC) is a Julia core contributor and OhMyREPL maintainer"
+      - "Changes are isolated to REPL stdlib, no impact on compilation or runtime"
+  open_questions:
+    - "RESOLVED: The feature is enabled by default (auto_insert_closing_bracket = true)"
+    - "Users who dislike this behavior can disable it in their startup.jl as documented"
+  recommendations:
+    - "Users who prefer the old behavior can add to ~/.julia/config/startup.jl: atreplinit() do repl; if hasfield(typeof(repl.options), :auto_insert_closing_bracket); repl.options.auto_insert_closing_bracket = false; end; end"
+    - "No action needed for downstream packages; this is purely a REPL user interface change"
+    - "OhMyREPL users can now rely on this feature in the standard REPL"
+  reviewer_notes:
+    independent_verification: |
+      Verified by checking out commit 5557a8757ddb56513226abc99859a9114fc3ce69
+      and reading full source files to understand implementation.
+
+      Key observations:
+      1. The bracket_insert_keymap is a const Dict added to LineEdit.jl
+      2. It's conditionally included in the keymap chain based on the option
+      3. The keymap priority allows it to intercept bracket/quote keystrokes
+      4. Comprehensive edge case handling for transpose and string context
+      5. Tests cover all major scenarios including nested brackets
+
+      The implementation is clean and follows established REPL keymap patterns.
+    secondary_reviewer_verification: |
+      Second-pass independent verification performed on 2026-01-22.
+
+      Additional findings from code trace:
+
+      1. UNICODE HANDLING VERIFIED:
+         The peek_char_left() function at LineEdit.jl:2120-2125 properly handles
+         multi-byte UTF-8 characters by using char_move_left() which checks
+         UTF-8 byte boundaries:
+
+         function char_move_left(buf::IOBuffer)
+             while position(buf) > 0
+                 seek(buf, position(buf)-1)
+                 c = peek(buf)
+                 (((c & 0x80) == 0) || ((c & 0xc0) == 0xc0)) && break
+             end
+         end
+
+         This ensures transpose detection works correctly with Unicode identifiers.
+
+      2. KEYMAP PRIORITY CONFIRMED:
+         Traced the keymap chain construction in REPL.jl:1685-1690. The ] key
+         handler in repl_keymap (line 1469) takes precedence over bracket_insert_keymap.
+         This is intentional for Pkg mode support.
+
+      3. GLOBAL STATE DEPENDENCY:
+         The backspace handler accesses Base.active_repl (LineEdit.jl:2212) which
+         is global mutable state. This could cause issues in embedded Julia or
+         custom REPL configurations. Low risk for typical usage.
+
+      4. PR DESCRIPTION DISCREPANCY NOTED:
+         Original PR description said "disabled by default" but the merged code
+         has auto_insert_closing_bracket = true (enabled by default). This was
+         changed during review based on community feedback.
+
+      5. FAKE_REPL TEST UPDATES:
+         All fake_repl() calls in stdlib/REPL/test/repl.jl were updated to
+         include auto_insert_closing_bracket=false to avoid interference with
+         existing tests. This shows good test isolation practices.
+    additional_context: |
+      This PR is part of the broader effort to make OhMyREPL obsolete by
+      incorporating its features into the standard Julia REPL. Previous
+      PR #59819 added syntax highlighting, and this PR adds bracket completion.
+
+      The feature design closely mirrors OhMyREPL's implementation, ensuring
+      familiar behavior for existing OhMyREPL users who switch to the
+      standard REPL.
+
+      Note: This is NOT a compiler PR. It affects only the REPL user interface
+      and has no impact on type inference, code generation, or runtime behavior.
+      It is included in the analysis for completeness as it was in the
+      compiler PRs tracking list.

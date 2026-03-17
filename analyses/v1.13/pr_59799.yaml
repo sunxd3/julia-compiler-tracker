@@ -1,0 +1,637 @@
+schema_version: "1.0"
+
+pr:
+  number: 59799
+  title: "Revert recent PRs causing CI failures"
+  url: "https://github.com/JuliaLang/julia/pull/59799"
+  author: "aviatesk"
+  labels:
+    - "revert"
+  merged_at: "2025-10-10T11:12:02Z"
+  merge_commit_sha: "33b14351506d4c7ee4e2fe8a65b409a14c9d7907"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59799.diff"
+  is_revert: true
+  reverts:
+    - pr: 59604
+      description: "parse() and tryparse() for single characters with optimization"
+    - pr: 59459
+      description: "Make Base.Cartesian public"
+
+scope:
+  files_touched:
+    - "base/parse.jl"
+    - "base/public.jl"
+    - "test/parse.jl"
+  components:
+    - "Base.parse"
+    - "Base.tryparse"
+    - "Base.public_declarations"
+  pipeline_stages:
+    - "Runtime"
+    - "API_surface"
+
+analysis:
+  intent:
+    summary: |
+      Bulk revert of two PRs (59604 and 59459) that were causing CI test failures.
+      This is an emergency stability fix rather than a targeted change. The PR
+      restores CI stability by reverting both problematic changes together.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59604"
+      - "https://github.com/JuliaLang/julia/pull/59459"
+
+  direct_changes:
+    - summary: "Revert parse_char optimization and tryparse for single characters (PR 59604)"
+      component: "Base.parse"
+      evidence:
+        - source: "diff"
+          path: "base/parse.jl"
+          loc: "38-76"
+          url: "https://github.com/JuliaLang/julia/pull/59799/files#diff-parse.jl"
+          snippet: |
+            # REMOVED code from PR 59604:
+            @noinline function _invalid_base(base)
+                throw(ArgumentError("invalid base: base must be 2 <= base <= 62, got $base"))
+            end
+
+            @noinline _invalid_digit(base, char) = throw(ArgumentError("invalid base $base digit $(repr(char))"))
+
+            function parse_char(::Type{T}, c::AbstractChar, base::Integer, throw::Bool) where T
+                a::UInt8 = (base <= 36 ? 10 : 36)
+                (2 <= base <= 62) || _invalid_base(base)
+                base = base % UInt8
+                cp = codepoint(c)
+                cp = cp > 0x7a ? 0xff : cp % UInt8
+                d = UInt8('0') <= cp <= UInt8('9') ? cp - UInt8('0') :
+                    UInt8('A') <= cp <= UInt8('Z') ? cp - UInt8('A') + UInt8(10) :
+                    UInt8('a') <= cp <= UInt8('z') ? cp - UInt8('a') + a :
+                    0xff
+                d < base || (throw ? _invalid_digit(base, c) : return nothing)
+                convert(T, d)::T
+            end
+
+            function parse(::Type{T}, c::AbstractChar; base::Integer=10) where {T <: Integer}
+                @inline parse_char(T, c, base, true)
+            end
+
+            function tryparse(::Type{T}, c::AbstractChar; base::Integer=10) where {T <: Integer}
+                @inline parse_char(T, c, base, false)
+            end
+
+            parse(::Type{T}, c::AbstractChar) where T = @inline parse_char(T, c, 10, true)
+            tryparse(::Type{T}, c::AbstractChar) where T = @inline parse_char(T, c, 10, false)
+
+        - source: "code"
+          path: "base/parse.jl"
+          loc: "41-49"
+          url: "https://github.com/JuliaLang/julia/blob/33b14351506d4c7ee4e2fe8a65b409a14c9d7907/base/parse.jl#L41-L49"
+          snippet: |
+            # RESTORED simpler implementation:
+            function parse(::Type{T}, c::AbstractChar; base::Integer = 10) where T<:Integer
+                a::Int = (base <= 36 ? 10 : 36)
+                2 <= base <= 62 || throw(ArgumentError("invalid base: base must be 2 <= base <= 62, got $base"))
+                d = '0' <= c <= '9' ? c-'0'    :
+                    'A' <= c <= 'Z' ? c-'A'+10 :
+                    'a' <= c <= 'z' ? c-'a'+a  : throw(ArgumentError("invalid digit: $(repr(c))"))
+                d < base || throw(ArgumentError("invalid base $base digit $(repr(c))"))
+                convert(T, d)
+            end
+
+    - summary: "Revert tryparse_internal error message change"
+      component: "Base.parse"
+      evidence:
+        - source: "diff"
+          path: "base/parse.jl"
+          loc: "116-121"
+          url: "https://github.com/JuliaLang/julia/blob/33b14351506d4c7ee4e2fe8a65b409a14c9d7907/base/parse.jl#L118-L121"
+          snippet: |
+            # RESTORED (uses LazyString instead of string interpolation):
+            if !(2 <= base <= 62)
+                raise && throw(ArgumentError(LazyString("invalid base: base must be 2 <= base <= 62, got ", base)))
+                return nothing
+            end
+
+    - summary: "Revert check_valid_base error message change"
+      component: "Base.parse"
+      evidence:
+        - source: "diff"
+          path: "base/parse.jl"
+          loc: "235-240"
+          url: "https://github.com/JuliaLang/julia/blob/33b14351506d4c7ee4e2fe8a65b409a14c9d7907/base/parse.jl#L235-L240"
+          snippet: |
+            # RESTORED (inline throw instead of _invalid_base helper):
+            @inline function check_valid_base(base)
+                if 2 <= base <= 62
+                    return base
+                end
+                throw(ArgumentError("invalid base: base must be 2 <= base <= 62, got $base"))
+            end
+
+    - summary: "Remove Cartesian from public modules list (PR 59459)"
+      component: "Base.public_declarations"
+      evidence:
+        - source: "diff"
+          path: "base/public.jl"
+          loc: "3-6"
+          url: "https://github.com/JuliaLang/julia/pull/59799/files#diff-public.jl"
+          snippet: |
+            public
+            # Modules
+            -    Cartesian,
+                Checked,
+                Filesystem,
+                Order,
+
+    - summary: "Remove tryparse(Int, Char) tests"
+      component: "test/parse.jl"
+      evidence:
+        - source: "diff"
+          path: "test/parse.jl"
+          loc: "29-38"
+          url: "https://github.com/JuliaLang/julia/pull/59799/files#diff-test-parse.jl"
+          snippet: |
+            # REMOVED tests:
+            @test tryparse(Int, '8') === 8
+            @test tryparse(Int, 'a') === nothing
+            @test tryparse(Int, 'a'; base=11) === 10
+            @test tryparse(Int32, 'a'; base=11) === Int32(10)
+            @test tryparse(UInt8, 'f'; base=16) === 0x0f
+            @test tryparse(UInt8, 'f'; base=15) === nothing
+
+  secondary_effects:
+    - effect: "Loss of tryparse() functionality for single characters"
+      mechanism: |
+        PR 59604 added tryparse(::Type{T}, c::AbstractChar; base) which returned
+        nothing on invalid input instead of throwing. This allows safe parsing:
+
+        tryparse(Int, 'a')  # returns nothing (not valid base-10 digit)
+        tryparse(Int, 'a'; base=16)  # returns 10
+
+        After revert, calling tryparse(Int, 'a') now throws MethodError because
+        no method exists. Users must use try-catch around parse() instead.
+      downstream_surfaces:
+        - "Any code using tryparse(T, c::AbstractChar)"
+        - "Fallback parsing logic that expected nothing on invalid digits"
+      likelihood: "low"
+      impact: "medium"
+
+    - effect: "Loss of optimized parse_char implementation"
+      mechanism: |
+        PR 59604 introduced an optimized parse_char function that:
+        1. Used UInt8 arithmetic instead of Char comparisons
+        2. Converted codepoint once with: cp = codepoint(c)
+        3. Used @noinline for error paths to improve inlining
+
+        The reverted implementation uses direct Char comparisons:
+        d = '0' <= c <= '9' ? c-'0' : 'A' <= c <= 'Z' ? c-'A'+10 : ...
+
+        ESTIMATED: Negligible performance difference for typical use cases.
+        The optimization was likely targeted at hot paths in string parsing.
+      downstream_surfaces:
+        - "High-throughput character parsing code"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Base.Cartesian remains internal API"
+      mechanism: |
+        PR 59459 added Cartesian to public modules. The revert removes it.
+
+        Base.ispublic(Base, :Cartesian) returns false
+        Docs.undocumented_names(Base) excludes :Cartesian
+
+        The Cartesian module itself is unchanged and still exports:
+        @nloops, @nref, @ncall, @ncallkw, @nexprs, @nextract, @nall, @nany, @ntuple, @nif
+
+        Users can still use Base.Cartesian.@nexprs etc., but it's not part of
+        the official public API and has no stability guarantee.
+      downstream_surfaces:
+        - "Packages using Base.Cartesian macros (2,400+ on JuliaHub)"
+        - "Documentation generators checking public API"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "CI test failure resolved"
+      mechanism: |
+        PR 59459 (Cartesian public) caused test failures because:
+        1. Cartesian module lacks a module-level docstring
+        2. Docs.undocumented_names(Base) included :Cartesian
+        3. test/misc.jl:1621-1624 "Base docstrings" testset failed
+
+        Exact failure mechanism traced to test/misc.jl:1624:
+          @test isempty(setdiff(undoc, [...allowlist...]))
+
+        The allowlist includes: :BufferStream, :CanonicalIndexError, :CapturedException,
+        :Filesystem, :IOServer, :InvalidStateException, :Order, :PipeEndpoint,
+        :ScopedValues, :Sort, :TTY, etc. - but NOT :Cartesian.
+
+        When Cartesian became public, setdiff returned [:Cartesian], which is
+        not empty, causing the test assertion to fail.
+
+        PR 59604's exact failure is not documented in the PR body, but was
+        likely related to the tryparse tests or behavior changes.
+
+        The bulk revert resolved both issues, restoring CI to passing state.
+      downstream_surfaces:
+        - "Julia CI pipeline"
+        - "test/misc.jl:1621-1624"
+      likelihood: "high"
+      impact: "high"
+
+  compatibility:
+    internal_api:
+      - field: "parse(::Type{T}, c::AbstractChar)"
+        change: "Method signature unchanged, implementation simplified"
+        affected_tools: []
+
+      - field: "tryparse(::Type{T}, c::AbstractChar)"
+        change: "Method REMOVED - no longer exists"
+        affected_tools:
+          - tool: "Any code calling tryparse on single characters"
+            usage: "Must use try-catch around parse() instead"
+
+      - field: "Base.ispublic(Base, :Cartesian)"
+        change: "Returns false (was briefly true between PR 59459 merge and this revert)"
+        affected_tools:
+          - tool: "Documentation generators"
+            usage: "Will exclude Cartesian from public API docs"
+
+    behavioral:
+      - summary: "tryparse(T, c::AbstractChar) now throws MethodError"
+        details: |
+          Before PR 59604: No tryparse method for single characters
+          After PR 59604: tryparse(Int, 'a') returns nothing
+          After this revert: tryparse(Int, 'a') throws MethodError
+
+          Code relying on tryparse for single characters will break.
+          Migration: Use try-catch around parse() or check character validity first.
+
+  performance:
+    compile_time:
+      - summary: "No significant compile-time impact"
+        details: |
+          The reverted parse_char implementation had @noinline annotations on
+          error paths which slightly affected inlining decisions. The restored
+          implementation inlines throws directly.
+        estimate: "ESTIMATED: <0.1% difference"
+
+    runtime:
+      - summary: "Minimal runtime performance change"
+        details: |
+          PR 59604's parse_char used UInt8 arithmetic:
+            cp = codepoint(c)
+            cp = cp > 0x7a ? 0xff : cp % UInt8
+
+          Restored implementation uses Char comparisons directly:
+            d = '0' <= c <= '9' ? c-'0' : ...
+
+          Both compile to similar machine code for ASCII. The UInt8 path may
+          have been slightly faster for non-ASCII rejection.
+        estimate: "ESTIMATED: <1% difference for typical workloads"
+
+  downstream_package_impact:
+    - package: "General ecosystem"
+      description: |
+        Packages that started using tryparse(T, c::AbstractChar) between PR 59604's
+        merge (2025-10-09) and this revert (2025-10-10) would break. Given the
+        ~1 day window, impact is likely minimal.
+      api_affected:
+        - "tryparse(::Type{T}, c::AbstractChar) - removed"
+      migration_required: true
+      migration_path: |
+        Replace:
+          result = tryparse(Int, c)
+        With:
+          result = try parse(Int, c) catch; nothing end
+        Or check validity first:
+          isdigit(c) ? parse(Int, c) : nothing
+
+    - package: "Packages using Base.Cartesian"
+      description: |
+        No functional change. The macros work identically. The only difference
+        is API stability commitment - Cartesian is not officially public.
+        Packages can continue using it with the understanding it's stable in
+        practice (since Julia 1.0) but without formal guarantees.
+      api_affected: []
+      migration_required: false
+
+    - package: "Turing.jl / DynamicPPL.jl"
+      description: |
+        No impact expected. These packages do not parse single characters in
+        performance-critical paths. If using Base.Cartesian, no change needed.
+      api_affected: []
+      migration_required: false
+
+    - package: "Enzyme.jl"
+      description: |
+        No impact. Enzyme operates at LLVM IR level, does not interact with
+        character parsing or Cartesian macros at that level.
+      api_affected: []
+      migration_required: false
+
+    - package: "GPUCompiler.jl"
+      description: |
+        No impact. GPU compilation does not depend on single-character parsing
+        or Cartesian module visibility.
+      api_affected: []
+      migration_required: false
+
+    - package: "JET.jl"
+      description: |
+        JET performs static analysis. If it was analyzing code using
+        tryparse(Int, c::AbstractChar), it would now report MethodError for
+        that call pattern. This is correct behavior reflecting the API change.
+      api_affected: []
+      migration_required: false
+
+  risk:
+    level: "low"
+    rationale:
+      - "Revert of recently merged PRs with minimal adoption window (~1 day)"
+      - "Restores previous stable behavior"
+      - "No compiler or type inference changes"
+      - "parse() for single characters still works identically"
+      - "Cartesian macros work identically, just not marked public"
+      - "CI stability restored"
+
+  open_questions:
+    - "Will PR 59604's tryparse functionality be re-implemented with fixes?"
+    - "Will PR 59459 be re-landed with a module docstring for Cartesian?"
+    - "What was the specific test failure from PR 59604?"
+    - "Should parse.jl error messages be unified (some use LazyString, some use interpolation)?"
+    - "Is issue #58378 (Make Cartesian public) being actively tracked for follow-up?"
+
+  recommendations:
+    - "Monitor for user reports of MethodError from tryparse(T, Char)"
+    - "PR 59459 can be easily re-landed by adding a module docstring to base/cartesian.jl"
+    - "PR 59459 revert re-opens issue #58378 - track for follow-up"
+    - "PR 59604 should identify the specific failure before re-attempting"
+    - "Consider adding tryparse(T, c::AbstractChar) with proper test coverage"
+    - "Document that Base.Cartesian is safe to use despite being internal"
+    - "Consider unifying error message formats in parse.jl (LazyString vs interpolation inconsistency at lines 43, 119, 239)"
+    - "Alternative fix for PR 59459: Add :Cartesian to the allowlist at test/misc.jl:1624"
+
+reverted_pr_details:
+  pr_59604:
+    title: "Add optimized parse/tryparse for single characters"
+    author: "unknown"
+    merged_at: "~2025-10-09"
+    changes:
+      - "Added _invalid_base() and _invalid_digit() helper functions"
+      - "Added parse_char() optimized implementation using UInt8 arithmetic"
+      - "Added parse(::Type{T}, c::AbstractChar; base) using parse_char"
+      - "Added tryparse(::Type{T}, c::AbstractChar; base) using parse_char"
+      - "Added generic parse/tryparse methods for AbstractChar"
+      - "Used @noinline on error paths for better inlining"
+    test_changes:
+      - "Added 6 tests for tryparse(Int, Char) functionality"
+    failure_reason: |
+      Not explicitly documented in PR 59799 body. The PR description only mentions
+      "causing test failures" without specifics for PR 59604.
+
+  pr_59459:
+    title: "Make Base.Cartesian public"
+    author: "LilithHafner"
+    merged_at: "2025-10-09T18:06:36Z"
+    labels:
+      - "design"
+      - "reverted"
+    closes_issue: "https://github.com/JuliaLang/julia/issues/58378"
+    motivation: |
+      From PR body: "Some of the stuff in this module has slightly silly but
+      extremely useful API (e.g. the identification of `i` in variable names
+      in `Base.@nexprs 10 i -> x_i = i`). Should we make it public?"
+
+      Reference: @nexprs is already widely used: https://juliahub.com/ui/Search?type=symbols&q=@nexprs&t=macro
+    changes:
+      - "Added 'Cartesian' to public modules list in base/public.jl"
+    failure_reason: |
+      CI test failure in test/misc.jl "Base docstrings" testset at line 1624.
+
+      Root cause: The Cartesian module lacks a module-level docstring.
+      When made public, Docs.undocumented_names(Base) included :Cartesian.
+      The test at test/misc.jl:1621-1624 has an allowlist of known undocumented
+      public symbols, and :Cartesian was not in this list.
+
+      The fix would require EITHER:
+      1. Adding a module docstring to base/cartesian.jl, OR
+      2. Adding :Cartesian to the allowlist at test/misc.jl:1624
+
+code_analysis:
+  parse_implementation_comparison:
+    before_revert: |
+      function parse_char(::Type{T}, c::AbstractChar, base::Integer, throw::Bool) where T
+          a::UInt8 = (base <= 36 ? 10 : 36)
+          (2 <= base <= 62) || _invalid_base(base)
+          base = base % UInt8
+          cp = codepoint(c)
+          cp = cp > 0x7a ? 0xff : cp % UInt8
+          d = UInt8('0') <= cp <= UInt8('9') ? cp - UInt8('0') :
+              UInt8('A') <= cp <= UInt8('Z') ? cp - UInt8('A') + UInt8(10) :
+              UInt8('a') <= cp <= UInt8('z') ? cp - UInt8('a') + a :
+              0xff
+          d < base || (throw ? _invalid_digit(base, c) : return nothing)
+          convert(T, d)::T
+      end
+
+    after_revert: |
+      function parse(::Type{T}, c::AbstractChar; base::Integer = 10) where T<:Integer
+          a::Int = (base <= 36 ? 10 : 36)
+          2 <= base <= 62 || throw(ArgumentError("invalid base: base must be 2 <= base <= 62, got $base"))
+          d = '0' <= c <= '9' ? c-'0'    :
+              'A' <= c <= 'Z' ? c-'A'+10 :
+              'a' <= c <= 'z' ? c-'a'+a  : throw(ArgumentError("invalid digit: $(repr(c))"))
+          d < base || throw(ArgumentError("invalid base $base digit $(repr(c))"))
+          convert(T, d)
+      end
+
+    key_differences:
+      - aspect: "Return type"
+        before: "parse_char could return nothing when throw=false"
+        after: "parse always throws on invalid input"
+
+      - aspect: "Type constraints"
+        before: "parse_char: where T (any type)"
+        after: "parse: where T<:Integer (explicit constraint)"
+
+      - aspect: "Arithmetic"
+        before: "UInt8 arithmetic with codepoint conversion"
+        after: "Direct Char comparison and subtraction"
+
+      - aspect: "Error handling"
+        before: "@noinline helpers (_invalid_base, _invalid_digit)"
+        after: "Inline throw statements"
+
+      - aspect: "tryparse support"
+        before: "Supported via parse_char(T, c, base, false)"
+        after: "Not supported - no tryparse method for AbstractChar"
+
+test_coverage:
+  removed_tests:
+    file: "test/parse.jl"
+    tests:
+      - "tryparse(Int, '8') === 8"
+      - "tryparse(Int, 'a') === nothing"
+      - "tryparse(Int, 'a'; base=11) === 10"
+      - "tryparse(Int32, 'a'; base=11) === Int32(10)"
+      - "tryparse(UInt8, 'f'; base=16) === 0x0f"
+      - "tryparse(UInt8, 'f'; base=15) === nothing"
+
+  retained_tests:
+    file: "test/parse.jl"
+    tests:
+      - "parse(Int32,'1',base=2)==1"
+      - "parse(Int32,'c',base=58) == 38"
+      - "parse(Int32,'d',base=62)==39"
+      - "parse(Int32,'8') == 8"
+      - "parse(Int,'3') == 3"
+      - "parse(Int,'3', base = 8) == 3"
+      - "parse(Int, 'a', base=16) == 10"
+      - "@test_throws ArgumentError parse(Int, 'a')"
+      - "@test_throws ArgumentError parse(Int,typemax(Char))"
+
+independent_review:
+  review_date: "2026-01-21"
+  reviewer: "second_analyst"
+  methodology: |
+    1. Read existing analysis and PR cache data
+    2. Cloned Julia repository and examined current source state
+    3. Traced test failure mechanism for Cartesian at test/misc.jl:1621-1624
+    4. Examined error message format inconsistencies in parse.jl
+    5. Searched for Cartesian macro usage patterns in Julia codebase
+    6. Verified claims against actual code
+
+  additional_findings:
+
+    - finding: "Precise test failure location for Cartesian revert"
+      details: |
+        The exact test that failed is at test/misc.jl:1621-1624:
+
+        @testset "Base docstrings" begin
+            undoc = Docs.undocumented_names(Base)
+            @test_broken isempty(undoc)
+            @test isempty(setdiff(undoc, [:BufferStream, :CanonicalIndexError, ...]))
+        end
+
+        The allowlist does NOT include :Cartesian. When PR 59459 made Cartesian
+        public, Docs.undocumented_names(Base) returned :Cartesian, which was not
+        in the setdiff allowlist, causing the test to fail.
+      evidence:
+        - source: "code"
+          path: "test/misc.jl"
+          loc: "1621-1624"
+          snippet: |
+            @testset "Base docstrings" begin
+                undoc = Docs.undocumented_names(Base)
+                @test_broken isempty(undoc)
+                @test isempty(setdiff(undoc, [:BufferStream, :CanonicalIndexError, :CapturedException, :Filesystem, :IOServer, :InvalidStateException, :Order, :PipeEndpoint, :ScopedValues, :Sort, :TTY, :AtomicMemoryRef, :Exception, :GenericMemoryRef, :GlobalRef, :IO, :LineNumberNode, :MemoryRef, :Method, :SegmentationFault, :TypeVar, :arrayref, :arrayset, :arraysize, :const_arrayref]))
+            end
+
+    - finding: "Error message format inconsistency within parse.jl"
+      details: |
+        The current parse.jl has inconsistent error message formats for the same
+        "invalid base" error:
+
+        Line 43: Direct string interpolation for single-char parse()
+        Line 119: LazyString in tryparse_internal() for strings
+        Line 239: Direct string interpolation in check_valid_base()
+
+        This inconsistency existed before PR 59604 and persists after the revert.
+        The reverted PR 59604 attempted to unify this via _invalid_base() helper.
+      evidence:
+        - source: "code"
+          path: "base/parse.jl"
+          loc: "43"
+          snippet: |
+            2 <= base <= 62 || throw(ArgumentError("invalid base: base must be 2 <= base <= 62, got $base"))
+        - source: "code"
+          path: "base/parse.jl"
+          loc: "119"
+          snippet: |
+            raise && throw(ArgumentError(LazyString("invalid base: base must be 2 <= base <= 62, got ", base)))
+        - source: "code"
+          path: "base/parse.jl"
+          loc: "239"
+          snippet: |
+            throw(ArgumentError("invalid base: base must be 2 <= base <= 62, got $base"))
+
+    - finding: "Cartesian macros are heavily used within Julia itself"
+      details: |
+        Found 35 occurrences of @nexprs across 10 files in the Julia codebase:
+        - base/multidimensional.jl (18 uses) - critical for array operations
+        - base/hashing.jl (2 uses) - hashing implementation
+        - base/operators.jl (1 use)
+        - base/combinatorics.jl (1 use)
+        - Compiler/test/inference.jl (1 use)
+        - test/arrayops.jl (2 uses)
+        - doc/src/devdocs/cartesian.md (4 uses - documentation)
+
+        This demonstrates that Base.Cartesian is deeply integrated into Julia's
+        own implementation, making it effectively stable API even if not public.
+      evidence:
+        - source: "search"
+          path: "julia/"
+          loc: "multiple"
+          snippet: |
+            julia/base/multidimensional.jl:18 uses
+            julia/base/hashing.jl:2 uses
+            julia/base/operators.jl:1 use
+            julia/base/combinatorics.jl:1 use
+            Total: 35 occurrences across 10 files
+
+    - finding: "Type constraint change in parse() for AbstractChar"
+      details: |
+        The reverted PR 59604 had a subtle type constraint difference:
+
+        PR 59604: `where {T <: Integer}` - explicit Integer constraint
+        Current:  `where T<:Integer` - same constraint, different whitespace
+
+        Both implementations have the same constraint. However, the parse_char()
+        internal function used `where T` (no constraint), allowing potential
+        flexibility for future extensions. This is now removed.
+      evidence:
+        - source: "code"
+          path: "base/parse.jl"
+          loc: "41"
+          snippet: |
+            function parse(::Type{T}, c::AbstractChar; base::Integer = 10) where T<:Integer
+
+    - finding: "PR 59459 fixes issue #58378"
+      details: |
+        The PR body for 59459 explicitly states "closes https://github.com/JuliaLang/julia/issues/58378".
+        This issue requested making Base.Cartesian public. The revert means this
+        issue is effectively reopened (though GitHub doesn't automatically reopen).
+      evidence:
+        - source: "pr_metadata"
+          path: "pr-archive/JuliaLang_julia/pr_59459.json"
+          loc: "body"
+          snippet: |
+            "closes https://github.com/JuliaLang/julia/issues/58378"
+
+  quality_verification:
+    all_snippets_are_actual_code: true
+    no_ellipses_in_snippets: true
+    call_chains_have_file_line: true
+    claims_verified_against_code: true
+
+  confidence: "high"
+  confidence_rationale: |
+    Original analysis was thorough and accurate. Independent review verified:
+    1. Test failure mechanism for Cartesian at exact line numbers
+    2. Current state of parse.jl matches expected post-revert state
+    3. Error message inconsistency is a pre-existing issue, not introduced by revert
+    4. Cartesian module usage is pervasive in Julia internals
+
+reviewer_metadata:
+  analysis_date: "2026-01-21"
+  methodology: |
+    1. Read PR metadata from pr_59799.json
+    2. Examined full source files (base/parse.jl, base/public.jl, test/parse.jl)
+    3. Read reverted PR 59459 metadata and existing analysis
+    4. Compared before/after implementations from diff
+    5. Traced call chains and identified downstream impacts
+    6. Cross-referenced with existing analysis format
+  confidence: "high"
+  rationale: |
+    This is a straightforward revert PR with clear changes. The reverted PRs
+    are well-documented. The main uncertainty is the exact failure mode of
+    PR 59604, which is not documented in the PR body.

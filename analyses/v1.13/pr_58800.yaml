@@ -1,0 +1,380 @@
+schema_version: "1.0"
+
+pr:
+  number: 58800
+  title: "implement SubArray reindexing without using `@generated`"
+  url: "https://github.com/JuliaLang/julia/pull/58800"
+  diff_url: "https://github.com/JuliaLang/julia/pull/58800.diff"
+  author: "mbauman"
+  labels:
+    - "arrays"
+  created_at: "2025-06-24T15:50:32Z"
+  merged_at: "2025-10-23T15:59:18Z"
+  merge_commit_sha: "56b2c36e997bec0a4bc1fc50505cc2246be1a219"
+
+scope:
+  files_touched:
+    - "base/subarray.jl"
+  components:
+    - "Base"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Removes the `@generated` function for `reindex` on N-dimensional arrays and replaces it
+      with a simpler tuple slicing approach that leverages highly optimized tuple indexing with
+      UnitRanges. The goal is to simplify the code while maintaining equivalent or better
+      performance for typical use cases.
+    issue_links: []
+    quoted_from_pr: |
+      The tuple specialization for indexing with UnitRanges is highly optimized, type stable,
+      and constant foldable for statically known values like these.
+
+      Seems like a very good thing to just lean on that. It's how I would've written this in the
+      first place had that optimized method existed when I wrote it. It's much more readable and
+      — I imagine — it should be quite a bit friendlier to the compiler. The only time you should
+      see a performance difference here is when you have a SubArray with 11 or more indices
+      **and** one of those indices is 3-dimensional or more.
+
+  direct_changes:
+    - summary: "Replaced @generated reindex function with simple tuple slicing"
+      component: "Base/SubArray"
+      evidence:
+        - source: "diff"
+          path: "base/subarray.jl"
+          loc: "301-302"
+          url: "https://github.com/JuliaLang/julia/blob/56b2c36e997bec0a4bc1fc50505cc2246be1a219/base/subarray.jl#L301-L302"
+          snippet: |
+            # BEFORE (removed - 9 lines, was at lines 301-309):
+            @generated function reindex(idxs::Tuple{AbstractArray{T,N}, Vararg{Any}}, subidxs::Tuple{Vararg{Any}}) where {T,N}
+                if length(subidxs.parameters) >= N
+                    subs = [:(subidxs[$d]) for d in 1:N]
+                    tail = [:(subidxs[$d]) for d in N+1:length(subidxs.parameters)]
+                    :(@_propagate_inbounds_meta; (idxs[1][$(subs...)], reindex(tail(idxs), ($(tail...),))...))
+                else
+                    :(throw(ArgumentError("cannot re-index SubArray with fewer indices than dimensions\nThis should not occur; please submit a bug report.")))
+                end
+            end
+
+            # AFTER (added - 2 lines, now at lines 301-302):
+            reindex(idxs::Tuple{AbstractArray{<:Any,N}, Vararg{Any}}, subidxs::Tuple{Vararg{Any}}) where {N} =
+                (@_propagate_inbounds_meta; (idxs[1][subidxs[1:N]...], reindex(tail(idxs), subidxs[N+1:end])...))
+
+    - summary: "Simplified type parameter from AbstractArray{T,N} to AbstractArray{<:Any,N}"
+      component: "Base/SubArray"
+      evidence:
+        - source: "diff"
+          path: "base/subarray.jl"
+          loc: "301"
+          url: "https://github.com/JuliaLang/julia/blob/56b2c36e997bec0a4bc1fc50505cc2246be1a219/base/subarray.jl#L301"
+          snippet: |
+            # The old signature captured element type T but never used it:
+            #   @generated function reindex(idxs::Tuple{AbstractArray{T,N}, ...}) where {T,N}
+            # The new signature correctly indicates element type is irrelevant:
+            #   reindex(idxs::Tuple{AbstractArray{<:Any,N}, ...}) where {N}
+
+  pipeline_impact: []
+
+  secondary_effects:
+    - effect: "Compile-time code generation reduction"
+      mechanism: |
+        The @generated function would generate specialized code for each unique combination
+        of (T, N, subidxs.parameters...). The new implementation relies on runtime tuple
+        indexing that is constant-folded for statically known ranges.
+
+        Optimization path:
+          reindex(idxs, subidxs) [subarray.jl:301-302]
+            -> subidxs[1:N] calls getindex(::Tuple, ::AbstractUnitRange) [range.jl:437]
+            -> For N <= 10: ntuple(i -> t[i + first(r) - 1], length(r)) [range.jl:441]
+            -> This is inlined and constant-folded when N is known at compile time
+
+        The tuple getindex with UnitRange (range.jl:437-451):
+          function getindex(@nospecialize(t::Tuple), r::AbstractUnitRange)
+              @inline
+              require_one_based_indexing(r)
+              if length(r) <= 10
+                  return ntuple(i -> t[i + first(r) - 1], length(r))
+              elseif first(r) == 1
+                  last(r) == length(t)   && return t
+                  last(r) == length(t)-1 && return front(t)
+                  last(r) == length(t)-2 && return front(front(t))
+              elseif last(r) == length(t)
+                  first(r) == 2 && return tail(t)
+                  first(r) == 3 && return tail(tail(t))
+              end
+              return (eltype(t)[t[ri] for ri in r]...,)
+          end
+      downstream_surfaces:
+        - "SubArray getindex/setindex! operations"
+        - "view-of-view optimizations"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/range.jl"
+          loc: "437-451"
+          url: "https://github.com/JuliaLang/julia/blob/56b2c36e997bec0a4bc1fc50505cc2246be1a219/base/range.jl#L437-L451"
+          snippet: |
+            function getindex(@nospecialize(t::Tuple), r::AbstractUnitRange)
+                @inline
+                require_one_based_indexing(r)
+                if length(r) <= 10
+                    return ntuple(i -> t[i + first(r) - 1], length(r))
+                elseif first(r) == 1
+                    last(r) == length(t)   && return t
+                    last(r) == length(t)-1 && return front(t)
+                    last(r) == length(t)-2 && return front(front(t))
+                elseif last(r) == length(t)
+                    first(r) == 2 && return tail(t)
+                    first(r) == 3 && return tail(tail(t))
+                end
+                return (eltype(t)[t[ri] for ri in r]...,)
+            end
+
+    - effect: "Removal of ArgumentError for malformed SubArrays"
+      mechanism: |
+        The old @generated function explicitly threw an ArgumentError if the number of
+        subindices was less than the array dimensions:
+
+          if length(subidxs.parameters) >= N
+              ...
+          else
+              :(throw(ArgumentError("cannot re-index SubArray with fewer indices...")))
+          end
+
+        The new implementation does not check this explicitly. If subidxs has fewer
+        elements than N, the tuple slicing subidxs[1:N] would attempt to access
+        out-of-bounds elements, resulting in a BoundsError instead of the custom
+        ArgumentError.
+
+        However, as the original error message stated: "This should not occur; please
+        submit a bug report." This case should never happen in practice because the
+        SubArray construction and view machinery ensure the invariants are maintained.
+      downstream_surfaces:
+        - "Error messages for malformed SubArray usage (theoretical)"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "diff"
+          path: "base/subarray.jl"
+          loc: "301-302"
+          url: "https://github.com/JuliaLang/julia/blob/56b2c36e997bec0a4bc1fc50505cc2246be1a219/base/subarray.jl#L301-L302"
+          snippet: |
+            # The old error handling was (lines 305-307 of old file):
+            else
+                :(throw(ArgumentError("cannot re-index SubArray with fewer indices than dimensions\nThis should not occur; please submit a bug report.")))
+            end
+            # Now the new implementation at lines 301-302 has no explicit check:
+            reindex(idxs::Tuple{AbstractArray{<:Any,N}, Vararg{Any}}, subidxs::Tuple{Vararg{Any}}) where {N} =
+                (@_propagate_inbounds_meta; (idxs[1][subidxs[1:N]...], reindex(tail(idxs), subidxs[N+1:end])...))
+            # If length(subidxs) < N, subidxs[1:N] throws BoundsError instead of ArgumentError
+
+    - effect: "Method dispatch unchanged - general N-dim method only called for N >= 3"
+      mechanism: |
+        The reindex function has specialized methods that take precedence over the general
+        N-dimensional method through Julia's method dispatch:
+
+        Method dispatch hierarchy (in order of specificity for first idxs element):
+          1. reindex(::Tuple{}, ::Tuple{}) - empty base case [line 282]
+          2. reindex(::Tuple{ScalarIndex, ...}, ...) - dropped scalar dimensions [lines 285-286]
+          3. reindex(::Tuple{Slice, ...}, ...) - Colon indices [lines 289-290]
+          4. reindex(::Tuple{AbstractVector, ...}, ...) - 1D index arrays/ranges [lines 293-294]
+          5. reindex(::Tuple{AbstractMatrix, ...}, ...) - 2D index arrays [lines 297-298]
+          6. reindex(::Tuple{AbstractArray{<:Any,N}, ...}, ...) - general N-dim [lines 301-302]
+
+        The general method (changed in this PR) only gets called when:
+          - The first element of idxs is an AbstractArray{<:Any,N} where N >= 3
+          - This occurs when creating views with 3D+ index arrays (rare in practice)
+
+        Common SubArray indices (ranges like 1:5, Colon, integers) all dispatch to the
+        more specific methods, so this change primarily affects exotic use cases.
+      downstream_surfaces:
+        - "SubArrays indexed with 3D+ arrays (extremely rare)"
+      likelihood: "low"
+      impact: "none"
+      evidence:
+        - source: "code"
+          path: "base/subarray.jl"
+          loc: "282-302"
+          url: "https://github.com/JuliaLang/julia/blob/56b2c36e997bec0a4bc1fc50505cc2246be1a219/base/subarray.jl#L282-L302"
+          snippet: |
+            reindex(::Tuple{}, ::Tuple{}) = ()
+
+            # Skip dropped scalars, so simply peel them off the parent indices and continue
+            reindex(idxs::Tuple{ScalarIndex, Vararg{Any}}, subidxs::Tuple{Vararg{Any}}) =
+                (@_propagate_inbounds_meta; (idxs[1], reindex(tail(idxs), subidxs)...))
+
+            # Slices simply pass their subindices straight through
+            reindex(idxs::Tuple{Slice, Vararg{Any}}, subidxs::Tuple{Any, Vararg{Any}}) =
+                (@_propagate_inbounds_meta; (subidxs[1], reindex(tail(idxs), tail(subidxs))...))
+
+            # Re-index into parent vectors with one subindex
+            reindex(idxs::Tuple{AbstractVector, Vararg{Any}}, subidxs::Tuple{Any, Vararg{Any}}) =
+                (@_propagate_inbounds_meta; (idxs[1][subidxs[1]], reindex(tail(idxs), tail(subidxs))...))
+
+            # Parent matrices are re-indexed with two sub-indices
+            reindex(idxs::Tuple{AbstractMatrix, Vararg{Any}}, subidxs::Tuple{Any, Any, Vararg{Any}}) =
+                (@_propagate_inbounds_meta; (idxs[1][subidxs[1], subidxs[2]], reindex(tail(idxs), tail(tail(subidxs)))...))
+
+            # In general, we index N-dimensional parent arrays with N indices
+            reindex(idxs::Tuple{AbstractArray{<:Any,N}, Vararg{Any}}, subidxs::Tuple{Vararg{Any}}) where {N} =
+                (@_propagate_inbounds_meta; (idxs[1][subidxs[1:N]...], reindex(tail(idxs), subidxs[N+1:end])...))
+
+  test_evidence:
+    - description: "Existing test for nested view of 3D array exercises the reindex machinery"
+      path: "test/subarray.jl"
+      loc: "605-606"
+      url: "https://github.com/JuliaLang/julia/blob/56b2c36e997bec0a4bc1fc50505cc2246be1a219/test/subarray.jl#L605-L606"
+      snippet: |
+        @test Array(view(view(reshape(1:13^3, 13, 13, 13), 3:7, 6:6, :), 1:2:5, :, 1:2:5)) ==
+            cat([68,70,72],[406,408,410],[744,746,748]; dims=3)
+
+    - description: "Comprehensive view-of-view tests with various index types"
+      path: "test/subarray.jl"
+      loc: "278-312"
+      url: "https://github.com/JuliaLang/julia/blob/56b2c36e997bec0a4bc1fc50505cc2246be1a219/test/subarray.jl#L278-L312"
+      snippet: |
+        # Tests create views of 3D arrays with various index combinations including:
+        # - Colons: (:,:,:)
+        # - Integers: (:,:,6), (:,6,:), (6,:,:)
+        # - Ranges: (:,3:7,:), (3:7,:,:)
+        # - Mixed: (3:7,6,:), (13:-2:1,:,:)
+        # - Arrays: ([8,4,6,12,5,7],:,3:7)
+        # - CartesianIndex: (6,CartesianIndex.(6,[8,4,6,12,5,7]))
+        # - Reshaped views: (2,:,reshape(2:11,2,5))
+        # These exercise the full reindex dispatch hierarchy
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - description: "No behavioral change for valid SubArray usage"
+        impact: "none"
+        details: |
+          The reindex function is an internal helper used by SubArray getindex, setindex!,
+          and view-of-view flattening. The semantics are preserved - the function transforms
+          indices for nested view access.
+
+          Call sites that use reindex (verified line numbers from merge commit):
+            _maybe_reindex(V, I, ::Tuple{})  [subarray.jl:266-270]
+              @inbounds idxs = to_indices(V.parent, reindex(V.indices, I))
+            getindex(V::SubArray{T,N}, I::Vararg{Int,N})  [subarray.jl:306-311]
+              @inbounds r = V.parent[reindex(V.indices, I)...]
+            setindex!(V::SubArray{T,N}, x, I::Vararg{Int,N})  [subarray.jl:376-381]
+              @inbounds V.parent[reindex(V.indices, I)...] = x
+            isassigned(V::SubArray{T,N}, I::Vararg{Int,N})  [subarray.jl:404-409]
+              @inbounds r = isassigned(V.parent, reindex(V.indices, I)...)
+            replace_in_print_matrix  [subarray.jl:520-525]
+              replace_in_print_matrix(S.parent, to_indices(S.parent, reindex(S.indices, (i,j)))..., s)
+
+  performance:
+    compile_time:
+      - description: "Reduced method specialization overhead"
+        impact: "positive"
+        details: |
+          ESTIMATED: Removes one @generated function, reducing the number of specialized
+          method bodies that need to be generated. The @generated function created a new
+          body for each unique tuple type of subidxs, whereas the new implementation uses
+          a single method body with runtime dispatch that is optimized via constant folding.
+
+          The trade-off is that the optimization now depends on:
+          1. The tuple indexing being inlined (ensured by @inline)
+          2. The range length being statically known (N from type parameter)
+          3. ntuple constant-folding (well-optimized in Julia)
+
+    runtime:
+      - description: "Equivalent performance for typical cases (N <= 10)"
+        impact: "neutral"
+        details: |
+          ESTIMATED: For SubArrays with up to 10 indices (covering virtually all practical
+          use cases), the runtime performance should be equivalent because:
+          1. The tuple getindex with UnitRange uses ntuple for length <= 10
+          2. ntuple is constant-foldable and type-stable
+          3. The resulting code after optimization should be identical
+
+          Edge case (N > 10): Arrays with more than 10 dimensions are extremely rare.
+          For these cases, the tuple slicing falls back to a comprehension which may
+          be slightly slower than the generated code, but such usage is negligible.
+
+  downstream_impact:
+    - package: "General downstream users of SubArray"
+      affected_api: "None - internal implementation change"
+      impact: "none"
+      migration_path: "No action required"
+      details: |
+        This is a pure internal implementation change. The reindex function is not exported
+        and has no documented API. Downstream packages that:
+        - Use SubArray/view normally: No change
+        - Extend SubArray types: Should continue to work as before
+
+    - package: "JET (metaprogramming tools)"
+      affected_api: "IR inspection of SubArray indexing"
+      impact: "low"
+      migration_path: "Update IR expectations if testing specific code shapes"
+      details: |
+        Tools that inspect the IR of SubArray operations will see different code structure:
+        - BEFORE: Generated function with explicit index expressions
+        - AFTER: Tuple slicing operations that get constant-folded
+
+        This is unlikely to cause issues in practice since:
+        1. These tools typically work on user code, not Base internals
+        2. The final optimized code should have similar structure
+        3. No API contracts are violated
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure refactoring with no semantic changes to documented behavior"
+      - "Removed @generated function in favor of simpler, well-tested tuple operations"
+      - "The tuple indexing with UnitRange is a well-established, heavily-tested code path"
+      - "Performance characteristics preserved for all practical use cases"
+      - "No exported API changes"
+
+  open_questions:
+    - "Performance impact for theoretical edge case of N > 10 dimensional SubArrays"
+
+  recommendations:
+    - "No action required for downstream package maintainers"
+    - "This change simplifies Base code and may slightly improve compile times"
+
+reviewer_notes:
+  independent_verification:
+    - "Checked out merge commit 56b2c36e99 and verified all code snippets against actual files"
+    - "Confirmed line numbers: new reindex at 301-302, not 303-304 as in original analysis"
+    - "Verified method dispatch hierarchy - AbstractVector/AbstractMatrix have priority over general"
+    - "Confirmed tuple getindex optimization at range.jl:437-451 with ntuple for length <= 10"
+    - "Found test evidence at test/subarray.jl:605-606 for view-of-view on 3D arrays"
+
+  corrections_made:
+    - "Fixed line numbers from 303-304 to 301-302 throughout the analysis"
+    - "Fixed optimization path reference from subarray.jl:303 to subarray.jl:301-302"
+    - "Updated call site line numbers to match actual merge commit"
+    - "Added signature change detail (AbstractArray{T,N} to AbstractArray{<:Any,N})"
+
+  additional_insights:
+    - description: "Method dispatch ensures minimal impact"
+      details: |
+        The general N-dimensional method at lines 301-302 only gets invoked when the
+        first element of idxs is an AbstractArray{<:Any,N} where N >= 3. This is because:
+        - ScalarIndex, Slice dispatch first (lines 285-290)
+        - AbstractVector matches before AbstractArray{<:Any,1} (line 293)
+        - AbstractMatrix matches before AbstractArray{<:Any,2} (line 297)
+        In practice, most SubArray indices are ranges, integers, or colons - all handled
+        by the specialized methods. The change only affects views created with 3D+ arrays
+        as indices, which is exceedingly rare.
+
+    - description: "Error type change is immaterial"
+      details: |
+        The change from ArgumentError to BoundsError for malformed SubArrays (fewer indices
+        than dimensions) is a non-issue because:
+        1. The original error message said "This should not occur; please submit a bug report"
+        2. The invariant is maintained by SubArray construction, not by user code
+        3. No user code should ever trigger this path
+
+    - description: "Tuple slicing is well-optimized"
+      details: |
+        The tuple getindex with AbstractUnitRange at range.jl:437-451 is specifically
+        designed to be constant-foldable. For length <= 10, it uses ntuple which the
+        compiler can fully inline and constant-fold when N is a type parameter. This
+        means the new implementation has equivalent performance to the @generated version
+        for all practical array dimensions.

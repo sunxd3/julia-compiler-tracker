@@ -1,0 +1,128 @@
+schema_version: "1.0"
+pr:
+  number: 60602
+  title: "[JuliaLowering] Fix-up always-defined check in `is_valid_body_ir_argument`"
+  url: "https://github.com/JuliaLang/julia/pull/60602"
+  author: "topolarity"
+  labels: []
+  merged_at: "2026-01-08T18:52:49Z"
+  merge_commit_sha: "bfcfc5b032664ba064e3dcd7c9d6942e6fb81e68"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60602.diff"
+scope:
+  files_touched:
+    - "JuliaLowering/src/linear_ir.jl"
+    - "JuliaLowering/test/assignments_ir.jl"
+    - "JuliaLowering/test/closures_ir.jl"
+    - "JuliaLowering/test/decls_ir.jl"
+    - "JuliaLowering/test/destructuring_ir.jl"
+    - "JuliaLowering/test/functions_ir.jl"
+    - "JuliaLowering/test/generators_ir.jl"
+    - "JuliaLowering/test/quoting_ir.jl"
+    - "JuliaLowering/test/scopes_ir.jl"
+    - "JuliaLowering/test/typedefs_ir.jl"
+  components:
+    - "JuliaLowering"
+  pipeline_stages:
+    - "Lowering"
+    - "LinearIR"
+analysis:
+  intent:
+    summary: "Restore the flisp behavior that treats lambda arguments as always-defined for body IR validation, even when closure box analysis repurposes the `is_always_defined` flag, and update Linear IR golden tests to match the corrected lowering." 
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/60567#discussion_r2672556146"
+  direct_changes:
+    - summary: "`is_valid_body_ir_argument` now explicitly treats `BindingInfo.kind == :argument` as valid even if `is_always_defined` was cleared by closure box analysis, preventing arguments from being forced into temporary SSA assignments during Linear IR emission."
+      component: "JuliaLowering/src/linear_ir.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/linear_ir.jl"
+          loc: "101-113"
+          url: "https://github.com/JuliaLang/julia/blob/bfcfc5b032664ba064e3dcd7c9d6942e6fb81e68/JuliaLowering/src/linear_ir.jl#L101-L113"
+          snippet: |
+            function is_valid_body_ir_argument(ctx, ex)
+                if is_valid_ir_argument(ctx, ex)
+                    true
+                elseif kind(ex) == K"BindingId"
+                    binfo = get_binding(ctx, ex)
+                    # arguments are inherently always-defined, but the closure
+                    # box analysis overrides this flag to mean "valid to leave
+                    # unboxed" so we check for them specifically here
+                    binfo.kind == :argument || binfo.is_always_defined
+                else
+                    false
+                end
+            end
+    - summary: "Linear IR golden tests are updated to show arguments/slots used directly in conditionals and conversions instead of round-tripping through temporary SSA values; this demonstrates the new argument-validity rule in practice."
+      component: "JuliaLowering/test/assignments_ir.jl"
+      evidence:
+        - source: "test-after"
+          path: "JuliaLowering/test/assignments_ir.jl"
+          loc: "98-111"
+          url: "https://github.com/JuliaLang/julia/blob/bfcfc5b032664ba064e3dcd7c9d6942e6fb81e68/JuliaLowering/test/assignments_ir.jl#L98-L111"
+          snippet: |
+            1   (newvar slot₁/x)
+            2   TestMod.f
+            3   (call %₂)
+            4   TestMod.T
+            5   (= slot₂/tmp %₃)
+            6   (call core.isa slot₂/tmp %₄)
+            7   (gotoifnot %₆ label₉)
+            8   (goto label₁₁)
+            9   (call top.convert %₄ slot₂/tmp)
+            10  (= slot₂/tmp (call core.typeassert %₉ %₄))
+            11  slot₂/tmp
+            12  (= slot₁/x %₁₁)
+            13  slot₁/x
+            14  (return %₁₃)
+        - source: "test-before"
+          path: "JuliaLowering/test/assignments_ir.jl"
+          loc: "98-113"
+          url: "https://github.com/JuliaLang/julia/blob/143c2f598ebcad7b53ea407754067245e71a9691/JuliaLowering/test/assignments_ir.jl#L98-L113"
+          snippet: |
+            1   (newvar slot₁/x)
+            2   TestMod.f
+            3   (call %₂)
+            4   TestMod.T
+            5   (= slot₂/tmp %₃)
+            6   slot₂/tmp
+            7   (call core.isa %₆ %₄)
+            8   (gotoifnot %₇ label₁₀)
+            9   (goto label₁₃)
+            10  slot₂/tmp
+            11  (call top.convert %₄ %₁₀)
+            12  (= slot₂/tmp (call core.typeassert %₁₁ %₄))
+            13  slot₂/tmp
+            14  (= slot₁/x %₁₃)
+            15  slot₁/x
+            16  (return %₁₅)
+  secondary_effects:
+    - effect: "Linear IR emission can keep lambda arguments as direct `BindingId` operands in body IR (calls and conditionals) even when `is_always_defined` is cleared by closure boxing logic, reducing temporary SSA assignments and altering IR shapes in golden tests."
+      mechanism: |
+        compile_args(ctx, args)  [linear_ir.jl:156-171]
+          -> is_valid_body_ir_argument(ctx, arg_val)  [linear_ir.jl:164]
+            checks binfo.kind == :argument || binfo.is_always_defined
+          -> arguments now pass validation without emitting emit_assign_tmp
+        compile_condition_term(ctx, ex)  [linear_ir.jl:374-380]
+          -> is_valid_body_ir_argument(ctx, cond)  [linear_ir.jl:376]
+          -> allows direct BindingId in gotoifnot conditions
+      downstream_surfaces:
+        - "Linear IR tests and any tooling that inspects JuliaLowering Linear IR output"
+        - "Debugging workflows that compare Linear IR text output"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - "Lowering/Linear IR output for argument-based expressions contains fewer temporary SSA values; user-visible semantics are unchanged but IR text snapshots differ."
+  performance:
+    compile_time:
+      - "ESTIMATED: Slightly fewer `emit_assign_tmp` insertions for argument operands, reducing emitted Linear IR nodes by 1-3 per affected expression; negligible overall compile-time change."
+    runtime: []
+  risk:
+    level: "low"
+    rationale:
+      - "Change is localized to Linear IR validation for BindingId arguments and aligns with flisp behavior described in the PR description."
+      - "Updated golden tests indicate the expected IR shape changes without altering runtime semantics."
+  open_questions: []
+  recommendations:
+    - "If downstream tooling parses JuliaLowering Linear IR text output, update any golden expectations to allow direct BindingId operands for arguments in conditionals and conversions."

@@ -1,0 +1,197 @@
+schema_version: "1.0"
+
+pr:
+  number: 57870
+  title: "Clarify docstrings for `code_native` and `code_warntype`"
+  url: "https://github.com/JuliaLang/julia/pull/57870"
+  diff_url: "https://github.com/JuliaLang/julia/pull/57870.diff"
+  author: "matthias314"
+  labels:
+    - "docs"
+    - "status: waiting for PR author"
+  merged_at: "2025-10-22T21:36:47Z"
+  merge_commit_sha: "8773db77cb47f20d49b5e3b84e787afc163d5d61"
+
+scope:
+  files_touched:
+    - "stdlib/InteractiveUtils/src/codeview.jl"
+  components:
+    - "InteractiveUtils"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Documentation update to clarify the `debuginfo` keyword argument behavior for
+      `code_warntype` and `code_native` functions, adding `:default` as an explicit option,
+      and documenting the `raw` parameter default value for `code_native`.
+      No code changes, but contains a documentation accuracy issue for `code_warntype`.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Update code_warntype debuginfo documentation (POTENTIAL INACCURACY)"
+      component: "InteractiveUtils"
+      evidence:
+        - source: "diff"
+          path: "stdlib/InteractiveUtils/src/codeview.jl"
+          loc: "162-163"
+          url: "https://github.com/JuliaLang/julia/blob/8773db77cb47f20d49b5e3b84e787afc163d5d61/stdlib/InteractiveUtils/src/codeview.jl#L162-L163"
+          snippet: |
+            Keyword argument `debuginfo` may be one of `:source`, `:none` or `:default`, to specify the verbosity of code comments.
+            Unless the user changes `Base.IRShow.default_debuginfo[]`, the value `:default` is equivalent to `:source`.
+          before: |
+            Keyword argument `debuginfo` may be one of `:source` or `:none` (default), to specify the verbosity of code comments.
+          after: |
+            Keyword argument `debuginfo` may be one of `:source`, `:none` or `:default`, to specify the verbosity of code comments.
+            Unless the user changes `Base.IRShow.default_debuginfo[]`, the value `:default` is equivalent to `:source`.
+
+    - summary: "Add raw parameter to code_native signature in docstring"
+      component: "InteractiveUtils"
+      evidence:
+        - source: "diff"
+          path: "stdlib/InteractiveUtils/src/codeview.jl"
+          loc: "353"
+          url: "https://github.com/JuliaLang/julia/blob/8773db77cb47f20d49b5e3b84e787afc163d5d61/stdlib/InteractiveUtils/src/codeview.jl#L353"
+          snippet: |
+            code_native([io=stdout,], f, types; syntax=:intel, debuginfo=:default, binary=false, dump_module=true, raw=false)
+          before: |
+            code_native([io=stdout,], f, types; syntax=:intel, debuginfo=:default, binary=false, dump_module=true)
+          after: |
+            code_native([io=stdout,], f, types; syntax=:intel, debuginfo=:default, binary=false, dump_module=true, raw=false)
+
+    - summary: "Clarify debuginfo equivalence in code_native docstring (CORRECT)"
+      component: "InteractiveUtils"
+      evidence:
+        - source: "diff"
+          path: "stdlib/InteractiveUtils/src/codeview.jl"
+          loc: "359"
+          url: "https://github.com/JuliaLang/julia/blob/8773db77cb47f20d49b5e3b84e787afc163d5d61/stdlib/InteractiveUtils/src/codeview.jl#L359"
+          snippet: |
+            * Specify verbosity of code comments by setting `debuginfo` to `:source` (equivalently, `:default`) or `:none`.
+          before: |
+            * Specify verbosity of code comments by setting `debuginfo` to `:source` (default) or `:none`.
+          after: |
+            * Specify verbosity of code comments by setting `debuginfo` to `:source` (equivalently, `:default`) or `:none`.
+        - source: "code"
+          path: "stdlib/InteractiveUtils/src/codeview.jl"
+          loc: "247-248"
+          url: "https://github.com/JuliaLang/julia/blob/8773db77cb47f20d49b5e3b84e787afc163d5d61/stdlib/InteractiveUtils/src/codeview.jl#L247-L248"
+          note: "code_native correctly hardcodes :default -> :source"
+          snippet: |
+            if debuginfo === :default
+                debuginfo = :source
+
+    - summary: "Document raw parameter default in code_native"
+      component: "InteractiveUtils"
+      evidence:
+        - source: "diff"
+          path: "stdlib/InteractiveUtils/src/codeview.jl"
+          loc: "362"
+          url: "https://github.com/JuliaLang/julia/blob/8773db77cb47f20d49b5e3b84e787afc163d5d61/stdlib/InteractiveUtils/src/codeview.jl#L362"
+          snippet: |
+            * If `raw` is `false` (default), uninteresting instructions (like the safepoint function prologue) are elided.
+          before: |
+            * If `raw` is `false`, uninteresting instructions (like the safepoint function prologue) are elided.
+          after: |
+            * If `raw` is `false` (default), uninteresting instructions (like the safepoint function prologue) are elided.
+
+  secondary_effects:
+    - effect: "Potential documentation inaccuracy for code_warntype debuginfo behavior"
+      mechanism: |
+        The code_warntype docstring claims `:default` is equivalent to `:source`, but code analysis reveals:
+
+        code_warntype() call chain [codeview.jl:175]:
+          debuginfo = Base.IRShow.debuginfo(debuginfo)
+            -> Base.IRShow is aliased to Compiler.IRShow [base/Base.jl:112]
+            -> Compiler.IRShow.debuginfo(sym) [Compiler/src/ssair/show.jl:1178]:
+                debuginfo(sym) = sym === :default ? default_debuginfo[] : sym
+            -> default_debuginfo = Ref{Symbol}(:none) [Compiler/src/ssair/show.jl:1177]
+
+        Therefore: code_warntype(f, types; debuginfo=:default) expands :default to :none, NOT :source.
+
+        In contrast, code_native() correctly documents this because _dump_function [codeview.jl:247-248] hardcodes:
+          if debuginfo === :default
+              debuginfo = :source
+
+        The two functions have DIFFERENT behavior for :default, but the new docstrings incorrectly
+        imply they behave the same way.
+      downstream_surfaces:
+        - "Users relying on docstrings may expect :default to show source info in code_warntype"
+        - "IDEs and documentation tools may propagate this inaccuracy"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - impact: "Documentation states :default equals :source for code_warntype, but actual behavior is :default equals :none"
+        affected: "Users of code_warntype who rely on docstring for understanding behavior"
+        note: "No runtime behavior changed - this is purely a documentation accuracy issue"
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "Documentation-only changes with no code modifications"
+      - "No changes to function signatures or runtime behavior"
+      - "Potential documentation inaccuracy for code_warntype debuginfo equivalence does not affect execution"
+      - "Users who test the actual behavior will observe correct :none default for code_warntype"
+
+  open_questions:
+    - "Was the code_warntype docstring change intentionally describing expected behavior (implying a code change is needed) or was it an error in understanding the current behavior?"
+    - "Should a follow-up PR correct the code_warntype docstring to accurately state ':default is equivalent to :none', or should the code be changed to match the documented behavior?"
+
+  recommendations:
+    - "Verify the intended behavior: the docstring claims :default equals :source for code_warntype, but code shows :default equals :none"
+    - "If docstring is incorrect, a follow-up fix should change line 163 to: 'Unless the user changes `Base.IRShow.default_debuginfo[]`, the value `:default` is equivalent to `:none`.'"
+    - "The code_native documentation changes are accurate and require no action"
+    - "The raw parameter documentation for code_native is accurate and helpful"
+
+  reviewer_notes:
+    summary: |
+      Independent code analysis confirms a potential documentation inaccuracy. The PR correctly
+      documents code_native behavior (:default -> :source via hardcoded conversion), but incorrectly
+      documents code_warntype behavior (docstring says :default -> :source, but code shows
+      :default -> :none via Base.IRShow.default_debuginfo[]).
+
+    evidence_trace:
+      - step: "code_warntype uses Base.IRShow.debuginfo() to expand :default"
+        file: "stdlib/InteractiveUtils/src/codeview.jl"
+        line: 175
+        code: "debuginfo = Base.IRShow.debuginfo(debuginfo)"
+
+      - step: "Base.IRShow is aliased to Compiler.IRShow"
+        file: "base/Base.jl"
+        line: 112
+        code: "const IRShow = Compiler.IRShow # an alias for compatibility"
+
+      - step: "Compiler.IRShow.debuginfo() expands :default to default_debuginfo[]"
+        file: "Compiler/src/ssair/show.jl"
+        line: 1178
+        code: "debuginfo(sym) = sym === :default ? default_debuginfo[] : sym"
+
+      - step: "default_debuginfo is initialized to :none"
+        file: "Compiler/src/ssair/show.jl"
+        line: 1177
+        code: "const default_debuginfo = Ref{Symbol}(:none)"
+
+      - step: "In contrast, code_native/_dump_function hardcodes :default -> :source"
+        file: "stdlib/InteractiveUtils/src/codeview.jl"
+        lines: "247-248"
+        code: |
+          if debuginfo === :default
+              debuginfo = :source
+
+changelog:
+  category: "Documentation"
+  entry: |
+    Clarified docstrings for `code_native` and `code_warntype` regarding the `debuginfo`
+    keyword argument options (`:source`, `:none`, `:default`) and documented the `raw=false`
+    default for `code_native`. Note: The `code_warntype` docstring may contain an inaccuracy -
+    it claims `:default` equals `:source`, but code analysis shows `:default` actually
+    expands to `:none` via `Base.IRShow.default_debuginfo[]`.
+  downstream_impact: "minimal - documentation only, potential user confusion about code_warntype behavior"
+  action_required: "Consider verifying code_warntype debuginfo behavior matches documentation"

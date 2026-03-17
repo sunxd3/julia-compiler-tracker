@@ -1,0 +1,85 @@
+schema_version: "1.0"
+pr:
+  number: 59740
+  title: "Add `@sprintf` examples to `string(::Int; pad)` method"
+  url: "https://github.com/JuliaLang/julia/pull/59740"
+  author: "mcabbott"
+  labels:
+    - "docs"
+  merged_at: "2025-10-13T15:16:41Z"
+  merge_commit_sha: "5aa7199cbd26af58f633e9fa08586c1185c678e6"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59740.diff"
+scope:
+  files_touched:
+    - "base/intfuncs.jl"
+  components:
+    - "Base.Documentation"
+  pipeline_stages:
+    - "None (documentation only)"
+analysis:
+  intent:
+    summary: "Improve discoverability of Printf standard library by adding @sprintf examples to the docstring for `string(n::Integer; base, pad)`. Motivated by a Discourse question where a user found `string(::Int; pad)` but wanted similar functionality for floats, which Printf provides."
+    issue_links:
+      - "https://discourse.julialang.org/t/converting-float-to-string-with-padding/132865"
+  direct_changes:
+    - summary: "Added reference to Printf standard library in the 'See also' section of the docstring"
+      component: "base/intfuncs.jl (string docstring)"
+      evidence:
+        - source: "code"
+          path: "base/intfuncs.jl"
+          loc: "980-981"
+          url: "https://github.com/JuliaLang/julia/blob/5aa7199cbd26af58f633e9fa08586c1185c678e6/base/intfuncs.jl#L980-L981"
+          snippet: |
+            See also [`digits`](@ref), [`bitstring`](@ref), [`count_zeros`](@ref),
+            and the Printf standard library.
+    - summary: "Added @sprintf examples showing zero-padding (%04i) and space-padding (%4i) for integers"
+      component: "base/intfuncs.jl (string docstring examples)"
+      evidence:
+        - source: "code"
+          path: "base/intfuncs.jl"
+          loc: "991-997"
+          url: "https://github.com/JuliaLang/julia/blob/5aa7199cbd26af58f633e9fa08586c1185c678e6/base/intfuncs.jl#L991-L997"
+          snippet: |
+            julia> using Printf
+
+            julia> @sprintf("%04i", 5)
+            "0005"
+
+            julia> @sprintf("%4i", 5)
+            "   5"
+  secondary_effects:
+    - effect: "Users reading the docstring for `string(::Integer; pad)` will now discover Printf as an alternative for more flexible formatting, including floating-point numbers."
+      mechanism: |
+        User calls `?string` or reads documentation for `string(::Integer; base, pad)`
+          -> Sees "See also ... and the Printf standard library"
+          -> Sees @sprintf examples with %04i (zero-pad) and %4i (space-pad)
+          -> Can extrapolate to Printf for floats: @sprintf("%08.3f", 3.14159)
+      downstream_surfaces:
+        - "Documentation discovery"
+        - "User education"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral: []
+  performance:
+    compile_time: []
+    runtime: []
+  risk:
+    level: "low"
+    rationale:
+      - "Documentation-only change with no code modifications"
+      - "No semantic changes to any function behavior"
+      - "No changes to compiler, inference, or optimization"
+  open_questions: []
+  recommendations:
+    - "No action required for downstream packages - this is purely a documentation improvement"
+    - "Users seeking padding/formatting for non-integer types should use Printf stdlib"
+reviewer_verification:
+  verified_at: "2026-01-21"
+  verification_notes:
+    - "Independently checked out merge commit 5aa7199cbd26af58f633e9fa08586c1185c678e6"
+    - "Verified diff shows only docstring changes to base/intfuncs.jl (+10 lines, -1 line)"
+    - "Corrected line numbers from original analysis (was 1075-1076 and 1086-1092, now 980-981 and 991-997)"
+    - "Confirmed no functional code changes, only documentation additions"
+    - "No secondary compiler/inference effects - purely documentation"

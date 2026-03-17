@@ -1,0 +1,478 @@
+schema_version: "1.0"
+
+pr:
+  number: 59779
+  title: "fix hashing of complex values with zero imaginary part"
+  url: "https://github.com/JuliaLang/julia/pull/59779"
+  author: "adienes"
+  labels:
+    - "complex"
+    - "bugfix"
+    - "hashing"
+  merged_at: "2025-10-21T14:19:49Z"
+  merge_commit_sha: "11c517e3ca6c5ab1fafc495c950fafdbf0cb55ed"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59779.diff"
+
+scope:
+  files_touched:
+    - "base/complex.jl"
+    - "base/Base.jl"
+    - "base/strings/string.jl"
+    - "test/hashing.jl"
+  components:
+    - "Base.Hashing"
+    - "Base.Complex"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      This PR fixes a typo introduced in PR 59185 that caused `hash(0im) != hash(0)`, violating
+      the Julia hash contract that equal values must have equal hashes. The bug manifested in
+      two ways:
+
+      1. The constant `h_imag` was truncated from `0x32a7a07f3e7cd1f9` to `0x32a7a07f3e7cd1f`
+         (missing the last hex digit `9`)
+      2. The constant `hash_0_imag` was incorrectly hardcoded instead of being computed from
+         the corrected `h_imag`
+
+      The fix ensures that complex numbers with zero imaginary part hash identically to their
+      real equivalents, as required by the identity `hash(a) == hash(complex(a))` for any real `a`.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59185"
+
+  direct_changes:
+    - summary: "Fix truncated h_imag constant by restoring missing hex digit"
+      component: "Base.Complex"
+      evidence:
+        - source: "diff"
+          path: "base/complex.jl"
+          loc: "252"
+          url: "https://github.com/JuliaLang/julia/blob/11c517e3ca6c5ab1fafc495c950fafdbf0cb55ed/base/complex.jl#L252"
+          snippet: |
+            # BEFORE (PR 59185 introduced this typo):
+            const h_imag = 0x32a7a07f3e7cd1f % UInt
+
+            # AFTER (this PR restores the correct value):
+            const h_imag = 0x32a7a07f3e7cd1f9 % UInt
+
+    - summary: "Change hash_0_imag to compute dynamically from h_imag instead of hardcoded value"
+      component: "Base.Complex"
+      evidence:
+        - source: "diff"
+          path: "base/complex.jl"
+          loc: "253"
+          url: "https://github.com/JuliaLang/julia/blob/11c517e3ca6c5ab1fafc495c950fafdbf0cb55ed/base/complex.jl#L253"
+          snippet: |
+            # BEFORE (hardcoded value, became incorrect when h_imag was truncated):
+            const hash_0_imag = 0x153e9f914f9b5b92 % UInt
+
+            # AFTER (dynamically computed, always consistent with h_imag):
+            const hash_0_imag = hash(0, h_imag)
+
+    - summary: "Reorder includes in Base.jl to load hashing.jl before complex.jl"
+      component: "Base"
+      evidence:
+        - source: "diff"
+          path: "base/Base.jl"
+          loc: "36-70"
+          url: "https://github.com/JuliaLang/julia/blob/11c517e3ca6c5ab1fafc495c950fafdbf0cb55ed/base/Base.jl#L36-L70"
+          snippet: |
+            # BEFORE: hashing.jl was included AFTER dict.jl (around line 95)
+
+            # AFTER: hashing.jl moved earlier (line 60), BEFORE complex.jl (line 70)
+            include("cartesian.jl")
+            using .Cartesian
+            include("hashing.jl")    # Now at line 60
+            include("osutils.jl")
+            # ... later ...
+            include("complex.jl")    # At line 70
+
+            # This reordering is necessary because complex.jl now calls
+            # hash(0, h_imag) at module load time
+
+    - summary: "Fix showerror call in string.jl due to include reordering"
+      component: "Base.Strings"
+      evidence:
+        - source: "diff"
+          path: "base/strings/string.jl"
+          loc: "14"
+          url: "https://github.com/JuliaLang/julia/blob/11c517e3ca6c5ab1fafc495c950fafdbf0cb55ed/base/strings/string.jl#L14"
+          snippet: |
+            # BEFORE:
+            function Base.showerror(io::IO, exc::StringIndexError)
+
+            # AFTER:
+            function showerror(io::IO, exc::StringIndexError)
+
+            # The Base. prefix was removed because the include order changed
+            # and showerror is now available in the current scope
+
+    - summary: "Add test verifying hash(a) == hash(complex(a)) for all numeric types"
+      component: "test"
+      evidence:
+        - source: "diff"
+          path: "test/hashing.jl"
+          loc: "40"
+          url: "https://github.com/JuliaLang/julia/blob/11c517e3ca6c5ab1fafc495c950fafdbf0cb55ed/test/hashing.jl#L40"
+          snippet: |
+            # New test added at line 40:
+            for T = types[2:end], x = vals
+                a = coerce(T, x)
+                @test hash(a, zero(UInt)) == invoke(hash, Tuple{Real, UInt}, a, zero(UInt))
+                @test hash(a, one(UInt)) == invoke(hash, Tuple{Real, UInt}, a, one(UInt))
+                @test hash(a) == hash(complex(a))  # <-- NEW LINE
+            end
+
+  secondary_effects:
+    - effect: "Complex hash function now correctly implements XOR cancellation for zero imaginary part"
+      mechanism: |
+        The hash function for Complex is:
+          hash(z::Complex, h::UInt) = hash(real(z), h XOR hash(imag(z), h_imag) XOR hash_0_imag)
+
+        For a complex number with zero imaginary part (z = a + 0im):
+          1. imag(z) = 0
+          2. hash(imag(z), h_imag) = hash(0, h_imag) = hash_0_imag
+          3. Result: hash(real(z), h XOR hash_0_imag XOR hash_0_imag)
+                   = hash(real(z), h XOR 0)  # since x XOR x = 0
+                   = hash(real(z), h)
+
+        This makes hash(complex(a)) == hash(a) for any real a.
+
+        With the typo (wrong h_imag), hash_0_imag did NOT equal hash(0, h_imag),
+        so the XOR cancellation failed, producing hash(0im) != hash(0).
+      downstream_surfaces:
+        - "Dict/Set operations with mixed Complex and Real keys"
+        - "Any code that relies on hash consistency between real and complex"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "Include order change in Base.jl affects module initialization"
+      mechanism: |
+        base/Base.jl include order changed:
+
+        BEFORE (partial):
+          line ~60: include("complex.jl")
+          line ~95: include("hashing.jl")
+          line ~96: include("dict.jl")
+
+        AFTER:
+          line 60: include("hashing.jl")
+          line 70: include("complex.jl")
+          line 93: include("dict.jl")
+
+        This change is required because complex.jl now has a top-level expression:
+          const hash_0_imag = hash(0, h_imag)
+
+        This requires the `hash` function to be available at the time complex.jl
+        is loaded. Previously, hash_0_imag was a literal constant that didn't
+        require the hash function.
+
+        The multimedia.jl and char.jl includes were also moved earlier (before
+        hashing.jl) as part of this reordering.
+      downstream_surfaces:
+        - "Module initialization order dependencies"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "showerror function reference changed in strings/string.jl"
+      mechanism: |
+        The StringIndexError showerror definition changed from:
+          function Base.showerror(io::IO, exc::StringIndexError)
+        to:
+          function showerror(io::IO, exc::StringIndexError)
+
+        This is a consequence of the include reordering. With the new order,
+        strings/string.jl is included at a point where showerror is already
+        available in the current module scope, so the Base. prefix is unnecessary.
+
+        This is purely a syntactic change - the function still extends Base.showerror.
+      downstream_surfaces: []
+      likelihood: "high"
+      impact: "none"
+
+  compatibility:
+    internal_api:
+      - field: "h_imag constant in base/complex.jl"
+        change: "Value changed from 0x32a7a07f3e7cd1f to 0x32a7a07f3e7cd1f9"
+        affected_tools:
+          - tool: "Code hardcoding complex hash constants"
+            usage: "Any code that hardcoded the old h_imag value for complex hashing"
+      - field: "hash_0_imag constant in base/complex.jl"
+        change: "Changed from hardcoded value to computed hash(0, h_imag)"
+        affected_tools: []
+    behavioral:
+      - field: "hash(Complex{T}) for zero imaginary part"
+        change: "hash(0im) now equals hash(0), hash(1.0+0.0im) now equals hash(1.0)"
+        affected_tools:
+          - tool: "Dict/Set with mixed Real/Complex keys"
+            usage: "Lookups will now work correctly with mixed key types"
+      - field: "hash values of complex numbers"
+        change: "All complex hash values changed due to corrected h_imag constant"
+        affected_tools:
+          - tool: "Serialized hash-based data structures"
+            usage: "Any serialized hash values from complex numbers are now invalid"
+
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: Negligible"
+        details: |
+          The only compile-time change is computing hash(0, h_imag) once at
+          module load time instead of using a literal constant. This is O(1)
+          and happens only during Base initialization.
+    runtime:
+      - impact: "ESTIMATED: None"
+        details: |
+          The hash function implementation is unchanged. Only the constant values
+          differ. The XOR operations and hash calls are identical to before.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Fixes a clear bug - hash(0im) != hash(0) violated documented hash contract"
+      - "The fix is minimal - just correcting a typo and computing a constant"
+      - "New test ensures the invariant is maintained"
+      - "This is a follow-up to PR 59185, fixing a regression it introduced"
+      - "No changes to the hash algorithm itself, only to constant values"
+
+  open_questions:
+    - question: "Why was h_imag truncated in PR 59185?"
+      resolved: true
+      answer: |
+        The PR description states this was "a minor typo" - likely a copy-paste
+        error or accidental deletion of the last character when editing the constant.
+
+        Numeric analysis of the truncation:
+        - Truncated: 0x032a7a07f3e7cd1f (15 hex digits, 58 bits used)
+        - Correct:   0x32a7a07f3e7cd1f9 (16 hex digits, 62 bits used)
+        - Difference: 0x2f7d26774a9504da (approximately 3.42e18)
+
+        The missing '9' at the end caused a massive change in the constant value,
+        which propagated through the hash calculation and broke the XOR cancellation.
+
+    - question: "Why not just hardcode the correct hash_0_imag value?"
+      resolved: true
+      answer: |
+        The PR changes hash_0_imag from a hardcoded constant to hash(0, h_imag).
+        This is safer because:
+        1. It guarantees consistency - if h_imag ever changes, hash_0_imag updates
+        2. It's self-documenting - shows the relationship between the constants
+        3. It prevents this class of bug from recurring
+        4. The cost is negligible (one hash call at module load time)
+
+    - question: "Does this change break serialized hash values?"
+      resolved: true
+      answer: |
+        Yes, any serialized hash values for complex numbers will be different.
+        However, Julia does not guarantee hash stability across versions, so this
+        is expected behavior. The documentation states "The hash value may change
+        when a new Julia process is started."
+
+  recommendations:
+    - "No action required for most users - this fixes a bug"
+    - "Code that serialized complex hash values should regenerate them"
+    - "This fix will be in Julia 1.13 (per milestone)"
+    - "The test hash(a) == hash(complex(a)) can be used to verify the fix"
+
+  edge_cases_verified:
+    - case: "Zero real and imaginary parts"
+      test: "hash(0) == hash(complex(0)) == hash(0 + 0im)"
+      status: "covered by new test - types include Int64, Float64, etc."
+    - case: "Negative zero"
+      test: "hash(0.0) != hash(-0.0) by design"
+      status: "existing behavior preserved - complex(-0.0) hashes differently from complex(0.0)"
+    - case: "Large integer values"
+      test: "typemin(Int64), typemax(Int64) included in test values"
+      status: "covered by new test"
+    - case: "Floating point boundary values"
+      test: "maxintfloat(Float32), maxintfloat(Float64) boundaries tested"
+      status: "covered by existing test infrastructure"
+    - case: "Rational numbers"
+      test: "Rational{Int8..BigInt} types all tested"
+      status: "covered by new test - complex(Rational) hashes correctly"
+
+changelog_entry:
+  category: "Bugfixes"
+  breaking: false
+  summary: |
+    Fixed hashing of complex numbers with zero imaginary part. Previously, a typo
+    introduced in PR 59185 caused hash(0im) != hash(0), violating the hash contract.
+    Now hash(complex(a)) == hash(a) for all real values a, as expected.
+  downstream_impact: |
+    Dict and Set operations with mixed Complex and Real keys now work correctly.
+    Any code that relied on the (incorrect) old hash values will see different
+    results, but this is expected as Julia does not guarantee hash stability.
+
+downstream_package_impact:
+  Turing_jl: "none - uses hashing correctly, will benefit from the fix"
+  Enzyme_jl: "none - not related to differentiation"
+  GPUCompiler: "none - not related to GPU compilation"
+  JET: "none - pure bugfix, no inference changes"
+
+code_path_trace:
+  complex_hash_function:
+    description: "How complex numbers are hashed and why zero imaginary parts need special handling"
+    steps:
+      - location: "base/complex.jl:252-253"
+        url: "https://github.com/JuliaLang/julia/blob/11c517e3ca6c5ab1fafc495c950fafdbf0cb55ed/base/complex.jl#L252-L253"
+        code: |
+          const h_imag = 0x32a7a07f3e7cd1f9 % UInt
+          const hash_0_imag = hash(0, h_imag)
+        explanation: |
+          h_imag is a mixing constant used to differentiate the imaginary part's
+          contribution to the hash. hash_0_imag is precomputed hash(0, h_imag)
+          used to ensure XOR cancellation for zero imaginary parts.
+      - location: "base/complex.jl:255-259"
+        url: "https://github.com/JuliaLang/julia/blob/11c517e3ca6c5ab1fafc495c950fafdbf0cb55ed/base/complex.jl#L255-L259"
+        code: |
+          function hash(z::Complex, h::UInt)
+              # TODO: with default argument specialization, this would be better:
+              # hash(real(z), h XOR hash(imag(z), h XOR h_imag) XOR hash(0, h XOR h_imag))
+              hash(real(z), h XOR hash(imag(z), h_imag) XOR hash_0_imag)
+          end
+        explanation: |
+          The hash function XORs three components:
+          1. h (input hash seed)
+          2. hash(imag(z), h_imag) (imaginary part contribution)
+          3. hash_0_imag (zero imaginary baseline)
+
+          When imag(z) == 0:
+          - hash(imag(z), h_imag) = hash(0, h_imag) = hash_0_imag
+          - h XOR hash_0_imag XOR hash_0_imag = h XOR 0 = h
+          - Result: hash(real(z), h) = same as hashing the real number
+
+  include_order_dependency:
+    description: "Why Base.jl includes needed reordering"
+    steps:
+      - location: "base/Base.jl:60"
+        url: "https://github.com/JuliaLang/julia/blob/11c517e3ca6c5ab1fafc495c950fafdbf0cb55ed/base/Base.jl#L60"
+        code: |
+          include("hashing.jl")
+        explanation: "hashing.jl defines the hash function and must come first"
+      - location: "base/Base.jl:70"
+        url: "https://github.com/JuliaLang/julia/blob/11c517e3ca6c5ab1fafc495c950fafdbf0cb55ed/base/Base.jl#L70"
+        code: |
+          include("complex.jl")
+        explanation: |
+          complex.jl is now included after hashing.jl because it contains:
+            const hash_0_imag = hash(0, h_imag)
+          This top-level call requires the hash function to exist.
+
+test_coverage:
+  new_tests:
+    - file: "test/hashing.jl"
+      lines: "40"
+      description: "Test that real numbers and their complex equivalents hash identically"
+      code: |
+        for T = types[2:end], x = vals
+            a = coerce(T, x)
+            @test hash(a, zero(UInt)) == invoke(hash, Tuple{Real, UInt}, a, zero(UInt))
+            @test hash(a, one(UInt)) == invoke(hash, Tuple{Real, UInt}, a, one(UInt))
+            @test hash(a) == hash(complex(a))  # NEW: ensures complex(a) hashes same as a
+        end
+
+        # This test iterates over types including:
+        # Bool, Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64,
+        # Float32, Float64, Rational{...}, BigFloat, BigInt, Rational{BigInt}
+        #
+        # And values including extreme values like typemin(Int64), typemax(Int64),
+        # boundary values around maxintfloat, and small integers.
+
+reviewer_notes:
+  initial_reviewer: "automated_analysis"
+  initial_date: "2026-01-21"
+  verification_method: |
+    1. Read PR metadata from pr-archive/JuliaLang_julia/pr_59779.json
+    2. Examined full source context of base/complex.jl, base/hashing.jl
+    3. Analyzed the hash function implementation and XOR cancellation mechanism
+    4. Traced include order dependencies in base/Base.jl
+    5. Verified the test coverage in test/hashing.jl
+    6. Fetched merge commit SHA from GitHub API
+  findings:
+    - "This is a straightforward bugfix for a typo introduced in PR 59185"
+    - "The h_imag constant was missing the last hex digit"
+    - "The hash_0_imag is now computed dynamically for consistency"
+    - "Include reordering is a necessary side effect of the fix"
+    - "The showerror change is cosmetic due to include order"
+    - "New test directly verifies the fixed invariant"
+  confidence: "high"
+  rationale: |
+    The changes are minimal and targeted. The PR fixes a clear regression from
+    PR 59185. The XOR cancellation mechanism for zero imaginary parts is a
+    well-established pattern in hash function design. The include reordering
+    is a straightforward dependency resolution.
+
+secondary_review:
+  reviewer: "independent_analysis"
+  date: "2026-01-21"
+  method: |
+    1. Checked out merge commit 11c517e3ca6c5ab1fafc495c950fafdbf0cb55ed in Julia repo
+    2. Read actual source files (not just diffs) for context
+    3. Searched codebase for all uses of h_imag and hash_0_imag with rg
+    4. Verified include order in base/Base.jl lines 36-94
+    5. Examined test coverage types and values in test/hashing.jl
+    6. Analyzed numeric difference between truncated and correct constants
+  additional_findings:
+    - finding: "Constants are ONLY used in base/complex.jl"
+      evidence: |
+        rg search for h_imag and hash_0_imag shows only 4 matches, all in complex.jl:
+          base/complex.jl:252 - const h_imag definition
+          base/complex.jl:253 - const hash_0_imag definition
+          base/complex.jl:257 - comment mentioning h_imag
+          base/complex.jl:258 - hash function using both constants
+    - finding: "Include order verified in actual source"
+      evidence: |
+        base/Base.jl:60: include("hashing.jl")
+        base/Base.jl:70: include("complex.jl")
+        This 10-line gap ensures hash() is available when complex.jl loads.
+    - finding: "Test coverage is comprehensive for numeric types"
+      evidence: |
+        test/hashing.jl types array includes:
+        Bool, Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64,
+        Float32, Float64, Rational{Int8..UInt64}, BigFloat, BigInt, Rational{BigInt}
+
+        vals array includes edge cases:
+        typemin(Int64), typemax(Int64), typemin(Int32), typemax(Int32),
+        boundary values around maxintfloat, small integers (-2:2)
+    - finding: "Potential edge case: signed zeros in complex numbers"
+      note: |
+        The test suite extensively tests -0.0 behavior for complex operations
+        (test/complex.jl has 100+ tests involving -0.0), but the new hash test
+        does not explicitly test hash(complex(0.0)) vs hash(complex(-0.0)).
+
+        This is acceptable because:
+        1. hash(0.0) != hash(-0.0) by design (line 58 in test/hashing.jl)
+        2. complex(0.0) and complex(-0.0) are not isequal
+        3. The fix correctly handles the real==imag==0 case via XOR cancellation
+  verification_of_xor_cancellation: |
+    Mathematical verification of the fix:
+
+    For z = a + 0im where a is any real number:
+      hash(z, h) = hash(a, h XOR hash(0, h_imag) XOR hash_0_imag)
+
+    Since hash_0_imag = hash(0, h_imag) by definition:
+      hash(z, h) = hash(a, h XOR hash_0_imag XOR hash_0_imag)
+                 = hash(a, h XOR 0)  [XOR self-cancellation]
+                 = hash(a, h)        [identity]
+
+    This matches hash(a, h) for the corresponding real number.
+
+    The bug occurred because hash_0_imag was hardcoded with the value corresponding
+    to the CORRECT h_imag, but h_imag itself was truncated:
+      - h_imag used in hash():     0x032a7a07f3e7cd1f (truncated)
+      - hash_0_imag was:           0x153e9f914f9b5b92 (based on correct h_imag)
+      - hash(0, truncated_h_imag): different value (computed at runtime)
+
+    So hash(0, h_imag) != hash_0_imag, breaking the cancellation.
+  agreement_with_initial_analysis: |
+    The initial analysis is accurate and comprehensive. Key agreements:
+    - Root cause correctly identified as truncated hex constant
+    - XOR cancellation mechanism correctly explained
+    - Include order dependency correctly traced
+    - Risk assessment as "low" is appropriate
+    - No compiler pipeline components affected (this is pure Base library)
+  suggested_enhancements_applied:
+    - "Added precise numeric analysis of constant truncation"
+    - "Verified h_imag/hash_0_imag usage is isolated to complex.jl"
+    - "Documented test coverage comprehensiveness"
+    - "Added mathematical verification of XOR cancellation fix"

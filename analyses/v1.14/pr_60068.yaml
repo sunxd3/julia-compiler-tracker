@@ -1,0 +1,335 @@
+schema_version: "1.0"
+
+pr:
+  number: 60068
+  title: "Revert \"fix string completion with cursor in the middle of text\""
+  url: "https://github.com/JuliaLang/julia/pull/60068"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60068.diff"
+  author: "KristofferC"
+  labels:
+    - "revert"
+  merged_at: "2025-11-07T04:13:15Z"
+  merge_commit_sha: "b57589aef467b226f6751b72c5a655e7e2ee6a79"
+  reverts_pr: 60055
+  related_issues:
+    - "https://github.com/JuliaLang/julia/issues/60050"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/src/REPLCompletions.jl"
+    - "stdlib/REPL/test/replcompletions.jl"
+  components:
+    - "REPL"
+    - "stdlib"
+  pipeline_stages:
+    - "UserInterface"
+  is_compiler_change: false
+
+analysis:
+  intent:
+    summary: |
+      Temporary revert of PR #60055 which fixed mid-line path completion in the REPL.
+      The original fix caused Windows test failures due to path separator handling issues.
+      The author reverted to avoid broken CI while preparing a cross-platform compatible fix.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60050"
+    reverted_pr_summary: |
+      PR #60055 changed `string[r]` to `string[intersect(r, 1:pos)]` in the completions
+      function to only consider the portion of the string up to the cursor position,
+      enabling path completion when the cursor is in the middle of a string literal.
+
+  direct_changes:
+    - summary: "Reverted cursor position handling in string path completion"
+      component: "REPL/REPLCompletions"
+      description: |
+        Changed the string slicing from using cursor-bounded range back to full string range.
+        This broke mid-line path completion but fixed Windows test failures.
+      before_change: |
+        # PR #60055 fix (being reverted):
+        s = do_string_unescape(string[intersect(r, 1:pos)])
+      after_change: |
+        # Reverted to original behavior:
+        s = do_string_unescape(string[r])
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1047-1050"
+          url: "https://github.com/JuliaLang/julia/blob/b57589aef467b226f6751b72c5a655e7e2ee6a79/stdlib/REPL/src/REPLCompletions.jl#L1047-L1050"
+          snippet: |
+            r, closed = find_str(cur)
+            if r !== nothing
+                s = do_string_unescape(string[r])
+                ret, success = complete_path_string(s, hint; string_escape=true,
+                                                    dirsep=Sys.iswindows() ? '\\' : '/')
+
+    - summary: "Removed mid-line path completion tests"
+      component: "REPL/test"
+      description: |
+        Removed 34 lines of tests that validated path completion when cursor is
+        in the middle of a string. These tests used test_complete_pos() to
+        simulate cursor position with | markers.
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/test/replcompletions.jl"
+          loc: "1461-1494"
+          url: "https://github.com/JuliaLang/julia/blob/b57589aef467b226f6751b72c5a655e7e2ee6a79/stdlib/REPL/test/replcompletions.jl#L1458"
+          snippet: |
+            # The removed tests created a temp directory with:
+            #   foo_dir/      (directory)
+            #   foo_file.txt  (file)
+
+            # Test 1: Completion at end of line (baseline)
+            let (c, r, res) = test_complete("\"$(path)/foo")
+                @test res
+                @test length(c) == 2
+                @test "$(path)/foo_dir/" in c
+                @test "$(path)/foo_file.txt" in c
+            end
+
+            # Test 2: Completion in middle of line (the regression case)
+            let (c, r, res) = test_complete_pos("\"$(path)/foo|/bar.toml\"")
+                @test res
+                @test length(c) == 2
+                @test "$(path)/foo_dir/" in c
+                @test "$(path)/foo_file.txt" in c
+                @test findfirst("/bar", ...) - 1 in r  # range check
+            end
+
+            # Test 3: Completion mid-string with trailing function args
+            let (c, r, res) = test_complete_pos("run_something(\"$(path)/foo|/bar.toml\"; kwarg=true)")
+                @test res
+                @test length(c) == 2
+            end
+
+  secondary_effects:
+    - effect: "Mid-line path completion broken temporarily"
+      mechanism: |
+        completions() [REPLCompletions.jl:978]
+          calls find_str(cur) [REPLCompletions.jl:1187]
+            returns (range, closed) where range covers entire string content
+          with revert: string[r] uses full string including text after cursor
+          -> complete_path_string() receives full path "foo/bar.toml" not "foo"
+          -> path completion fails because "foo/bar.toml" doesn't match partial paths
+      downstream_surfaces:
+        - "REPL tab completion"
+        - "IDE integrations using REPL completions"
+      likelihood: "high"
+      impact: "medium"
+      user_impact: |
+        Users editing previous commands with cursor mid-path cannot use tab completion.
+        Workaround: move cursor to end of intended completion point, complete, then
+        manually add any text that should follow.
+
+    - effect: "Windows path completion tests fixed"
+      mechanism: |
+        Original PR #60055 tests expected forward slashes on Windows but completion
+        was returning backslash-escaped paths:
+          Expected: C:\\Users\\...\\foo_dir/
+          Actual:   C:\\Users\\...\\foo_dir\\
+        Removing the tests avoided this cross-platform discrepancy.
+      downstream_surfaces:
+        - "CI/Windows builds"
+      likelihood: "high"
+      impact: "low"
+      user_impact: "None - test-only issue"
+
+  revert_context:
+    reason: "Windows test failures"
+    author_statement: |
+      "I won't have time to fix and test this properly this evening so I'll
+      revert and reland it tomorrow."
+    windows_issue:
+      description: |
+        Path separator mismatch on Windows. The tests used hardcoded forward slashes
+        in the path construction but completion returns escaped backslashes on Windows.
+      root_cause: |
+        Test code constructed paths with:
+          "\"$(path)/foo|/bar.toml\""  # Uses forward slashes
+
+        But on Windows, complete_path_string() uses:
+          dirsep=Sys.iswindows() ? '\\' : '/'
+
+        So completion results had backslashes while tests expected forward slashes.
+      fix_pattern: |
+        PR #60082 fixed this by using platform-aware test construction:
+          sep = Sys.iswindows() ? "\\\\" : "/"
+          path_expected = Sys.iswindows() ? replace(path, "\\" => "\\\\") : path
+          test_complete_pos("\"$(path)$(sep)foo|$(sep)bar.toml\"")
+    timeline:
+      original_pr: 60055
+      merged: "2025-11-06"
+      revert_pr: 60068
+      revert_merged: "2025-11-07T04:13:15Z"
+      reland_pr: 60082
+      reland_merged: "2025-11-10T08:07:33Z"
+      days_to_fix: 3
+    follow_up_expected: true
+    follow_up_delivered: true
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - item: "Path completion behavior regression"
+        description: |
+          Mid-line path completion broken. This was already a regression in 1.12
+          (issue #60050), so this revert maintains the regressed behavior while
+          a proper cross-platform fix is developed.
+        affected_users:
+          - "Users who edit previous REPL commands and use tab completion mid-path"
+
+  performance:
+    compile_time: []
+    runtime:
+      - item: "No performance impact"
+        description: "Pure behavioral change, no algorithmic differences"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Reverts to previously-shipping behavior (Julia 1.12 behavior)"
+      - "REPL usability regression but no correctness issues"
+      - "Temporary measure - follow-up fix expected"
+      - "No compiler or runtime impact"
+
+  call_chain_analysis:
+    completion_flow: |
+      User presses TAB in REPL
+        -> REPL.LineEdit handles keypress
+        -> completions(string, pos, context_module, shift) [REPLCompletions.jl:994]
+           1. Parse string with JuliaSyntax
+           2. Find cursor position in AST
+           3. Determine completion type (path, symbol, method, etc.)
+           4. For path completion:
+              -> find_str(cur) [REPLCompletions.jl:1180]
+                 returns (left:right, closed) for string delimiters
+              -> WITH FIX: intersect(r, 1:pos) bounds to cursor position
+              -> WITHOUT FIX (reverted): uses full string[r]
+              -> do_string_unescape(s) [REPLCompletions.jl:367]
+              -> complete_path_string(s, hint; ...) [REPLCompletions.jl:1337]
+                 -> expanduser(path)
+                 -> complete_path(path, ...) [REPLCompletions.jl:1392]
+        -> Returns ([Completion], range, success)
+
+    find_str_details:
+      function_location: "REPLCompletions.jl:1180-1184"
+      function_code: |
+        function find_str(cur::CursorNode)
+            n = find_parent(cur, K"string")
+            n !== nothing || return nothing, nothing
+            find_delim(n, K"\"", K"\"")
+        end
+      find_delim_location: "SyntaxUtil.jl:98-107"
+      find_delim_code: |
+        function find_delim(node::CursorNode, left_kind::Kind, right_kind::Kind)
+            cs = children(node)
+            left = findfirst(c -> kind(c) == left_kind, cs)
+            left !== nothing || return nothing, nothing
+            right = findlast(c -> kind(c) == right_kind, cs)
+            closed = right !== nothing && right != left
+            right = closed ? thisind(node.source, char_first(cs[right]) - 1) : char_last(node)
+            left = nextind(node.source, char_last(cs[left]))
+            return left:right, closed
+        end
+
+    cursor_bounding_pattern:
+      description: |
+        The pattern `intersect(r, 1:pos)` is used consistently in REPLCompletions.jl
+        to bound completion ranges to the cursor position. This revert removed
+        the pattern from path completion but it remains in use elsewhere.
+      other_usages:
+        - location: "REPLCompletions.jl:1094"
+          context: "Keyword argument completion"
+          code: "s = string[intersect(r, 1:pos)]"
+        - location: "REPLCompletions.jl:1108"
+          context: "var\"...\" symbol completion"
+          code: "s = string[intersect(r2, 1:pos)]"
+        - location: "REPLCompletions.jl:1103"
+          context: "Symbol completion"
+          code: "looks_like_ident = Base.isidentifier(@view string[intersect(char_range(cur), 1:pos)])"
+
+    test_helper:
+      function_name: "test_complete_pos"
+      location: "replcompletions.jl:199"
+      code: |
+        test_complete_pos(s) = map_completion_text(
+            @inferred(completions(replace(s, '|' => ""), findfirst('|', s)-1))
+        )
+      description: |
+        Test helper that simulates cursor position using the | character.
+        The | is removed from the string and its position is passed to completions().
+        This enables testing completions at arbitrary cursor positions within text.
+
+  open_questions:
+    - "RESOLVED: The fix was re-landed in PR #60082 with proper Windows handling"
+    - "RESOLVED: Tests now use platform-aware separators via Sys.iswindows()"
+    - "Future consideration: Should path completion APIs normalize separator style?"
+
+  recommendations:
+    - "This revert was correctly resolved by PR #60082 within 3 days"
+    - "Pattern for future cross-platform path tests: use `sep = Sys.iswindows() ? \"\\\\\\\\\" : \"/\"`"
+    - "Pattern for expected paths: use `path_expected = Sys.iswindows() ? replace(path, \"\\\\\" => \"\\\\\\\\\") : path`"
+    - "The revert-then-reland pattern was appropriate here given the time constraint"
+
+  follow_up_resolution:
+    pr_number: 60082
+    pr_url: "https://github.com/JuliaLang/julia/pull/60082"
+    merged_at: "2025-11-10T08:07:33Z"
+    label: "re-land"
+    description: |
+      PR #60082 re-landed the fix with proper Windows path separator handling.
+      The code change was identical to the original PR #60055:
+        s = do_string_unescape(string[intersect(r, 1:pos)])
+
+      The tests were updated with platform-aware separators:
+        sep = Sys.iswindows() ? "\\\\" : "/"
+        path_expected = Sys.iswindows() ? replace(path, "\\" => "\\\\") : path
+
+      This fix is now in Julia master and the mid-line path completion
+      functionality works correctly on all platforms.
+
+reviewer_analysis:
+  reviewer: "Claude (second pass)"
+  review_date: "2026-01-22"
+  methodology: |
+    1. Checked out the PR merge commit (b57589aef467b226f6751b72c5a655e7e2ee6a79)
+    2. Read full source files at REPLCompletions.jl and SyntaxUtil.jl
+    3. Traced the complete call chain from completions() through find_str() to find_delim()
+    4. Searched for other usages of intersect(r, 1:pos) pattern
+    5. Verified the follow-up resolution on Julia master (PR #60082)
+    6. Confirmed test helper function test_complete_pos behavior
+  additional_findings:
+    - verified: |
+        The intersect(r, 1:pos) pattern is consistently used in at least 3 other
+        places in REPLCompletions.jl (lines 1094, 1103, 1108) for bounding
+        completion ranges to cursor position. The reverted code was following
+        this established pattern.
+    - verified: |
+        find_delim() in SyntaxUtil.jl returns the full range between delimiters
+        regardless of cursor position. The cursor-bounding responsibility was
+        correctly being handled at the call site in completions().
+    - verified: |
+        PR #60082 was merged 3 days later (2025-11-10) with identical code fix
+        but platform-aware test assertions using Sys.iswindows() conditionals.
+    - verified: |
+        The REPL.jl integration point at line 846 shows completions() is called
+        with `thisind(full, position(s))` as the pos argument, confirming
+        cursor position handling is a valid concern at this API boundary.
+  confidence_assessment: |
+    HIGH confidence in this analysis. The change is well-isolated to REPL
+    tab completion with clear before/after behavior. The follow-up PR #60082
+    confirms the original intent and provides the proper cross-platform fix.
+    No compiler, inference, or codegen impact.
+
+metadata:
+  analysis_date: "2026-01-22"
+  analyst: "Claude"
+  reviewed_by: "Claude (second pass)"
+  confidence: "high"
+  notes: |
+    This is a REPL stdlib change, NOT a compiler change. It affects user-facing
+    tab completion behavior but has no impact on compilation, type inference,
+    code generation, or runtime behavior. Included in analysis for completeness
+    as it was in the PR archive.
+
+    The revert was a temporary measure that was properly resolved within 3 days
+    by PR #60082 which re-landed the fix with correct Windows path handling.

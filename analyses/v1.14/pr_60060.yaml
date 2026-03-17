@@ -1,0 +1,373 @@
+schema_version: "1.0"
+
+pr:
+  number: 60060
+  title: "improve behavior of bracket insertion in some situations"
+  url: "https://github.com/JuliaLang/julia/pull/60060"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60060.diff"
+  author: "KristofferC"
+  labels:
+    - "REPL"
+  merged_at: "2025-11-07T12:36:49Z"
+  merge_commit_sha: "4eff3931c27b1fb9697f361cf978d1084eb46688"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/src/LineEdit.jl"
+    - "stdlib/REPL/src/REPL.jl"
+    - "stdlib/REPL/test/lineedit.jl"
+  components:
+    - "REPL"
+    - "LineEdit"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Improves bracket/quote auto-insertion behavior in the Julia REPL to more closely
+      mimic how other editors handle paired delimiters. The main changes are:
+      1. Replaces quote-counting logic with position-based "transparent character" detection
+      2. Extracts paired delimiter removal into a reusable helper function
+      3. Extends paired delimiter backspace behavior to other REPL modes (not just bracket_insert_keymap)
+    issue_links: []
+
+  direct_changes:
+    - summary: "New helper function try_remove_paired_delimiter for backspace handling"
+      component: "LineEdit"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "2110-2129"
+          url: "https://github.com/JuliaLang/julia/blob/4eff3931c27b1fb9697f361cf978d1084eb46688/stdlib/REPL/src/LineEdit.jl#L2110-L2129"
+          snippet: |
+            function try_remove_paired_delimiter(buf::IOBuffer)
+                left_brackets = ('(', '{', '[', '"', '\'', '`')
+                right_brackets = (')', '}', ']', '"', '\'', '`')
+
+                if !eof(buf) && position(buf) > 0
+                    # Peek at char to the left
+                    p = position(buf)
+                    left_char = char_move_left(buf)
+                    seek(buf, p)
+
+                    i = findfirst(isequal(left_char), left_brackets)
+                    if i !== nothing && peek(buf, Char) == right_brackets[i]
+                        # Remove both the left and right bracket/quote
+                        edit_delete(buf)
+                        edit_backspace(buf)
+                        return true
+                    end
+                end
+                return false
+            end
+
+    - summary: "New should_auto_close_quote function replaces has_unmatched_quote"
+      component: "LineEdit"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "2153-2174"
+          url: "https://github.com/JuliaLang/julia/blob/4eff3931c27b1fb9697f361cf978d1084eb46688/stdlib/REPL/src/LineEdit.jl#L2153-L2174"
+          snippet: |
+            # Check if we should auto-close a quote (insert paired quotes)
+            # auto-close when "transparent" chars on both sides
+            # Transparent chars: whitespace, opening brackets ([{, closing brackets )]}, or nothing
+            function should_auto_close_quote(buf::IOBuffer, quote_char::Char)
+                # Check left side: BOF, whitespace, or opening bracket
+                left_ok = if position(buf) == 0
+                    true
+                else
+                    left_char = peek_char_left(buf)
+                    isspace(left_char) || left_char in ('(', '[', '{')
+                end
+
+                # Check right side: EOF, whitespace, or closing bracket
+                right_ok = if eof(buf)
+                    true
+                else
+                    right_char = peek(buf, Char)
+                    isspace(right_char) || right_char in (')', ']', '}')
+                end
+
+                return left_ok && right_ok
+            end
+
+    - summary: "Extended transparent characters for bracket auto-closing to include quotes"
+      component: "LineEdit"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "2178-2179"
+          url: "https://github.com/JuliaLang/julia/blob/4eff3931c27b1fb9697f361cf978d1084eb46688/stdlib/REPL/src/LineEdit.jl#L2178-L2179"
+          snippet: |
+            # Characters that are "transparent" for bracket auto-closing
+            right_brackets_ws = (')', '}', ']', ' ', '\t', '\n', '"', '\'', '`')
+
+    - summary: "Integrated try_remove_paired_delimiter into REPL mode_keymap backspace handler"
+      component: "REPL"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "1213-1217"
+          url: "https://github.com/JuliaLang/julia/blob/4eff3931c27b1fb9697f361cf978d1084eb46688/stdlib/REPL/src/REPL.jl#L1213-L1217"
+          snippet: |
+            buf = LineEdit.buffer(s)
+            if LineEdit.try_remove_paired_delimiter(buf)
+                return LineEdit.refresh_line(s)
+            end
+            LineEdit.edit_backspace(s)
+
+  secondary_effects:
+    - effect: "Quote auto-closing now based on surrounding context, not quote counting"
+      mechanism: |
+        Old behavior: has_unmatched_quote() counted unescaped quotes before cursor
+          -> Odd count meant "closing existing string"
+          -> Even count meant "opening new string, auto-close"
+        New behavior: should_auto_close_quote() checks adjacent characters
+          -> Auto-close only when "transparent" chars on both sides
+          -> Transparent = whitespace, brackets, or buffer boundary
+
+        This changes when quotes get auto-paired:
+        - Old: `foo|` + " -> `foo""` (auto-close, even quote count)
+        - New: `foo|` + " -> `foo"` (no auto-close, non-transparent 'o' on left)
+      downstream_surfaces:
+        - "REPL user experience"
+        - "Any REPL extensions using bracket_insert_keymap"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Paired delimiter removal now available in all REPL modes"
+      mechanism: |
+        try_remove_paired_delimiter() now called from REPL.jl mode_keymap():
+          mode_keymap(julia_prompt) [REPL.jl:1186-1210]
+            -> backspace handler [REPL.jl:1188]
+            -> LineEdit.try_remove_paired_delimiter(buf) [REPL.jl:1196]
+
+        Mode keymap propagation path (verified from REPL.jl:1635-1649):
+          1. mk = mode_keymap(julia_prompt)  [line 1637]
+          2. mode_base_keymaps = [mk, prefix_keymap, ...]  [line 1640]
+          3. shell_mode.keymap_dict = help_mode.keymap_dict =
+             dummy_pkg_mode.keymap_dict = LineEdit.keymap(b)  [line 1649]
+
+        This means all three non-julia modes (shell, help, pkg) now inherit
+        the backspace handler with try_remove_paired_delimiter.
+
+        Previously, paired delimiter removal on backspace only worked in modes
+        using bracket_insert_keymap. Now it works in shell mode, pkg mode, etc.
+      downstream_surfaces:
+        - "REPL shell mode (;)"
+        - "REPL pkg mode (])"
+        - "REPL help mode (?)"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Brackets can now auto-close inside quotes"
+      mechanism: |
+        right_brackets_ws now includes quote characters: ('"', '\'', '`')
+        This allows bracket auto-closing when cursor is inside quotes:
+          - `"|"` + ( -> `"()"`  (auto-close, quote is "transparent")
+
+        bracket_insert_keymap[left] handler [LineEdit.jl:2181-2189]:
+          if eof(buf) || peek(buf, Char) in right_brackets_ws
+            # auto-close bracket
+      downstream_surfaces:
+        - "REPL bracket insertion"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "Unicode characters properly handled in delimiter detection"
+      mechanism: |
+        The char_move_left function (LineEdit.jl:790-800) properly handles
+        UTF-8 multi-byte characters:
+
+        function char_move_left(buf::IOBuffer)
+            while position(buf) > 0
+                seek(buf, position(buf)-1)
+                c = peek(buf)
+                (((c & 0x80) == 0) || ((c & 0xc0) == 0xc0)) && break
+            end
+            pos = position(buf)
+            c = read(buf, Char)
+            seek(buf, pos)
+            return c
+        end
+
+        This ensures try_remove_paired_delimiter works correctly even when
+        the buffer contains unicode characters before the delimiter pair.
+      downstream_surfaces:
+        - "REPL with unicode input"
+      likelihood: "low"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "LineEdit.try_remove_paired_delimiter"
+        change: |
+          New function for paired delimiter removal - NOT explicitly exported.
+          The LineEdit module exports only: run_interface, Prompt, ModalInterface,
+          transition, reset_state, edit_insert, keymap (see LineEdit.jl:25).
+          However, the function is accessible via LineEdit.try_remove_paired_delimiter
+          and is used by REPL.jl at line 1196.
+        affected_tools:
+          - tool: "OhMyREPL.jl"
+            usage: "May define custom backspace handlers; could use this function for consistency"
+      - field: "LineEdit.has_unmatched_quote"
+        change: "Function removed, replaced by should_auto_close_quote (internal to let block)"
+        affected_tools: []
+      - field: "LineEdit.should_skip_closing_bracket"
+        change: |
+          Internal function at LineEdit.jl:2133 now references OhMyREPL.jl#200
+          for transpose expression handling. Comment: "For quotes, also check for
+          transpose expressions: issue JuliaLang/OhMyREPL.jl#200"
+        affected_tools:
+          - tool: "OhMyREPL.jl"
+            usage: "Transpose detection logic originated from OhMyREPL issue"
+    behavioral:
+      - change: "Quote auto-insertion behavior changed from count-based to context-based"
+        impact: |
+          Users accustomed to old behavior may notice different quote handling:
+          - Typing " after text (e.g., foo|) no longer auto-pairs
+          - Typing " with whitespace/brackets on both sides does auto-pair
+          This aligns with VS Code, Sublime Text, and other modern editors.
+
+  performance:
+    compile_time: []
+    runtime:
+      - impact: |
+          ESTIMATED: Negligible performance change.
+          Old: O(n) scan of buffer content to count quotes
+          New: O(1) peek at adjacent characters
+          The new approach is actually slightly faster for long buffers.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are isolated to REPL line editing behavior"
+      - "No compiler, type inference, or codegen changes"
+      - "Comprehensive test coverage added for new behavior"
+      - "Changes align with well-established editor conventions"
+      - "PR authored by core Julia team member (KristofferC)"
+
+  downstream_impact:
+    packages:
+      - package: "OhMyREPL.jl"
+        impact: |
+          Low impact. OhMyREPL extends REPL functionality and may have custom
+          bracket handling. The code references OhMyREPL.jl#200 for transpose
+          detection logic. OhMyREPL may want to use the new
+          LineEdit.try_remove_paired_delimiter for consistency.
+    surfaces:
+      - "Julia REPL user experience"
+    notes: |
+      This PR has minimal impact on downstream packages. It only affects the
+      interactive REPL experience for users typing code. Packages that extend
+      the REPL's line editing (like OhMyREPL.jl) should be aware that:
+      1. try_remove_paired_delimiter is accessible via LineEdit module (NOT exported)
+      2. Quote auto-pairing uses context-based logic instead of quote counting
+      3. Bracket auto-closing now works inside quoted strings
+      4. Unicode is properly handled via char_move_left (LineEdit.jl:790-800)
+         which correctly parses UTF-8 multi-byte characters
+
+      These changes should not break any existing functionality but may cause
+      minor behavioral differences that users will notice.
+
+  open_questions:
+    - "Should try_remove_paired_delimiter be documented as part of the public API?"
+    - "Could the new quote behavior cause issues with triple-quote strings?"
+
+  recommendations:
+    - "No action required by downstream package maintainers"
+    - "OhMyREPL.jl and similar REPL extensions may want to review their bracket handling for consistency"
+    - "Users reporting unexpected quote behavior should be directed to this PR"
+
+  test_coverage:
+    - description: "Quote behavior when cursor is at start of text"
+      evidence:
+        - source: "test"
+          path: "stdlib/REPL/test/lineedit.jl"
+          loc: "1106-1112"
+          url: "https://github.com/JuliaLang/julia/blob/4eff3931c27b1fb9697f361cf978d1084eb46688/stdlib/REPL/test/lineedit.jl#L1106-L1112"
+          snippet: |
+            # Test quote behavior: |foo" + " -> "foo" (not ""foo")
+            s = LineEdit.init_state(term, interface)
+            write_input(s, "foo\"")
+            charseek(buffer(s), 0)
+            write_input(s, "\"")
+            @test content(s) == "\"foo\""
+            @test position(buffer(s)) == 1
+
+    - description: "Quote behavior when cursor is after text"
+      evidence:
+        - source: "test"
+          path: "stdlib/REPL/test/lineedit.jl"
+          loc: "1114-1119"
+          url: "https://github.com/JuliaLang/julia/blob/4eff3931c27b1fb9697f361cf978d1084eb46688/stdlib/REPL/test/lineedit.jl#L1114-L1119"
+          snippet: |
+            # Test quote behavior: foo| + " -> foo" (not foo"")
+            s = LineEdit.init_state(term, interface)
+            write_input(s, "foo")
+            write_input(s, "\"")
+            @test content(s) == "foo\""
+            @test position(buffer(s)) == 4
+
+    - description: "Quote auto-pairing after whitespace"
+      evidence:
+        - source: "test"
+          path: "stdlib/REPL/test/lineedit.jl"
+          loc: "1121-1126"
+          url: "https://github.com/JuliaLang/julia/blob/4eff3931c27b1fb9697f361cf978d1084eb46688/stdlib/REPL/test/lineedit.jl#L1121-L1126"
+          snippet: |
+            # Test quote behavior: foo | + " -> foo ""
+            s = LineEdit.init_state(term, interface)
+            write_input(s, "foo ")
+            write_input(s, "\"")
+            @test content(s) == "foo \"\""
+            @test position(buffer(s)) == 5
+
+    - description: "Bracket auto-closing inside quotes"
+      evidence:
+        - source: "test"
+          path: "stdlib/REPL/test/lineedit.jl"
+          loc: "1161-1167"
+          url: "https://github.com/JuliaLang/julia/blob/4eff3931c27b1fb9697f361cf978d1084eb46688/stdlib/REPL/test/lineedit.jl#L1161-L1167"
+          snippet: |
+            # Test bracket behavior: "|" + ( -> "()"
+            s = LineEdit.init_state(term, interface)
+            write_input(s, "\"\"")
+            charseek(buffer(s), 1)
+            write_input(s, "(")
+            @test content(s) == "\"()\""
+            @test position(buffer(s)) == 2
+
+classification:
+  type: "enhancement"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false
+
+reviewer_notes:
+  independent_verification: |
+    Second analyst independently verified the following:
+    1. Export status: Confirmed try_remove_paired_delimiter is NOT in export list
+       (LineEdit.jl:25 exports: run_interface, Prompt, ModalInterface, transition,
+       reset_state, edit_insert, keymap only)
+    2. Mode propagation: Traced mode_keymap through REPL.jl setup_interface to
+       confirm shell_mode, help_mode, dummy_pkg_mode all receive the updated
+       backspace handler (lines 1637-1649)
+    3. OhMyREPL reference: Found explicit reference to OhMyREPL.jl#200 at
+       LineEdit.jl:2135 for transpose expression handling
+    4. Unicode handling: Verified char_move_left properly handles UTF-8
+       multi-byte sequences (LineEdit.jl:790-800)
+  additional_findings:
+    - |
+      The test at lineedit.jl:1143 shows "(|) + \" -> (\"\"))" but this appears
+      to have an extra closing paren. The test writes ")" then "(", resulting
+      in "()" with cursor at 1, then adds \" to get "(\"\")" but the expected
+      result shows "(\"\"))" with 5 chars. This may be a test quirk from
+      bracket auto-insertion adding extra parens.
+    - |
+      should_auto_close_quote is defined inside a let block (starting at
+      LineEdit.jl:2131), making it truly internal and inaccessible from
+      outside the module, unlike try_remove_paired_delimiter which is at
+      module scope.
+  verification_date: "2026-01-22"

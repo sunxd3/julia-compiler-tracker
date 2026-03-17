@@ -1,0 +1,536 @@
+schema_version: "1.0"
+pr:
+  number: 59966
+  title: "Remove some duplicate code from the GC mark phase"
+  url: "https://github.com/JuliaLang/julia/pull/59966"
+  author: "d-netto"
+  labels:
+    - "GC"
+  merged_at: "2025-10-30T02:53:35Z"
+  merge_commit_sha: "edda3d851b2090e4a547d48628c62fb36295fd50"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59966.diff"
+scope:
+  files_touched:
+    - "src/gc-debug.c"
+    - "src/gc-stock.c"
+    - "src/gc-stock.h"
+  components:
+    - "GC"
+    - "Runtime"
+  pipeline_stages:
+    - "Runtime"
+analysis:
+  intent:
+    summary: "Simplify the GC mark phase by removing a separate code path for single-threaded marking. The PR consolidates gc_mark_loop_serial and gc_mark_loop_parallel into a unified gc_mark_loop function, and renames internal functions for clarity."
+    issue_links: []
+    reviewer_note: |
+      PR description from d-netto: "This PR removes a function that special-cased
+      single-threaded marking."
+  direct_changes:
+    - summary: "Renamed global variable gc_master_tid to gc_initiator_tid for clearer naming"
+      component: "src/gc-stock.c"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "45"
+          url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-stock.c#L45"
+          snippet: |
+            // ID of mutator thread that triggered GC
+            _Atomic(int) gc_initiator_tid;
+    - summary: "Renamed gc_mark_loop_serial_ to gc_collect_neighbors - a clearer name for the function that processes the mark queue"
+      component: "src/gc-stock.c"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "2533-2543"
+          url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-stock.c#L2533-L2543"
+          snippet: |
+            void gc_collect_neighbors(jl_ptls_t ptls, jl_gc_markqueue_t *mq) JL_NOTSAFEPOINT
+            {
+                while (1) {
+                    void *new_obj = (void *)gc_ptr_queue_pop(&ptls->gc_tls.mark_queue);
+                    // No more objects to mark
+                    if (__unlikely(new_obj == NULL)) {
+                        return;
+                    }
+                    gc_mark_outrefs(ptls, mq, new_obj);
+                }
+            }
+    - summary: "Removed gc_drain_own_chunkqueue function - was only used by the removed serial mark loop"
+      component: "src/gc-stock.c"
+      evidence:
+        - source: "code_removed"
+          path: "src/gc-stock.c"
+          loc: "N/A"
+          snippet: |
+            // Drain items from worker's own chunkqueue
+            void gc_drain_own_chunkqueue(jl_ptls_t ptls, jl_gc_markqueue_t *mq) JL_NOTSAFEPOINT
+            {
+                jl_gc_chunk_t c = {.cid = GC_empty_chunk};
+                do {
+                    c = gc_chunkqueue_pop(mq);
+                    if (c.cid != GC_empty_chunk) {
+                        gc_mark_chunk(ptls, mq, &c);
+                        gc_mark_loop_serial_(ptls, mq);
+                    }
+                } while (c.cid != GC_empty_chunk);
+            }
+    - summary: "Removed gc_mark_loop_serial function - the dedicated single-threaded marking path"
+      component: "src/gc-stock.c"
+      evidence:
+        - source: "code_removed"
+          path: "src/gc-stock.c"
+          loc: "N/A"
+          snippet: |
+            // Main mark loop. Stack (allocated on the heap) of `jl_value_t *`
+            // is used to keep track of processed items. Maintaining this stack (instead of
+            // native one) avoids stack overflow when marking deep objects and
+            // makes it easier to implement parallel marking via work-stealing
+            JL_EXTENSION NOINLINE void gc_mark_loop_serial(jl_ptls_t ptls) JL_NOTSAFEPOINT
+            {
+                gc_mark_loop_serial_(ptls, &ptls->gc_tls.mark_queue);
+                gc_drain_own_chunkqueue(ptls, &ptls->gc_tls.mark_queue);
+            }
+    - summary: "Merged gc_mark_loop_parallel into unified gc_mark_loop with mark_loop_initiator parameter"
+      component: "src/gc-stock.c"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "2709-2726"
+          url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-stock.c#L2709-L2726"
+          snippet: |
+            void gc_mark_loop(jl_ptls_t ptls, int mark_loop_initiator) JL_NOTSAFEPOINT
+            {
+                if (mark_loop_initiator) {
+                    jl_atomic_store(&gc_initiator_tid, ptls->tid);
+                    jl_atomic_fetch_add(&gc_n_threads_marking, 1);
+                    gc_wake_all_for_marking(ptls);
+                    gc_mark_and_steal(ptls);
+                    jl_atomic_fetch_add(&gc_n_threads_marking, -1);
+                }
+                while (1) {
+                    int should_mark = gc_should_mark();
+                    if (!should_mark) {
+                        break;
+                    }
+                    gc_mark_and_steal(ptls);
+                    jl_atomic_fetch_add(&gc_n_threads_marking, -1);
+                }
+            }
+    - summary: "Updated gc_mark_and_steal to handle single-threaded case when gc_initiator_tid is -1"
+      component: "src/gc-stock.c"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "2545-2552"
+          url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-stock.c#L2545-L2552"
+          snippet: |
+            void gc_mark_and_steal(jl_ptls_t ptls) JL_NOTSAFEPOINT
+            {
+                jl_gc_markqueue_t *mq = &ptls->gc_tls.mark_queue;
+                jl_gc_markqueue_t *mq_initiator = mq;
+                int initiator_tid = jl_atomic_load(&gc_initiator_tid);
+                if (initiator_tid != -1) {
+                    mq_initiator = &gc_all_tls_states[initiator_tid]->gc_tls.mark_queue;
+                }
+    - summary: "Updated _jl_gc_collect to use unified marking code paths"
+      component: "src/gc-stock.c"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "3087-3093"
+          url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-stock.c#L3087-L3093"
+          snippet: |
+            if (single_threaded_mark) {
+                gc_mark_and_steal(ptls);
+            }
+            else {
+                gc_mark_loop(ptls, 1);
+            }
+            gc_mark_loop_barrier();
+    - summary: "Updated finalizer marking to use gc_mark_and_steal instead of gc_mark_loop_serial"
+      component: "src/gc-stock.c"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "3118-3131"
+          url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-stock.c#L3118-L3131"
+          snippet: |
+            gc_mark_finlist(mq, &finalizer_list_marked, orig_marked_len);
+            // "Flush" the mark stack before flipping the reset_age bit
+            // so that the objects are not incorrectly reset.
+            gc_mark_and_steal(ptls);
+            // Conservative marking relies on age to tell allocated objects
+            // and freelist entries apart.
+            mark_reset_age = !jl_gc_conservative_gc_support_enabled();
+            // Reset the age and old bit for any unmarked objects referenced by the
+            // `to_finalize` list. These objects are only reachable from this list
+            // and should not be referenced by any old objects so this won't break
+            // the GC invariant.
+            gc_mark_finlist(mq, &to_finalize, 0);
+            gc_mark_and_steal(ptls);
+            mark_reset_age = 0;
+    - summary: "Updated gc_mark_loop_barrier to reset gc_initiator_tid"
+      component: "src/gc-stock.c"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "2728-2732"
+          url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-stock.c#L2728-L2732"
+          snippet: |
+            void gc_mark_loop_barrier(void) JL_NOTSAFEPOINT
+            {
+                assert(jl_atomic_load_relaxed(&gc_n_threads_marking) == 0);
+                jl_atomic_store_relaxed(&gc_initiator_tid, -1);
+            }
+    - summary: "Updated gc-stock.h header declarations to reflect renamed/removed functions"
+      component: "src/gc-stock.h"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.h"
+          loc: "576-577"
+          url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-stock.h#L576-L577"
+          snippet: |
+            void gc_collect_neighbors(jl_ptls_t ptls, jl_gc_markqueue_t *mq) JL_NOTSAFEPOINT;
+            void gc_mark_queue_all_roots(jl_ptls_t ptls, jl_gc_markqueue_t *mq);
+    - summary: "Updated gc-debug.c verification code to use gc_collect_neighbors"
+      component: "src/gc-debug.c"
+      evidence:
+        - source: "code"
+          path: "src/gc-debug.c"
+          loc: "196"
+          url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-debug.c#L196"
+          snippet: |
+            gc_collect_neighbors(ptls, &mq);
+        - source: "code"
+          path: "src/gc-debug.c"
+          loc: "258"
+          url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-debug.c#L258"
+          snippet: |
+            gc_collect_neighbors(ptls, &mq);
+  secondary_effects:
+    - effect: "Simplified GC code maintainability by removing code duplication"
+      mechanism: |
+        Before this PR, there were two separate code paths for marking:
+        1. gc_mark_loop_serial: for single-threaded marking (jl_n_markthreads == 0 or gc_heap_snapshot_enabled)
+           - Called gc_mark_loop_serial_(ptls, mq) to process pointer queue
+           - Called gc_drain_own_chunkqueue(ptls, mq) to process chunk queue
+        2. gc_mark_loop_parallel: for multi-threaded marking
+           - Called gc_mark_and_steal(ptls) which handles both queues with work stealing
+
+        After this PR, there is one unified path:
+        1. For single-threaded: gc_mark_and_steal(ptls) called directly
+           - gc_initiator_tid is -1, so mq_initiator defaults to current thread's queue
+           - No work stealing from other threads (none exist in this mode)
+        2. For multi-threaded: gc_mark_loop(ptls, 1) which coordinates threads
+           - Sets gc_initiator_tid to the initiating thread
+           - Wakes worker threads and calls gc_mark_and_steal
+
+        The key insight is that gc_mark_and_steal already handles the single-threaded
+        case gracefully when gc_initiator_tid == -1 and jl_n_markthreads == 0:
+        - All the "steal" loops iterate 0 times (no parallel collector threads)
+        - mq_initiator points to current thread's queue (self)
+      downstream_surfaces:
+        - "GC internals"
+      likelihood: "high"
+      impact: "low"
+    - effect: "Renamed gc_master_tid to gc_initiator_tid for clarity"
+      mechanism: |
+        The terminology change from "master" to "initiator" better describes the role:
+        - This is the mutator thread that triggered the GC collection
+        - It "initiates" the mark phase, not "masters" other threads
+        - More inclusive terminology that matches the actual behavior
+
+        Used in:
+        - gc_mark_and_steal: reads gc_initiator_tid to know whose queue to steal from last
+        - gc_should_mark: reads gc_initiator_tid to check work in initiator's queue
+        - gc_mark_loop: writes gc_initiator_tid when starting as initiator
+        - gc_mark_loop_barrier: resets gc_initiator_tid to -1 after marking completes
+      downstream_surfaces:
+        - "GC debugging and profiling tools that inspect these variables"
+      likelihood: "medium"
+      impact: "low"
+    - effect: "gc_collect_neighbors now available for gc-debug.c verification"
+      mechanism: |
+        The renamed function gc_collect_neighbors (was gc_mark_loop_serial_) is used by
+        gc-debug.c's GC_VERIFY functionality:
+
+        gc_verify_track():
+          - Clears marks, queues all roots, then calls gc_collect_neighbors
+          - Used to track down missing write barriers in debug mode
+
+        gc_verify():
+          - Similar pattern for full GC verification
+
+        The function name change from gc_mark_loop_serial_ to gc_collect_neighbors
+        better describes what it does: collect (mark) neighboring objects from the queue.
+      downstream_surfaces:
+        - "GC_VERIFY debug functionality"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "gc_mark_loop_serial_ symbol"
+        change: "Renamed to gc_collect_neighbors; declared in gc-stock.h"
+        affected_tools: []
+      - field: "gc_mark_loop_serial symbol"
+        change: "Removed; functionality merged into gc_mark_and_steal"
+        affected_tools: []
+      - field: "gc_mark_loop_parallel symbol"
+        change: "Merged into gc_mark_loop with mark_loop_initiator parameter"
+        affected_tools: []
+      - field: "gc_master_tid variable"
+        change: "Renamed to gc_initiator_tid; still _Atomic(int)"
+        affected_tools:
+          - "Any external tooling that reads GC internals via debugger/memory inspection"
+    behavioral:
+      - change: "No behavioral change; this is a pure refactoring"
+        affected_surfaces: []
+  performance:
+    compile_time:
+      - impact: "No compile-time impact; purely runtime GC code"
+    runtime:
+      - impact: |
+          ESTIMATED: Negligible to no performance change.
+
+          Single-threaded marking path analysis:
+          - Before: gc_mark_loop_serial called gc_mark_loop_serial_ + gc_drain_own_chunkqueue
+          - After: gc_mark_and_steal called directly
+
+          The new path does slightly more work per iteration:
+          - Checks if gc_initiator_tid != -1 (always false in single-threaded mode)
+          - Checks steal loops that iterate 0 times (jl_n_markthreads == 0)
+
+          However, these are trivial constant-time operations compared to the actual
+          marking work. The loop bounds are computed once and the loops simply don't
+          execute when there are no parallel collector threads.
+
+          Multi-threaded marking is unchanged in behavior.
+  risk:
+    level: "low"
+    rationale:
+      - "Change is a pure refactoring with no algorithmic changes"
+      - "All call sites updated consistently"
+      - "gc_mark_and_steal already handled the single-threaded case correctly"
+      - "gc-debug.c verification code continues to work with renamed function"
+      - "No external API changes; all symbols are internal to the GC"
+      - "PR author is d-netto, a core GC maintainer"
+  call_path_analysis:
+    summary: "Full call chains for GC marking in both single and multi-threaded modes"
+    chain: |
+      _jl_gc_collect(ptls, collection)  [gc-stock.c:3040]
+        int single_threaded_mark = (jl_n_markthreads == 0 || gc_heap_snapshot_enabled)  [line 3058]
+
+        SINGLE-THREADED PATH (single_threaded_mark == true):
+          -> gc_mark_and_steal(ptls)  [gc-stock.c:3088]
+               mq_initiator = mq  (because gc_initiator_tid == -1)  [line 2548]
+               -> pop from own queue, mark, steal loops iterate 0 times
+          -> gc_mark_loop_barrier()  [gc-stock.c:3093]
+               resets gc_initiator_tid to -1
+
+        MULTI-THREADED PATH (single_threaded_mark == false):
+          -> gc_mark_loop(ptls, 1)  [gc-stock.c:3091]
+               mark_loop_initiator = 1, so:
+               -> jl_atomic_store(&gc_initiator_tid, ptls->tid)  [line 2712]
+               -> jl_atomic_fetch_add(&gc_n_threads_marking, 1)  [line 2713]
+               -> gc_wake_all_for_marking(ptls)  [line 2714]
+                    wakes up gc_threads_cond
+               -> gc_mark_and_steal(ptls)  [line 2715]
+                    mq_initiator = initiator's queue  [line 2551]
+                    processes own queue, steals from workers, steals from initiator
+               -> jl_atomic_fetch_add(&gc_n_threads_marking, -1)  [line 2716]
+               -> while loop: gc_should_mark() -> gc_mark_and_steal() if more work
+          -> gc_mark_loop_barrier()  [gc-stock.c:3093]
+
+        WORKER THREAD PATH (parallel GC threads):
+          jl_parallel_gc_threadfun(arg)  [gc-stock.c:3667]
+            -> waits on gc_threads_cond
+            -> gc_mark_loop(ptls, 0)  [gc-stock.c:3681]
+                 mark_loop_initiator = 0, so skips initiator setup
+                 -> while loop: gc_should_mark() -> gc_mark_and_steal() if work available
+
+        FINALIZER MARKING (after main marking):
+          gc_mark_finlist(mq, &finalizer_list_marked, orig_marked_len)  [line 3118]
+          gc_mark_and_steal(ptls)  [line 3121]  <- was gc_mark_loop_serial
+          gc_mark_finlist(mq, &to_finalize, 0)  [line 3129]
+          gc_mark_and_steal(ptls)  [line 3130]  <- was gc_mark_loop_serial
+
+        GC VERIFICATION (GC_VERIFY mode):
+          gc_verify(ptls)  [gc-debug.c:228]
+            -> gc_mark_queue_all_roots(ptls, &mq)
+            -> gc_mark_finlist(...)
+            -> gc_collect_neighbors(ptls, &mq)  [line 258]  <- was gc_mark_loop_serial_
+
+          gc_verify_track(ptls)  [gc-debug.c:169]
+            -> similar pattern, calls gc_collect_neighbors [line 196]
+  open_questions:
+    - question: "Why is gc_mark_and_steal used instead of gc_collect_neighbors for finalizer marking?"
+      answer: |
+        gc_mark_and_steal handles both pointer queue AND chunk queue, while gc_collect_neighbors
+        only handles the pointer queue. The finalizer list can produce large arrays that get
+        split into chunks, so gc_mark_and_steal is the correct choice.
+
+        gc_collect_neighbors (formerly gc_mark_loop_serial_) only processes:
+          gc_ptr_queue_pop(&ptls->gc_tls.mark_queue)
+
+        gc_mark_and_steal processes both:
+          gc_ptr_queue_pop(mq)      - pointer queue
+          gc_chunkqueue_pop(mq)     - chunk queue (for large arrays)
+
+        The old gc_mark_loop_serial called both gc_mark_loop_serial_ (pointers) and
+        gc_drain_own_chunkqueue (chunks). The new code uses gc_mark_and_steal which
+        handles both in a single unified loop.
+    - question: "Could gc_collect_neighbors be removed entirely?"
+      answer: |
+        No, because gc-debug.c's GC_VERIFY mode uses it. The verification code creates
+        a separate mark queue and needs to process it without the work-stealing logic.
+        gc_collect_neighbors is the minimal function for this purpose.
+  recommendations:
+    - "No action needed for downstream package maintainers; this is internal GC refactoring"
+    - "If debugging GC issues, note the renamed symbols: gc_master_tid -> gc_initiator_tid"
+    - "The gc_collect_neighbors function is the new name for the basic queue processing"
+  evidence_tests:
+    - summary: "No new tests added; change is a pure refactoring that maintains existing behavior. Existing GC tests and CI continue to exercise this code path."
+      path: "N/A"
+      loc: "N/A"
+      url: "N/A"
+      snippet: |
+        # The change is exercised by all Julia code that triggers GC.
+        # GC_VERIFY mode in gc-debug.c also exercises gc_collect_neighbors.
+        # CI runs comprehensive tests that exercise both single and multi-threaded GC.
+
+# Independent reviewer verification (second pass)
+reviewer_analysis:
+  reviewer: "claude-opus-4-5-20251101"
+  date: "2026-01-21"
+  verification_steps:
+    - step: "Read PR metadata and description from pr_59966.json"
+    - step: "Cloned Julia repo and checked out merge commit edda3d851b2090e4a547d48628c62fb36295fd50"
+    - step: "Examined full gc-stock.c context around mark loop functions (lines 2500-2800, 3040-3150)"
+    - step: "Read gc-stock.h header declarations including gc_first/last_parallel_collector_thread_id"
+    - step: "Read gc-debug.c GC_VERIFY code that uses gc_collect_neighbors"
+    - step: "Traced call chains from _jl_gc_collect through both single and multi-threaded paths"
+    - step: "Analyzed how gc_mark_and_steal handles the single-threaded case (gc_initiator_tid == -1)"
+    - step: "Searched for all usages of gc_initiator_tid and gc_mark_and_steal with rg"
+    - step: "Verified all call sites were updated consistently"
+    - step: "Analyzed gc_first/last_parallel_collector_thread_id bounds for single-threaded case"
+  findings:
+    - "Change is a pure refactoring with no behavioral differences"
+    - "gc_mark_and_steal was already capable of single-threaded operation"
+    - "The steal loops correctly iterate 0 times when jl_n_markthreads == 0"
+    - "gc_collect_neighbors is kept for gc-debug.c verification code"
+    - "Terminology improvement: master -> initiator better describes the role"
+  confidence: "high"
+  risk_assessment_agrees: true
+  additional_risks_found: false
+  additional_observations:
+    - observation: "Stale comment reference in gc_should_mark documentation"
+      details: |
+        Line 2639 contains a stale comment that still references gc_mark_loop_serial:
+        "...because we call `gc_mark_loop_serial` after marking the finalizer list..."
+
+        This function was removed by this PR and replaced with gc_mark_and_steal.
+        The comment should be updated to reference gc_mark_and_steal instead.
+        This is a documentation-only issue with no functional impact.
+      evidence:
+        source: "code"
+        path: "src/gc-stock.c"
+        loc: "2636-2641"
+        url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-stock.c#L2636-L2641"
+        snippet: |
+          * - No work item shall be stolen from the initiator thread (i.e. mutator thread which started
+          * GC and which helped the `jl_n_markthreads` - 1 threads to mark) after
+          * `gc_should_mark` observes that `gc_n_threads_marking` is zero. This property is
+          * necessary because we call `gc_mark_loop_serial` after marking the finalizer list in
+          * `_jl_gc_collect`, and want to ensure that we have the serial mark-loop semantics there,
+          * and that no work is stolen from us at that point.
+    - observation: "Steal loop bounds design ensures no-op for single-threaded mode"
+      details: |
+        The steal loops in gc_mark_and_steal are carefully designed to be no-ops when
+        jl_n_markthreads == 0. This is achieved through clever bounds in gc-stock.h:
+
+        gc_first_parallel_collector_thread_id():
+          if (jl_n_markthreads == 0) return 0;
+          else return gc_first_tid;
+
+        gc_last_parallel_collector_thread_id():
+          if (jl_n_markthreads == 0) return -1;  // KEY: returns -1
+          else return gc_first_tid + jl_n_markthreads - 1;
+
+        This means when jl_n_markthreads == 0:
+        - first = 0, last = -1
+        - The loop "for (i = first; i <= last; i++)" becomes "for (i = 0; i <= -1; i++)"
+        - This loop condition (0 <= -1) is immediately false, so 0 iterations occur
+        - The random steal loop "for (i = 0; i < 4*jl_n_markthreads; i++)" also runs 0 times
+      evidence:
+        source: "code"
+        path: "src/gc-stock.h"
+        loc: "372-386"
+        url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-stock.h#L372-L386"
+        snippet: |
+          STATIC_INLINE int gc_first_parallel_collector_thread_id(void) JL_NOTSAFEPOINT
+          {
+              if (jl_n_markthreads == 0) {
+                  return 0;
+              }
+              return gc_first_tid;
+          }
+
+          STATIC_INLINE int gc_last_parallel_collector_thread_id(void) JL_NOTSAFEPOINT
+          {
+              if (jl_n_markthreads == 0) {
+                  return -1;
+              }
+              return gc_first_tid + jl_n_markthreads - 1;
+          }
+    - observation: "gc_initiator_tid initialization edge case"
+      details: |
+        gc_initiator_tid is declared as a global _Atomic(int) without explicit initialization,
+        which means it's zero-initialized per C standard. The code relies on it being -1
+        for the single-threaded path to avoid dereferencing gc_all_tls_states[initiator_tid].
+
+        On the FIRST GC call:
+        - gc_initiator_tid == 0 (default initialization)
+        - In gc_mark_and_steal: initiator_tid != -1 is TRUE
+        - mq_initiator = &gc_all_tls_states[0]->gc_tls.mark_queue
+
+        This is NOT a bug because:
+        1. Thread 0 is typically the main Julia thread doing the GC
+        2. Even if ptls->tid != 0, accessing gc_all_tls_states[0] is valid
+        3. In single-threaded mode, no actual work stealing occurs (loops are no-ops)
+        4. After gc_mark_loop_barrier(), gc_initiator_tid is reset to -1
+
+        Subsequent GCs will have gc_initiator_tid == -1 correctly.
+        This is a minor inefficiency on the first GC only, not a correctness issue.
+      evidence:
+        source: "code"
+        path: "src/gc-stock.c"
+        loc: "30"
+        url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-stock.c#L30"
+        snippet: |
+          // `tid` of mutator thread that triggered GC
+          _Atomic(int) gc_initiator_tid;
+    - observation: "GC_VERIFY mode is limited to single-threaded GC"
+      details: |
+        Both gc_verify() and gc_verify_track() check for jl_n_gcthreads != 0 and return early
+        if true. This means gc_collect_neighbors is only called in single-threaded mode,
+        which is consistent with its design as a simple non-stealing mark loop.
+      evidence:
+        source: "code"
+        path: "src/gc-debug.c"
+        loc: "169-173,228-234"
+        url: "https://github.com/JuliaLang/julia/blob/edda3d851b2090e4a547d48628c62fb36295fd50/src/gc-debug.c#L169-L173"
+        snippet: |
+          static void gc_verify_track(jl_ptls_t ptls)
+          {
+              // `gc_verify_track` is limited to single-threaded GC
+              if (jl_n_gcthreads != 0)
+                  return;
+          ...
+          void gc_verify(jl_ptls_t ptls)
+          {
+              // `gc_verify` is limited to single-threaded GC
+              if (jl_n_gcthreads != 0) {
+                  jl_safe_printf("Warn. GC verify disabled in multi-threaded GC\n");
+                  return;
+              }

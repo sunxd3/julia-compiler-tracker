@@ -1,0 +1,250 @@
+schema_version: "1.0"
+
+pr:
+  number: 60076
+  title: "Term hist UI tweaks"
+  url: "https://github.com/JuliaLang/julia/pull/60076"
+  author: "tecosaur"
+  labels:
+    - "REPL"
+    - "display and printing"
+    - "stdlib"
+    - "don't squash"
+    - "backport 1.13"
+  merged_at: "2025-11-13T18:00:23Z"
+  merge_commit_sha: "41e50a77e6f6b9b2cfea9056529224c56923dac6"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60076.diff"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/src/History/resumablefiltering.jl"
+    - "stdlib/REPL/test/history.jl"
+  components:
+    - "REPL.History"
+  pipeline_stages: []
+  # Note: This PR does NOT touch any compiler stages - it is purely a REPL stdlib UI change
+
+analysis:
+  intent:
+    summary: |
+      This PR makes several "innocuous fixes/tweaks" to the REPL history search UI:
+      1. Changes mode filter syntax from prefix '>shell' to postfix 'shell>'
+      2. Improves help documentation clarity
+      3. Fixes edge cases with escaped separator handling
+      Closes issue #60036.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60036"
+
+  direct_changes:
+    - summary: "Changed mode filter syntax from prefix (>mode) to postfix (mode>)"
+      component: "REPL.History.ConditionSet"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/History/resumablefiltering.jl"
+          loc: "27"
+          url: "https://github.com/JuliaLang/julia/blob/41e50a77e6f6b9b2cfea9056529224c56923dac6/stdlib/REPL/src/History/resumablefiltering.jl#L27"
+          snippet: |
+            const FILTER_PREFIXES = ('!', '`', '=', '/', '~')
+        - source: "code"
+          path: "stdlib/REPL/src/History/resumablefiltering.jl"
+          loc: "139-145"
+          url: "https://github.com/JuliaLang/julia/blob/41e50a77e6f6b9b2cfea9056529224c56923dac6/stdlib/REPL/src/History/resumablefiltering.jl#L139-L145"
+          snippet: |
+            else
+                rang = something(findfirst('>', cond), typemax(Int))
+                if rang == something(findfirst(isspace, cond), ncodeunits(cond) + 1) - 1
+                    mode = @view cond[1:prevind(cond, rang)]
+                    push!(condset.modes, SubString(lowercase(mode)))
+                    cond = @view cond[rang + 1:end]
+                end
+
+    - summary: "Removed '>' from FILTER_PREFIXES constant"
+      component: "REPL.History"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/History/resumablefiltering.jl"
+          loc: "27"
+          url: "https://github.com/JuliaLang/julia/blob/41e50a77e6f6b9b2cfea9056529224c56923dac6/stdlib/REPL/src/History/resumablefiltering.jl#L27"
+          snippet: |
+            # Before: const FILTER_PREFIXES = ('!', '`', '=', '/', '~', '>')
+            # After:  const FILTER_PREFIXES = ('!', '`', '=', '/', '~')
+
+    - summary: "Updated help text to reflect new mode> syntax and clarify search behavior"
+      component: "REPL.History"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/History/resumablefiltering.jl"
+          loc: "56-71"
+          url: "https://github.com/JuliaLang/julia/blob/41e50a77e6f6b9b2cfea9056529224c56923dac6/stdlib/REPL/src/History/resumablefiltering.jl#L56-L71"
+          snippet: |
+            By default, each word in the search string is looked for in any order.
+            Should the search string start with {REPL_History_search_prefix:xyz>}, then only xyz-mode entries are considered.
+
+            Different search modes are available via prefixes, as follows:
+            {emphasis:*} {REPL_History_search_prefix:=} looks for exact matches
+            {emphasis:*} {REPL_History_search_prefix:!} {italic:excludes} exact matches
+            {emphasis:*} {REPL_History_search_prefix:/} performs a regexp search
+            {emphasis:*} {REPL_History_search_prefix:~} looks for fuzzy matches
+            {emphasis:*} {REPL_History_search_prefix:`} looks for an initialism (text with matching initials)
+
+    - summary: "Fixed edge case in escaped separator parsing using SubString slicing"
+      component: "REPL.History.ConditionSet"
+      details: |
+        The fix addresses two issues in separator handling:
+        1. Changed from `mark:pos - 1` to `mark:prevind(spec, pos)` for proper Unicode handling.
+           The old code used byte arithmetic which could split multi-byte UTF-8 characters.
+        2. Changed from `collect(codeunits(str))` to `codeunits(spec)[mark:pos-1]` which
+           avoids creating an intermediate array copy.
+        3. Added empty!(dropbytes) call to clear the dropbytes array after use.
+        4. The final segment handling (lines 180-186) now uses `SubString(spec, mark)`
+           instead of `SubString(spec, mark:lastind)` for the no-dropbytes case.
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/History/resumablefiltering.jl"
+          loc: "167-173"
+          url: "https://github.com/JuliaLang/julia/blob/41e50a77e6f6b9b2cfea9056529224c56923dac6/stdlib/REPL/src/History/resumablefiltering.jl#L167-L173"
+          snippet: |
+            str = if isempty(dropbytes)
+                SubString(spec, mark:prevind(spec, pos))
+            else
+                subbytes = deleteat!(codeunits(spec)[mark:pos-1], dropbytes)
+                empty!(dropbytes)
+                SubString(convert(S, String(subbytes)))
+            end
+        - source: "code"
+          path: "stdlib/REPL/src/History/resumablefiltering.jl"
+          loc: "179-186"
+          url: "https://github.com/JuliaLang/julia/blob/41e50a77e6f6b9b2cfea9056529224c56923dac6/stdlib/REPL/src/History/resumablefiltering.jl#L179-L186"
+          snippet: |
+            if mark <= lastind
+                str = if isempty(dropbytes)
+                    SubString(spec, mark)
+                else
+                    subbytes = deleteat!(codeunits(spec)[mark:end], dropbytes)
+                    empty!(dropbytes)
+                    SubString(convert(S, String(subbytes)))
+                end
+
+    - summary: "Added test for escaped separator edge case"
+      component: "REPL.History tests"
+      evidence:
+        - source: "test"
+          path: "stdlib/REPL/test/history.jl"
+          loc: "234-235"
+          url: "https://github.com/JuliaLang/julia/blob/41e50a77e6f6b9b2cfea9056529224c56923dac6/stdlib/REPL/test/history.jl#L234-L235"
+          snippet: |
+            cset = ConditionSet("1 \\; 2")
+            @test cset.words == [SubString("1 ; 2")]
+
+  secondary_effects:
+    - effect: "No secondary effects on compiler or type inference"
+      mechanism: |
+        This PR only modifies REPL history search UI code in stdlib/REPL.
+        The call chain is entirely within the REPL stdlib:
+          User search query string
+            -> ConditionSet(spec::AbstractString)  [resumablefiltering.jl:109]
+            -> addcond!(condset, cond)  [resumablefiltering.jl:110]
+            -> FilterSpec(cset::ConditionSet)  [resumablefiltering.jl:224]
+            -> filterchunkrev!(out, candidates, spec, ...)  [resumablefiltering.jl:278]
+        No compiler internals are touched.
+      downstream_surfaces: []
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Display highlighting for mode filters uses different code path"
+      mechanism: |
+        The display.jl file uses FILTER_PREFIXES at lines 215 and 220 for syntax highlighting:
+          if patend + 1 < ncodeunits(query) && query[patend+2] in FILTER_PREFIXES  [display.jl:215]
+          elseif ncodeunits(query) == 1 && query[1] in FILTER_PREFIXES  [display.jl:220]
+
+        Since '>' was removed from FILTER_PREFIXES, it is no longer highlighted as a prefix
+        character. However, mode filters are still properly highlighted through a different
+        code path in display.jl that iterates over parsed conditions:
+          redisplay_prompt() creates styconds = ConditionSet(styquery)  [display.jl:176]
+            -> iterates over ("mode", styconds.modes)  [display.jl:186]
+            -> face!(styquery[start:start], :REPL_History_search_prefix)  [display.jl:194]
+
+        This means "shell>" will still be properly styled in the UI, just through
+        the modes array rather than direct prefix character detection.
+      downstream_surfaces:
+        - "REPL.History display rendering"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/History/display.jl"
+          loc: "176-186"
+          url: "https://github.com/JuliaLang/julia/blob/41e50a77e6f6b9b2cfea9056529224c56923dac6/stdlib/REPL/src/History/display.jl#L176-L186"
+          snippet: |
+            styconds = ConditionSet(styquery)
+            qpos = position(pstate.input_buffer)
+            kindname = ""
+            patend = 0
+            for (name, substrs) in (("words", styconds.words),
+                                    ("exact", styconds.exacts),
+                                    ("negated", styconds.negatives),
+                                    ("initialism", styconds.initialisms),
+                                    ("regexp", styconds.regexps),
+                                    ("fuzzy", styconds.fuzzy),
+                                    ("mode", styconds.modes))
+
+  compatibility:
+    internal_api:
+      - field: "FILTER_PREFIXES constant"
+        change: "Removed '>' from the tuple of prefix characters"
+        affected_tools: []
+        note: |
+          This constant is internal to REPL.History module. Used by:
+          - resumablefiltering.jl:113 for addcond! parsing
+          - display.jl:215,220 for syntax highlighting detection
+          Both uses are properly updated to handle the new mode> syntax.
+      - field: "Mode filter syntax"
+        change: "Changed from '>mode' prefix to 'mode>' postfix"
+        affected_tools: []
+        note: "User-facing syntax change, documented in help text"
+      - field: "addcond! internal function"
+        change: "Removed '>' from prefix check at line 113, added postfix parsing logic at lines 139-145"
+        affected_tools: []
+        note: "This is a nested function inside ConditionSet constructor, not publicly accessible"
+    behavioral:
+      - change: "Users must now type 'shell>' instead of '>shell' to filter by REPL mode"
+        impact: "low"
+        note: "Breaking change for users familiar with old syntax; documented in help"
+      - change: "Escaped separators with surrounding spaces now preserved correctly"
+        impact: "low"
+        note: "Bug fix - '1 \\; 2' now correctly parses as single word '1 ; 2'"
+
+  performance:
+    compile_time: []
+    runtime:
+      - description: |
+          ESTIMATED: No measurable performance impact. The mode parsing logic is slightly
+          different (postfix check vs prefix check) but operates on the same O(n) complexity
+          where n is the search query length.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are isolated to REPL stdlib, not compiler internals"
+      - "No changes to type inference, codegen, or optimization passes"
+      - "Only affects interactive REPL history search UI"
+      - "Comprehensive tests added/updated for the new syntax"
+      - "Backported to 1.13 indicating stability confidence"
+
+  open_questions: []
+
+  recommendations:
+    - "This PR has no impact on downstream compiler tooling (JET, Enzyme, GPUCompiler)"
+    - "Users of REPL history search will need to adjust to new mode> syntax"
+
+# Summary: This is a REPL stdlib UI change, NOT a compiler PR.
+# It modifies how users specify REPL mode filters in history search.
+# No downstream package impact for compiler-related tools.
+
+# Reviewer Enhancement Notes (independent analysis):
+# - Verified FILTER_PREFIXES usage in display.jl (lines 215, 220) - no regression
+#   because mode highlighting uses styconds.modes path (line 186)
+# - Confirmed Unicode-safe substring handling via prevind() instead of byte arithmetic
+# - Traced full call chains: ConditionSet -> addcond! -> FilterSpec -> filterchunkrev!
+# - display.jl callers verified: redisplay_prompt uses ConditionSet for highlighting
+# - search.jl callers verified: line 127 creates ConditionSet from query string

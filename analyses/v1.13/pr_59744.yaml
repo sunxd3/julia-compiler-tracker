@@ -1,0 +1,181 @@
+schema_version: "1.0"
+
+pr:
+  number: 59744
+  title: "Add 'See also' sections to regex function docstring"
+  url: "https://github.com/JuliaLang/julia/pull/59744"
+  author: "GianmarcoCuppari"
+  labels:
+    - "docs"
+  merged_at: "2025-10-11T23:45:17Z"
+  merge_commit_sha: "c733abe218cbc748dc29641d3d69752c1880a4e3"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59744.diff"
+
+scope:
+  files_touched:
+    - "base/regex.jl"
+  components:
+    - "Base.Regex"
+  pipeline_stages: []
+  category: "documentation"
+  patch_stats:
+    additions: 11
+    deletions: 2
+    total_changes: 13
+    note: "All changes are within docstrings (triple-quoted strings), no executable code modified"
+
+analysis:
+  intent:
+    summary: |
+      Add "See also" sections to regex-related function docstrings to improve
+      documentation discoverability by cross-linking related functions. This
+      fixes issue #56752 which requested improved documentation navigation
+      between regex functions.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/56752"
+    issue_context: |
+      Issue #56752 opened by @jariji on 2024-12-04 requested: "The regex function
+      docstrings could link to each other, to remind users what they all are."
+      The issue identified functions including match, eachmatch, findall, findfirst,
+      findnext, count, replace, occursin, startswith, endswith, chopprefix, chopsuffix,
+      Regex and r"" as candidates for cross-referencing. Labeled as "docs" and
+      "good first issue".
+    review_context: |
+      Reviewer LilithHafner noted that some functions (startswith, endswith) already
+      had "See also" sections. Rather than creating duplicates, the contributor
+      consolidated entries by extending existing references. The PR was approved
+      on 2025-10-08 and merged by IanButterworth on 2025-10-11.
+
+  direct_changes:
+    - summary: "Modified existing 'See also' section in startswith(::AbstractString, ::Regex) to add match reference"
+      component: "Base.Regex"
+      change_type: "documentation"
+      modification_type: "extended_existing"
+      evidence:
+        - source: "diff"
+          path: "base/regex.jl"
+          loc: "327"
+          url: "https://github.com/JuliaLang/julia/blob/c733abe218cbc748dc29641d3d69752c1880a4e3/base/regex.jl#L327"
+          before: |
+            See also [`occursin`](@ref) and [`endswith`](@ref).
+          after: |
+            See also [`occursin`](@ref), [`endswith`](@ref), [`match`](@ref)
+
+    - summary: "Modified existing 'See also' section in endswith(::AbstractString, ::Regex) to add match reference"
+      component: "Base.Regex"
+      change_type: "documentation"
+      modification_type: "extended_existing"
+      evidence:
+        - source: "diff"
+          path: "base/regex.jl"
+          loc: "359"
+          url: "https://github.com/JuliaLang/julia/blob/c733abe218cbc748dc29641d3d69752c1880a4e3/base/regex.jl#L359"
+          before: |
+            See also [`occursin`](@ref) and [`startswith`](@ref).
+          after: |
+            See also [`occursin`](@ref), [`startswith`](@ref), [`match`](@ref)
+
+    - summary: "Added new 'See also' section to match function docstring"
+      component: "Base.Regex"
+      change_type: "documentation"
+      modification_type: "new_section"
+      evidence:
+        - source: "code"
+          path: "base/regex.jl"
+          loc: "424-426"
+          url: "https://github.com/JuliaLang/julia/blob/c733abe218cbc748dc29641d3d69752c1880a4e3/base/regex.jl#L424-L426"
+          snippet: |
+            # See also
+            [`eachmatch`](@ref), [`occursin`](@ref), [`findfirst`](@ref)
+
+    - summary: "Added new 'See also' section to count function docstring"
+      component: "Base.Regex"
+      change_type: "documentation"
+      modification_type: "new_section"
+      evidence:
+        - source: "code"
+          path: "base/regex.jl"
+          loc: "564-566"
+          url: "https://github.com/JuliaLang/julia/blob/c733abe218cbc748dc29641d3d69752c1880a4e3/base/regex.jl#L564-L566"
+          snippet: |
+            # See also
+            [`eachmatch`](@ref), [`occursin`](@ref), [`findall`](@ref)
+
+    - summary: "Added new 'See also' section to eachmatch function docstring"
+      component: "Base.Regex"
+      change_type: "documentation"
+      modification_type: "new_section"
+      evidence:
+        - source: "code"
+          path: "base/regex.jl"
+          loc: "800-802"
+          url: "https://github.com/JuliaLang/julia/blob/c733abe218cbc748dc29641d3d69752c1880a4e3/base/regex.jl#L800-L802"
+          snippet: |
+            # See also
+            [`match`](@ref), [`findall`](@ref), [`count`](@ref)
+
+  secondary_effects: []
+
+  compatibility:
+    internal_api: []
+    behavioral: []
+    notes: |
+      This PR makes no changes to any function implementations, type definitions,
+      or APIs. All changes are confined to docstrings (documentation strings).
+      There are no compatibility concerns.
+
+  performance:
+    compile_time: []
+    runtime: []
+    notes: "No performance impact - documentation-only change."
+
+  downstream_impact:
+    affected_packages: []
+    notes: |
+      This PR has no impact on downstream packages. The changes are purely
+      documentation improvements that enhance discoverability of related
+      regex functions in the help system.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Documentation-only changes with no code modifications"
+      - "No functional behavior changes"
+      - "No API surface changes"
+      - "Labeled as 'docs' by maintainers"
+      - "Simple addition of cross-references between existing functions"
+      - "All 7 CI checks passed before merge"
+      - "Independently verified: patch modifies only docstring content in base/regex.jl"
+
+  open_questions: []
+
+  recommendations:
+    - "No action required for downstream packages"
+    - "This is a documentation improvement with no breaking changes"
+
+  independent_verification:
+    date: "2026-01-21"
+    findings: |
+      Independent analysis confirmed:
+      1. All changes are confined to docstrings (documentation strings) only
+      2. No function implementations, type definitions, or code paths are modified
+      3. The patch (+11/-2 lines) exclusively modifies documentation markup
+      4. startswith and endswith had pre-existing "See also" sections that were
+         extended (added match reference), not replaced
+      5. match, count, and eachmatch received entirely new "See also" sections
+      6. Cross-references use standard Julia docstring syntax [@ref] which
+         has no runtime impact
+    verification_method: |
+      - Examined full patch data from pr_59744.json
+      - Cross-referenced with linked issue #56752
+      - Reviewed PR discussion for feedback context
+      - Verified file touched (base/regex.jl) is not in compiler pipeline
+
+changelog:
+  category: "Documentation"
+  entry: |
+    Added "See also" sections to regex function docstrings (`match`, `eachmatch`,
+    `count`, `startswith`, `endswith`) to improve documentation navigation and
+    discoverability of related pattern-matching functions.
+  breaking: false
+  deprecation: false

@@ -1,0 +1,273 @@
+schema_version: "1.0"
+
+pr:
+  number: 60299
+  title: "Fix buffer overflow in jloptions"
+  url: "https://github.com/JuliaLang/julia/pull/60299"
+  author: "vchuravy"
+  labels:
+    - "bugfix"
+  merged_at: "2025-12-02T17:32:18Z"
+  merge_commit_sha: "e38d8abbbe0a105fd584c7b48d9ceec1b21c49fe"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60299.diff"
+
+scope:
+  files_touched:
+    - "src/jloptions.c"
+  components:
+    - "Runtime"
+  pipeline_stages:
+    - "Initialization"
+
+analysis:
+  intent:
+    summary: |
+      Fix a 2-byte heap buffer overflow in jl_parse_opts() that occurs when parsing
+      command-line thread options. The bug manifested when nthreadpools was set to 1
+      (single thread pool): the code correctly allocated space for 1 pool (2 bytes)
+      but unconditionally wrote to both ntpp[0] and ntpp[1], causing an out-of-bounds
+      write. This was detectable by AddressSanitizer and could cause undefined behavior.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60298"
+
+  direct_changes:
+    - summary: |
+        Add conditional guard before writing to ntpp[1]. The OLD buggy code correctly
+        sized the allocation based on jl_options.nthreadpools, but unconditionally
+        wrote to both array slots. The fix adds a conditional check so ntpp[1] is
+        only written when nthreadpools == 2.
+      component: "Runtime (jloptions.c)"
+      evidence:
+        - source: "code_after"
+          path: "src/jloptions.c"
+          loc: "728-733"
+          url: "https://github.com/JuliaLang/julia/blob/e38d8abbbe0a105fd584c7b48d9ceec1b21c49fe/src/jloptions.c#L728-L733"
+          snippet: |
+            assert(jl_options.nthreadpools == 1 || jl_options.nthreadpools == 2);
+            int16_t *ntpp = (int16_t *)malloc_s(jl_options.nthreadpools * sizeof(int16_t));
+            ntpp[0] = (int16_t)nthreads;
+            if (jl_options.nthreadpools == 2)
+                ntpp[1] = (int16_t)nthreadsi;
+            jl_options.nthreads_per_pool = ntpp;
+
+    - summary: |
+        The buggy code BEFORE the fix: allocation was correctly sized, but the write
+        to ntpp[1] was unconditional, causing overflow when nthreadpools == 1.
+      component: "Runtime (jloptions.c)"
+      evidence:
+        - source: "code_before"
+          path: "src/jloptions.c"
+          loc: "728-732 (before fix)"
+          snippet: |
+            int16_t *ntpp = (int16_t *)malloc_s(jl_options.nthreadpools * sizeof(int16_t));
+            ntpp[0] = (int16_t)nthreads;
+            ntpp[1] = (int16_t)nthreadsi;  // BUG: unconditional write past allocated buffer when nthreadpools == 1
+            jl_options.nthreads_per_pool = ntpp;
+
+    - summary: |
+        Three code paths set nthreadpools to 1, triggering the overflow:
+        (1) User specifies -t N,0 (explicit zero interactive threads)
+        (2) User specifies -t 1 (single thread, interactive disabled automatically)
+        (3) Default in jl_generating_output() mode when no interactive thread is needed
+      component: "Runtime (jloptions.c)"
+      evidence:
+        - source: "code"
+          path: "src/jloptions.c"
+          loc: "719-725"
+          url: "https://github.com/JuliaLang/julia/blob/e38d8abbbe0a105fd584c7b48d9ceec1b21c49fe/src/jloptions.c#L719-L725"
+          snippet: |
+            if (nthreadsi == 0)
+                jl_options.nthreadpools = 1;
+            }
+            } else if (nthreads == 1) { // User asked for 1 thread so don't add an interactive one
+                jl_options.nthreadpools = 1;
+                nthreadsi = 0;
+            }
+
+    - summary: |
+        Added assertion to document the invariant that nthreadpools is always 1 or 2.
+        This makes the assumption explicit and will catch any future violations.
+      component: "Runtime (jloptions.c)"
+      evidence:
+        - source: "code"
+          path: "src/jloptions.c"
+          loc: "728"
+          url: "https://github.com/JuliaLang/julia/blob/e38d8abbbe0a105fd584c7b48d9ceec1b21c49fe/src/jloptions.c#L728"
+          snippet: |
+            assert(jl_options.nthreadpools == 1 || jl_options.nthreadpools == 2);
+
+  secondary_effects:
+    - effect: "Crash prevention when Julia starts with single-thread configuration"
+      mechanism: |
+        jl_parse_opts() parses -t/--threads option  [jloptions.c:682]
+          -> parses thread count and interactive thread count from command line
+          -> sets jl_options.nthreadpools = 1 for single-pool cases  [jloptions.c:720 or 723]
+          -> malloc_s() allocates jl_options.nthreadpools * sizeof(int16_t) bytes  [jloptions.c:729]
+             (when nthreadpools == 1, allocates 2 bytes for single int16_t)
+          -> NEW: conditional check prevents write to ntpp[1] when nthreadpools == 1  [jloptions.c:731-732]
+          -> jl_options.nthreads_per_pool stored for later consumption  [jloptions.c:733]
+
+        Consumer in jl_init_threading() already had protective check:  [threading.c:724-728]
+          if (jl_options.nthreads != 0) { // --threads specified
+              nthreads = jl_options.nthreads_per_pool[0];
+              if (nthreads < 0)
+                  nthreads = jl_effective_threads();
+              nthreadsi = (jl_options.nthreadpools == 1) ? 0 : jl_options.nthreads_per_pool[1];
+          }
+        The ternary check on nthreadpools prevents reading uninitialized/invalid memory.
+      downstream_surfaces:
+        - "Julia startup with AddressSanitizer builds"
+        - "Debugger initialization (lldb-server spawning Julia)"
+        - "Single-thread Julia deployments (-t 1)"
+        - "Julia with explicit zero interactive threads (-t N,0)"
+        - "Julia in code generation mode (jl_generating_output())"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "GC extension tests already demonstrated correct pattern"
+      mechanism: |
+        The test/gcext/gcext.c file manually sets up thread options for testing:  [gcext.c:603-608]
+          // single threaded mode
+          // Note: with -t1,1 a signal 10 occurs in task_scanner
+          jl_options.nthreadpools = 1;
+          jl_options.nthreads = 1;
+          int16_t ntpp[] = {jl_options.nthreads};
+          jl_options.nthreads_per_pool = ntpp;
+
+        This test correctly allocates a single-element array, showing the expected
+        pattern was known but not applied in jl_parse_opts().
+      downstream_surfaces:
+        - "test/gcext external GC callback tests"
+      likelihood: "informational"
+      impact: "none"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - item: "Julia now starts correctly with -t 1 or -t N,0 when built with AddressSanitizer"
+        description: |
+          Previously ASAN-enabled builds would detect the heap buffer overflow and
+          terminate during option parsing when using single-thread pool configurations.
+          Without ASAN, the overflow could silently corrupt heap metadata.
+
+      - item: "No observable behavior change for correct (2-pool) configurations"
+        description: |
+          When nthreadpools == 2 (the default for multi-threaded Julia), behavior
+          is identical. The fix only prevents incorrect writes in the 1-pool case.
+
+  performance:
+    compile_time: []
+    runtime:
+      - item: "Negligible memory savings when using single thread pool"
+        description: |
+          When nthreadpools=1, allocation is 2 bytes (1 * sizeof(int16_t)).
+          Previously the allocation was also 2 bytes (correctly sized), but
+          the code wrote 4 bytes, corrupting adjacent heap memory.
+          ESTIMATED: No memory savings; the allocation was always correct.
+          The fix prevents heap corruption, not over-allocation.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure bugfix correcting undefined behavior in single-pool configuration"
+      - "Added assertion documents the valid range of nthreadpools (1 or 2)"
+      - "Conditional write is straightforward and safe"
+      - "Consumer code in threading.c already had protective conditional"
+      - "Fix verified by vchuravy (core runtime maintainer) with review from topolarity"
+      - "No changes to public API or data structures"
+      - "malloc_s() aborts on failure, so allocation failure was never the issue"
+
+  open_questions: []
+
+  recommendations:
+    - "No action required for downstream packages - this is purely a runtime/startup bug fix"
+    - "Users experiencing mysterious crashes on ASAN builds should upgrade"
+    - "The fix will be backported to 1.11.x and 1.10.x LTS per backport labels"
+
+downstream_impact:
+  opaque_closure: "none"
+  generated_functions: "none"
+  world_age: "none"
+  internal_api_consumers:
+    - tool: "None affected"
+      usage: |
+        This change is in C runtime initialization code (jl_parse_opts), not Julia
+        compiler internals. The jl_options struct layout is unchanged. External
+        embedders who manually set jl_options.nthreads_per_pool should ensure they
+        allocate the correct array size based on nthreadpools.
+
+additional_consumers:
+  - location: "src/threading.c:724-728"
+    description: "jl_init_threading() reads nthreads_per_pool with protective conditional"
+    url: "https://github.com/JuliaLang/julia/blob/e38d8abbbe0a105fd584c7b48d9ceec1b21c49fe/src/threading.c#L724-L728"
+    snippet: |
+      if (jl_options.nthreads != 0) { // --threads specified
+          nthreads = jl_options.nthreads_per_pool[0];
+          if (nthreads < 0)
+              nthreads = jl_effective_threads();
+          nthreadsi = (jl_options.nthreadpools == 1) ? 0 : jl_options.nthreads_per_pool[1];
+      }
+
+  - location: "test/gcext/gcext.c:603-608"
+    description: "GC extension test manually sets up single-pool configuration correctly"
+    url: "https://github.com/JuliaLang/julia/blob/e38d8abbbe0a105fd584c7b48d9ceec1b21c49fe/test/gcext/gcext.c#L603-L608"
+    snippet: |
+      // single threaded mode
+      // Note: with -t1,1 a signal 10 occurs in task_scanner
+      jl_options.nthreadpools = 1;
+      jl_options.nthreads = 1;
+      int16_t ntpp[] = {jl_options.nthreads};
+      jl_options.nthreads_per_pool = ntpp;
+
+  - location: "base/options.jl:12-16"
+    description: "Julia-side JLOptions struct mirrors the C struct layout"
+    url: "https://github.com/JuliaLang/julia/blob/e38d8abbbe0a105fd584c7b48d9ceec1b21c49fe/base/options.jl#L12-L16"
+    snippet: |
+      nthreadpools::Int8
+      nthreads::Int16
+      nmarkthreads::Int16
+      nsweepthreads::Int8
+      nthreads_per_pool::Ptr{Int16}
+
+commit_evolution:
+  - sha: "df6702bd0a932f0619c25490793c3ff7b5433bdf"
+    description: |
+      Initial fix by vchuravy. Introduced a temporary workaround using a local
+      variable `int nthreadpools = 2` to always allocate 2 slots, avoiding the
+      conditional complexity but wasting 2 bytes in single-pool mode.
+
+  - sha: "e38d8abbbe0a105fd584c7b48d9ceec1b21c49fe"
+    description: |
+      Final fix incorporating topolarity's suggestion. Properly uses
+      jl_options.nthreadpools for allocation and adds conditional write,
+      avoiding both the overflow and unnecessary allocation.
+
+test_changes:
+  summary: |
+    No test changes in this PR. The fix was validated through the reproducer
+    in issue #60298, which demonstrated the AddressSanitizer detecting the
+    heap buffer overflow. The existing test/gcext/gcext.c test demonstrates
+    correct single-pool setup but does not exercise jl_parse_opts().
+  files: []
+
+reviewer_notes: |
+  INDEPENDENT ANALYSIS FINDINGS:
+
+  1. CORRECTION: The original analysis incorrectly stated that the buggy code
+     used a hardcoded local variable for allocation. In fact, the allocation
+     was correctly sized using jl_options.nthreadpools; the bug was the
+     UNCONDITIONAL WRITE to ntpp[1]. The local variable was part of the
+     intermediate fix (df6702bd0a), not the original bug.
+
+  2. ADDITIONAL CONSUMER: Discovered test/gcext/gcext.c at lines 603-608 which
+     manually sets up jl_options for single-threaded testing. This code correctly
+     allocates only one element, demonstrating the expected pattern.
+
+  3. CONSUMER PROTECTION: The consumer in threading.c (line 728) already had a
+     protective ternary check: `(jl_options.nthreadpools == 1) ? 0 : ...`
+     This prevented reading invalid memory but did not prevent the original
+     heap corruption during option parsing.
+
+  4. malloc_s BEHAVIOR: Verified that malloc_s() (defined in support/dtypes.h:355)
+     aborts on NULL return, so the bug was purely about buffer overflow, not
+     allocation failure handling.

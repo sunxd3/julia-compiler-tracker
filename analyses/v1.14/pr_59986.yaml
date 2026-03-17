@@ -1,0 +1,457 @@
+schema_version: "1.0"
+
+pr:
+  number: 59986
+  title: "Revert \"Fix negativity check in codegen\""
+  url: "https://github.com/JuliaLang/julia/pull/59986"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59986.diff"
+  author: "giordano"
+  labels:
+    - "revert"
+  merged_at: "2025-10-29T19:42:30Z"
+  merge_commit_sha: "bfa55eb7fbaf5d9232aee41cc951ef144a3bab8b"
+  reverts_pr: 59971
+  related_prs:
+    - number: 59971
+      relationship: "reverted by this PR"
+      title: "Fix negativity check in codegen"
+    - number: 59992
+      relationship: "partial re-land of reverted change"
+      title: "Remove useless size check in Memory allocation"
+    - number: 59987
+      relationship: "issue tracking the test failure"
+      title: "stacktraces test failure"
+
+scope:
+  files_touched:
+    - "src/codegen.cpp"
+  components:
+    - "Codegen"
+  pipeline_stages:
+    - "Codegen"
+    - "DebugInfo"
+
+analysis:
+  intent:
+    summary: |
+      Emergency revert of PR 59971 which had broken stacktrace tests across all nightly builds.
+      The original PR attempted to fix dead code by changing unsigned `size_t` variables to
+      signed types so that negativity checks (`< 0`) would actually function. However, this
+      caused unexpected stacktrace test failures, blocking all nightly builds until reverted.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59971"
+      - "https://github.com/JuliaLang/julia/pull/59971#issuecomment-3462969429"
+
+  direct_changes:
+    - summary: "Revert memory allocation size variable back to unsigned size_t"
+      component: "Codegen - emit_builtin_call"
+      evidence:
+        - source: "diff"
+          path: "src/codegen.cpp"
+          loc: "4137-4145"
+          url: "https://github.com/JuliaLang/julia/blob/bfa55eb7fbaf5d9232aee41cc951ef144a3bab8b/src/codegen.cpp#L4137-L4145"
+          snippet: |
+            if (argv[2].constant) {
+                if (!jl_is_long(argv[2].constant))
+                    return false;
+                size_t nel = jl_unbox_long(argv[2].constant);  // <-- REVERTED: was 'auto nel'
+                if (nel < 0)      // <-- DEAD CODE: always false because nel is unsigned
+                    return false;
+                *ret = emit_const_len_memorynew(ctx, typ, nel, inst);
+            }
+
+    - summary: "Revert debuginfo line number variable back to unsigned size_t"
+      component: "Codegen - append_lineinfo lambda"
+      evidence:
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "9295-9298"
+          url: "https://github.com/JuliaLang/julia/blob/bfa55eb7fbaf5d9232aee41cc951ef144a3bab8b/src/codegen.cpp#L9295-L9298"
+          snippet: |
+            struct jl_codeloc_t lineidx = jl_uncompress1_codeloc(debuginfo->codelocs, pc);
+            size_t i = lineidx.line;    // <-- REVERTED: was 'ssize_t i'
+            if (i < 0) // pc out of range: broken debuginfo?  // <-- DEAD CODE: always false
+                return false;
+
+  secondary_effects:
+    - effect: "Restores dead negativity checks in codegen"
+      mechanism: |
+        Both affected locations have `if (x < 0)` checks where x is now unsigned size_t.
+        These checks are always false because unsigned types cannot be negative.
+
+        For memory allocation:
+          jl_unbox_long() returns intptr_t (signed)
+          Assignment to size_t nel causes sign-to-unsigned conversion
+          Check `nel < 0` is dead code
+
+        For debuginfo:
+          struct jl_codeloc_t.line is int32_t (signed)
+          Assignment to size_t i causes sign-to-unsigned conversion
+          Check `i < 0` is dead code
+
+        REVIEWER NOTE: The codebase has CORRECT patterns for handling jl_uncompress1_codeloc
+        that were not followed in the problematic code. See secondary_effect below.
+      downstream_surfaces:
+        - "Memory allocation codegen path"
+        - "Debug line information processing"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Stacktrace generation unaffected by potential negative line numbers"
+      mechanism: |
+        The revert fixes stacktrace test failures that occurred when the debuginfo
+        line variable was changed to ssize_t. The exact mechanism of failure involves:
+
+        jl_uncompress1_codeloc() [ircode.c:1460]
+          returns struct jl_codeloc_t with int32_t line field
+          badloc sentinel has line = -1 for out-of-range pc
+
+        append_lineinfo lambda [codegen.cpp:8932-8940]
+          receives lineidx from jl_uncompress1_codeloc()
+          assigns lineidx.line to variable i
+          With size_t: negative line (-1) becomes huge positive number (~2^64-1)
+          With ssize_t: negative line remains negative, check `i < 0` triggers return
+
+        The ssize_t fix caused unexpected early returns from append_lineinfo,
+        breaking stacktrace generation in ways that failed existing tests.
+      downstream_surfaces:
+        - "Stacktrace generation"
+        - "Debug info processing in LLVM code generation"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Inconsistent badloc handling patterns restored in codegen.cpp"
+      mechanism: |
+        REVIEWER FINDING: The codebase has THREE correct patterns for handling
+        jl_uncompress1_codeloc results that the problematic code did not follow:
+
+        PATTERN 1 - Direct comparison (codegen.cpp:9161-9163, coverage code):
+          struct jl_codeloc_t lineidx = jl_uncompress1_codeloc(debuginfo->codelocs, pc);
+          if (lineidx.line == -1)  // <-- Direct check on int32_t field
+              break;
+
+        PATTERN 2 - Clamping with std::max (codegen.cpp:8177-8179, line init):
+          struct jl_codeloc_t lineidx = jl_uncompress1_codeloc(debuginfo->codelocs, 0);
+          ctx.line = lineidx.line;
+          toplineno = std::max((int32_t)0, lineidx.line);  // <-- Clamp negative to 0
+
+        PATTERN 3 - Signed type with continuation (stackwalk.c:844-850):
+          intptr_t ip2 = stmt.line;  // <-- Signed type
+          if (ip2 >= 0 && ip > 0 && ...) { ... }
+          else {
+              if (ip2 < 0)
+                  ip2 = 0;  // <-- Continue with zeroed value, don't fail
+              ...
+          }
+
+        BROKEN PATTERN (codegen.cpp:8937-8940, reverted code had this as ssize_t):
+          size_t i = lineidx.line;  // Converts int32_t to unsigned
+          if (i < 0)                // Dead code: unsigned can't be negative
+              return false;         // Would cause early return on badloc
+
+        The key insight is that the coverage code (line 9161) shows the PROPER pattern
+        of checking lineidx.line == -1 directly without type conversion.
+      downstream_surfaces:
+        - "LLVM debug info construction (append_lineinfo lambda)"
+        - "Code coverage tracking"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Semantic mismatch between compile-time and runtime debuginfo handling"
+      mechanism: |
+        REVIEWER FINDING: The codegen append_lineinfo and stackwalk.c handle badloc
+        (line=-1) with DIFFERENT semantics:
+
+        codegen append_lineinfo [codegen.cpp:8939-8940]:
+          if (i < 0)
+              return false;  // FAIL/ABORT on bad debug info
+
+        stackwalk.c [stackwalk.c:849-850]:
+          if (ip2 < 0)
+              ip2 = 0;       // CONTINUE with zeroed value on bad debug info
+
+        When PR 59971 made the codegen check functional, it started failing/aborting
+        on badloc conditions that runtime stackwalks would normally tolerate.
+
+        This explains why enabling the check broke tests - the compile-time code
+        has fail-fast semantics while runtime code has fail-soft semantics.
+      downstream_surfaces:
+        - "Debug info consistency between compile-time and runtime"
+      likelihood: "high"
+      impact: "medium"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "Memory allocation behavior unchanged (dead check restored)"
+        affected_code: "emit_builtin_call for memorynew"
+        note: |
+          The negativity check was dead before 59971, is dead again after 59986.
+          No functional change from baseline. emit_const_len_memorynew already handles
+          validation with proper overflow checks and error messages.
+      - change: "Debug line processing behavior restored"
+        affected_code: "append_lineinfo lambda in jl_llvm_functions_t"
+        note: |
+          Restores pre-59971 behavior where negative line numbers from
+          jl_uncompress1_codeloc() are silently converted to large positive numbers,
+          bypassing the intended `if (i < 0)` guard.
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "Revert restores known-good behavior that was stable before PR 59971"
+      - "Unblocks nightly builds that were stuck due to stacktrace test failures"
+      - "Dead code checks are benign - they never trigger"
+      - "Memory allocation validation handled elsewhere (emit_const_len_memorynew)"
+      - "Part of the fix later re-applied correctly in PR 59992"
+
+  downstream_impact:
+    packages: []
+    surfaces:
+      - "Stacktrace generation"
+      - "Memory allocation codegen"
+    notes: |
+      This revert has NO impact on downstream packages. It restores pre-59971 behavior
+      which was stable. The reverted changes only affected internal codegen paths.
+
+      Downstream packages that interact with compiler internals are unaffected because:
+      1. The memory allocation check was dead before and after
+      2. Stacktrace behavior returns to expected baseline
+      3. No API changes in this revert
+
+  open_questions:
+    - |
+      Why did changing `size_t i` to `ssize_t i` break stacktrace tests?
+
+      REVIEWER ANSWER: The change made the `if (i < 0)` check functional, causing
+      early returns when jl_uncompress1_codeloc returns badloc (line=-1). The existing
+      code path relies on the check being dead - this is confirmed by observing that:
+
+      1. stackwalk.c handles ip2 < 0 by setting ip2 = 0 and CONTINUING
+      2. codegen coverage code (line 9161) checks lineidx.line == -1 and BREAKs (out of loop)
+      3. codegen append_lineinfo was designed to FAIL (return false) on bad info
+
+      The ssize_t change activated fail-fast behavior that didn't match the expected
+      behavior during debug info construction.
+    - |
+      Should the dead `if (i < 0)` check in debuginfo processing be removed entirely,
+      similar to how PR 59992 removed the dead memory allocation check?
+
+      REVIEWER RECOMMENDATION: No, but it should be REWRITTEN to match the coverage
+      code pattern. The proper fix would be:
+
+        struct jl_codeloc_t lineidx = jl_uncompress1_codeloc(debuginfo->codelocs, pc);
+        if (lineidx.line == -1)  // <-- Check on int32_t directly, not converted variable
+            return false;
+        size_t i = lineidx.line;  // Safe after check: we know it's non-negative
+
+      This preserves the intended semantic while avoiding type conversion issues.
+    - |
+      REVIEWER QUESTION: Why does the coverage code (line 9160-9166) use a different
+      loop termination strategy than append_lineinfo?
+
+      Coverage code loops `for (size_t pc = 0; 1; pc++)` and breaks on lineidx.line == -1.
+      append_lineinfo is recursive and returns false on bad info.
+
+      Should these be unified to use consistent error handling patterns?
+
+  recommendations:
+    - "No action required by downstream package maintainers"
+    - "This revert restores stable baseline behavior"
+    - |
+      For Julia compiler developers: Consider investigating why negative line numbers
+      from jl_uncompress1_codeloc break stacktraces when properly handled. The current
+      dead code check suggests incomplete handling of the badloc sentinel value.
+    - |
+      REVIEWER RECOMMENDATION: The proper fix for the append_lineinfo code would be
+      to check lineidx.line before type conversion, similar to the coverage code:
+
+        struct jl_codeloc_t lineidx = jl_uncompress1_codeloc(debuginfo->codelocs, pc);
+        if (lineidx.line == -1)  // Check on int32_t field directly
+            return false;
+        size_t i = lineidx.line;  // Now safe: value is guaranteed non-negative
+
+      This preserves the fail-fast semantic while avoiding the unsigned type issue.
+    - |
+      REVIEWER RECOMMENDATION: Consider unifying error handling patterns across all
+      jl_uncompress1_codeloc callers. Currently there are three patterns:
+      1. Direct == -1 check (coverage code)
+      2. std::max clamp (line init)
+      3. Signed type with continuation (stackwalk)
+      The dead code pattern in append_lineinfo is a fourth (broken) variant.
+
+classification:
+  type: "revert"
+  compiler_relevant: true
+  breaking_change: false
+  requires_downstream_action: false
+
+code_context:
+  jl_codeloc_t_definition:
+    file: "src/julia.h"
+    loc: "238-242"
+    url: "https://github.com/JuliaLang/julia/blob/bfa55eb7fbaf5d9232aee41cc951ef144a3bab8b/src/julia.h#L238-L242"
+    snippet: |
+      struct jl_codeloc_t {
+          int32_t line;   // <-- SIGNED int32_t
+          int32_t to;
+          int32_t pc;
+      };
+
+  badloc_sentinel:
+    file: "src/ircode.c"
+    loc: "1458"
+    snippet: |
+      static const struct jl_codeloc_t badloc = {-1, 0, 0};  // line=-1 indicates error
+
+  jl_uncompress1_codeloc:
+    file: "src/ircode.c"
+    loc: "1460-1468"
+    snippet: |
+      JL_DLLEXPORT struct jl_codeloc_t jl_uncompress1_codeloc(jl_string_t *cl, size_t pc) JL_NOTSAFEPOINT
+      {
+          assert(jl_is_string(cl));
+          int line_offset, line_bytes, to_bytes;
+          size_t nstmts = codelocs_parseheader(cl, &line_offset, &line_bytes, &to_bytes);
+          if (pc > nstmts)
+              return badloc;          // <-- Returns sentinel with line=-1
+          return unpack_codeloc(cl, pc, line_offset, line_bytes, to_bytes);
+      }
+
+  emit_const_len_memorynew_validation:
+    file: "src/cgutils.cpp"
+    loc: "4748-4752"
+    snippet: |
+      // overflow if signed size is too big or nel is too big (the latter matters iff elsz==0)
+      ssize_t tmp=1;
+      overflow |= __builtin_add_overflow(nel, 1, &tmp) || __builtin_add_overflow(nbytes, 1, &tmp);
+      if (overflow)
+          emit_error(ctx, prepare_call(jlargumenterror_func),
+                     "invalid GenericMemory size: the number of elements is either negative or too large for system address width");
+
+reviewer_added_context:
+  correct_pattern_coverage_code:
+    file: "src/codegen.cpp"
+    loc: "9160-9166"
+    url: "https://github.com/JuliaLang/julia/blob/bfa55eb7fbaf5d9232aee41cc951ef144a3bab8b/src/codegen.cpp#L9160-L9166"
+    note: "CORRECT pattern - checks lineidx.line == -1 directly on int32_t"
+    snippet: |
+      for (size_t pc = 0; 1; pc++) {
+          struct jl_codeloc_t lineidx = jl_uncompress1_codeloc(debuginfo->codelocs, pc);
+          if (lineidx.line == -1)  // <-- Direct comparison, no type conversion
+              break;
+          if (lineidx.line > 0)
+              jl_coverage_alloc_line(file, lineidx.line);
+      }
+
+  correct_pattern_stackwalk:
+    file: "src/stackwalk.c"
+    loc: "844-854"
+    url: "https://github.com/JuliaLang/julia/blob/bfa55eb7fbaf5d9232aee41cc951ef144a3bab8b/src/stackwalk.c#L844-L854"
+    note: "CORRECT pattern - uses signed intptr_t, continues with zeroed value on error"
+    snippet: |
+      intptr_t ip2 = stmt.line;
+      if (ip2 >= 0 && ip > 0 && (jl_value_t*)debuginfo->linetable != jl_nothing) {
+          jl_fprint_debugloc(s, debuginfo->linetable, func, ip2, 0);
+      }
+      else {
+          if (ip2 < 0) // set broken debug info to ignored
+              ip2 = 0;
+          const char *func_name = jl_debuginfo_name(func);
+          const char *file = jl_debuginfo_file(debuginfo);
+          jl_safe_fprint_codeloc(s, func_name, file, ip2, inlined);
+      }
+
+  correct_pattern_line_init:
+    file: "src/codegen.cpp"
+    loc: "8177-8179"
+    url: "https://github.com/JuliaLang/julia/blob/bfa55eb7fbaf5d9232aee41cc951ef144a3bab8b/src/codegen.cpp#L8177-L8179"
+    note: "CORRECT pattern - uses std::max to clamp negative to 0"
+    snippet: |
+      struct jl_codeloc_t lineidx = jl_uncompress1_codeloc(debuginfo->codelocs, 0);
+      ctx.line = lineidx.line;
+      toplineno = std::max((int32_t)0, lineidx.line);  // <-- Clamps negative values to 0
+
+  broken_pattern_append_lineinfo:
+    file: "src/codegen.cpp"
+    loc: "8937-8940"
+    url: "https://github.com/JuliaLang/julia/blob/bfa55eb7fbaf5d9232aee41cc951ef144a3bab8b/src/codegen.cpp#L8937-L8940"
+    note: "BROKEN pattern - converts signed to unsigned before checking, making check dead"
+    snippet: |
+      struct jl_codeloc_t lineidx = jl_uncompress1_codeloc(debuginfo->codelocs, pc);
+      size_t i = lineidx.line;  // <-- WRONG: converts int32_t to size_t (unsigned)
+      if (i < 0) // pc out of range: broken debuginfo?  // <-- DEAD CODE: size_t can't be < 0
+          return false;
+
+  jl_uncompress1_codeloc_all_callers:
+    note: "All callers of jl_uncompress1_codeloc and their handling patterns"
+    callers:
+      - location: "codegen.cpp:8177"
+        pattern: "std::max clamp"
+        correct: true
+      - location: "codegen.cpp:8937"
+        pattern: "size_t conversion with dead check"
+        correct: false
+      - location: "codegen.cpp:8959"
+        pattern: "direct lineidx.line > 0 check"
+        correct: true
+      - location: "codegen.cpp:9161"
+        pattern: "direct lineidx.line == -1 check"
+        correct: true
+      - location: "stackwalk.c:837"
+        pattern: "intptr_t with fail-soft continuation"
+        correct: true
+
+follow_up_history:
+  - pr: 59992
+    title: "Remove useless size check in Memory allocation"
+    status: "merged"
+    date: "2025-11-12"
+    relationship: |
+      Re-applies half of PR 59971's intent. Instead of fixing the dead negativity check
+      for memory allocation, this PR removes it entirely since emit_const_len_memorynew
+      already provides better validation with proper error messages.
+    changes: |
+      Removes the dead `if (nel < 0) return false;` check and adds a comment:
+      "// Cast to a unsigned size and let `emit_const_len_memorynew`
+      // make sure that `nel` fits in a positive signed integer."
+
+reviewer_notes:
+  reviewer_date: "2026-01-21"
+  methodology: |
+    Independent analysis performed by checking out merge commit bfa55eb7fbaf5d9232aee41cc951ef144a3bab8b
+    and searching the codebase for all callers of jl_uncompress1_codeloc to understand
+    the various patterns used for handling its return value.
+  key_findings:
+    - |
+      The codebase has CORRECT patterns for handling jl_uncompress1_codeloc that exist
+      in the same file as the problematic code. The coverage code at line 9161 shows
+      the proper pattern: check lineidx.line == -1 directly without type conversion.
+    - |
+      There is a semantic mismatch between compile-time and runtime error handling:
+      - codegen append_lineinfo: FAIL (return false) on badloc
+      - stackwalk.c: CONTINUE with zeroed value on badloc
+      This explains why enabling the check broke tests.
+    - |
+      The dead code pattern is a fourth variant that doesn't match any of the three
+      correct patterns found in the codebase (direct check, std::max clamp, signed with continuation).
+    - |
+      PR 59992 only addressed half the problem - the memory allocation check was removed,
+      but the debuginfo check remains as dead code.
+  validation:
+    - "Verified jl_codeloc_t.line is int32_t (signed) at julia.h:239"
+    - "Verified badloc sentinel has line=-1 at ircode.c:1458"
+    - "Traced all 5 callers of jl_uncompress1_codeloc and documented their patterns"
+    - "Confirmed coverage code at codegen.cpp:9161 uses correct pattern"
+    - "Confirmed stackwalk.c:844-850 uses signed intptr_t with fail-soft behavior"
+  original_analysis_quality: "good"
+  enhancements_made:
+    - "Added cross-reference with correct patterns elsewhere in codebase"
+    - "Documented semantic difference between compile-time and runtime error handling"
+    - "Added comprehensive caller analysis for jl_uncompress1_codeloc"
+    - "Provided concrete recommendation for proper fix"
+    - "Added GitHub URLs for all code evidence"

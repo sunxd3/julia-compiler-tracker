@@ -1,0 +1,495 @@
+schema_version: "1.0"
+pr:
+  number: 59736
+  title: "Revert \"Restrict COFF to a single thread when symbol count is high (#50874)\""
+  url: "https://github.com/JuliaLang/julia/pull/59736"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59736.diff"
+  author: "topolarity"
+  labels:
+    - "backport 1.11"
+  merged_at: "2025-10-07T13:11:05Z"
+  merge_commit_sha: "a3fd78431b4a51e389192d40ef6ca98d3ae7ba2a"
+  reverts_commit: "eb4416b16b8a865376da5c76451a4d60516e2c4a"
+  reverts_pr: 50874
+
+scope:
+  files_touched:
+    - "src/aotcompile.cpp"
+  components:
+    - "Codegen"
+    - "AOTCompilation"
+  pipeline_stages:
+    - "Codegen"
+    - "NativeImageEmission"
+
+analysis:
+  intent:
+    summary: |
+      Removes a workaround that forced single-threaded AOT compilation on Windows (COFF targets)
+      when the global symbol count exceeded 64,000. The workaround was originally added in PR #50874
+      to prevent linker failures due to COFF's 65,536 symbol limit. This revert is now safe because
+      LLVM 16+ automatically emits `.drectve -exclude-symbols:"<symbol>"` directives which prevent
+      hidden symbols from counting toward the linker's external symbol limit.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/50729"
+      - "https://github.com/JuliaLang/PackageCompiler.jl/pull/1012"
+
+  direct_changes:
+    - summary: "Remove Triple field from ModuleInfo struct"
+      component: "src/aotcompile.cpp"
+      evidence:
+        - source: "code"
+          path: "src/aotcompile.cpp"
+          loc: "1198-1206"
+          url: "https://github.com/JuliaLang/julia/blob/a3fd78431b4a51e389192d40ef6ca98d3ae7ba2a/src/aotcompile.cpp#L1198-L1206"
+          snippet: |
+            struct ModuleInfo {
+                size_t globals;
+                size_t funcs;
+                size_t bbs;
+                size_t insts;
+                size_t clones;
+                size_t weight;
+            };
+
+    - summary: "Remove triple initialization in compute_module_info()"
+      component: "src/aotcompile.cpp"
+      evidence:
+        - source: "code"
+          path: "src/aotcompile.cpp"
+          loc: "1207-1232"
+          url: "https://github.com/JuliaLang/julia/blob/a3fd78431b4a51e389192d40ef6ca98d3ae7ba2a/src/aotcompile.cpp#L1207-L1232"
+          snippet: |
+            ModuleInfo compute_module_info(Module &M) {
+                ModuleInfo info;
+                info.globals = 0;
+                info.funcs = 0;
+                info.bbs = 0;
+                info.insts = 0;
+                info.clones = 0;
+                info.weight = 0;
+                for (auto &G : M.global_values()) {
+                    if (G.isDeclaration()) {
+                        continue;
+                    }
+                    info.globals++;
+                    if (auto F = dyn_cast<Function>(&G)) {
+                        info.funcs++;
+                        auto func_info = getFunctionWeight(*F);
+                        info.bbs += func_info.bbs;
+                        info.insts += func_info.insts;
+                        info.clones += func_info.clones;
+                        info.weight += func_info.weight;
+                    } else {
+                        info.weight += 1;
+                    }
+                }
+                return info;
+            }
+
+    - summary: "Remove COFF single-thread restriction in compute_image_thread_count()"
+      component: "src/aotcompile.cpp"
+      evidence:
+        - source: "diff"
+          path: "src/aotcompile.cpp"
+          loc: "1998-2053"
+          url: "https://github.com/JuliaLang/julia/blob/a3fd78431b4a51e389192d40ef6ca98d3ae7ba2a/src/aotcompile.cpp#L1998-L2053"
+          snippet: |
+            static unsigned compute_image_thread_count(const ModuleInfo &info) {
+                // 32-bit systems are very memory-constrained
+            #ifdef _P32
+                LLVM_DEBUG(dbgs() << "32-bit systems are restricted to a single thread\n");
+                return 1;
+            #endif
+                if (jl_is_timing_passes) // LLVM isn't thread safe when timing the passes
+                    return 1;
+                // This is not overridable because empty modules do occasionally appear
+                if (info.weight < 1000) {
+                    LLVM_DEBUG(dbgs() << "Small module, using a single thread\n");
+                    return 1;
+                }
+                unsigned threads = std::max(jl_cpu_threads() / 2, 1);
+                auto max_threads = info.globals / 100;
+                if (max_threads < threads) {
+                    LLVM_DEBUG(dbgs() << "Low global count limiting threads to " << max_threads << " (" << info.globals << "globals)\n");
+                    threads = max_threads;
+                }
+                // environment variable override
+                const char *env_threads = getenv("JULIA_IMAGE_THREADS");
+                bool env_threads_set = false;
+                if (env_threads) {
+                    char *endptr;
+                    unsigned long requested = strtoul(env_threads, &endptr, 10);
+                    if (*endptr || !requested) {
+                        jl_safe_printf("WARNING: invalid value '%s' for JULIA_IMAGE_THREADS\n", env_threads);
+                    } else {
+                        LLVM_DEBUG(dbgs() << "Overriding threads to " << requested << " due to JULIA_IMAGE_THREADS\n");
+                        threads = requested;
+                        env_threads_set = true;
+                    }
+                }
+                // more defaults
+                if (!env_threads_set && threads > 1) {
+                    if (auto fallbackenv = getenv("JULIA_CPU_THREADS")) {
+                        char *endptr;
+                        unsigned long requested = strtoul(fallbackenv, &endptr, 10);
+                        if (*endptr || !requested) {
+                            jl_safe_printf("WARNING: invalid value '%s' for JULIA_CPU_THREADS\n", fallbackenv);
+                        } else if (requested < threads) {
+                            LLVM_DEBUG(dbgs() << "Overriding threads to " << requested << " due to JULIA_CPU_THREADS\n");
+                            threads = requested;
+                        }
+                    }
+                }
+                threads = std::max(threads, 1u);
+                return threads;
+            }
+          removed_code: |
+            // COFF has limits on external symbols (even hidden) up to 65536. We reserve the last few
+            // for any of our other symbols that we insert during compilation.
+            if (info.triple.isOSBinFormatCOFF() && info.globals > 64000) {
+                LLVM_DEBUG(dbgs() << "COFF is restricted to a single thread for large images\n");
+                return 1;
+            }
+
+  secondary_effects:
+    - effect: "Significant AOT compilation speedup on Windows for large packages"
+      mechanism: |
+        compute_image_thread_count() [aotcompile.cpp:1998]
+          -> returns threads > 1 for COFF targets with >64000 globals
+          -> partitionModule(M, threads) [aotcompile.cpp:1316] splits work across threads
+          -> add_output() [aotcompile.cpp:1839] parallelizes LLVM codegen
+
+        Previously, Windows sysimage builds with >64000 globals were forced single-threaded.
+        Now they can use multi-threaded compilation, reducing build times from hours to minutes.
+      downstream_surfaces:
+        - "PackageCompiler.jl - create_sysimage() on Windows"
+        - "Base Julia - sysimage generation during build"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "Dependency on modern toolchain versions"
+      mechanism: |
+        LLVM 16+ emits: .drectve `-exclude-symbols:"<symbol>"`
+
+        This directive tells the linker to exclude hidden symbols from the external symbol
+        table, preventing the 65536 symbol limit from being hit. Requires:
+        - GCC 11+ (binutils ld support)
+        - LLD 14+ (LLVM linker support)
+
+        PackageCompiler.jl ships GCC 14 as of PR #1012, so this is satisfied.
+      downstream_surfaces:
+        - "PackageCompiler.jl - Windows builds require GCC 11+ or LLD 14+"
+        - "Custom Windows build toolchains must meet version requirements"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "No change to runtime behavior"
+      mechanism: |
+        This change only affects the compilation parallelism during AOT image generation.
+        The generated object files are semantically identical regardless of thread count.
+        The partitionModule() function distributes globals across threads but the final
+        linked image is the same.
+      downstream_surfaces: []
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Increased memory usage during multi-threaded compilation"
+      mechanism: |
+        Multi-threaded compilation spawns worker threads that each deserialize the module:
+
+        add_output() [aotcompile.cpp:1839]
+          -> if threads > 1:
+            -> serialized = serializeModule(M) [aotcompile.cpp:1920]
+            -> std::vector<uv_thread_t> workers(threads) [aotcompile.cpp:1931]
+            -> Each worker: getLazyBitcodeModule() [aotcompile.cpp:1938]
+               Creates separate LLVMContext per thread
+
+        Previously forced single-threaded on COFF with >64000 globals meant lower peak
+        memory. Now Windows builds will use proportionally more memory with parallelism.
+        ESTIMATED: Memory scales roughly linearly with thread count for large modules.
+      downstream_surfaces:
+        - "Windows CI/build systems with constrained memory"
+        - "Developer machines building large sysimages"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "JULIA_CPU_THREADS now also respected as fallback"
+      mechanism: |
+        compute_image_thread_count() [aotcompile.cpp:2037-2047] checks JULIA_CPU_THREADS
+        as a secondary fallback when JULIA_IMAGE_THREADS is not set:
+
+        if (!env_threads_set && threads > 1) {
+            if (auto fallbackenv = getenv("JULIA_CPU_THREADS")) {
+                // caps threads to this value if lower
+            }
+        }
+
+        This provides an additional mechanism to limit thread count beyond JULIA_IMAGE_THREADS.
+      downstream_surfaces:
+        - "CI systems that set JULIA_CPU_THREADS globally"
+      likelihood: "medium"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "ModuleInfo.triple"
+        change: "Field removed from struct - no longer tracked"
+        affected_tools: []
+        impact: "none"
+        rationale: "ModuleInfo is internal to aotcompile.cpp, not exposed to any downstream tools"
+
+    behavioral:
+      - change: "Windows AOT compilation now multi-threaded by default for large images"
+        impact: "positive"
+        rationale: |
+          Build times significantly reduced. Users who previously set JULIA_IMAGE_THREADS=1
+          as a workaround can now remove that setting.
+
+      - change: "Older Windows toolchains may fail to link large sysimages"
+        impact: "potential_regression"
+        rationale: |
+          Systems using GCC < 11 or LLD < 14 may encounter linker errors for sysimages
+          with >65536 symbols. PackageCompiler.jl users should update their toolchains.
+        mitigation: |
+          Set JULIA_IMAGE_THREADS=1 to force single-threaded compilation as a fallback.
+
+  performance:
+    compile_time:
+      - change: "Multi-threaded AOT compilation now available on Windows COFF targets"
+        impact: "major_improvement"
+        rationale: |
+          MEASURED (from PR description): "15-minute sysimage compilation" reduced from "an hour+"
+          Approximately 4x speedup for large package sysimages on Windows.
+
+    runtime:
+      - change: "None - generated code is identical"
+        impact: "none"
+        rationale: "This only affects compilation parallelism, not the generated machine code"
+
+  downstream_package_impact:
+    - package: "PackageCompiler.jl"
+      impact: "positive"
+      details: |
+        Primary beneficiary. Windows sysimage builds with many methods (e.g., Makie.jl,
+        Plots.jl, or other large packages) will see substantial compile time reductions.
+        PackageCompiler.jl PR #1012 updated to ship GCC 14, ensuring compatibility.
+
+    - package: "Enzyme.jl"
+      impact: "none"
+      details: "No direct impact - Enzyme uses JIT compilation, not AOT sysimage generation"
+
+    - package: "GPUCompiler.jl"
+      impact: "none"
+      details: "No direct impact - GPU compilation uses different code paths"
+
+    - package: "JET.jl"
+      impact: "none"
+      details: "No direct impact - JET performs static analysis, not codegen"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Revert of a workaround, restoring simpler/original behavior"
+      - "LLVM automatically handles the symbol limit via exclude-symbols directive"
+      - "PackageCompiler.jl has updated its shipped GCC to version 14"
+      - "Fallback via JULIA_IMAGE_THREADS=1 available for edge cases"
+      - "Backport label indicates this has been validated for 1.11 release"
+
+  open_questions:
+    - |
+      What happens on Windows systems with custom/outdated toolchains that don't support
+      -exclude-symbols? They would need to manually set JULIA_IMAGE_THREADS=1.
+    - |
+      Should there be a runtime check or warning when linking fails due to symbol limits
+      on older toolchains?
+
+  recommendations:
+    - |
+      Document the toolchain requirements (GCC 11+ or LLD 14+) in the Julia Windows build
+      documentation and PackageCompiler.jl README.
+    - |
+      Consider adding a diagnostic message when Windows sysimage linking fails with symbol
+      limit errors, suggesting JULIA_IMAGE_THREADS=1 as a fallback.
+    - |
+      Monitor user reports for any regressions on Windows systems with non-standard
+      toolchains after Julia 1.11 release.
+
+call_chain_analysis:
+  primary_path:
+    description: "AOT image thread count determination"
+    chain: |
+      jl_dump_native_impl() [aotcompile.cpp:2060]
+        -> compute_module_info(dataM) [aotcompile.cpp:2240]
+           Returns ModuleInfo with globals, funcs, bbs, insts, clones, weight
+        -> compute_image_thread_count(module_info) [aotcompile.cpp:2250]
+           Determines thread count based on module weight and system resources
+           REMOVED: COFF single-thread restriction for >64000 globals
+        -> compile() lambda [aotcompile.cpp:2129-2131] calls add_output()
+        -> add_output(M, TM, name, threads, ...) [aotcompile.cpp:1839]
+           If threads == 1: direct call to add_output_impl() [line 1890]
+           If threads > 1:
+             -> partitionModule(M, threads) [aotcompile.cpp:1916]
+             -> serializeModule(M) [aotcompile.cpp:1920]
+             -> Spawn worker threads [aotcompile.cpp:1931-1932]:
+                std::vector<uv_thread_t> workers(threads);
+                for (unsigned i = 0; i < threads; i++) { ... }
+             -> Each worker deserializes and processes partition [line 1938-1963]
+
+  parallel_compilation_evidence:
+    description: "Worker thread spawning code"
+    file: "src/aotcompile.cpp"
+    loc: "1928-1963"
+    url: "https://github.com/JuliaLang/julia/blob/a3fd78431b4a51e389192d40ef6ca98d3ae7ba2a/src/aotcompile.cpp#L1928-L1963"
+    snippet: |
+      // Start all of the worker threads
+      {
+          JL_TIMING(NATIVE_AOT, NATIVE_Opt);
+          std::vector<uv_thread_t> workers(threads);
+          for (unsigned i = 0; i < threads; i++) {
+              std::function<void()> func = [&, i]() {
+                  LLVMContext ctx;
+                  ctx.setDiscardValueNames(true);
+                  // Lazily deserialize the entire module
+                  timers[i].deserialize.startTimer();
+                  auto EM = getLazyBitcodeModule(MemoryBufferRef(
+                      StringRef(serialized.data(), serialized.size()), "Optimized"), ctx);
+                  // ...
+                  timers[i].materialize.startTimer();
+                  materializePreserved(*M, partitions[i]);
+                  timers[i].materialize.stopTimer();
+                  // ... optimization and output generation per shard
+              };
+              uv_thread_create(&workers[i], ..., (void *)task);
+          }
+          // ... join all workers
+      }
+
+  affected_functions:
+    - name: "compute_image_thread_count"
+      file: "src/aotcompile.cpp"
+      line: 1998
+      change: "Removed COFF-specific single-thread restriction"
+
+    - name: "compute_module_info"
+      file: "src/aotcompile.cpp"
+      line: 1207
+      change: "No longer initializes ModuleInfo.triple field"
+
+    - name: "ModuleInfo (struct)"
+      file: "src/aotcompile.cpp"
+      line: 1198
+      change: "Removed Triple triple member"
+
+llvm_context:
+  relevant_feature: "LLVM 16+ exclude-symbols directive"
+  julia_llvm_version: "20.1.8"
+  julia_llvm_version_source: "deps/llvm.version (LLVM_VER := 20.1.8)"
+  description: |
+    Starting with LLVM 16, when emitting COFF object files with hidden visibility
+    symbols, LLVM automatically adds `.drectve` sections containing
+    `-exclude-symbols:"<symbol>"` directives. This instructs the linker to not
+    export these symbols, preventing them from counting toward the 65536 external
+    symbol limit in COFF files.
+
+    Julia currently uses LLVM 20.1.8, which is well past the LLVM 16 requirement.
+    This guarantees the exclude-symbols directive is emitted for all Julia builds.
+
+  toolchain_requirements:
+    - "GCC 11+ (with corresponding binutils)"
+    - "LLD 14+"
+    - "Note: Julia's bundled LLVM 20.1.8 satisfies the LLVM 16+ requirement"
+
+  verification: |
+    The exclude-symbols directive is emitted by LLVM's MC layer for COFF targets
+    when GlobalValue::HiddenVisibility is set. Julia sets this in partitionModule()
+    at aotcompile.cpp:1370-1372:
+
+    for (auto &G : M.global_values()) {
+        if (G.isDeclaration())
+            continue;
+        // Currently ccallable global aliases have extern linkage, we only want to make the
+        // internally linked functions/global variables extern+hidden
+        if (G.hasLocalLinkage()) {
+            G.setLinkage(GlobalValue::ExternalLinkage);
+            G.setVisibility(GlobalValue::HiddenVisibility);  // <-- triggers exclude-symbols
+        }
+        // ...
+    }
+
+    Additional locations where HiddenVisibility is set (all contribute to symbol exclusion):
+    - aotcompile.cpp:1708 - Functions being stripped for partitioning
+    - aotcompile.cpp:1714 - Function bodies deleted during partition
+    - aotcompile.cpp:1727 - Global variables during partition
+    - aotcompile.cpp:2263, 2272, 2280 - Index and type variables in jl_dump_native_impl
+
+reverted_pr_context:
+  original_pr: 50874
+  original_commit: "eb4416b16b8a865376da5c76451a4d60516e2c4a"
+  original_author: "pchintalapudi"
+  original_date: "2023-08-11"
+  original_changes: |
+    PR #50874 added three components to work around COFF's 65536 external symbol limit:
+    1. Added `Triple triple` field to ModuleInfo struct
+    2. Initialized `info.triple = Triple(M.getTargetTriple())` in compute_module_info()
+    3. Added COFF check in compute_image_thread_count():
+       if (info.triple.isOSBinFormatCOFF() && info.globals > 64000) {
+           LLVM_DEBUG(dbgs() << "COFF is restricted to a single thread for large images\n");
+           return 1;
+       }
+
+    This forced single-threaded compilation for Windows builds with >64000 globals,
+    which prevented linker failures but caused extremely slow build times.
+
+reviewer_notes:
+  independent_analysis_date: "2026-01-21"
+  reviewer_findings:
+    - finding: "LLVM version verified"
+      detail: |
+        Confirmed Julia uses LLVM 20.1.8 (from deps/llvm.version), which is well past
+        the LLVM 16 threshold where exclude-symbols directive was introduced.
+
+    - finding: "Complete thread count logic documented"
+      detail: |
+        The original analysis had an ellipsis in the compute_image_thread_count snippet.
+        Enhanced with complete function body showing all fallback logic including
+        JULIA_CPU_THREADS environment variable support.
+
+    - finding: "Memory usage impact identified"
+      detail: |
+        Added secondary effect documenting that multi-threaded compilation increases
+        memory usage proportionally with thread count, as each worker thread creates
+        its own LLVMContext and deserializes the module.
+
+    - finding: "Worker thread spawning code traced"
+      detail: |
+        Added explicit evidence of how parallel compilation works via uv_thread_create()
+        at aotcompile.cpp:1931, with each worker processing a partition independently.
+
+    - finding: "HiddenVisibility locations enumerated"
+      detail: |
+        Traced all locations in aotcompile.cpp where HiddenVisibility is set:
+        lines 1372, 1708, 1714, 1727, 2263, 2272, 2280. Each contributes to
+        triggering the LLVM exclude-symbols directive for COFF targets.
+
+    - finding: "Original PR context added"
+      detail: |
+        Added context about the original PR #50874 that introduced the workaround,
+        including the exact commit hash and original author for traceability.
+
+  verification_commands_used:
+    - "git checkout a3fd78431b4a51e389192d40ef6ca98d3ae7ba2a"
+    - "git show eb4416b16b8a865376da5c76451a4d60516e2c4a"
+    - "rg 'HiddenVisibility' src/aotcompile.cpp"
+    - "rg 'compute_image_thread_count' src/"
+    - "rg 'partitionModule' src/"
+    - "cat deps/llvm.version"
+
+  confidence: "high"
+  rationale: |
+    The analysis is well-supported by direct code evidence. All claims have been
+    verified against the actual source code at the merge commit. The revert is
+    straightforward and low-risk given that:
+    1. Julia's LLVM version (20.1.8) guarantees exclude-symbols support
+    2. PackageCompiler.jl has updated to GCC 14
+    3. Fallback mechanisms (JULIA_IMAGE_THREADS, JULIA_CPU_THREADS) exist for edge cases

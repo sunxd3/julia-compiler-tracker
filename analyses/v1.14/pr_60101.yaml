@@ -1,0 +1,358 @@
+schema_version: "1.0"
+
+pr:
+  number: 60101
+  title: "Revert \"allow finding stdlibs that are normal packages in the manifest but are now stdlibs\""
+  url: "https://github.com/JuliaLang/julia/pull/60101"
+  author: "KristofferC"
+  labels:
+    - "revert"
+    - "semantic conflict"
+  merged_at: "2025-11-11T16:03:57Z"
+  merge_commit_sha: "d46aeb61176d33b38abd277f749f7a6c81678cfa"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60101.diff"
+  reverts: 60061
+  relanded_by: 60104
+
+scope:
+  files_touched:
+    - "base/loading.jl"
+    - "test/loading.jl"
+    - "test/project/deps/BadStdlibDeps2/Manifest.toml"
+    - "test/project/deps/BadStdlibDeps2/Project.toml"
+  components:
+    - "Base.loading"
+  pipeline_stages:
+    - "PackageLoading"
+
+analysis:
+  intent:
+    summary: |
+      Reverts PR 60061 which added stdlib fallback logic in locate_package_env.
+      The original PR caused CI failures that weren't caught in the branch's CI run,
+      leading to this immediate revert. The functionality was later re-implemented
+      correctly in PR 60104 with a fix for the test's JULIA_DEPOT_PATH handling.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/60061"
+      - "https://github.com/JuliaLang/julia/pull/60104"
+
+  direct_changes:
+    - summary: "Removed stdlib fallback check before terminating package search"
+      component: "Base.loading"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "463-476"
+          url: "https://github.com/JuliaLang/julia/blob/d46aeb61176d33b38abd277f749f7a6c81678cfa/base/loading.jl#L463-L476"
+          snippet: |
+            # Code REMOVED by this revert (was added by PR 60061):
+            # In locate_package_env, within the manifest search loop:
+            if path === missing
+                # Before stopping, try stdlib fallback   <-- REMOVED
+                is_stdlib(pkg) && @goto stdlib_fallback  <-- REMOVED
+                path = nothing
+                @goto done
+            end
+            # ...
+            @label stdlib_fallback  <-- REMOVED
+
+    - summary: "Removed test for old manifest with stdlib having git-tree-sha1"
+      component: "test/loading.jl"
+      evidence:
+        - source: "diff"
+          path: "test/loading.jl"
+          loc: "1537-1555"
+          url: "https://github.com/JuliaLang/julia/blob/d46aeb61176d33b38abd277f749f7a6c81678cfa/test/loading.jl#L1537-L1555"
+          snippet: |
+            # Test block REMOVED by this revert:
+            mktempdir() do depot
+                # This manifest has a LibGit2 entry that has a LibGit2_jll with a git-tree-sha1
+                # which simulates an old manifest where LibGit2_jll was not a stdlib
+                badmanifest_test_dir2 = joinpath(@__DIR__, "project", "deps", "BadStdlibDeps2")
+                @test success(addenv(
+                    `$(Base.julia_cmd()) --project=$badmanifest_test_dir2 --startup-file=no -e 'using LibGit2'`,
+                    "JULIA_DEPOT_PATH" => depot * Base.Filesystem.pathsep(),
+                ))
+            end
+
+    - summary: "Removed BadStdlibDeps2 test fixture directory"
+      component: "test/project"
+      evidence:
+        - source: "diff"
+          path: "test/project/deps/BadStdlibDeps2/Manifest.toml"
+          loc: "1-54"
+          snippet: |
+            # Entire file REMOVED - simulated old manifest with LibGit2_jll as non-stdlib:
+            [[deps.LibGit2_jll]]
+            deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll"]
+            git-tree-sha1 = "1111111111111111111111111111111111111111"
+            uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
+            version = "1.8.0+0"
+
+  context:
+    original_pr_60061:
+      summary: |
+        PR 60061 addressed a compatibility issue with old manifests created by
+        earlier Julia versions. When a package like LibGit2_jll was promoted
+        from a regular package to a stdlib, old manifests still had git-tree-sha1
+        entries for it. The package loading system would fail because it couldn't
+        find the package in any depot (the hash doesn't exist for stdlibs).
+      mechanism: |
+        locate_package_env(pkg::PkgId, ...)  [loading.jl:477]
+          -> manifest_uuid_load_spec(env, pkg)  [loading.jl:508]
+            -> explicit_manifest_uuid_load_spec(...)  [loading.jl:1238]
+              -> explicit_manifest_entry_load_spec(...)  [loading.jl:1275]
+                -> returns `missing` if git-tree-sha1 not in any depot  [loading.jl:1319]
+          -> if spec === missing && is_stdlib(pkg)  [ADDED by 60061]
+            -> @goto stdlib_fallback
+          -> manifest_uuid_load_spec(Sys.STDLIB, pkg)  [loading.jl:526]
+            -> Successfully finds stdlib in Sys.STDLIB directory
+
+    related_pr_56148:
+      summary: |
+        PR 60061 mentioned being the "locate" version of the "identify" fallback
+        from PR 56148. The identify_package_env function has a similar stdlib
+        fallback at loading.jl:389 for when dependency identification fails.
+      code_reference: |
+        identify_package_env(where::PkgId, name::String)  [loading.jl:356]
+          -> if pkg_env === nothing && is_stdlib(where)  [loading.jl:389]
+            -> identify_stdlib_project_dep(where, name)  [loading.jl:430]
+              -> Looks up deps from stdlib Project.toml
+
+    revert_reason: |
+      The revert was triggered by CI failures that appeared after merging PR 60061,
+      despite CI passing on the PR branch. The root cause was a bug in the TEST CODE,
+      not in the loading.jl logic itself.
+
+      BUGGY TEST CODE (PR 60061):
+        "JULIA_DEPOT_PATH" => depot * Base.Filesystem.pathsep()
+
+      CRITICAL BUG EXPLANATION:
+      Base.Filesystem.pathsep() returns the FILE PATH separator:
+        - "/" on Unix (defined in base/path.jl:22)
+        - "\\" on Windows (defined in base/path.jl:30)
+
+      But JULIA_DEPOT_PATH uses the PATH LIST separator for multiple entries:
+        - ":" on Unix
+        - ";" on Windows
+
+      So on Unix, the test set JULIA_DEPOT_PATH=/tmp/xyz/ (trailing slash)
+      instead of /tmp/xyz/: (trailing colon).
+
+      Without the trailing colon, the behavior of JULIA_DEPOT_PATH parsing differs:
+        - "/tmp/xyz/" splits on ":" to ["/tmp/xyz/"] - one entry
+        - "/tmp/xyz/:" splits on ":" to ["/tmp/xyz/", ""] - two entries
+
+      The empty entry triggers append_bundled_depot_path!(DEPOT_PATH) which adds
+      system depot directories. Different CI configurations had different system
+      depots, causing inconsistent test behavior.
+
+    reland_pr_60104:
+      summary: |
+        PR 60104 re-landed the same functionality 8 days later with a corrected test.
+      fix: |
+        FIXED TEST CODE (PR 60104):
+          s = Sys.iswindows() ? ';' : ':'
+          "JULIA_DEPOT_PATH" => string(depot * Base.Filesystem.pathsep(), s)
+
+        This correctly uses the PATH LIST separator (s) after the FILE PATH separator
+        (Base.Filesystem.pathsep()), producing "/tmp/xyz/:" on Unix.
+
+        The fix ensures JULIA_DEPOT_PATH ends with the list separator, which:
+        1. Creates a trailing empty entry when parsed
+        2. That empty entry triggers append_bundled_depot_path!()
+        3. This provides predictable depot configuration across all CI environments
+
+  secondary_effects:
+    - effect: "Temporary regression in manifest compatibility for stdlib migrations"
+      mechanism: |
+        Between PR 60101 (revert) and PR 60104 (re-land), users with old manifests
+        containing stdlibs with git-tree-sha1 entries would experience package
+        loading failures. This window was approximately 8 days (Nov 11 - Nov 19, 2025).
+      downstream_surfaces:
+        - "Users with manifests from older Julia versions"
+        - "Projects transitioning between Julia versions"
+        - "JLL packages that were promoted to stdlibs"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "No persistent behavioral change (re-landed)"
+      mechanism: |
+        Since PR 60104 re-landed the same functionality with the test fix,
+        the net effect of PR 60101 is zero in the final Julia codebase.
+        This PR only represents a temporary regression in development builds.
+      downstream_surfaces: []
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - item: "Package loading for stdlibs with legacy manifest entries"
+        change: "Temporarily broken between revert and re-land"
+        affected_versions: "Development builds between 2025-11-11 and 2025-11-19"
+
+  performance:
+    compile_time: []
+    runtime:
+      - item: "No performance impact"
+        detail: "The revert and re-land are functionally equivalent to no change"
+
+  risk:
+    level: "low"
+    rationale:
+      - "This is a revert of a feature that caused CI failures"
+      - "The functionality was quickly re-landed with proper fixes (8 days)"
+      - "Only affects development/nightly builds during the window"
+      - "No impact on released Julia versions"
+      - "The actual loading.jl logic was correct; only test code had bugs"
+
+  call_chain_analysis:
+    locate_package_env_flow: |
+      User code: `using SomePackage`
+        -> Base.require(Main, :SomePackage)  [loading.jl]
+          -> identify_package(...)
+          -> locate_package_env(pkg::PkgId, stopenv)  [loading.jl:477]
+            -> for env in load_path()
+              -> manifest_uuid_load_spec(env, pkg)  [loading.jl:508]
+                -> explicit_manifest_uuid_load_spec(...)  [loading.jl:1238]
+                  -> explicit_manifest_entry_load_spec(...)  [loading.jl:1275]
+                    -> if hash !== nothing (git-tree-sha1 exists)
+                      -> search DEPOT_PATH for package slug
+                      -> if not found: return missing  [loading.jl:1319]
+              -> if spec === missing
+                -> [PR 60061 ADDED]: is_stdlib(pkg) && @goto stdlib_fallback
+                -> [PR 60101 REMOVED]: above line
+                -> [PR 60104 RE-ADDED]: above line
+                -> spec = nothing; @goto done
+            -> @label stdlib_fallback  [loading.jl:523]
+            -> manifest_uuid_load_spec(Sys.STDLIB, pkg)  [loading.jl:526]
+              -> finds package in stdlib directory
+
+    is_stdlib_function: |
+      is_stdlib(pkgid::PkgId)  [loading.jl:334-346]
+        -> Check if pkgid.name exists in Sys.STDLIB directory
+        -> Load Project.toml from stdlib location
+        -> Verify UUID matches pkgid.uuid
+        -> Return true/false
+
+      Current implementation (verified in master):
+        function is_stdlib(pkgid::PkgId)
+            pkgid.name in readdir(Sys.STDLIB) || return false
+            stdlib_root = joinpath(Sys.STDLIB, pkgid.name)
+            project_file = locate_project_file(stdlib_root)
+            if project_file isa String
+                d = parsed_toml(project_file)
+                uuid = get(d, "uuid", nothing)
+                if uuid !== nothing
+                    return UUID(uuid) == pkgid.uuid
+                end
+            end
+            return false
+        end
+
+    explicit_manifest_entry_load_spec_flow: |
+      explicit_manifest_entry_load_spec(manifest_file, pkg, entry)  [loading.jl:1275]
+        -> if hash === nothing (no git-tree-sha1)
+          -> Try loading from Sys.STDLIB directly  [loading.jl:1303-1306]
+          -> This handles stdlibs without git-tree-sha1
+        -> if hash !== nothing (has git-tree-sha1)
+          -> Search DEPOT_PATH for package slug  [loading.jl:1312-1316]
+          -> if not found in any depot:
+            -> return missing  [loading.jl:1319]
+            -> This triggers the NEW stdlib fallback in locate_package_env
+
+  test_analysis:
+    test_fixtures_comparison:
+      BadStdlibDeps: |
+        Tests stdlib fallback when manifest entry is MISSING a dependency:
+          [[deps.LibGit2]]
+          deps = ["NetworkOptions", "Printf", "SHA"]  # Note: NO LibGit2_jll
+          # LibGit2_jll is listed separately without git-tree-sha1
+          [[deps.LibGit2_jll]]
+          uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
+          # No git-tree-sha1 field
+
+        This tests the existing fallback in explicit_manifest_entry_load_spec
+        at loading.jl:1299-1307 (when hash === nothing).
+
+      BadStdlibDeps2: |
+        Tests stdlib fallback when manifest has FAKE git-tree-sha1:
+          [[deps.LibGit2_jll]]
+          git-tree-sha1 = "1111111111111111111111111111111111111111"  # fake hash
+          uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
+
+        This tests the NEW fallback added by PR 60061/60104 in locate_package_env
+        at loading.jl:511 (when spec === missing from hash not found).
+
+    test_purpose: |
+      The BadStdlibDeps2 test fixture simulates an old manifest where LibGit2_jll
+      was recorded as a regular package with a git-tree-sha1. This represents
+      manifests created by Julia versions before LibGit2_jll became a stdlib.
+
+      The test verifies that `using LibGit2` works even when:
+      1. The manifest has LibGit2_jll with a fake git-tree-sha1
+      2. That hash doesn't exist in any depot
+      3. LibGit2_jll is now a stdlib that should be loaded from Sys.STDLIB
+
+    test_bug_root_cause: |
+      The test used Base.Filesystem.pathsep() expecting the PATH LIST separator,
+      but this function returns the FILE PATH separator:
+
+      base/path.jl:22-23 (Unix):
+        const path_separator    = "/"
+        const path_separator_re = r"/+"sa
+
+      base/path.jl:30-31 (Windows):
+        const path_separator    = "\\"
+        const path_separator_re = r"[/\\]+"sa
+
+      base/path.jl:234:
+        pathsep() = path_separator
+
+      The correct separator for JULIA_DEPOT_PATH (environment variable list) is:
+        - ":" on Unix
+        - ";" on Windows
+
+      This is used correctly elsewhere, e.g., base/util.jl:711-712:
+        pathsep = Sys.iswindows() ? ";" : ":"
+        ENV2["JULIA_DEPOT_PATH"] = string(mktempdir(; cleanup = true), pathsep)
+
+  open_questions:
+    - "What specific CI configuration exposed the test bug that wasn't caught on the PR branch?"
+    - "Should Julia provide a single canonical function for PATH-style list separators vs file path separators?"
+
+  recommendations:
+    - "For downstream package maintainers: No action required - this revert was temporary"
+    - "For Julia contributors: Note the distinction between file path separator (Base.Filesystem.pathsep) and environment variable list separator (: or ;)"
+    - "Consider adding a helper function like env_path_separator() to avoid this confusion in tests"
+    - "The test pattern in PR 60104 should be used as a template for future tests needing isolated depot paths"
+
+metadata:
+  analyzer: "Claude"
+  analysis_date: "2025-01-21"
+  reviewed_date: "2025-01-21"
+  confidence: "high"
+  notes: |
+    This PR is part of a revert-then-reland sequence:
+    - PR 60061: Original implementation (merged 2025-11-10)
+    - PR 60101: Revert (merged 2025-11-11) <- THIS PR
+    - PR 60104: Re-land with test fix (merged 2025-11-19)
+
+    The core loading.jl logic in PR 60061 was correct. The failure was due to
+    a subtle bug in the test's JULIA_DEPOT_PATH handling - using the file path
+    separator (/) instead of the environment variable list separator (:).
+
+    This change relates to the stdlib fallback mechanism which has two complementary
+    implementations:
+    1. identify_package_env fallback (PR 56148): For identifying deps of stdlibs
+    2. locate_package_env fallback (PR 60061/60104): For locating stdlibs with
+       legacy manifest entries containing unfindable git-tree-sha1 hashes
+
+    Verified code locations against current master branch (commit bdf5fbc):
+    - is_stdlib: loading.jl:334-346
+    - locate_package_env: loading.jl:477-542
+    - stdlib fallback check: loading.jl:511 (is_stdlib(pkg) && @goto stdlib_fallback)
+    - stdlib_fallback label: loading.jl:523
+    - explicit_manifest_entry_load_spec: loading.jl:1275-1320
+    - identify_stdlib_project_dep: loading.jl:430-444

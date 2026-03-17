@@ -1,0 +1,513 @@
+schema_version: "1.0"
+pr:
+  number: 59863
+  title: "loading: Try to clean up extension loading a bit"
+  url: "https://github.com/JuliaLang/julia/pull/59863"
+  author: "Keno"
+  labels:
+    - "packages"
+    - "package extensions"
+  merged_at: "2025-10-23T17:06:48Z"
+  merge_commit_sha: "7dfa7d1b0d3c698e35ce70fbfef01be9603fc284"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59863.diff"
+scope:
+  files_touched:
+    - "base/loading.jl"
+    - "test/loading.jl"
+  components:
+    - "Other"
+  pipeline_stages: []
+analysis:
+  intent:
+    summary: "Refactor and deduplicate extension loading code, and fix a missing restriction where extensions from top-level Project.toml could load any weakdep (instead of only weakdeps that are extension triggers)."
+    issue_links: []
+    quoted_from_pr: |
+      The loading code is overall a bit messy. I'd like to add some new features to it, but I think before
+      I can sensibly do that, some cleanup is required. This attempts to de-deduplicate the several places
+      where extensions deal with weakdeps.
+
+      Unfortunately, the loading behavior in case 1 currently differs from the loading behavior of case 2
+      and 3. In case 1, an extension is allowed to load any weakdep, in cases 2/3, it's only allowed to
+      load weakdeps that are also extension triggers. I believe that the missing extra check for this
+      restriction in case 1 is an oversight.
+  direct_changes:
+    - summary: "Introduce package_get_here helper to encapsulate top-level project dependency lookup"
+      component: "base/loading.jl"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "729-733"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L729-L733"
+          snippet: |
+            function package_get_here(project_file, name::String)
+                # if `where` matches the project, use [deps] section as manifest, and stop searching
+                pkg_uuid = explicit_project_deps_get(project_file, name)
+                pkg_uuid === nothing && return PkgId(name)
+                return PkgId(pkg_uuid, name)
+            end
+    - summary: "Introduce ext_may_load_weakdep helper to check if extension can load a specific weakdep (only when it is an extension trigger)"
+      component: "base/loading.jl"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "742-743"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L742-L743"
+          snippet: |
+            ext_may_load_weakdep(exts::String, name::String) = exts == name
+            ext_may_load_weakdep(exts::Vector{String}, name::String) = name in exts
+    - summary: "Introduce package_extension_get to handle extension dependency lookup from Project.toml with proper weakdep trigger restriction"
+      component: "base/loading.jl"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "745-767"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L745-L767"
+          snippet: |
+            function package_extension_get(project_file, where::PkgId, name::String)
+                d = parsed_toml(project_file)
+                exts = get(d, "extensions", nothing)::Union{Dict{String, Any}, Nothing}
+                if exts !== nothing
+                    proj = project_file_name_uuid(project_file, where.name)
+                    # Check if `where` is an extension of the project
+                    if where.name in keys(exts) && where.uuid == uuid5(proj.uuid::UUID, where.name)
+                        # Extensions can load weak deps if they are an extension trigger
+                        if ext_may_load_weakdep(exts[where.name]::Union{String, Vector{String}}, name)
+                            weakdeps = get(d, "weakdeps", nothing)::Union{Dict{String, Any}, Nothing}
+                            if weakdeps !== nothing
+                                wuuid = get(weakdeps, name, nothing)::Union{String, Nothing}
+                                if wuuid !== nothing
+                                    return PkgId(UUID(wuuid), name)
+                                end
+                            end
+                        end
+                        # ... and they can load same deps as the project itself
+                        return package_get_here(project_file, name)
+                    end
+                end
+                return nothing
+            end
+    - summary: "Refactor manifest_deps_get to use a cleaner three-case flow: (1) top-level project deps, (2) extension deps, (3) manifest deps"
+      component: "base/loading.jl"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "769-798"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L769-L798"
+          snippet: |
+            function manifest_deps_get(env::String, where::PkgId, name::String)::Union{Nothing,PkgId}
+                @assert where.uuid !== nothing
+                project_file = env_project_file(env)
+                implicit_manifest = !(project_file isa String)
+                if implicit_manifest
+                    project_file || return nothing
+                    project_file = implicit_manifest_project(env, where)
+                    project_file === nothing && return nothing
+                end
+
+                # 1. Are we loading into the top-level project itself? dependencies come from [deps]
+                #    N.B.: Here "top-level" includes package loaded from an implicit manifest, which
+                #          uses the same code path.
+                pkg = package_get(project_file, where, name)
+                pkg === nothing || return pkg
+
+                # 2. Are we an extension of the top-level project? dependencies come from [weakdeps] and [deps]
+                pkg = package_extension_get(project_file, where, name)
+                pkg === nothing || return pkg
+
+                if implicit_manifest
+                    # With an implicit manifest, getting here means that our (implicit) environment
+                    # *has* the package `where`. If we don't find it, it just means that `where` doesn't
+                    # have `name` as a dependency - c.f. the analogous case in `explicit_manifest_deps_get`.
+                    return PkgId(name)
+                end
+
+                # All other cases, dependencies come from the (top-level) manifest
+                return explicit_manifest_deps_get(project_file, where, name)
+            end
+    - summary: "Introduce dep_stanza_get helper functions to deduplicate dependency lookup from Dict or Vector stanzas"
+      component: "base/loading.jl"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "1008-1023"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L1008-L1023"
+          snippet: |
+            function dep_stanza_get(stanza::Dict{String, Any}, name::String)::Union{Nothing, PkgId}
+                for (dep, uuid) in stanza
+                    uuid::String
+                    if dep === name
+                        return PkgId(UUID(uuid), name)
+                    end
+                end
+                return nothing
+            end
+
+            function dep_stanza_get(stanza::Vector{String}, name::String)::Union{Nothing, PkgId}
+                name in stanza && return PkgId(name)
+                return nothing
+            end
+
+            dep_stanza_get(stanza::Nothing, name::String) = nothing
+    - summary: "Replace implicit_manifest_deps_get with simpler implicit_manifest_project that returns the project file for implicit manifest lookup"
+      component: "base/loading.jl"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "1176-1186"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L1176-L1186"
+          snippet: |
+            function implicit_manifest_project(dir, pkg::PkgId)::Union{Nothing, String}
+                @assert pkg.uuid !== nothing
+                project_file = entry_point_and_project_file(dir, pkg.name)[2]
+                if project_file === nothing
+                    # `where` could be an extension
+                    return implicit_env_project_file_extension(dir, pkg)[2]
+                end
+                proj = project_file_name_uuid(project_file, pkg.name)
+                proj == pkg || return nothing
+                return project_file
+            end
+    - summary: "Refactor explicit_manifest_deps_get to use new helpers and ext_may_load_weakdep restriction"
+      component: "base/loading.jl"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "1025-1094"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L1025-L1094"
+          snippet: |
+            function explicit_manifest_deps_get(project_file::String, where::PkgId, name::String)::Union{Nothing,PkgId}
+                manifest_file = project_file_manifest_path(project_file)
+                manifest_file === nothing && return nothing # manifest not found--keep searching LOAD_PATH
+                d = get_deps(parsed_toml(manifest_file))
+                for (dep_name, entries) in d
+                    entries::Vector{Any}
+                    for entry in entries
+                        entry = entry::Dict{String, Any}
+                        uuid = get(entry, "uuid", nothing)::Union{String, Nothing}
+                        uuid === nothing && continue
+                        deps = get(entry, "deps", nothing)::Union{Vector{String}, Dict{String, Any}, Nothing}
+                        local dep::Union{Nothing, PkgId}
+                        if UUID(uuid) === where.uuid
+                            dep = dep_stanza_get(deps, name)
+                            dep === nothing && return PkgId(name)
+                        else
+                            # Check if we're trying to load into an extension of this package
+                            extensions = get(entry, "extensions", nothing)
+                            if extensions !== nothing
+                                if haskey(extensions, where.name) && where.uuid == uuid5(UUID(uuid), where.name)
+                                    if name == dep_name
+                                        # Extension loads its base package
+                                        return PkgId(UUID(uuid), name)
+                                    end
+                                    exts = extensions[where.name]::Union{String, Vector{String}}
+                                    # Extensions are allowed to load:
+                                    # 1. Any ordinary dep of the parent package
+                                    # 2. Any weakdep of the parent package declared as an extension trigger
+                                    for deps′ in (ext_may_load_weakdep(exts, name) ?
+                                            (get(entry, "weakdeps", nothing)::Union{Vector{String}, Dict{String, Any}, Nothing}, deps) :
+                                            (deps,))
+                                        dep = dep_stanza_get(deps′, name)
+                                        dep === nothing && continue
+                                        @goto have_dep
+                                    end
+                                    return PkgId(name)
+                                end
+                            end
+                            continue
+                        end
+                        @label have_dep
+                        dep.uuid !== nothing && return dep
+                        name_deps = get(d, name, nothing)::Union{Nothing, Vector{Any}}
+                        if name_deps === nothing || length(name_deps) != 1
+                            error("expected a single entry for $(repr(name)) in $(repr(project_file))")
+                        end
+                        entry = first(name_deps::Vector{Any})::Dict{String, Any}
+                        uuid = get(entry, "uuid", nothing)::Union{String, Nothing}
+                        uuid === nothing && return PkgId(name)
+                        return PkgId(UUID(uuid), name)
+                    end
+                end
+                return nothing
+            end
+    - summary: "Remove ext parameter from explicit_project_deps_get - extension handling now done separately in package_extension_get"
+      component: "base/loading.jl"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "970-983"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L970-L983"
+          snippet: |
+            function explicit_project_deps_get(project_file::String, name::String)::Union{Nothing,UUID}
+                d = parsed_toml(project_file)
+                if get(d, "name", nothing)::Union{String, Nothing} === name
+                    root_uuid = dummy_uuid(project_file)
+                    uuid = get(d, "uuid", nothing)::Union{String, Nothing}
+                    return uuid === nothing ? root_uuid : UUID(uuid)
+                end
+                deps = get(d, "deps", nothing)::Union{Dict{String, Any}, Nothing}
+                if deps !== nothing
+                    uuid = get(deps, name, nothing)::Union{String, Nothing}
+                    uuid === nothing || return UUID(uuid)
+                end
+                return nothing
+            end
+    - summary: "Test changes: convert envs from Dict to Vector{Pair} for ordered iteration and add testset blocks for better error reporting"
+      component: "test/loading.jl"
+      evidence:
+        - source: "test"
+          path: "test/loading.jl"
+          loc: "466"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/test/loading.jl#L466"
+          snippet: |
+            const envs = Pair{String, Any}[]
+        - source: "test"
+          path: "test/loading.jl"
+          loc: "632-645"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/test/loading.jl#L632-L645"
+          snippet: |
+            @testset "find_package with two envs in load path" begin
+                for x = false:true, env1idx in (x ? (1:length(envs)) : rand(1:length(envs), 10)),
+                                    env2idx in (x ? rand(1:length(envs), 10) : (1:length(envs)))
+                    @testset let env1idx=env1idx, env2idx=env2idx
+                        (env1, (_, _, roots1, graph1, paths1)) = envs[env1idx]
+                        (env2, (_, _, roots2, graph2, paths2)) = envs[env2idx]
+                        push!(empty!(LOAD_PATH), env1, env2)
+                        roots = merge(roots2, roots1)
+                        graph = merge(graph2, graph1)
+                        paths = merge(paths2, paths1)
+                        test_find(roots, graph, paths)
+                    end
+                end
+            end
+  secondary_effects:
+    - effect: "Extensions from top-level Project.toml can now only load weakdeps that are also declared as extension triggers, matching the behavior for Manifest.toml-based loading"
+      mechanism: |
+        manifest_deps_get(env, where, name) [loading.jl:769]
+          -> calls package_extension_get(project_file, where, name) [loading.jl:786]
+          -> package_extension_get checks ext_may_load_weakdep(exts[where.name], name) [loading.jl:753]
+          -> ext_may_load_weakdep returns true only if name is in the extension's trigger list [loading.jl:742-743]
+          -> if false, weakdep lookup is skipped and only [deps] are searched via package_get_here [loading.jl:763]
+
+        Previously in case 1 (top-level Project.toml), there was no ext_may_load_weakdep check,
+        allowing extensions to load any weakdep. This is now fixed to match cases 2/3.
+      downstream_surfaces:
+        - "Package extensions that were loading non-trigger weakdeps from top-level Project.toml"
+        - "Pkg.jl extension loading behavior"
+      likelihood: "low"
+      impact: "medium"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "753"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L753"
+          snippet: |
+            if ext_may_load_weakdep(exts[where.name]::Union{String, Vector{String}}, name)
+    - effect: "Extension dependency search from Manifest no longer restarts from scratch when loading a non-extension-trigger"
+      mechanism: |
+        REMOVED CODE (from old explicit_manifest_deps_get):
+          # `name` is not an ext, do standard lookup as if this was the parent
+          return identify_package(PkgId(UUID(uuid), dep_name), name)
+
+        This recursive call would restart the entire package search as if querying from
+        the parent package, which could find a different version of the dependency.
+
+        NEW BEHAVIOR in explicit_manifest_deps_get [loading.jl:1068]:
+          -> if ext_may_load_weakdep returns false and dep not in deps
+          -> return PkgId(name)  # sentinel for "not found"
+
+        The sentinel PkgId(name) (with uuid=nothing) signals to identify_package_env
+        [loading.jl:356-358] that the package was found but dependency was missing,
+        terminating the search immediately rather than continuing through LOAD_PATH.
+      downstream_surfaces:
+        - "Edge case: multiple versions of same package in load path where higher priority lacks extension"
+        - "Extension loading when parent package exists in multiple environments"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "1068"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L1068"
+          snippet: |
+            return PkgId(name)
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "356-358"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L356-L358"
+          snippet: |
+            # If we don't have pkgid.uuid, still break here - this is a sentinel that indicates
+            # that we've found `where` but it did not have the required dependency. We terminate the search.
+            break
+    - effect: "Call chain for identify_package_env with extensions now flows through cleaner helper functions"
+      mechanism: |
+        identify_package_env(where, name) [loading.jl:336]
+          -> for env in load_path(): manifest_deps_get(env, where, name) [loading.jl:350]
+          -> manifest_deps_get [loading.jl:769]:
+             1. implicit_manifest_project(env, where) for implicit manifests [loading.jl:775]
+             2. package_get(project_file, where, name) for top-level project [loading.jl:782]
+             3. package_extension_get(project_file, where, name) for extensions [loading.jl:786]
+             4. explicit_manifest_deps_get(project_file, where, name) for manifest [loading.jl:797]
+      downstream_surfaces:
+        - "Base.identify_package"
+        - "Package loading infrastructure"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "350"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L350"
+          snippet: |
+            pkgid = manifest_deps_get(env, where, name)
+    - effect: "Implicit manifest handling simplified - extension-specific lookup logic removed from implicit_manifest_deps_get"
+      mechanism: |
+        OLD implicit_manifest_deps_get contained special handling for extensions:
+          - Called implicit_env_project_file_extension(dir, where)[2] for extension lookup
+          - Had separate code paths for extension vs regular package
+          - Called explicit_project_deps_get with ext parameter
+
+        NEW implicit_manifest_project [loading.jl:1176-1186] just returns the project file:
+          - manifest_deps_get then uses the unified package_extension_get for extension handling
+          - This ensures extension loading behavior is consistent across all three cases
+
+        Key simplification: Extension handling is now centralized in package_extension_get
+        and explicit_manifest_deps_get, not scattered across implicit_manifest_deps_get.
+      downstream_surfaces:
+        - "Implicit environments (directories without explicit Project.toml)"
+        - "Package loading from dev'd packages"
+      likelihood: "medium"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "1176-1186"
+          url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L1176-L1186"
+          snippet: |
+            function implicit_manifest_project(dir, pkg::PkgId)::Union{Nothing, String}
+                @assert pkg.uuid !== nothing
+                project_file = entry_point_and_project_file(dir, pkg.name)[2]
+                if project_file === nothing
+                    # `where` could be an extension
+                    return implicit_env_project_file_extension(dir, pkg)[2]
+                end
+                proj = project_file_name_uuid(project_file, pkg.name)
+                proj == pkg || return nothing
+                return project_file
+            end
+  compatibility:
+    behavioral:
+      - summary: "Extensions from top-level Project.toml are now restricted to loading only weakdeps that are extension triggers"
+        evidence:
+          - source: "diff"
+            path: "base/loading.jl"
+            loc: "751-761"
+            url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L751-L761"
+            snippet: |
+              if where.name in keys(exts) && where.uuid == uuid5(proj.uuid::UUID, where.name)
+                  # Extensions can load weak deps if they are an extension trigger
+                  if ext_may_load_weakdep(exts[where.name]::Union{String, Vector{String}}, name)
+                      weakdeps = get(d, "weakdeps", nothing)::Union{Dict{String, Any}, Nothing}
+                      if weakdeps !== nothing
+                          wuuid = get(weakdeps, name, nothing)::Union{String, Nothing}
+                          if wuuid !== nothing
+                              return PkgId(UUID(wuuid), name)
+                          end
+                      end
+                  end
+    internal_api:
+      - summary: "explicit_project_deps_get no longer accepts ext parameter - extension handling moved to package_extension_get"
+        old_signature: "explicit_project_deps_get(project_file::String, name::String, ext::Union{String,Nothing}=nothing)::Union{Nothing,UUID}"
+        new_signature: "explicit_project_deps_get(project_file::String, name::String)::Union{Nothing,UUID}"
+        migration: "Callers that passed ext parameter should now use package_extension_get for extension-specific lookups"
+        evidence:
+          - source: "code"
+            path: "base/loading.jl"
+            loc: "970"
+            url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L970"
+            snippet: |
+              function explicit_project_deps_get(project_file::String, name::String)::Union{Nothing,UUID}
+      - summary: "implicit_manifest_deps_get removed and replaced with implicit_manifest_project"
+        old_function: "implicit_manifest_deps_get(dir::String, where::PkgId, name::String)::Union{Nothing,PkgId}"
+        new_function: "implicit_manifest_project(dir, pkg::PkgId)::Union{Nothing, String}"
+        migration: "Returns project file path instead of PkgId; callers should use manifest_deps_get which now handles this internally"
+        evidence:
+          - source: "code"
+            path: "base/loading.jl"
+            loc: "1176"
+            url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L1176"
+            snippet: |
+              function implicit_manifest_project(dir, pkg::PkgId)::Union{Nothing, String}
+      - summary: "New helper functions added to Base loading infrastructure"
+        new_exports:
+          - function: "ext_may_load_weakdep(exts, name)"
+            purpose: "Check if extension triggers allow loading a specific weakdep"
+            loc: "742-743"
+          - function: "package_get_here(project_file, name)"
+            purpose: "Look up dependency in project's [deps] section"
+            loc: "729-733"
+          - function: "package_extension_get(project_file, where, name)"
+            purpose: "Look up dependency for an extension of the project"
+            loc: "745-767"
+          - function: "dep_stanza_get(stanza, name)"
+            purpose: "Generic lookup in Dict or Vector dependency stanza"
+            loc: "1008-1023"
+  performance:
+    compile_time:
+      - summary: "ESTIMATED: No significant compile-time impact - this is loading infrastructure code, not compiler code"
+        evidence:
+          - source: "code"
+            path: "base/loading.jl"
+            loc: "769-798"
+            url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L769-L798"
+            snippet: |
+              # Refactored manifest_deps_get with similar complexity to original
+    runtime:
+      - summary: "ESTIMATED: Negligible runtime impact - helper functions add minor indirection but cleaner code paths may slightly improve branch prediction"
+        evidence:
+          - source: "code"
+            path: "base/loading.jl"
+            loc: "742-743"
+            url: "https://github.com/JuliaLang/julia/blob/7dfa7d1b0d3c698e35ce70fbfef01be9603fc284/base/loading.jl#L742-L743"
+            snippet: |
+              ext_may_load_weakdep(exts::String, name::String) = exts == name
+              ext_may_load_weakdep(exts::Vector{String}, name::String) = name in exts
+  tests:
+    changed_files:
+      - "test/loading.jl"
+    new_behavior_assertions:
+      - "envs changed from Dict to Vector{Pair} for ordered, deterministic iteration in tests"
+      - "Added @testset blocks with context variables for better error reporting on failures"
+    coverage_gaps:
+      - "No new tests added specifically for the weakdep trigger restriction fix"
+      - "Existing extension tests may not cover the specific case of loading non-trigger weakdeps from top-level Project.toml"
+  risk:
+    level: "medium"
+    rationale:
+      - "Behavioral change: extensions from top-level Project.toml can no longer load arbitrary weakdeps, only trigger weakdeps"
+      - "The PR author believes this was an oversight in the original implementation, but packages may have relied on the permissive behavior"
+      - "Internal API changes to explicit_project_deps_get signature and removal of implicit_manifest_deps_get"
+      - "Refactoring touches critical package loading code paths"
+  open_questions:
+    - "Are there existing packages that rely on extensions loading non-trigger weakdeps from top-level Project.toml?"
+    - "Should there be explicit test coverage for the weakdep trigger restriction?"
+  recommendations:
+    - "Package authors should ensure their extension triggers include all weakdeps the extension needs to load"
+    - "If an extension needs to load a weakdep that is not a trigger, it should be added to [deps] instead or made an extension trigger"
+    - "Consider adding explicit test cases that verify extensions cannot load non-trigger weakdeps"
+reviewer_notes:
+  independent_verification: |
+    Verified by examining base/loading.jl at merge commit 7dfa7d1b0d:
+    - ext_may_load_weakdep at lines 742-743: Confirmed correct implementation
+    - package_extension_get at lines 745-767: Confirmed restriction logic at line 753
+    - manifest_deps_get at lines 769-798: Confirmed three-case flow structure
+    - explicit_manifest_deps_get at lines 1025-1094: Confirmed removal of recursive identify_package call
+    - implicit_manifest_project at lines 1176-1186: Confirmed replacement of implicit_manifest_deps_get
+  callers_verified:
+    - "manifest_deps_get is called from identify_package_env at line 350"
+    - "explicit_project_deps_get is called from project_deps_get (line 721), package_get_here (line 731), and identify_stdlib_project_dep (line 400)"
+    - "No external callers found for the removed/changed internal functions"
+  additional_findings:
+    - "The package_get_here helper was not documented in original analysis but is a key new abstraction"
+    - "The sentinel return PkgId(name) pattern is used consistently to signal 'found package but not dependency'"
+    - "Test file changes are purely about test infrastructure (ordering, error reporting) not behavior"
+  accuracy_assessment: "Original analysis is accurate. Enhancements made for completeness around removed code and new helper functions."

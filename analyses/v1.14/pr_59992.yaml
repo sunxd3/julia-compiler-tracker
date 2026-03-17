@@ -1,0 +1,242 @@
+schema_version: "1.0"
+pr:
+  number: 59992
+  title: "Remove useless size check in Memory allocation"
+  url: "https://github.com/JuliaLang/julia/pull/59992"
+  author: "yuyichao"
+  labels:
+    - "re-land"
+  merged_at: "2025-11-12T15:09:37Z"
+  merge_commit_sha: "f7a2f05a37520bf70f347eefe08548962908f1d9"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59992.diff"
+scope:
+  files_touched:
+    - "src/codegen.cpp"
+  components:
+    - "Codegen"
+  pipeline_stages:
+    - "Codegen"
+analysis:
+  intent:
+    summary: "Remove dead code: a redundant negativity check in the Memory allocation codegen path. The check `if (nel < 0) return false` compared an unsigned `size_t` against 0, which is always false (unsigned values cannot be negative). The `emit_const_len_memorynew` function already performs proper overflow and bounds checking with informative error messages, making the removed check both redundant and misleading."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59971"
+  direct_changes:
+    - summary: "Removed useless `nel < 0` check (dead code) and added explicit `(size_t)` cast with explanatory comment"
+      component: "src/codegen.cpp"
+      evidence:
+        - source: "code (before)"
+          path: "src/codegen.cpp"
+          loc: "4137-4140"
+          url: "https://github.com/JuliaLang/julia/blob/054b2c5ad8678ddf72b96b73d2f096f3200c2a9f/src/codegen.cpp#L4137-L4140"
+          snippet: |
+            size_t nel = jl_unbox_long(argv[2].constant);
+            if (nel < 0)
+                return false;
+            *ret = emit_const_len_memorynew(ctx, typ, nel, inst);
+        - source: "code (after)"
+          path: "src/codegen.cpp"
+          loc: "4137-4140"
+          url: "https://github.com/JuliaLang/julia/blob/f7a2f05a37520bf70f347eefe08548962908f1d9/src/codegen.cpp#L4137-L4140"
+          snippet: |
+            // Cast to a unsigned size and let `emit_const_len_memorynew`
+            // make sure that `nel` fits in a positive signed integer.
+            size_t nel = (size_t)jl_unbox_long(argv[2].constant);
+            *ret = emit_const_len_memorynew(ctx, typ, nel, inst);
+    - summary: "The `emit_const_len_memorynew` function in cgutils.cpp performs comprehensive bounds checking that catches negative values via signed overflow detection"
+      component: "src/cgutils.cpp"
+      evidence:
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "4566-4590"
+          url: "https://github.com/JuliaLang/julia/blob/f7a2f05a37520bf70f347eefe08548962908f1d9/src/cgutils.cpp#L4566-L4590"
+          snippet: |
+            static jl_cgval_t emit_const_len_memorynew(jl_codectx_t &ctx, jl_datatype_t *typ, size_t nel, jl_genericmemory_t *inst)
+            {
+                if (nel == 0) {
+                    Value *empty_alloc = track_pjlvalue(ctx, literal_pointer_val(ctx, (jl_value_t*)inst));
+                    return mark_julia_type(ctx, empty_alloc, true, typ);
+                }
+                const jl_datatype_layout_t *layout = ((jl_datatype_t*)typ)->layout;
+                assert(((jl_datatype_t*)typ)->has_concrete_subtype && layout != NULL);
+                size_t elsz = layout->size;
+                int isboxed = layout->flags.arrayelem_isboxed;
+                int isunion = layout->flags.arrayelem_isunion;
+                int zi = ((jl_datatype_t*)typ)->zeroinit;
+                if (isboxed)
+                    elsz = sizeof(void*);
+                size_t nbytes;
+                bool overflow = __builtin_mul_overflow(nel, elsz, &nbytes);
+                if (isunion) {
+                    // an extra byte for each isbits union memory element, stored at m->ptr + m->length
+                    overflow |= __builtin_add_overflow(nbytes, nel, &nbytes);
+                }
+                // overflow if signed size is too big or nel is too big (the latter matters iff elsz==0)
+                ssize_t tmp=1;
+                overflow |= __builtin_add_overflow(nel, 1, &tmp) || __builtin_add_overflow(nbytes, 1, &tmp);
+                if (overflow)
+                    emit_error(ctx, prepare_call(jlargumenterror_func), "invalid GenericMemory size: the number of elements is either negative or too large for system address width");
+  secondary_effects:
+    - effect: "NO behavioral change - the removed check was dead code that never executed"
+      mechanism: |
+        The old code path was:
+          size_t nel = jl_unbox_long(argv[2].constant);  [codegen.cpp:4137]
+          if (nel < 0) return false;  <-- DEAD CODE: nel is unsigned size_t, always >= 0
+          *ret = emit_const_len_memorynew(ctx, typ, nel, inst);
+
+        For negative inputs (e.g., -1):
+          1. jl_unbox_long returns signed value -1
+          2. Assignment to size_t wraps to UINT64_MAX (on 64-bit)
+          3. The check `nel < 0` is ALWAYS FALSE (unsigned cannot be < 0)
+          4. Code proceeds to emit_const_len_memorynew() which catches the error
+
+        The new code path is identical - it just removes the dead check and adds
+        an explicit cast to document the intent.
+      downstream_surfaces:
+        - "None - behavior unchanged"
+      likelihood: "high"
+      impact: "none"
+    - effect: "Compiler warning elimination - the old code likely triggered -Wtype-limits warnings"
+      mechanism: |
+        Most C++ compilers (GCC, Clang) with -Wtype-limits or equivalent warnings would flag:
+          size_t nel = ...;
+          if (nel < 0)  // warning: comparison of unsigned expression < 0 is always false
+        The new code removes this potentially confusing/warning-triggering pattern.
+      downstream_surfaces:
+        - "Build system warnings"
+        - "Code quality"
+      likelihood: "medium"
+      impact: "low"
+    - effect: "Overflow detection mechanism preserved and documented"
+      mechanism: |
+        emit_const_len_memorynew() catches negative values via signed overflow:
+
+        ssize_t tmp = 1;  // signed type
+        overflow |= __builtin_add_overflow(nel, 1, &tmp);
+
+        When nel = UINT64_MAX (from -1 cast to size_t):
+          - UINT64_MAX + 1 cannot fit in ssize_t (SSIZE_MAX is half of UINT64_MAX)
+          - __builtin_add_overflow returns true
+          - overflow flag set -> error emitted
+
+        This catches both:
+          a) Originally negative values (wrapped to huge unsigned)
+          b) Values that are simply too large for the system
+      downstream_surfaces:
+        - "Memory allocation error handling"
+      likelihood: "high"
+      impact: "none"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "None - the removed check was dead code that never executed; error handling for negative sizes was and remains handled by emit_const_len_memorynew"
+        affected_surfaces: []
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: negligible positive - removes one dead branch comparison"
+    runtime:
+      - impact: "ESTIMATED: none - the removed check was dead code (always false)"
+  risk:
+    level: "low"
+    rationale:
+      - "The change removes dead code: comparing unsigned size_t to 0 is always false"
+      - "Behavior is unchanged - emit_const_len_memorynew already handled all error cases"
+      - "This is a partial re-land of PR #59971 (the safe Memory allocation part only)"
+      - "No new code paths introduced; the explicit cast documents existing implicit behavior"
+      - "The code now has a comment explaining the intentional reliance on emit_const_len_memorynew for validation"
+  open_questions: []
+  recommendations:
+    - "No action required for downstream packages - this is internal codegen dead code removal"
+    - "No behavioral change whatsoever - the error handling path via emit_const_len_memorynew was already active"
+  evidence_tests:
+    - summary: "Memory allocation with constant size is handled in emit_builtin_call for memorynew"
+      path: "src/codegen.cpp"
+      loc: "4124-4146"
+      url: "https://github.com/JuliaLang/julia/blob/f7a2f05a37520bf70f347eefe08548962908f1d9/src/codegen.cpp#L4124-L4146"
+      snippet: |
+        else if (f == BUILTIN(memorynew) && (nargs == 2)) {
+            const jl_cgval_t &memty = argv[1];
+            if (!memty.constant)
+                return false;
+            jl_datatype_t *typ = (jl_datatype_t*) memty.constant;
+            if (!jl_is_concrete_type((jl_value_t*)typ) || !jl_is_genericmemory_type(typ))
+                return false;
+            jl_genericmemory_t *inst = (jl_genericmemory_t*)((jl_datatype_t*)typ)->instance;
+            if (inst == NULL)
+                return false;
+            if (argv[2].constant) {
+                if (!jl_is_long(argv[2].constant))
+                    return false;
+                // Cast to a unsigned size and let `emit_const_len_memorynew`
+                // make sure that `nel` fits in a positive signed integer.
+                size_t nel = (size_t)jl_unbox_long(argv[2].constant);
+                *ret = emit_const_len_memorynew(ctx, typ, nel, inst);
+            }
+            else {
+                *ret = emit_memorynew(ctx, typ, argv[2], inst);
+            }
+            return true;
+        }
+    - summary: "Runtime memorynew builtin uses the same pattern - negative values caught by jl_alloc_genericmemory overflow check"
+      path: "src/builtins.c"
+      loc: "1790-1798"
+      url: "https://github.com/JuliaLang/julia/blob/f7a2f05a37520bf70f347eefe08548962908f1d9/src/builtins.c#L1790-L1798"
+      snippet: |
+        JL_CALLABLE(jl_f_memorynew)
+        {
+            JL_NARGS(memorynew, 2, 2);
+            jl_datatype_t *jl_genericmemory_type_type = jl_datatype_type;
+            JL_TYPECHK(memorynew, genericmemory_type, args[0]);
+            JL_TYPECHK(memorynew, long, args[1]);
+            size_t nel = jl_unbox_long(args[1]);
+            return (jl_value_t*)jl_alloc_genericmemory(args[0], nel);
+        }
+    - summary: "Runtime jl_alloc_genericmemory uses same overflow detection pattern"
+      path: "src/genericmemory.c"
+      loc: "55-66"
+      url: "https://github.com/JuliaLang/julia/blob/f7a2f05a37520bf70f347eefe08548962908f1d9/src/genericmemory.c#L55-L66"
+      snippet: |
+        jl_genericmemory_t *_new_genericmemory_(jl_value_t *mtype, size_t nel, int8_t isunion, int8_t zeroinit, size_t elsz)
+        {
+            if (nel == 0) // zero-sized allocation optimization
+                return (jl_genericmemory_t*)((jl_datatype_t*)mtype)->instance;
+            size_t nbytes = 0;
+            int overflow = __builtin_mul_overflow(nel, elsz, &nbytes);
+            if (isunion) {
+                overflow |= __builtin_add_overflow(nel, nbytes, &nbytes);
+            }
+            if ((nel >= MAXINTVAL-1) || (nbytes >= MAXINTVAL-1) || overflow)
+                jl_exceptionf(jl_argumenterror_type, "invalid GenericMemory size: the number of elements is either negative or too large for system address width");
+related_prs:
+  - number: 59971
+    title: "Fix negativity check in codegen"
+    relationship: "parent PR that was reverted; this PR re-lands only the Memory allocation part"
+    notes: |
+      PR 59971 had two changes:
+        (1) Memory allocation size check: `size_t nel` -> `auto nel` to make it signed, keeping the nel < 0 check
+        (2) debuginfo lineidx.line type fix: `size_t i` -> `ssize_t i` for a negative comparison
+
+      This PR (59992) takes a different approach for part (1): instead of making nel signed,
+      it removes the useless check entirely and relies on emit_const_len_memorynew for validation.
+
+      The debuginfo fix (part 2) from 59971 was the likely cause of the revert and is not
+      included in this PR.
+reviewer_notes:
+  independent_verification: |
+    Verified by independent analysis on 2026-01-21:
+    - Confirmed the old `if (nel < 0)` check was dead code (unsigned size_t cannot be < 0)
+    - Traced call chain: codegen.cpp -> emit_const_len_memorynew -> overflow check
+    - Verified emit_const_len_memorynew is only called from one location in codegen.cpp:4140
+    - Confirmed runtime path (builtins.c:jl_f_memorynew -> genericmemory.c:jl_alloc_genericmemory)
+      uses the same overflow detection pattern
+    - Confirmed no tests exist for negative Memory sizes (overflow is caught consistently)
+  caller_analysis: |
+    rg "emit_const_len_memorynew" julia/src/ results:
+      src/codegen.cpp:4140  - only call site (this PR's change)
+      src/cgutils.cpp:4566  - function definition
+  key_insight: |
+    The original analysis incorrectly stated there was a behavioral change for negative sizes.
+    In fact, the behavior was always to proceed to emit_const_len_memorynew which handles
+    the error. The `if (nel < 0) return false;` check was NEVER executed because size_t is
+    unsigned. This PR is purely dead code removal with added documentation via the explicit
+    cast and comment.

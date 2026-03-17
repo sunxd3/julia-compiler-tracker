@@ -1,0 +1,221 @@
+schema_version: "1.0"
+pr:
+  number: 60476
+  title: "[JuliaSyntax] Add type-asserts to the results of `parse_brackets()`"
+  url: "https://github.com/JuliaLang/julia/pull/60476"
+  author: "JamesWrigley"
+  labels:
+    - "backport 1.12"
+    - "backport 1.13"
+  merged_at: "2026-01-05T04:25:26Z"
+  merge_commit_sha: "05c973aa9bf85995b92ac5675d61913c2deb98a7"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60476.diff"
+scope:
+  files_touched:
+    - "JuliaSyntax/src/julia/parser.jl"
+  components:
+    - "JuliaSyntax"
+  pipeline_stages:
+    - "Parsing"
+analysis:
+  intent:
+    summary: "Add type assertions to parse_brackets callback results to prevent method invalidations caused by unspecialized NamedTuple return types, fixing JuliaSyntax.jl issue 600 where operator method definitions in third-party packages triggered cascading invalidations of parsing methods."
+    issue_links:
+      - "https://github.com/JuliaLang/JuliaSyntax.jl/issues/600"
+      - "https://github.com/JuliaLang/JuliaSyntax.jl/pull/615"
+    quoted_from_pr: "As discussed in JuliaSyntax.jl#600 and JuliaSyntax.jl#615. Tested manually on 1.12. Should finally for-realsies fix #600"
+  direct_changes:
+    - summary: "Add type assertion to parse_brackets result in parse_unary for prefix function calls"
+      component: "JuliaSyntax parser"
+      evidence:
+        - source: "diff"
+          path: "JuliaSyntax/src/julia/parser.jl"
+          loc: "1275-1283"
+          url: "https://github.com/JuliaLang/julia/blob/05c973aa9bf85995b92ac5675d61913c2deb98a7/JuliaSyntax/src/julia/parser.jl#L1275-L1283"
+          snippet: |
+            opts = parse_brackets(ps, K")") do had_commas, had_splat, num_semis, num_subexprs
+                is_paren_call = had_commas || had_splat               ||
+                                (initial_semi && num_subexprs > 0)    ||
+                                (initial_semi && num_semis == 1)      ||
+                                (num_semis == 0 && num_subexprs == 0)
+                return (needs_parameters=is_paren_call,
+                        is_paren_call=is_paren_call,
+                        is_block=!is_paren_call && num_semis > 0)
+            end::NamedTuple{(:needs_parameters, :is_paren_call, :is_block, :delim_flags), Tuple{Bool, Bool, Bool, RawFlags}}
+    - summary: "Add type assertion to parse_brackets result in parse_function_signature for anonymous function detection"
+      component: "JuliaSyntax parser"
+      evidence:
+        - source: "diff"
+          path: "JuliaSyntax/src/julia/parser.jl"
+          loc: "2218-2246"
+          url: "https://github.com/JuliaLang/julia/blob/05c973aa9bf85995b92ac5675d61913c2deb98a7/JuliaSyntax/src/julia/parser.jl#L2218-L2246"
+          snippet: |
+            opts = parse_brackets(ps, K")") do had_commas, had_splat, num_semis, num_subexprs
+                _parsed_call = was_eventually_call(ps)
+                _maybe_grouping_parens = !had_commas && !had_splat && num_semis == 0 && num_subexprs == 1
+                next_token_pos = if peek(ps, 1, skip_newlines=false) == K")"
+                    2
+                else
+                    3
+                end
+                token_after_paren = peek(ps, next_token_pos, skip_newlines=false)
+                has_newline_after_paren = _maybe_grouping_parens && token_after_paren == K"NewlineWs"
+                next_kind = peek(ps, 2, skip_newlines=_maybe_grouping_parens && !has_newline_after_paren)
+                _needs_parse_call = next_kind ∈ KSet"( ."
+                _is_anon_func = (!_needs_parse_call && !_parsed_call) || had_commas
+                return (needs_parameters      = _is_anon_func,
+                        is_anon_func          = _is_anon_func,
+                        parsed_call           = _parsed_call,
+                        needs_parse_call      = _needs_parse_call,
+                        maybe_grouping_parens = _maybe_grouping_parens)
+            end::NamedTuple{(:needs_parameters, :is_anon_func, :parsed_call, :needs_parse_call, :maybe_grouping_parens, :delim_flags),
+                            Tuple{Bool, Bool, Bool, Bool, Bool, RawFlags}}
+    - summary: "Add type assertion to parse_brackets result in parse_call_arglist for argument list parsing"
+      component: "JuliaSyntax parser"
+      evidence:
+        - source: "diff"
+          path: "JuliaSyntax/src/julia/parser.jl"
+          loc: "2775-2780"
+          url: "https://github.com/JuliaLang/julia/blob/05c973aa9bf85995b92ac5675d61913c2deb98a7/JuliaSyntax/src/julia/parser.jl#L2775-L2780"
+          snippet: |
+            function parse_call_arglist(ps::ParseState, closer)
+                ps = ParseState(ps, for_generator=true)
+
+                parse_brackets(ps, closer, false) do _, _, _, _
+                    return (needs_parameters=true,)
+                end::NamedTuple{(:needs_parameters, :delim_flags), Tuple{Bool, RawFlags}}
+            end
+    - summary: "Add type assertion to parse_brackets result in parse_vect for vector literal parsing"
+      component: "JuliaSyntax parser"
+      evidence:
+        - source: "diff"
+          path: "JuliaSyntax/src/julia/parser.jl"
+          loc: "2794-2797"
+          url: "https://github.com/JuliaLang/julia/blob/05c973aa9bf85995b92ac5675d61913c2deb98a7/JuliaSyntax/src/julia/parser.jl#L2794-L2797"
+          snippet: |
+            opts = parse_brackets(ps, closer) do _, _, _, num_subexprs
+                return (needs_parameters=true,
+                        num_subexprs=num_subexprs)
+            end::NamedTuple{(:needs_parameters, :num_subexprs, :delim_flags), Tuple{Bool, Int, RawFlags}}
+    - summary: "Add type assertion to parse_brackets result in parse_paren for tuple/block detection"
+      component: "JuliaSyntax parser"
+      evidence:
+        - source: "diff"
+          path: "JuliaSyntax/src/julia/parser.jl"
+          loc: "3147-3154"
+          url: "https://github.com/JuliaLang/julia/blob/05c973aa9bf85995b92ac5675d61913c2deb98a7/JuliaSyntax/src/julia/parser.jl#L3147-L3154"
+          snippet: |
+            opts = parse_brackets(ps, K")") do had_commas, had_splat, num_semis, num_subexprs
+                is_tuple = had_commas || (had_splat && num_semis >= 1) ||
+                           (initial_semi && (num_semis == 1 || num_subexprs > 0)) ||
+                           (peek(ps, 2) == K"->" && (peek_behind(ps).kind != K"where" && !has_unary_prefix))
+                return (needs_parameters=is_tuple,
+                        is_tuple=is_tuple,
+                        is_block=num_semis > 0)
+            end::NamedTuple{(:needs_parameters, :is_tuple, :is_block, :delim_flags), Tuple{Bool, Bool, Bool, RawFlags}}
+    - summary: "Add type assertion to parse_brackets result in parse_string for string interpolation"
+      component: "JuliaSyntax parser"
+      evidence:
+        - source: "diff"
+          path: "JuliaSyntax/src/julia/parser.jl"
+          loc: "3329-3332"
+          url: "https://github.com/JuliaLang/julia/blob/05c973aa9bf85995b92ac5675d61913c2deb98a7/JuliaSyntax/src/julia/parser.jl#L3329-L3332"
+          snippet: |
+            opts = parse_brackets(ps, K")") do had_commas, had_splat, num_semis, num_subexprs
+                return (needs_parameters=false,
+                        simple_interp=!had_commas && num_semis == 0 && num_subexprs == 1)
+            end::NamedTuple{(:needs_parameters, :simple_interp, :delim_flags), Tuple{Bool, Bool, RawFlags}}
+  secondary_effects:
+    - effect: "Prevents method invalidations when third-party packages define operator methods (e.g., | for bitwise OR), which previously cascaded to 1157+ child method instances in parse_function_signature"
+      mechanism: |
+        parse_brackets(after_parse, ps, closing_kind, ...) [parser.jl:3206-3281]
+          -> calls after_parse(had_commas, had_splat, num_semis, num_subexprs) [parser.jl:3272]
+          -> merges result: (; opts..., delim_flags=...) [parser.jl:3281]
+        Without type assertion: return type is abstract NamedTuple, causing Julia to generate
+        methods that depend on abstract type information, fragile to operator method changes.
+        With type assertion: return type is concrete, method specializes on fixed tuple shape,
+        preventing invalidation cascades.
+      downstream_surfaces:
+        - "Packages defining operator overloads (CUDA.jl, CEnum.jl, DataStructures.jl, IJulia.jl)"
+        - "Any code loading packages after JuliaSyntax is compiled"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "issue"
+          path: "JuliaSyntax.jl/issues/600"
+          url: "https://github.com/JuliaLang/JuliaSyntax.jl/issues/600"
+          snippet: |
+            A single |(UInt16, Any) invalidation cascaded to 1157+ children in parse_function_signature.
+            Affects packages like CUDA.jl, CEnum.jl, DataStructures.jl, and IJulia.jl.
+    - effect: "More stable type inference for opts NamedTuples in parser hot paths, potentially reducing dynamic dispatch during parsing"
+      mechanism: |
+        Each parse_brackets call site now has a concrete return type annotation:
+        - parse_unary: NamedTuple{(:needs_parameters, :is_paren_call, :is_block, :delim_flags), ...}
+        - parse_function_signature: NamedTuple{(:needs_parameters, :is_anon_func, :parsed_call, :needs_parse_call, :maybe_grouping_parens, :delim_flags), ...}
+        - parse_call_arglist: NamedTuple{(:needs_parameters, :delim_flags), ...}
+        - parse_vect: NamedTuple{(:needs_parameters, :num_subexprs, :delim_flags), ...}
+        - parse_paren: NamedTuple{(:needs_parameters, :is_tuple, :is_block, :delim_flags), ...}
+        - parse_string: NamedTuple{(:needs_parameters, :simple_interp, :delim_flags), ...}
+        This allows the compiler to specialize field access code.
+      downstream_surfaces:
+        - "Parser throughput for code with heavy bracket syntax"
+      likelihood: "medium"
+      impact: "low"
+      evidence:
+        - source: "diff"
+          path: "JuliaSyntax/src/julia/parser.jl"
+          loc: "3281"
+          url: "https://github.com/JuliaLang/julia/blob/05c973aa9bf85995b92ac5675d61913c2deb98a7/JuliaSyntax/src/julia/parser.jl#L3281"
+          snippet: |
+            return (; opts..., delim_flags=trailing_comma ? TRAILING_COMMA_FLAG : EMPTY_FLAGS)
+  compatibility:
+    internal_api:
+      - summary: "parse_brackets callback return types are now constrained to specific NamedTuple shapes with Bool fields and RawFlags delim_flags"
+        evidence:
+          - source: "diff"
+            path: "JuliaSyntax/src/julia/parser.jl"
+            loc: "1283"
+            url: "https://github.com/JuliaLang/julia/blob/05c973aa9bf85995b92ac5675d61913c2deb98a7/JuliaSyntax/src/julia/parser.jl#L1283"
+            snippet: |
+              end::NamedTuple{(:needs_parameters, :is_paren_call, :is_block, :delim_flags), Tuple{Bool, Bool, Bool, RawFlags}}
+    behavioral:
+      - summary: "If an after_parse callback returns a NamedTuple with unexpected fields or non-Bool/RawFlags types, parsing throws a TypeError instead of silently proceeding"
+        evidence:
+          - source: "diff"
+            path: "JuliaSyntax/src/julia/parser.jl"
+            loc: "1283"
+            url: "https://github.com/JuliaLang/julia/blob/05c973aa9bf85995b92ac5675d61913c2deb98a7/JuliaSyntax/src/julia/parser.jl#L1283"
+            snippet: |
+              end::NamedTuple{(:needs_parameters, :is_paren_call, :is_block, :delim_flags), Tuple{Bool, Bool, Bool, RawFlags}}
+  performance:
+    compile_time:
+      - summary: "ESTIMATED: Reduced method invalidations when loading packages that define operator overloads, potentially saving recompilation of 1000+ methods"
+        evidence:
+          - source: "issue"
+            path: "JuliaSyntax.jl/issues/600"
+            url: "https://github.com/JuliaLang/JuliaSyntax.jl/issues/600"
+            snippet: |
+              A single |(UInt16, Any) invalidation cascaded to 1157+ children
+    runtime:
+      - summary: "No expected runtime behavior changes for successful parses; only error paths are stricter"
+        evidence:
+          - source: "diff"
+            path: "JuliaSyntax/src/julia/parser.jl"
+            url: "https://github.com/JuliaLang/julia/pull/60476.diff"
+            snippet: "Type assertions only affect type inference, not parsing logic"
+  tests:
+    changed_files: []
+    new_behavior_assertions: []
+    coverage_gaps:
+      - "No new tests added; relies on existing parser test suite to verify no regressions"
+      - "No explicit test for method invalidation prevention (would require testing with third-party package loads)"
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are limited to type assertions on internal NamedTuple shapes and do not alter parsing logic for valid inputs"
+      - "Potential failures only occur if internal callbacks return malformed option tuples, which would indicate a bug"
+      - "PR was backported to 1.12 and 1.13, indicating confidence in stability"
+  open_questions:
+    - "Are there any downstream forks that override parser.jl functions and return non-matching NamedTuple shapes from parse_brackets callbacks?"
+  recommendations:
+    - "If downstream tooling patches JuliaSyntax parser helpers, ensure parse_brackets callbacks return NamedTuples with the asserted fields and RawFlags delim_flags"

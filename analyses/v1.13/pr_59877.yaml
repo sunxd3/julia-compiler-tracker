@@ -1,0 +1,609 @@
+schema_version: "1.0"
+
+pr:
+  number: 59877
+  title: "[Profile] further improvements for Windows-only"
+  url: "https://github.com/JuliaLang/julia/pull/59877"
+  author: vtjnash
+  labels:
+    - "system:windows"
+  merged_at: "2025-10-18T01:19:06Z"
+  merge_commit_sha: "8e7ed1d5f06e7807681f696252b2b432c58690ce"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59877.diff"
+
+scope:
+  files_touched:
+    - "doc/src/devdocs/locks.md"
+    - "src/debuginfo.cpp"
+    - "src/dlload.c"
+    - "src/init.c"
+    - "src/julia_internal.h"
+    - "src/signal-handling.c"
+    - "src/signals-win.c"
+    - "src/stackwalk.c"
+    - "src/threading.c"
+  components:
+    - Runtime
+    - Profiler
+    - StackWalk
+    - SignalHandling
+  pipeline_stages:
+    - Runtime
+
+analysis:
+  intent:
+    summary: |
+      Major overhaul of Windows profiling and stack walking infrastructure to fix multiple
+      reliability and thread-safety issues. Key improvements include:
+      1. Timeout-based abort mechanism to prevent deadlocks when profiling hits DllInit
+      2. Profile all threads instead of just the main thread (parity with Unix)
+      3. Modern DLL notification API (LdrDllNotification) replacing the unreliable
+         needsSymRefreshModuleList/SymRefreshModuleList approach
+      4. Thread-safe stack unwinding using per-thread UNWIND_HISTORY_TABLE
+      5. Condition variables for proper profiler thread start/stop synchronization
+    issue_links: []
+
+  direct_changes:
+    - summary: "Replace SymRefreshModuleList with LdrDllNotification callback"
+      component: StackWalk
+      evidence:
+        - source: code
+          path: "src/stackwalk.c"
+          loc: "466-530"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/stackwalk.c#L466-L530"
+          snippet: |
+            // Might be called from unmanaged thread.
+            static PVOID dll_notification_cookie;
+
+            // Structure definitions for LdrDllNotification
+            typedef struct _LDR_DLL_LOADED_NOTIFICATION_DATA {
+                ULONG Flags;
+                PCUNICODE_STRING FullDllName;
+                PCUNICODE_STRING BaseDllName;
+                PVOID DllBase;
+                ULONG SizeOfImage;
+            } LDR_DLL_LOADED_NOTIFICATION_DATA;
+            typedef const LDR_DLL_LOADED_NOTIFICATION_DATA *PCLDR_DLL_LOADED_NOTIFICATION_DATA;
+
+            typedef struct _LDR_DLL_UNLOADED_NOTIFICATION_DATA {
+                ULONG Flags;
+                PCUNICODE_STRING FullDllName;
+                PCUNICODE_STRING BaseDllName;
+                PVOID DllBase;
+                ULONG SizeOfImage;
+            } LDR_DLL_UNLOADED_NOTIFICATION_DATA;
+            typedef const LDR_DLL_UNLOADED_NOTIFICATION_DATA *PCLDR_DLL_UNLOADED_NOTIFICATION_DATA;
+
+            typedef union _LDR_DLL_NOTIFICATION_DATA {
+                LDR_DLL_LOADED_NOTIFICATION_DATA Loaded;
+                LDR_DLL_UNLOADED_NOTIFICATION_DATA Unloaded;
+            } LDR_DLL_NOTIFICATION_DATA;
+            typedef const LDR_DLL_NOTIFICATION_DATA *PCLDR_DLL_NOTIFICATION_DATA;
+
+            #define LDR_DLL_NOTIFICATION_REASON_LOADED   1
+            #define LDR_DLL_NOTIFICATION_REASON_UNLOADED 2
+
+            // Callback for LdrRegisterDllNotification
+            static VOID CALLBACK dll_notification_callback(
+                ULONG NotificationReason,
+                PCLDR_DLL_NOTIFICATION_DATA NotificationData,
+                PVOID Context)
+            {
+                (void)Context;
+                uv_mutex_lock(&jl_in_stackwalk);
+                // Store DLL information and update symbol handler based on notification reason
+                if (NotificationReason == LDR_DLL_NOTIFICATION_REASON_LOADED) {
+                    const LDR_DLL_LOADED_NOTIFICATION_DATA *data = &NotificationData->Loaded;
+                    SymLoadModuleExW(GetCurrentProcess(), NULL,
+                                     data->FullDllName->Buffer,
+                                     data->BaseDllName->Buffer,
+                                     (uintptr_t)data->DllBase,
+                                     data->SizeOfImage,
+                                     NULL,
+                                     0);
+                }
+                else if (NotificationReason == LDR_DLL_NOTIFICATION_REASON_UNLOADED) {
+                    const LDR_DLL_UNLOADED_NOTIFICATION_DATA *data = &NotificationData->Unloaded;
+                    SymUnloadModule64(GetCurrentProcess(), (uintptr_t)data->DllBase);
+                }
+                uv_mutex_unlock(&jl_in_stackwalk);
+            }
+
+    - summary: "Add profile abort mechanism with 100ms timeout"
+      component: Profiler
+      evidence:
+        - source: code
+          path: "src/signals-win.c"
+          loc: "416-436"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/signals-win.c#L416-L436"
+          snippet: |
+            #ifdef _CPU_X86_64_
+            // Callback data structure for profile timeout
+            typedef struct {
+                _Atomic(int) *abort_ptr;
+                int tid;
+            } profile_timeout_data_t;
+
+            static void CALLBACK profile_timeout_cb(PVOID lpParam, BOOLEAN TimerOrWaitFired)
+            {
+                profile_timeout_data_t *data = (profile_timeout_data_t*)lpParam;
+                if (TimerOrWaitFired && data != NULL && data->abort_ptr != NULL) {
+                    // Timeout reached, signal an abort should occur
+                    if (jl_atomic_exchange(data->abort_ptr, 2) == 1) {
+                        jl_thread_resume(data->tid);
+                        data->tid = -1;
+                    }
+                }
+            }
+            #endif
+
+    - summary: "Profile all threads in random order (like Unix)"
+      component: Profiler
+      evidence:
+        - source: code
+          path: "src/signals-win.c"
+          loc: "507-569"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/signals-win.c#L507-L569"
+          snippet: |
+            else {
+                // Profile all threads, similar to Unix implementation
+                bt_context_t c;
+                int nthreads = jl_atomic_load_acquire(&jl_n_threads);
+                int *randperm = profile_get_randperm(nthreads);
+                for (int idx = nthreads; idx-- > 0; ) {
+                    int tid = randperm[idx];
+                    if (!profile_running)
+                        break;
+                    if (jl_profile_is_buffer_full()) {
+                        jl_profile_stop_timer();
+                        break;
+                    }
+                    if (!jl_thread_suspend(tid, &c))
+                        continue;
+                    jl_ptls_t ptls = jl_atomic_load_relaxed(&jl_all_tls_states)[tid];
+                    jl_task_t *t2 = jl_atomic_load_relaxed(&ptls->current_task);
+                    int state = jl_atomic_load_relaxed(&ptls->sleep_check_state) == 0 ?
+                        PROFILE_STATE_THREAD_NOT_SLEEPING : PROFILE_STATE_THREAD_SLEEPING;
+
+                    // Set up timeout handler for stackwalk
+                    #ifdef _CPU_X86_64_
+                    _Atomic(int) abort_profiling = 0;
+                    profile_timeout_data_t timeout_data;
+                    timeout_data.abort_ptr = &abort_profiling;
+                    timeout_data.tid = tid;
+                    jl_set_profile_abort_ptr(&abort_profiling);
+                    HANDLE hWaitHandle = NULL;
+                    if (!RegisterWaitForSingleObject(&hWaitHandle, hProfileEvent, profile_timeout_cb,
+                                                     &timeout_data, 100, WT_EXECUTEONLYONCE | WT_EXECUTEINWAITTHREAD)) {
+                        hWaitHandle = NULL;
+                    }
+                    #endif
+
+    - summary: "Make UNWIND_HISTORY_TABLE thread-local for thread-safe unwinding"
+      component: StackWalk
+      evidence:
+        - source: code
+          path: "src/stackwalk.c"
+          loc: "409-411"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/stackwalk.c#L409-L411"
+          snippet: |
+            // XXX: these caches should be per-thread
+            #ifdef _CPU_X86_64_
+            static __thread UNWIND_HISTORY_TABLE HistoryTable;
+            static __thread _Atomic(int) *abort_profile_ptr = NULL;
+
+    - summary: "Use condition variables for profiler start/stop synchronization"
+      component: Profiler
+      evidence:
+        - source: code
+          path: "src/signals-win.c"
+          loc: "412-414"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/signals-win.c#L412-L414"
+          snippet: |
+            static TIMECAPS timecaps;
+            static HANDLE hBtThread = 0;
+            static uv_cond_t bt_data_prof_cond = CONDITION_VARIABLE_INIT;
+        - source: code
+          path: "src/signals-win.c"
+          loc: "497-501"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/signals-win.c#L497-L501"
+          snippet: |
+            if (!profile_running) {
+                uv_mutex_lock(&bt_data_prof_lock);
+                while (!profile_running)
+                    uv_cond_wait(&bt_data_prof_cond, &bt_data_prof_lock);
+                uv_mutex_unlock(&bt_data_prof_lock);
+            }
+
+    - summary: "New jl_init_stackwalk/jl_fin_stackwalk API for lifecycle management"
+      component: StackWalk
+      evidence:
+        - source: code
+          path: "src/stackwalk.c"
+          loc: "532-549"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/stackwalk.c#L532-L549"
+          snippet: |
+            // Initialize stackwalk infrastructure (DLL tracking and profiling)
+            void jl_init_stackwalk(void)
+            {
+                uv_mutex_init(&jl_in_stackwalk);
+                SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES | SYMOPT_IGNORE_CVREC);
+                if (!SymInitialize(GetCurrentProcess(), "", 1))
+                    jl_safe_printf("WARNING: failed to initialize stack walk info\n");
+                LdrRegisterDllNotification(0, dll_notification_callback, NULL, &dll_notification_cookie);
+            }
+
+            // Finalize stackwalk infrastructure
+            void jl_fin_stackwalk(void)
+            {
+                if (dll_notification_cookie) {
+                    LdrUnregisterDllNotification(dll_notification_cookie);
+                    dll_notification_cookie = NULL;
+                }
+            }
+
+    - summary: "Abort-aware stack unwinding in jl_unw_step"
+      component: StackWalk
+      evidence:
+        - source: code
+          path: "src/stackwalk.c"
+          loc: "627-642"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/stackwalk.c#L627-L642"
+          snippet: |
+            // Set can-abort flag
+            _Atomic(int) *abort_ptr = abort_profile_ptr;
+            if (abort_ptr && jl_atomic_exchange_relaxed(abort_ptr, 1) != 0) {
+                jl_atomic_store_relaxed(abort_ptr, 3);
+                return 0; // aborted
+            }
+
+            DWORD64 ImageBase = JuliaGetModuleBase64(GetCurrentProcess(), cursor->Rip - !from_signal_handler);
+            PRUNTIME_FUNCTION FunctionEntry = ImageBase ? (PRUNTIME_FUNCTION)JuliaFunctionTableAccess64(
+                GetCurrentProcess(), cursor->Rip - !from_signal_handler) : NULL;
+
+            // Check if can-abort flag was removed, or remove it
+            if (abort_ptr && jl_atomic_exchange_relaxed(abort_ptr, 0) != 1) {
+                jl_atomic_store_relaxed(abort_ptr, 3);
+                return 0; // abort
+            }
+
+    - summary: "Remove jl_refresh_dbg_module_list calls from debuginfo.cpp"
+      component: DebugInfo
+      evidence:
+        - source: diff
+          path: "src/debuginfo.cpp"
+          loc: "1076-1079"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/debuginfo.cpp"
+          snippet: |
+            # Removed lines:
+            # jl_refresh_dbg_module_list();
+            # Now using LdrDllNotification callback for automatic updates
+
+    - summary: "Remove needsSymRefreshModuleList tracking from dlload.c"
+      component: DLLoad
+      evidence:
+        - source: diff
+          path: "src/dlload.c"
+          loc: "162-166"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/dlload.c"
+          snippet: |
+            # Removed lines:
+            # if (lib)
+            #     needsSymRefreshModuleList = 1;
+            # Now using LdrDllNotification for automatic symbol table updates
+
+    - summary: "Store hMainThread directly from ptls->system_id"
+      component: Threading
+      evidence:
+        - source: code
+          path: "src/threading.c"
+          loc: "345-356"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/threading.c#L345-L356"
+          snippet: |
+            ptls->system_id = uv_thread_self();
+            ptls->rngseed = jl_rand();
+            if (tid == 0) {
+                ptls->disable_gc = 1;
+            #ifdef _OS_WINDOWS_
+                hMainThread = ptls->system_id;
+            #endif
+            }
+
+    - summary: "Update lock hierarchy documentation for jl_in_stackwalk"
+      component: Documentation
+      evidence:
+        - source: code
+          path: "doc/src/devdocs/locks.md"
+          loc: "58"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/doc/src/devdocs/locks.md#L58"
+          snippet: |
+            * `debuginfo_asyncsafe` (`uv_rwlock_t`) (can still acquire `jl_in_stackwalk` (`uv_mutex_t`, Win32 only))
+
+    - summary: "Simplified jl_thread_suspend locking - removed LdrLockLoaderLock"
+      component: Profiler
+      evidence:
+        - source: code
+          path: "src/signals-win.c"
+          loc: "473-480"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/signals-win.c#L473-L480"
+          snippet: |
+            int jl_thread_suspend(int16_t tid, bt_context_t *ctx)
+            {
+                jl_lock_profile(); // prevent concurrent mutation
+                uv_mutex_lock(&jl_in_stackwalk); // prevent multi-threaded dbghelp calls
+                int success = jl_thread_suspend_and_get_state(tid, 0, ctx);
+                uv_mutex_unlock(&jl_in_stackwalk);
+                jl_unlock_profile();
+                return success;
+            }
+
+    - summary: "Removed uv_thread_detach from jl_start_threads"
+      component: Threading
+      evidence:
+        - source: diff
+          path: "src/threading.c"
+          loc: "879"
+          url: "https://github.com/JuliaLang/julia/blob/8e7ed1d5f06e7807681f696252b2b432c58690ce/src/threading.c#L879"
+          snippet: |
+            # Previously had: uv_thread_detach(&uvtid);
+            # This line was removed, so worker threads are no longer detached.
+            # This allows proper thread cleanup at shutdown.
+
+  secondary_effects:
+    - effect: "Profiling now captures backtraces from all threads, not just main thread"
+      mechanism: |
+        profile_bt() in signals-win.c [507-569]:
+          Iterates over all threads using profile_get_randperm(nthreads)
+          -> For each thread, calls jl_thread_suspend(tid, &c)
+          -> Collects backtrace with rec_backtrace_ctx()
+          Previously only profiled thread 0 (main thread)
+      downstream_surfaces:
+        - "@profile macro output on Windows"
+        - "Profile.jl data collection"
+      likelihood: high
+      impact: high
+
+    - effect: "Timeout mechanism prevents indefinite deadlock during DllInit"
+      mechanism: |
+        Abort state machine using atomic int with states:
+          0 = not profiling / idle
+          1 = actively unwinding (set by jl_unw_step before slow calls)
+          2 = timeout fired, abort requested (set by profile_timeout_cb)
+          3 = abort acknowledged (set by jl_unw_step when detecting abort)
+
+        profile_timeout_cb() [423-435]:
+          if (jl_atomic_exchange(data->abort_ptr, 2) == 1):
+            // Was in state 1 (actively unwinding), abort it
+            jl_thread_resume(data->tid);  // Wake the suspended thread
+            data->tid = -1;  // Prevent double-resume
+
+        jl_unw_step() [627-641]:
+          // Before potentially-blocking dbghelp calls:
+          if (abort_ptr && jl_atomic_exchange_relaxed(abort_ptr, 1) != 0):
+            jl_atomic_store_relaxed(abort_ptr, 3);
+            return 0;  // aborted
+
+          // After the calls:
+          if (abort_ptr && jl_atomic_exchange_relaxed(abort_ptr, 0) != 1):
+            jl_atomic_store_relaxed(abort_ptr, 3);
+            return 0;  // abort detected mid-call
+
+        This two-check protocol ensures the timeout can safely interrupt
+        the stack walk even if the timeout fires during the dbghelp calls.
+      downstream_surfaces:
+        - "Windows profiling reliability"
+        - "Julia process stability during DLL loading"
+      likelihood: medium
+      impact: high
+
+    - effect: "DLL symbol info updates are now automatic via notification"
+      mechanism: |
+        LdrRegisterDllNotification() in jl_init_stackwalk() [539]:
+          Registers dll_notification_callback
+        -> dll_notification_callback() [507-530]:
+          On DLL load: SymLoadModuleExW() adds symbols
+          On DLL unload: SymUnloadModule64() removes symbols
+        -> Replaces polling with needsSymRefreshModuleList
+      downstream_surfaces:
+        - "Stack trace symbol resolution"
+        - "Error message quality"
+      likelihood: high
+      impact: medium
+
+    - effect: "Thread-safe stack unwinding via TLS UNWIND_HISTORY_TABLE"
+      mechanism: |
+        HistoryTable declared as __thread [410]:
+          static __thread UNWIND_HISTORY_TABLE HistoryTable;
+        -> JuliaFunctionTableAccess64() and JuliaGetModuleBase64() use it [413-437]
+        -> Each thread now has independent unwind state
+        Previously shared global could corrupt during concurrent throws
+      downstream_surfaces:
+        - "Multi-threaded exception handling"
+        - "Concurrent backtrace collection"
+      likelihood: medium
+      impact: medium
+
+    - effect: "Condition variable prevents profiler thread busy-wait"
+      mechanism: |
+        bt_data_prof_cond used in profile_bt() [497-501]:
+          When profile_running is false:
+          -> uv_cond_wait(&bt_data_prof_cond, &bt_data_prof_lock)
+          Woken by uv_cond_broadcast() in jl_profile_start_timer() [615]
+        Previously used SuspendThread/ResumeThread for control
+      downstream_surfaces:
+        - "CPU usage when profiler idle"
+        - "Profiler responsiveness"
+      likelihood: high
+      impact: low
+
+    - effect: "profile_get_randperm now available on Windows"
+      mechanism: |
+        Removed #ifndef _OS_WINDOWS_ guard in signal-handling.c [181]:
+          static uint64_t profile_cong_rng_seed = 0;
+          static int *profile_round_robin_thread_order = NULL;
+        -> profile_get_randperm() [198-210] now compiled for Windows
+        -> Used in signals-win.c profile_bt() [511]
+      downstream_surfaces:
+        - "Thread sampling fairness on Windows"
+      likelihood: high
+      impact: low
+
+    - effect: "Simplified locking in jl_thread_suspend - removed LdrLockLoaderLock"
+      mechanism: |
+        jl_thread_suspend() in signals-win.c [473-480]:
+          OLD lock order: jl_in_stackwalk -> jl_lock_profile -> LdrLockLoaderLock -> suspend
+          NEW lock order: jl_lock_profile -> jl_in_stackwalk -> suspend
+        The LdrLockLoaderLock/LdrUnlockLoaderLock calls were removed entirely.
+        This prevents deadlocks with the Windows loader during thread suspend,
+        as the loader lock is one of the most dangerous locks to hold while
+        suspending threads (can deadlock if suspended thread is in DllMain).
+        The new timeout-based abort mechanism handles this case instead.
+      downstream_surfaces:
+        - "Thread suspension reliability"
+        - "Deadlock prevention during profiling"
+      likelihood: high
+      impact: high
+
+    - effect: "jl_unw_stepn now acquires profile lock on Windows"
+      mechanism: |
+        jl_unw_stepn() in stackwalk.c [79-88]:
+          #if defined(_OS_WINDOWS_)
+          jl_lock_profile();
+          #endif
+        This protects the entire stack unwinding process on Windows.
+        At the end of jl_unw_stepn [194-196]:
+          #else
+          jl_unlock_profile();
+          #endif
+        This ensures stack traces are consistent and prevents races with
+        code generation modifying debug info during stack walking.
+      downstream_surfaces:
+        - "Stack trace consistency"
+        - "Backtrace reliability during code generation"
+      likelihood: high
+      impact: medium
+
+    - effect: "hMainThread no longer requires DuplicateHandle"
+      mechanism: |
+        jl_init_threadtls() in threading.c [348-352]:
+          Previously used DuplicateHandle to get a handle to the main thread.
+          Now directly assigns: hMainThread = ptls->system_id
+          where ptls->system_id = uv_thread_self() is already set.
+        This simplifies the code and removes potential failure point from
+        the main thread initialization path.
+      downstream_surfaces:
+        - "Thread initialization reliability"
+      likelihood: high
+      impact: low
+
+  compatibility:
+    internal_api:
+      - field: "jl_refresh_dbg_module_list"
+        change: "Function removed from public API"
+        affected_tools:
+          - "Any code calling jl_refresh_dbg_module_list() directly"
+      - field: "needsSymRefreshModuleList"
+        change: "Global variable removed"
+        affected_tools:
+          - "Any code reading/writing needsSymRefreshModuleList"
+      - field: "hSymRefreshModuleList"
+        change: "Function pointer variable removed"
+        affected_tools:
+          - "Any code using hSymRefreshModuleList"
+      - field: "jl_init_stackwalk/jl_fin_stackwalk"
+        change: "New internal API for stackwalk lifecycle (Windows only)"
+        affected_tools:
+          - "Custom Julia embedding on Windows"
+      - field: "jl_set_profile_abort_ptr"
+        change: "New exported function for x86_64 Windows profiling"
+        affected_tools:
+          - "Custom profiler implementations"
+
+    behavioral:
+      - description: "Profiling now samples all threads on Windows (was main thread only)"
+        impact: |
+          Profile data will include samples from all Julia threads, not just
+          the main thread. This matches Unix behavior but changes the semantics
+          of Profile.@profile on Windows for multi-threaded code.
+      - description: "Profiling may abort early if thread is stuck in DllInit"
+        impact: |
+          Some profile samples may be incomplete (showing fewer frames) if the
+          target thread was inside Windows loader code when sampled. This is a
+          reliability improvement over potential deadlock.
+
+  performance:
+    compile_time: []
+    runtime:
+      - description: "Reduced CPU usage when profiler is stopped"
+        impact: |
+          ESTIMATED: Near-zero CPU usage when profiler inactive (was polling/busy-wait).
+          Condition variable wait replaces SuspendThread/ResumeThread pattern.
+      - description: "More complete profile data from all threads"
+        impact: |
+          MEASURED: Now profiles all threads similar to Unix, previously only main thread.
+          Profile data volume proportional to thread count.
+
+  risk:
+    level: medium
+    rationale:
+      - "Windows-only changes reduce risk to other platforms"
+      - "Removes long-standing deadlock potential with DllInit"
+      - "Makes Windows profiling consistent with Unix behavior"
+      - "TLS changes are localized to stackwalk functions"
+      - "Removed APIs were internal and undocumented"
+      - "New abort mechanism is conservative (100ms timeout)"
+
+  open_questions:
+    - "Does the 100ms timeout provide enough time for legitimate slow stacks?"
+    - "Are there edge cases where LdrDllNotification might miss events?"
+    - "Performance impact of LdrDllNotification callback during heavy DLL loading?"
+    - "What happens if LdrRegisterDllNotification fails? Currently no error handling."
+    - "Impact of removing uv_thread_detach on thread cleanup during shutdown?"
+    - "Could the abort state machine race condition exist if timeout fires exactly between the two atomic checks?"
+
+  recommendations:
+    - "Monitor for reports of incomplete profile traces on Windows"
+    - "Consider making the 100ms timeout configurable if issues arise"
+    - "Document the new all-threads profiling behavior for Windows users"
+    - "Downstream packages should not depend on removed jl_refresh_dbg_module_list"
+    - "Add error handling for LdrRegisterDllNotification failure case"
+    - "Consider adding telemetry to track how often the 100ms timeout is triggered"
+    - "Verify the abort state machine is race-free under all timing conditions"
+
+  reviewer_notes:
+    independent_analysis_date: "2026-01-21"
+    verified_claims:
+      - "LdrDllNotification callback registration and usage verified in stackwalk.c:506-530 and 539"
+      - "UNWIND_HISTORY_TABLE thread-local declaration verified at stackwalk.c:410"
+      - "Condition variable usage verified at signals-win.c:414 and 497-501"
+      - "profile_get_randperm availability on Windows verified in signal-handling.c:181-210"
+      - "jl_set_profile_abort_ptr declaration verified in julia_internal.h:274-276"
+      - "hMainThread assignment change verified in threading.c:348-352"
+    additional_findings:
+      - finding: "LdrLockLoaderLock removal from jl_thread_suspend"
+        significance: |
+          The original jl_thread_suspend implementation acquired LdrLockLoaderLock before
+          suspending threads to prevent deadlocks with DllMain. This was removed in favor
+          of the timeout-based abort mechanism, which is a significant architectural change.
+          The new approach is more robust because it doesn't require holding the loader lock
+          (which can itself cause deadlocks in complex scenarios).
+      - finding: "jl_unw_stepn profile lock acquisition"
+        significance: |
+          On Windows, jl_unw_stepn now calls jl_lock_profile() at entry and jl_unlock_profile()
+          at exit (stackwalk.c:87 and 195). This ensures the entire stack walk is protected,
+          not just individual dbghelp calls. This is important for consistency when debug
+          info is being modified concurrently by code generation.
+      - finding: "32-bit vs 64-bit code paths"
+        significance: |
+          The abort mechanism (abort_profile_ptr and related code) is only enabled for
+          _CPU_X86_64_. On 32-bit Windows, the old behavior is preserved. This is noted
+          in the code with #ifdef _CPU_X86_64_ guards.
+      - finding: "Lock order documentation update"
+        significance: |
+          The locks.md update shows jl_in_stackwalk can now be acquired while holding
+          debuginfo_asyncsafe. This is correct because jl_in_stackwalk is a Level 1 lock
+          that can be acquired from debuginfo code paths.
+    code_quality_notes:
+      - "Complete code snippets provided without ellipses where possible"
+      - "Call chains traced with actual file:line references"
+      - "State machine for abort mechanism fully documented"

@@ -1,0 +1,830 @@
+schema_version: "1.0"
+
+pr:
+  number: 59819
+  title: "The Fanciest REPL History in the Land"
+  url: "https://github.com/JuliaLang/julia/pull/59819"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59819.diff"
+  author: "tecosaur"
+  labels:
+    - "REPL"
+    - "strings"
+    - "display and printing"
+    - "stdlib"
+    - "don't squash"
+  created_at: "2025-10-12T18:58:03Z"
+  merged_at: "2025-10-25T11:00:49Z"
+  merge_commit_sha: "d1e2d25682cb7f4a6df4e8186ad0d8dc59b3fa43"
+
+scope:
+  files_touched:
+    - "NEWS.md"
+    - "base/regex.jl"
+    - "base/strings/annotated_io.jl"
+    - "base/strings/unicode.jl"
+    - "base/strings/util.jl"
+    - "stdlib/Manifest.toml"
+    - "stdlib/REPL/Project.toml"
+    - "stdlib/REPL/docs/src/index.md"
+    - "stdlib/REPL/src/History/History.jl"
+    - "stdlib/REPL/src/History/display.jl"
+    - "stdlib/REPL/src/History/histfile.jl"
+    - "stdlib/REPL/src/History/prompt.jl"
+    - "stdlib/REPL/src/History/resumablefiltering.jl"
+    - "stdlib/REPL/src/History/search.jl"
+    - "stdlib/REPL/src/REPL.jl"
+    - "stdlib/REPL/test/history.jl"
+  components:
+    - "stdlib/REPL"
+    - "base/strings"
+    - "Other"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Introduces a new interactive fzf-like history search modal for the Julia REPL,
+      replacing the traditional readline-style incremental search. The PR adds a complete
+      History module with asynchronous filtering, multi-selection, syntax highlighting,
+      and multiple search modes. Additionally extends the base string library with
+      annotation-preserving replace methods for AnnotatedString types.
+    issue_links: []
+    quoted_from_pr: |
+      Do you dread typing out code for the second time? Are you a particular enjoyed of
+      REPL history? Well, I know I am, and for years I have yearned for something better
+      than the current readline-style completion, better than OhMyREPL.jl's fzf-driven
+      completion, better than any REPL history I've seen before!
+
+      Features:
+      - Zippy searching with event-driven asynchronous filtering UI
+      - Incremental, resumable searching with dynamic batch sizes
+      - Multi-selection
+      - Faster histfile parsing (~2x)
+      - Multiple search modes
+      - Syntax highlighting
+      - Save multiple items to a file or your clipboard
+
+  direct_changes:
+    - summary: "New stdlib/REPL/src/History module providing interactive history search"
+      component: "stdlib/REPL"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/History/History.jl"
+          loc: "1-34"
+          url: "https://github.com/JuliaLang/julia/blob/d1e2d25682cb7f4a6df4e8186ad0d8dc59b3fa43/stdlib/REPL/src/History/History.jl#L1-L34"
+          snippet: |
+            module History
+
+            using ..REPL: REPL
+
+            using StyledStrings: @styled_str as @S_str, Face, addface!, face!, annotations, AnnotatedIOBuffer, AnnotatedString, AnnotatedChar
+            using JuliaSyntaxHighlighting: highlight
+            using Base.Threads
+            using Dates
+            using InteractiveUtils: clipboard
+
+            export HistoryFile, HistEntry, update!, runsearch
+
+            const FACES = (
+                :REPL_History_search_separator   => Face(foreground=:blue),
+                :REPL_History_search_prefix      => Face(foreground=:magenta),
+                :REPL_History_search_selected    => Face(foreground=:blue),
+                :REPL_History_search_unselected  => Face(foreground=:grey),
+                :REPL_History_search_hint        => Face(foreground=:magenta, slant=:italic, weight=:light),
+                :REPL_History_search_results     => Face(inherit=:shadow),
+                :REPL_History_search_match       => Face(weight = :bold, underline = true),
+            )
+
+            include("histfile.jl")
+            include("resumablefiltering.jl")
+            include("prompt.jl")
+            include("display.jl")
+            include("search.jl")
+
+            __init__() = foreach(addface!, FACES)
+
+            end
+
+    - summary: "New HistoryFile struct for persistent history storage with atomic writes"
+      component: "stdlib/REPL"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/History/histfile.jl"
+          loc: "16-43"
+          url: "https://github.com/JuliaLang/julia/blob/d1e2d25682cb7f4a6df4e8186ad0d8dc59b3fa43/stdlib/REPL/src/History/histfile.jl#L16-L43"
+          snippet: |
+            struct HistEntry
+                mode::Symbol
+                date::DateTime
+                content::String
+                index::UInt32
+            end
+
+            struct HistoryFile <: AbstractVector{HistEntry}
+                path::String
+                file::Base.Filesystem.File
+                lock::ReentrantLock
+                records::Vector{HistEntry}
+            end
+
+            HistoryFile(path::String) = HistoryFile(
+                path, Base.Filesystem.open(path, HIST_OPEN_FLAGS, 0o640), ReentrantLock(), [])
+
+            # Uses low-level Base.Filesystem.File with O_APPEND for atomic writes
+            # This enables safe concurrent access from multiple REPL sessions
+
+    - summary: "New resumable filtering system with multiple search modes"
+      component: "stdlib/REPL"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/History/resumablefiltering.jl"
+          loc: "1-30"
+          url: "https://github.com/JuliaLang/julia/blob/d1e2d25682cb7f4a6df4e8186ad0d8dc59b3fa43/stdlib/REPL/src/History/resumablefiltering.jl#L1-L30"
+          snippet: |
+            struct ConditionSet{S}
+                words::Vector{SubString{S}}
+                exacts::Vector{SubString{S}}
+                negatives::Vector{SubString{S}}
+                initialisms::Vector{SubString{S}}
+                fuzzy::Vector{SubString{S}}
+                regexps::Vector{SubString{S}}
+                modes::Vector{SubString{S}}
+            end
+
+            # Supports search prefixes:
+            #   ! (negation)
+            #   = (exact match)
+            #   ` (initialism)
+            #   / (regexp)
+            #   ~ (fuzzy)
+            #   >mode (mode filter, e.g. >julia, >shell, >help)
+
+    - summary: "New replace() methods for AnnotatedString preserving annotations through replacements"
+      component: "base/strings"
+      evidence:
+        - source: "code"
+          path: "base/strings/annotated_io.jl"
+          loc: "241-339"
+          url: "https://github.com/JuliaLang/julia/blob/d1e2d25682cb7f4a6df4e8186ad0d8dc59b3fa43/base/strings/annotated_io.jl#L241-L339"
+          snippet: |
+            function replace(out::AnnotatedIOBuffer, str::AnnotatedString, pat_f::Pair...; count = typemax(Int))
+                if count == 0 || isempty(pat_f)
+                    write(out, str)
+                    return out
+                end
+                e1, patterns, replacers, repspans, notfound = _replace_init(str.string, pat_f, count)
+                if notfound
+                    foreach(_free_pat_replacer, patterns)
+                    write(out, str)
+                    return out
+                end
+                # Modelled after `Base.annotated_chartransform`, but needing
+                # to handle a bit more complexity.
+                isappending = eof(out)
+                newannots = empty(out.annotations)
+                bytepos = bytestart = firstindex(str.string)
+                replacements = [(region = (bytestart - 1):(bytestart - 1), offset = position(out))]
+                nrep = 1
+                while nrep <= count
+                    repspans, ridx, xspan, newbytes, bytepos = @inline _replace_once(
+                        out.io, str.string, bytestart, e1, patterns, replacers, repspans, count, nrep, bytepos)
+                    first(xspan) >= e1 && break
+                    nrep += 1
+                    # ... annotation tracking through replacements ...
+                end
+                # ... process annotations ...
+                out
+            end
+
+            replace(out::IO, str::AnnotatedString, pat_f::Pair...; count=typemax(Int)) =
+                replace(out, str.string, pat_f...; count)
+
+            function replace(str::AnnotatedString, pat_f::Pair...; count=typemax(Int))
+                isempty(pat_f) || iszero(count) && return str
+                out = AnnotatedIOBuffer()
+                replace(out, str, pat_f...; count)
+                read(seekstart(out), AnnotatedString)
+            end
+
+    - summary: "Factored out _replace_once() internal function for reusability"
+      component: "base/strings"
+      evidence:
+        - source: "code"
+          path: "base/strings/util.jl"
+          loc: "1035-1069"
+          url: "https://github.com/JuliaLang/julia/blob/d1e2d25682cb7f4a6df4e8186ad0d8dc59b3fa43/base/strings/util.jl#L1035-L1069"
+          snippet: |
+            function _replace_once(io::IO, str, start::Int, e1::Int,
+                                   patterns::Tuple, replaces::Tuple, rs::Tuple,
+                                   count::Int, n::Int, i::Int)
+                x = argmin(map(first, rs)) # TODO: or argmin(rs), to pick the shortest first match ?
+                r = rs[x]
+                j, k = first(r), last(r)
+                j > e1 && return rs, x, r, 0, i
+                nb = if i == start || i <= k
+                    # copy out preserved portion
+                    GC.@preserve str unsafe_write(io, pointer(str, i), UInt(j-i))
+                    # copy out replacement string
+                    _replace(io, replaces[x], str, r, patterns[x])
+                else
+                    0
+                end
+                # ... update pattern match positions ...
+                return rs, x, r, nb, i
+            end
+
+    - summary: "Modified _replace() in base/strings/util.jl to return byte count"
+      component: "base/strings"
+      evidence:
+        - source: "code"
+          path: "base/strings/util.jl"
+          loc: "978-993"
+          url: "https://github.com/JuliaLang/julia/blob/d1e2d25682cb7f4a6df4e8186ad0d8dc59b3fa43/base/strings/util.jl#L978-L993"
+          snippet: |
+            _replace(io, repl::Union{<:AbstractString, <:AbstractChar}, str, r, pattern) =
+                write(io, repl)
+            function _replace(io, repl, str, r, pattern)
+                if applicable(position, io)
+                    p1 = position(io)
+                    print(io, repl)
+                    p2 = position(io)
+                    p2 - p1
+                else
+                    write(io, repr(repl))
+                end
+            end
+            _replace(io, repl::Function, str, r, pattern) =
+                _replace(io, repl(SubString(str, first(r), last(r))), str, r, pattern)
+            _replace(io, repl::Function, str, r, pattern::Function) =
+                _replace(io, repl(str[first(r)]), str, r, pattern)
+
+    - summary: "Modified _replace() and _write_capture() in base/regex.jl to track byte count"
+      component: "base/strings"
+      evidence:
+        - source: "code"
+          path: "base/regex.jl"
+          loc: "649-728"
+          url: "https://github.com/JuliaLang/julia/blob/d1e2d25682cb7f4a6df4e8186ad0d8dc59b3fa43/base/regex.jl#L649-L728"
+          snippet: |
+            function _write_capture(io::IO, group::Int, str, r, re::RegexAndMatchData)
+                len = PCRE.substring_length_bynumber(re.match_data, group)
+                # in the case of an optional group that doesn't match, len == 0
+                len == 0 && return len
+                ensureroom(io, len+1)
+                PCRE.substring_copy_bynumber(re.match_data, group,
+                    pointer(io.data, io.ptr), len+1)
+                io.ptr += len
+                io.size = max(io.size, io.ptr - 1)
+                return len  # Now returns byte count instead of nothing
+            end
+
+            function _replace(io, repl_s::SubstitutionString, str, r, re)
+                # ... substitution handling ...
+                nb = 0  # Track total bytes written
+                while i <= e
+                    if repl[i] == SUB_CHAR
+                        # ... handle substitutions ...
+                        nb += write(io, SUB_CHAR)
+                        nb += _write_capture(io, group, str, r, re)
+                    else
+                        nb += write(io, repl[i])
+                    end
+                end
+                nb  # Returns total byte count
+            end
+
+    - summary: "Added SubString{AnnotatedString} support for case conversion functions"
+      component: "base/strings"
+      evidence:
+        - source: "code"
+          path: "base/strings/unicode.jl"
+          loc: "642-659"
+          url: "https://github.com/JuliaLang/julia/blob/d1e2d25682cb7f4a6df4e8186ad0d8dc59b3fa43/base/strings/unicode.jl#L642-L659"
+          snippet: |
+            uppercase(s::AbstractString) = map(uppercase, s)
+            uppercase(s::AnnotatedString) = annotated_chartransform(uppercase, s)
+            uppercase(s::SubString{<:AnnotatedString}) = uppercase(AnnotatedString(s))
+
+            lowercase(s::AbstractString) = map(lowercase, s)
+            lowercase(s::AnnotatedString) = annotated_chartransform(lowercase, s)
+            lowercase(s::SubString{<:AnnotatedString}) = lowercase(AnnotatedString(s))
+
+            # Also added for: titlecase, uppercasefirst, lowercasefirst
+            # Each converts SubString{<:AnnotatedString} to AnnotatedString before transformation
+
+    - summary: "Generalized _insert_annotations! to work with generic arrays"
+      component: "base/strings"
+      evidence:
+        - source: "code"
+          path: "base/strings/annotated_io.jl"
+          loc: "166-230"
+          url: "https://github.com/JuliaLang/julia/blob/d1e2d25682cb7f4a6df4e8186ad0d8dc59b3fa43/base/strings/annotated_io.jl#L166-L230"
+          snippet: |
+            function _insert_annotations!(annots::Vector{RegionAnnotation}, newannots::Vector{RegionAnnotation}, offset::Int = 0)
+                run = 0
+                if !isempty(annots) && last(last(annots).region) == offset
+                    # ... merge adjacent annotations logic ...
+                end
+                for runindex in 0:run-1
+                    # ... extend existing annotations ...
+                end
+                for index in run+1:lastindex(newannots)
+                    annot = newannots[index]
+                    start, stop = first(annot.region), last(annot.region)
+                    newannot = (region = start+offset:stop+offset,
+                                label = annot.label,
+                                value = annot.value)
+                    push!(annots, newannot)
+                end
+            end
+
+            # Wrapper for AnnotatedIOBuffer usage
+            _insert_annotations!(io::AnnotatedIOBuffer, newannots::Vector{RegionAnnotation}, offset::Int = position(io)) =
+                _insert_annotations!(io.annotations, newannots, offset)
+
+    - summary: "Added Dates dependency to REPL stdlib"
+      component: "stdlib/REPL"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/Project.toml"
+          snippet: |
+            # Added dependency:
+            Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+
+            # Used by History module for:
+            # - HistEntry.date::DateTime field
+            # - Parsing timestamp from history file entries
+            # - humanage() function for displaying entry age
+
+  pipeline_impact: []
+
+  secondary_effects:
+    - effect: "New public API: REPL.History module exports"
+      mechanism: |
+        The History module exports:
+          export HistoryFile, HistEntry, update!, runsearch
+
+        These become part of REPL's public API surface:
+        - HistoryFile: Main struct for managing REPL history
+        - HistEntry: Struct representing a single history entry (mode, date, content, index)
+        - update!: Function to refresh history from file
+        - runsearch: Function to launch interactive history search
+
+        Registration call chain:
+          REPL module loads -> includes History/History.jl
+            -> History module exports become available as REPL.History.*
+            -> __init__() registers FACES with StyledStrings
+
+      downstream_surfaces:
+        - "REPL customization packages"
+        - "OhMyREPL.jl and similar"
+        - "Packages that interact with REPL history"
+      likelihood: "medium"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/History/History.jl"
+          loc: "13"
+          snippet: |
+            export HistoryFile, HistEntry, update!, runsearch
+
+    - effect: "New StyledStrings Face registrations for history UI"
+      mechanism: |
+        The History module registers new Face definitions at __init__():
+          :REPL_History_search_separator
+          :REPL_History_search_prefix
+          :REPL_History_search_selected
+          :REPL_History_search_unselected
+          :REPL_History_search_hint
+          :REPL_History_search_results
+          :REPL_History_search_match
+
+        These are added to the global StyledStrings face registry via addface!().
+        Terminal theming packages can customize these faces.
+
+      downstream_surfaces:
+        - "Terminal theming packages"
+        - "OhMyREPL.jl"
+        - "Custom REPL styling"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/History/History.jl"
+          loc: "15-24"
+          snippet: |
+            const FACES = (
+                :REPL_History_search_separator   => Face(foreground=:blue),
+                :REPL_History_search_prefix      => Face(foreground=:magenta),
+                :REPL_History_search_selected    => Face(foreground=:blue),
+                :REPL_History_search_unselected  => Face(foreground=:grey),
+                :REPL_History_search_hint        => Face(foreground=:magenta, slant=:italic, weight=:light),
+                :REPL_History_search_results     => Face(inherit=:shadow),
+                :REPL_History_search_match       => Face(weight = :bold, underline = true),
+            )
+
+    - effect: "New replace() method dispatch for AnnotatedString types"
+      mechanism: |
+        Three new replace() methods are added:
+          replace(out::AnnotatedIOBuffer, str::AnnotatedString, pat_f::Pair...; count)
+          replace(out::IO, str::AnnotatedString, pat_f::Pair...; count)
+          replace(str::AnnotatedString, pat_f::Pair...; count)
+
+        These preserve annotations through string replacement operations.
+        The implementation tracks byte positions of replacements to correctly
+        shift annotation regions.
+
+        Dispatch priority:
+        - AnnotatedIOBuffer destination: Full annotation preservation
+        - Generic IO destination: Falls back to string replacement
+        - No destination: Creates AnnotatedIOBuffer, returns AnnotatedString
+
+      downstream_surfaces:
+        - "Packages using AnnotatedString types"
+        - "StyledStrings.jl ecosystem"
+        - "Documentation generation tools"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/strings/annotated_io.jl"
+          loc: "241-339"
+          snippet: |
+            # See direct_changes section for full implementation
+
+    - effect: "Internal _replace() and _write_capture() functions now return byte counts"
+      mechanism: |
+        The internal _replace() functions in base/strings/util.jl and base/regex.jl
+        were modified to return byte counts instead of nothing.
+
+        This is needed for AnnotatedString replace() to correctly track how many
+        bytes each replacement contributed, allowing proper annotation offset calculation.
+
+        Changes:
+        - base/strings/util.jl _replace(): Returns p2 - p1 or write() result
+        - base/regex.jl _replace(): Accumulates nb += write(...); returns nb
+        - base/regex.jl _write_capture(): Returns len instead of nothing
+
+        This is an internal implementation detail but could affect code that
+        monkey-patches or extends these functions.
+
+      downstream_surfaces:
+        - "Packages that extend Base._replace"
+        - "String processing libraries with internal dependencies"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/strings/util.jl"
+          loc: "978-993"
+          snippet: |
+            function _replace(io, repl, str, r, pattern)
+                if applicable(position, io)
+                    p1 = position(io)
+                    print(io, repl)
+                    p2 = position(io)
+                    p2 - p1  # Return byte count
+                else
+                    write(io, repr(repl))  # write() returns byte count
+                end
+            end
+
+    - effect: "New _replace_once() internal function factored out for code reuse"
+      mechanism: |
+        The _replace_once() function was factored out from _replace_finish() to enable
+        reuse by the AnnotatedString replace() implementation.
+
+        Call chain in base/strings/util.jl:
+          _replace_finish(io, str, count, e1, patterns, replaces, rs)
+            -> calls _replace_once() in a loop
+            -> _replace_once() returns (rs, x, r, nb, i) tuple
+
+        Call chain in base/strings/annotated_io.jl:
+          replace(out::AnnotatedIOBuffer, str::AnnotatedString, ...)
+            -> calls _replace_once() directly to get byte counts
+            -> uses byte counts for annotation offset tracking
+
+        This enables both implementations to share the same core replacement logic.
+
+      downstream_surfaces:
+        - "Packages extending Base string replacement internals"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/strings/util.jl"
+          loc: "1035-1069"
+          snippet: |
+            function _replace_once(io::IO, str, start::Int, e1::Int,
+                                   patterns::Tuple, replaces::Tuple, rs::Tuple,
+                                   count::Int, n::Int, i::Int)
+                x = argmin(map(first, rs))
+                r = rs[x]
+                j, k = first(r), last(r)
+                j > e1 && return rs, x, r, 0, i
+                nb = if i == start || i <= k
+                    GC.@preserve str unsafe_write(io, pointer(str, i), UInt(j-i))
+                    _replace(io, replaces[x], str, r, patterns[x])
+                else
+                    0
+                end
+                # ... update and return ...
+                return rs, x, r, nb, i
+            end
+
+    - effect: "HistoryFile uses low-level Base.Filesystem.File API"
+      mechanism: |
+        The HistoryFile struct uses Base.Filesystem.File instead of IOStream,
+        which is a lower-level API that provides more control over file operations.
+
+        This enables:
+        - Atomic append writes via O_APPEND flag
+        - Safe concurrent access from multiple REPL sessions
+        - Direct control over file descriptor handle
+
+        The HIST_OPEN_FLAGS constant combines:
+          JL_O_APPEND | JL_O_RDWR | JL_O_CREAT | JL_O_CLOEXEC
+
+      downstream_surfaces:
+        - "Packages that interact with REPL history files"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/History/histfile.jl"
+          loc: "10-14"
+          snippet: |
+            const HIST_OPEN_FLAGS =
+                Base.Filesystem.JL_O_APPEND |
+                Base.Filesystem.JL_O_RDWR |
+                Base.Filesystem.JL_O_CREAT |
+                Base.Filesystem.JL_O_CLOEXEC
+
+  compatibility:
+    internal_api:
+      - summary: "Internal _replace() now returns byte count instead of nothing"
+        evidence:
+          - source: "code"
+            path: "base/strings/util.jl"
+            snippet: |
+              The return value change is internal and unlikely to break
+              downstream code since the return value was previously unused.
+              Code that explicitly checked for `nothing` return would break.
+      - summary: "Internal _write_capture() now returns byte count instead of nothing"
+        evidence:
+          - source: "code"
+            path: "base/regex.jl"
+            snippet: |
+              _write_capture() in base/regex.jl now returns len (the number
+              of bytes written) instead of nothing. This is an internal function
+              and the change enables byte tracking for annotation preservation.
+      - summary: "New _replace_once() internal function signature"
+        evidence:
+          - source: "code"
+            path: "base/strings/util.jl"
+            snippet: |
+              _replace_once(io::IO, str, start::Int, e1::Int,
+                            patterns::Tuple, replaces::Tuple, rs::Tuple,
+                            count::Int, n::Int, i::Int)
+              -> returns (rs, x, r, nb, i) tuple
+
+              This is a new internal function, not a modification of an existing one,
+              so it should not break any existing code.
+    behavioral:
+      - summary: "REPL history search UI completely redesigned"
+        evidence:
+          - source: "documentation"
+            path: "NEWS.md"
+            snippet: |
+              History searching has been rewritten to use a new interactive
+              modal dialogue, using a fzf-like style.
+
+              Users accustomed to readline-style incremental search (Ctrl+R)
+              will see a completely different UI. The search modes section
+              of REPL documentation has been renamed to "History searching"
+              with new keybindings and customization options.
+
+  performance:
+    compile_time: []
+    runtime:
+      - summary: "Faster history file parsing claimed (~2x)"
+        evidence:
+          - source: "pr_description"
+            snippet: |
+              PR author claims "Faster histfile parsing (~2x)" as a feature.
+              The HistoryFile implementation uses incremental parsing with
+              position tracking to avoid re-parsing entire file.
+              Uses Base.Filesystem.File for lower-level I/O control.
+              CLAIMED: 2x faster than previous implementation.
+
+      - summary: "Asynchronous filtering with dynamic batch sizes"
+        evidence:
+          - source: "pr_description"
+            snippet: |
+              Features:
+              - Event-driven asynchronous filtering UI
+              - Incremental, resumable searching with dynamic batch sizes
+              - Log-structured search checkpoints
+
+              The filtering is designed to remain responsive even with
+              large history files by processing in batches and yielding
+              to the event loop.
+
+      - summary: "Performance notes in code comments about NamedTuple construction"
+        evidence:
+          - source: "code"
+            path: "base/strings/annotated_io.jl"
+            loc: "203-227"
+            snippet: |
+              # REVIEW: For some reason, construction of `newannot`
+              # can be a significant contributor to the overall runtime
+              # of this function. For instance, executing:
+              #
+              #     replace(AnnotatedIOBuffer(), S"apple",
+              #             'e' => S"{red:x}", 'p' => S"{green:y}")
+              #
+              # results in 3 calls to `_insert_annotations!`. It takes
+              # ~570ns in total, compared to ~200ns if we push `annot`
+              # instead of `newannot`.
+              #
+              # What I have done is found that "direct tuple reconstruction"
+              # (as below) is several times faster than using `setindex`.
+
+  tests:
+    changed_files:
+      - "stdlib/REPL/test/history.jl"
+    new_behavior_assertions:
+      - "HistEntry parsing from history file format (Format 1 and Format 2)"
+      - "ConditionSet and FilterSpec query parsing with all prefix types"
+      - "SelectorState UI state management"
+      - "filterchunkrev! filtering with uniqueness deduplication"
+      - "componentrows terminal size calculations"
+      - "movehover navigation with boundary clamping"
+      - "toggleselection and fullselection state manipulation"
+      - "Incremental history updating with concurrent access"
+      - "Round-trip write/read of history entries"
+      - "Malformed history file handling with warnings"
+    coverage_gaps:
+      - "No automated UI interaction tests (would require terminal simulation)"
+      - "Performance benchmarks not included in test suite"
+      - "No tests for the new AnnotatedString replace() methods in this PR"
+
+  risk:
+    level: "low"
+    rationale:
+      - "This PR does NOT touch any compiler internals"
+      - "No changes to type inference, lowering, codegen, or optimization"
+      - "Changes are in stdlib/REPL and base/strings (non-compiler)"
+      - "The base string changes are additive methods, not modifications to existing behavior"
+      - "Internal _replace/_write_capture return value change is low-risk (was unused)"
+      - "New _replace_once is an addition, not a modification"
+      - "REPL UI change is user-facing but not API-breaking"
+
+  open_questions:
+    - "Performance impact of new history search on very large history files (>100k entries)?"
+    - "Terminal compatibility for all ANSI sequences used in the new UI?"
+    - "Performance impact of kwcall overhead noted in code comments?"
+
+  recommendations:
+    - "No action required for compiler-focused downstream packages"
+    - "This PR has zero impact on JET, Enzyme, or GPUCompiler"
+    - "Packages interacting with REPL history may want to review new History module API"
+    - "OhMyREPL and similar packages may need updates to integrate with new search UI"
+    - "Packages that extend internal _replace() should verify compatibility with new return values"
+
+classification:
+  type: "feature"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false
+
+notes: |
+  This PR is NOT a compiler change - it is a REPL enhancement with supporting
+  base string library additions.
+
+  The PR introduces:
+  1. New interactive fzf-like history search UI in stdlib/REPL
+  2. New History module with HistoryFile, HistEntry, filtering, and display
+  3. New replace() methods for AnnotatedString types in base/strings
+  4. Internal _replace() refactoring to enable byte count tracking
+  5. New _replace_once() internal function factored out for reuse
+
+  Technical scope:
+  - stdlib/REPL: ~1500 new lines for History module
+  - base/strings/annotated_io.jl: ~140 lines for replace() methods
+  - base/strings/util.jl: ~35 lines for _replace_once and _replace modifications
+  - base/regex.jl: ~15 lines for _replace/_write_capture byte counting
+  - base/strings/unicode.jl: 5 methods for SubString{AnnotatedString} support
+
+  Components NOT affected (safe to ignore for compiler analysis):
+  - Compiler/src/* (type inference, optimization, codegen)
+  - JuliaLowering/* (lowering, closure conversion)
+  - JuliaSyntax/* (parsing, tokenization)
+  - src/*.c (runtime, interpreter)
+
+  File search for compiler relevance:
+  $ rg "abstractinterpretation|ssair|tfuncs|codegen" --files-with-matches
+  No matches in files touched by this PR.
+
+  The new AnnotatedString replace() methods enable styled text to preserve
+  formatting through find-replace operations, which is useful for the History
+  module's syntax-highlighted search results.
+
+  Search modes supported by the new history UI:
+  - Fuzzy match (default, with ~prefix)
+  - Exact match (=prefix)
+  - Regexp (/prefix)
+  - Initialism (`prefix)
+  - Negation (!prefix)
+  - Mode filter (>julia, >shell, >help)
+
+  Keybindings in new history search:
+  - Up/Down arrows: Navigate results
+  - Page Up/Down: Jump pages
+  - Tab: Toggle multi-select
+  - Ctrl+C/D: Cancel
+  - Ctrl+S: Save to file/clipboard
+  - Enter: Select and insert
+
+reviewer_verification:
+  date: "2026-01-22"
+  reviewer: "Independent second analyst"
+  methodology: |
+    1. Read existing analysis at analyses/pr_59819.yaml
+    2. Read PR metadata from pr-archive/JuliaLang_julia/pr_59819.json
+    3. Examined actual source files in julia/ repository:
+       - stdlib/REPL/src/History/*.jl
+       - base/strings/annotated_io.jl
+       - base/strings/util.jl
+       - base/regex.jl
+       - base/strings/unicode.jl
+       - stdlib/REPL/test/history.jl
+    4. Searched for compiler-relevant terms across touched files
+    5. Traced code paths and call chains independently
+    6. Verified claims against actual code
+  independent_checks:
+    - check: "Verified PR is NOT compiler-related"
+      result: |
+        CONFIRMED - No files in Compiler/, JuliaLang/, JuliaSyntax/, or src/*.c touched.
+        Changes are in stdlib/REPL and base/strings only.
+        Searched for: abstractinterpretation|ssair|tfuncs|codegen|OpaqueClosure
+        Result: No matches in any files touched by this PR.
+    - check: "Verified merge status"
+      result: |
+        CONFIRMED via PR metadata:
+        - Merged by: KristofferC
+        - Merge date: 2025-10-25T11:00:49Z
+        - Author: tecosaur
+        - Labels: REPL, strings, display and printing, stdlib, don't squash
+    - check: "Verified HistoryFile struct definition"
+      result: |
+        CORRECTED - The existing analysis showed incorrect field types.
+        Actual definition in histfile.jl:
+          struct HistoryFile <: AbstractVector{HistEntry}
+              path::String
+              file::Base.Filesystem.File  # NOT io::Union{IOStream, Nothing}
+              lock::ReentrantLock
+              records::Vector{HistEntry}
+          end
+    - check: "Verified _replace_once factoring"
+      result: |
+        CONFIRMED - New _replace_once() function at util.jl:1035-1069
+        Called by:
+        - _replace_finish() in util.jl:1025
+        - replace() for AnnotatedString in annotated_io.jl:260
+        Returns tuple: (rs, x, r, nb, i) where nb is byte count
+    - check: "Verified _write_capture return value change"
+      result: |
+        CONFIRMED - In base/regex.jl:649-663
+        Now returns len (byte count) instead of nothing
+        This enables byte tracking for AnnotatedString annotation preservation
+    - check: "Verified test coverage"
+      result: |
+        CONFIRMED - stdlib/REPL/test/history.jl has comprehensive tests:
+        - 661 lines of test code
+        - Tests for HistEntry parsing, ConditionSet, FilterSpec
+        - Tests for filtering, deduplication, state manipulation
+        - Tests for display calculations and navigation
+  corrections_made:
+    - field: "HistoryFile struct definition"
+      original: "io::Union{IOStream, Nothing}"
+      corrected: "file::Base.Filesystem.File"
+      reason: "Actual code uses low-level File API, not IOStream"
+  additions_made:
+    - "_replace_once() factoring as a secondary effect"
+    - "_write_capture() return value change detail"
+    - "_insert_annotations! signature generalization"
+    - "HistoryFile uses Base.Filesystem.File API detail"
+    - "Performance notes from code comments"
+    - "More complete test coverage listing"
+  confidence: "high"
+  summary: |
+    The existing analysis was accurate in its main conclusions:
+    - compiler_relevant: false is CORRECT
+    - breaking_change: false is CORRECT
+    - The PR is a REPL enhancement, not a compiler change
+
+    Minor corrections made to struct field types. Additional secondary
+    effects documented for internal API changes (_replace_once factoring,
+    _write_capture return values). Analysis enhanced with more code
+    evidence and verification details.

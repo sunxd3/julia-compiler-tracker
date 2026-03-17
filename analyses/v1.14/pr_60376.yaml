@@ -1,0 +1,580 @@
+schema_version: "1.0"
+pr:
+  number: 60376
+  title: "Add heap sized based full gc heuristic"
+  url: "https://github.com/JuliaLang/julia/pull/60376"
+  author: "gbaraldi"
+  labels:
+    - "GC"
+    - "backport 1.12"
+  merged_at: "2025-12-16T20:00:32Z"
+  merge_commit_sha: "fe564b49764894978b4afc2b52ddf68483ceee14"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60376.diff"
+scope:
+  files_touched:
+    - "base/timing.jl"
+    - "src/gc-stock.c"
+    - "src/gc-stock.h"
+  components:
+    - "GC"
+    - "GC-Stock"
+  pipeline_stages:
+    - "Runtime"
+    - "GarbageCollection"
+analysis:
+  intent:
+    summary: "Addresses issue #50658 by adding a new full GC trigger heuristic based on heap size growth since the last full GC. Also cleans up the promoted_bytes tracking logic to be more reliable by using scanned_bytes directly instead of inferring from old bytes marked difference."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/50658#issuecomment-3647219585"
+    issue_context: |
+      Issue #50658 reports OOM errors despite using --heap-size-hint. The root cause was
+      that the GC was not proactively triggering collection as system memory approached
+      exhaustion, particularly when memory was allocated via gc_counted_malloc (external
+      allocations tracked by GC but not managed by it). This PR adds a heuristic to detect
+      when heap size grows faster than expected and trigger a full GC to reclaim memory.
+  direct_changes:
+    - summary: "Added new static variable heap_size_after_last_full_gc to track heap size at the end of the last full GC sweep."
+      component: "GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "206"
+          url: "https://github.com/JuliaLang/julia/blob/fe564b49764894978b4afc2b52ddf68483ceee14/src/gc-stock.c#L206"
+          snippet: |
+            static int64_t scanned_bytes; // young bytes scanned while marking
+            static int64_t perm_scanned_bytes; // old bytes scanned while marking
+            static int64_t heap_size_after_last_full_gc = 0;
+            int prev_sweep_full = 1;
+            int current_sweep_full = 0;
+            int next_sweep_full = 0;
+    - summary: "Added new full sweep reason FULL_SWEEP_REASON_LARGE_HEAP_GROWTH (value 4) to track when full GC is triggered due to excessive heap growth."
+      component: "GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.h"
+          loc: "561-566"
+          url: "https://github.com/JuliaLang/julia/blob/fe564b49764894978b4afc2b52ddf68483ceee14/src/gc-stock.h#L561-L566"
+          snippet: |
+            // Must be kept in sync with `base/timing.jl`
+            #define FULL_SWEEP_REASON_SWEEP_ALWAYS_FULL (0)
+            #define FULL_SWEEP_REASON_FORCED_FULL_SWEEP (1)
+            #define FULL_SWEEP_REASON_USER_MAX_EXCEEDED (2)
+            #define FULL_SWEEP_REASON_LARGE_PROMOTION_RATE (3)
+            #define FULL_SWEEP_REASON_LARGE_HEAP_GROWTH (4)
+            #define FULL_SWEEP_NUM_REASONS (5)
+        - source: "code"
+          path: "base/timing.jl"
+          loc: "154-158"
+          url: "https://github.com/JuliaLang/julia/blob/fe564b49764894978b4afc2b52ddf68483ceee14/base/timing.jl#L154-L158"
+          snippet: |
+            @static if Base.USING_STOCK_GC
+            # must be kept in sync with `src/gc-stock.h``
+            const FULL_SWEEP_REASONS = [:FULL_SWEEP_REASON_SWEEP_ALWAYS_FULL, :FULL_SWEEP_REASON_FORCED_FULL_SWEEP,
+                                        :FULL_SWEEP_REASON_USER_MAX_EXCEEDED, :FULL_SWEEP_REASON_LARGE_PROMOTION_RATE, :FULL_SWEEP_REASON_LARGE_HEAP_GROWTH]
+            end
+    - summary: "Implemented new heap growth heuristic using overallocation function to compute expected heap size growth, triggering full GC when actual heap exceeds expected."
+      component: "GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "3331-3358"
+          url: "https://github.com/JuliaLang/julia/blob/fe564b49764894978b4afc2b52ddf68483ceee14/src/gc-stock.c#L3331-L3358"
+          snippet: |
+            if (sweep_full) {
+                // these are the difference between the number of gc-perm bytes scanned
+                // on the first collection after sweep_full, and the current scan
+                perm_scanned_bytes = 0;
+                promoted_bytes = 0;
+                heap_size_after_last_full_gc = jl_atomic_load_relaxed(&gc_heap_stats.heap_size);
+            }
+            // We want to trigger full GCs either if the heap size has grown a lot since the last full GC.
+            // For this we use the overallocation function to see what a reasonable rate of growth is,
+            // or if there is too much memory that has not seen a full GC after being promoted to old.
+            double old_ratio = (double)promoted_bytes/(double)heap_size;
+            double expected_heap_size = overallocation(heap_size_after_last_full_gc, 0, UINT64_MAX) + heap_size_after_last_full_gc;
+            double last_full_gc_heap_ratio = (double)heap_size/expected_heap_size;
+            if (heap_size > user_max) {
+                next_sweep_full = 1;
+                gc_record_full_sweep_reason(FULL_SWEEP_REASON_USER_MAX_EXCEEDED);
+            }
+            else if (old_ratio > 0.15) {
+                next_sweep_full = 1;
+                gc_record_full_sweep_reason(FULL_SWEEP_REASON_LARGE_PROMOTION_RATE);
+            }
+            else if (last_full_gc_heap_ratio > 1) {
+                next_sweep_full = 1;
+                gc_record_full_sweep_reason(FULL_SWEEP_REASON_LARGE_HEAP_GROWTH);
+            }
+            else {
+                next_sweep_full = 0;
+            }
+    - summary: "Changed promoted_bytes calculation to use scanned_bytes directly instead of inferring from perm_scanned_bytes delta."
+      component: "GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "3151-3154"
+          url: "https://github.com/JuliaLang/julia/blob/fe564b49764894978b4afc2b52ddf68483ceee14/src/gc-stock.c#L3151-L3154"
+          snippet: |
+            gc_num.total_allocd += gc_num.allocd;
+            // promoted_bytes are all the new bytes scanned that got promoted to old but that have never seen a full GC as old
+            promoted_bytes += scanned_bytes;
+            scanned_bytes = 0;
+        - source: "diff"
+          path: "src/gc-stock.c"
+          loc: "before"
+          url: "https://github.com/JuliaLang/julia/pull/60376.diff"
+          snippet: |
+            # BEFORE: Inferred promoted_bytes from perm_scanned_bytes delta
+            uint64_t before_free_heap_size = jl_atomic_load_relaxed(&gc_heap_stats.heap_size);
+            int64_t last_perm_scanned_bytes = perm_scanned_bytes;
+            # ... marking happens ...
+            if (!prev_sweep_full)
+                promoted_bytes += perm_scanned_bytes - last_perm_scanned_bytes;
+            # ... later after sweep decision ...
+            if (sweep_full) {
+                perm_scanned_bytes = 0;
+                promoted_bytes = 0;
+            }
+            scanned_bytes = 0;
+    - summary: "Moved the perm_scanned_bytes and promoted_bytes reset from after sweep decision to after sweep completion, and added heap_size_after_last_full_gc tracking."
+      component: "GC"
+      evidence:
+        - source: "diff"
+          path: "src/gc-stock.c"
+          loc: "3176-3179 (removed)"
+          url: "https://github.com/JuliaLang/julia/pull/60376.diff"
+          snippet: |
+            # BEFORE: Reset was done before sweeping
+            if (sweep_full) {
+                // these are the difference between the number of gc-perm bytes scanned
+                // on the first collection after sweep_full, and the current scan
+                perm_scanned_bytes = 0;
+                promoted_bytes = 0;
+            }
+            scanned_bytes = 0;
+            // 5. start sweeping
+
+            # AFTER: Reset happens after sweep, with heap_size recording
+            # 5. start sweeping (reset moved to line 3331-3336)
+    - summary: "Renamed variable meta_updated to remset_object in gc_mark_outrefs for clarity."
+      component: "GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "2260-2266"
+          url: "https://github.com/JuliaLang/julia/blob/fe564b49764894978b4afc2b52ddf68483ceee14/src/gc-stock.c#L2260-L2266"
+          snippet: |
+            FORCE_INLINE void gc_mark_outrefs(jl_ptls_t ptls, jl_gc_markqueue_t *mq, void *_new_obj) JL_NOTSAFEPOINT
+            {
+                int remset_object = (uintptr_t)_new_obj & GC_REMSET_PTR_TAG;
+                jl_value_t *new_obj = (jl_value_t *)((uintptr_t)_new_obj & ~(uintptr_t)GC_REMSET_PTR_TAG);
+                mark_obj: {
+                    jl_taggedvalue_t *o = jl_astaggedvalue(new_obj);
+                    uintptr_t vtag = o->header & ~(uintptr_t)0xf;
+                    uint8_t bits = (gc_old(o->header) && !mark_reset_age) ? GC_OLD_MARKED : GC_MARKED;
+                    int update_meta = __likely(!remset_object && !gc_verifying);
+        - source: "diff"
+          path: "src/gc-stock.c"
+          loc: "before"
+          url: "https://github.com/JuliaLang/julia/pull/60376.diff"
+          snippet: |
+            # BEFORE: Variable was named meta_updated
+            int meta_updated = (uintptr_t)_new_obj & GC_REMSET_PTR_TAG;
+            int update_meta = __likely(!meta_updated && !gc_verifying);
+            # ... later usages
+            if (!meta_updated)
+                goto mark_obj;
+    - summary: "Bug fix in heap ratio calculation (commit 8920d9c) corrected denominator to include base heap size."
+      component: "GC"
+      evidence:
+        - source: "diff"
+          path: "src/gc-stock.c"
+          loc: "3339-3343"
+          url: "https://github.com/JuliaLang/julia/blob/fe564b49764894978b4afc2b52ddf68483ceee14/src/gc-stock.c#L3339-L3343"
+          snippet: |
+            # BUGGY (commit e633c81): denominator was just the increment
+            double last_full_gc_heap_ratio = (double)heap_size/(double)overallocation(heap_size_after_last_full_gc, 0, UINT64_MAX);
+
+            # FIXED (commit 8920d9c): denominator includes base + increment
+            double expected_heap_size = overallocation(heap_size_after_last_full_gc, 0, UINT64_MAX) + heap_size_after_last_full_gc;
+            double last_full_gc_heap_ratio = (double)heap_size/expected_heap_size;
+
+            # The original bug would have caused the ratio to be much larger than intended
+            # (e.g., 1GB heap / 128MB increment = 8, vs 1GB / 1.128GB = 0.89), which would
+            # have triggered full GC on almost every collection. The fix ensures the ratio
+            # compares current heap size to the expected maximum allowed heap size.
+  secondary_effects:
+    - effect: "Full GC may trigger more frequently on workloads with large gc_counted_malloc allocations."
+      mechanism: |
+        Call chain with file:line references:
+        1. _jl_gc_collect(ptls, collection)  [src/gc-stock.c:3040]
+        2.   After sweep: heap_size_after_last_full_gc = jl_atomic_load_relaxed(&gc_heap_stats.heap_size)  [src/gc-stock.c:3336]
+        3.   Next GC: expected_heap_size = overallocation(heap_size_after_last_full_gc, 0, UINT64_MAX) + heap_size_after_last_full_gc  [src/gc-stock.c:3342]
+        4.   overallocation() computes: inc = 4*2^(exp2*7/8) + old_val/8 where exp2 = bit_length(old_val)  [src/gc-stock.c:2995-3008]
+        5.   Check: if (last_full_gc_heap_ratio > 1) -> next_sweep_full = 1  [src/gc-stock.c:3352-3354]
+
+        The overallocation function grows fast initially then slower at large heaps:
+        - For small n: grows much faster than O(n)
+        - For large n: grows at O(n/8)
+        - Near memory limit: capped at 5% of max_val
+
+        If heap grows faster than this expected rate, a full GC is triggered to check
+        if memory is actually live or if there's garbage in the old generation.
+
+        NUMERICAL EXAMPLES of allowed heap growth before triggering full GC:
+        - 1 MB heap -> can grow to 2.1 MB (110% growth allowed)
+        - 10 MB heap -> can grow to 19.2 MB (92% growth allowed)
+        - 100 MB heap -> can grow to 144.5 MB (44.5% growth allowed)
+        - 1 GB heap -> can grow to 1664 MB (62.5% growth allowed)
+        - 4 GB heap -> can grow to 5632 MB (37.5% growth allowed)
+        - 16 GB heap -> can grow to 22528 MB (37.5% growth allowed)
+      downstream_surfaces:
+        - "Workloads using jl_gc_counted_malloc heavily"
+        - "External libraries that allocate via GC-counted interfaces"
+        - "Programs with rapid heap growth patterns"
+        - "CUDA.jl and GPU packages using external memory allocation"
+        - "FFI-heavy packages that allocate C memory tracked by GC"
+      likelihood: "medium"
+      impact: "low"
+    - effect: "More accurate promoted_bytes tracking affects FULL_SWEEP_REASON_LARGE_PROMOTION_RATE threshold."
+      mechanism: |
+        Call chain with file:line references:
+        BEFORE:
+        1. _jl_gc_collect() saves last_perm_scanned_bytes  [removed]
+        2. Marking phase: objects accumulate into gc_cache.perm_scanned_bytes  [src/gc-stock.c:275,297,2409]
+        3. gc_sync_all_caches() merges: perm_scanned_bytes += gc_cache.perm_scanned_bytes  [src/gc-stock.c:223]
+        4. ONLY if !prev_sweep_full: promoted_bytes += perm_scanned_bytes - last_perm_scanned_bytes  [removed]
+
+        AFTER:
+        1. Marking phase: young objects accumulate into gc_cache.scanned_bytes  [src/gc-stock.c:278,302,2412]
+        2. gc_sync_all_caches() merges: scanned_bytes += gc_cache.scanned_bytes  [src/gc-stock.c:224]
+        3. ALWAYS: promoted_bytes += scanned_bytes  [src/gc-stock.c:3153]
+        4. scanned_bytes = 0  [src/gc-stock.c:3154]
+
+        KEY DIFFERENCE: The old code only accumulated promoted_bytes when the PREVIOUS
+        GC was NOT a full sweep (if !prev_sweep_full). This was meant to track bytes
+        promoted since the last full GC, but inferring from perm_scanned_bytes delta
+        was unreliable. The new approach always accumulates newly scanned young bytes
+        (which are by definition being promoted to old generation) and resets the
+        counter after each full sweep.
+
+        The old approach was unreliable because it tried to infer promotion from old bytes
+        scanned. The new approach directly tracks newly scanned young bytes that will be
+        promoted to old, which is what actually matters for the 15% promotion threshold.
+      downstream_surfaces:
+        - "Full GC frequency on workloads with complex object lifetime patterns"
+        - "Memory usage for programs at the promotion rate threshold boundary"
+      likelihood: "low"
+      impact: "low"
+    - effect: "Base.full_sweep_reasons() now returns an additional key :FULL_SWEEP_REASON_LARGE_HEAP_GROWTH."
+      mechanism: |
+        Call chain with file:line references:
+        1. Base.full_sweep_reasons()  [base/timing.jl:173]
+        2.   reason = cglobal(:jl_full_sweep_reasons, UInt64)  [base/timing.jl:178]
+        3.   reasons_as_array = Base.unsafe_wrap(Vector{UInt64}, reason, length(FULL_SWEEP_REASONS), own=false)  [base/timing.jl:179]
+        4.   FULL_SWEEP_REASONS now includes :FULL_SWEEP_REASON_LARGE_HEAP_GROWTH  [base/timing.jl:157]
+        5.   Returns Dict with 5 entries instead of 4
+
+        Code that iterates over full_sweep_reasons() will now see an additional entry.
+        Tests in gc.jl check: keys(reasons) == Set(Base.FULL_SWEEP_REASONS)  [test/gc.jl:56]
+      downstream_surfaces:
+        - "GC monitoring and telemetry tools"
+        - "Code that parses full_sweep_reasons() output"
+      likelihood: "high"
+      impact: "low"
+    - effect: "Reset timing moved from before sweep to after sweep captures accurate post-GC heap size."
+      mechanism: |
+        Call chain with file:line references:
+        BEFORE (line 3176-3183 in old code):
+        1. if (sweep_full) { perm_scanned_bytes = 0; promoted_bytes = 0; }
+        2. scanned_bytes = 0;
+        3. // 5. start sweeping
+
+        AFTER (line 3331-3336 in new code):
+        1. // sweeping has completed, heap_size now reflects freed memory
+        2. if (sweep_full) {
+        3.     perm_scanned_bytes = 0;
+        4.     promoted_bytes = 0;
+        5.     heap_size_after_last_full_gc = jl_atomic_load_relaxed(&gc_heap_stats.heap_size);
+        6. }
+
+        By capturing heap_size AFTER the sweep completes, the recorded value accurately
+        reflects the actual post-GC heap size, not the pre-sweep size. This is important
+        for the heap growth heuristic because the expected_heap_size calculation needs
+        to start from the actual baseline after garbage was collected.
+      downstream_surfaces:
+        - "Accuracy of heap growth ratio calculation"
+        - "Full GC triggering decisions"
+      likelihood: "high"
+      impact: "low"
+    - effect: "heap_size_after_last_full_gc initialization to 0 is safe due to prev_sweep_full=1."
+      mechanism: |
+        The static variable heap_size_after_last_full_gc is initialized to 0:
+          static int64_t heap_size_after_last_full_gc = 0;  [src/gc-stock.c:206]
+
+        However, the first GC is always a full sweep because:
+          int prev_sweep_full = 1;  [src/gc-stock.c:207]
+
+        This means before the overallocation calculation is ever used with a meaningful
+        heap_size_after_last_full_gc value, a full sweep will occur and set it properly.
+        The check at line 3352-3354 only triggers if last_full_gc_heap_ratio > 1, and with
+        heap_size_after_last_full_gc = 0, the ratio calculation would be problematic if
+        we could ever reach it with that value. But the first GC being full prevents this.
+      downstream_surfaces:
+        - "GC initialization sequence"
+      likelihood: "low"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "FULL_SWEEP_NUM_REASONS macro"
+        change: "Increased from 4 to 5"
+        affected_tools:
+          - tool: "C code iterating over jl_full_sweep_reasons array"
+            usage: "Any C code that hardcodes the size of jl_full_sweep_reasons needs to update to 5"
+      - field: "Base.FULL_SWEEP_REASONS constant"
+        change: "Added :FULL_SWEEP_REASON_LARGE_HEAP_GROWTH as 5th element"
+        affected_tools:
+          - tool: "Julia code checking GC sweep reasons"
+            usage: "Code that assumes specific number of sweep reasons needs updating"
+      - field: "heap_size_after_last_full_gc (new static variable)"
+        change: "New variable added to GC state"
+        affected_tools:
+          - tool: "GC debugging and introspection tools"
+            usage: "Not exposed externally; internal GC state only"
+    behavioral:
+      - change: "Full GC may trigger on FULL_SWEEP_REASON_LARGE_HEAP_GROWTH when heap grows faster than overallocation curve"
+        severity: "low"
+        notes: |
+          PR author states: "This shouldn't ever trigger on normal Julia code, but might help
+          when the gc counted malloc functions are used too much." The heuristic is designed
+          to be conservative and only trigger when heap growth is unusually fast, which
+          typically indicates external allocations not tracked by normal GC statistics.
+      - change: "promoted_bytes calculation is now based on scanned_bytes rather than perm_scanned_bytes delta"
+        severity: "low"
+        notes: |
+          This is an improvement to reliability. The old approach of inferring from the
+          difference in perm_scanned_bytes was "unreliable" per PR description. The new
+          approach tracks what actually matters: bytes that got promoted to old but haven't
+          seen a full GC yet.
+  performance:
+    compile_time: []
+    runtime:
+      - change: "Additional comparison in GC heuristics (last_full_gc_heap_ratio > 1)"
+        estimate: "ESTIMATED: negligible, single floating-point comparison per GC cycle"
+      - change: "Calculation of expected_heap_size using overallocation function"
+        estimate: "ESTIMATED: negligible, few arithmetic operations per GC cycle"
+      - change: "Potential for more full GCs on workloads with large gc_counted_malloc usage"
+        estimate: "ESTIMATED: workload-dependent; full GCs more expensive than incremental but trigger only when heap growth is abnormal"
+      - change: "Renamed variable meta_updated -> remset_object"
+        estimate: "No runtime impact, purely cosmetic refactoring"
+  risk:
+    level: "low"
+    rationale:
+      - "PR has GC label and backport 1.12 label, indicating reviewed for stability"
+      - "Changes to GC heuristics are additive - new trigger condition, not replacing existing ones"
+      - "Author states the new heuristic 'shouldn't ever trigger on normal Julia code'"
+      - "The promoted_bytes change is a reliability improvement to existing logic"
+      - "Variable rename (meta_updated -> remset_object) is purely cosmetic"
+      - "No changes to marking or sweeping algorithms themselves"
+      - "Base.full_sweep_reasons() API remains backward compatible (returns more data, not less)"
+  open_questions:
+    - question: "What is the specific threshold/curve shape of overallocation() and how does it compare to typical heap growth patterns?"
+      status: "ANSWERED"
+      answer: |
+        The overallocation function allows generous growth for small heaps (110% at 1MB),
+        moderate growth for medium heaps (44-62% at 100MB-1GB), and converges to 37.5%
+        for large heaps (4GB+). This mirrors array growth heuristics and should accommodate
+        normal allocation patterns while catching abnormal external allocation spikes.
+    - question: "Are there benchmarks showing the effect of the new heuristic on real workloads using gc_counted_malloc?"
+      status: "OPEN"
+      answer: |
+        The PR does not include benchmarks. The author states it "shouldn't ever trigger
+        on normal Julia code" which suggests it targets edge cases with heavy external
+        allocation usage. Testing with CUDA.jl or other FFI-heavy packages would be valuable.
+    - question: "Should the heap growth ratio threshold (currently 1.0) be configurable?"
+      status: "OPEN"
+      answer: |
+        The threshold of 1.0 (heap exceeds expected size) is not configurable. Making it
+        configurable could help workloads with known large external allocation bursts,
+        but the current default should be conservative enough for most use cases.
+    - question: "Is there a potential division-by-zero or undefined behavior with heap_size_after_last_full_gc = 0?"
+      status: "ANSWERED"
+      answer: |
+        No. The variable is initialized to 0, but prev_sweep_full is initialized to 1,
+        which means the first GC is always a full sweep. This sets heap_size_after_last_full_gc
+        to a valid value before the ratio calculation is ever used meaningfully. Additionally,
+        if heap_size_after_last_full_gc were 0, __builtin_clzll(0) has undefined behavior in C,
+        but this code path cannot be reached due to the initialization ordering.
+  recommendations:
+    - "Downstream packages using gc_counted_malloc extensively should monitor for increased full GC frequency after upgrading"
+    - "GC monitoring tools should update to display the new FULL_SWEEP_REASON_LARGE_HEAP_GROWTH reason"
+    - "Code that processes full_sweep_reasons() output should handle the new key gracefully"
+    - "The overallocation function follows array growth heuristics: fast initial growth (4*n^(7/8)) then slower (n/8), capped near memory limit at 5%"
+reviewer_notes:
+  independent_analysis_date: "2026-01-21"
+  reviewer_findings:
+    - finding: "Bug fix in ratio calculation was critical"
+      details: |
+        The original commit (e633c81) had a bug where the ratio was calculated as
+        heap_size / overallocation(...), which would be very large since overallocation
+        returns only the growth increment, not the total expected size. This was fixed
+        in commit 8920d9c to use heap_size / (overallocation(...) + heap_size_after_last_full_gc).
+        Without this fix, the heuristic would have triggered on almost every GC cycle.
+    - finding: "promoted_bytes logic change is more nuanced than documented"
+      details: |
+        The old code only accumulated promoted_bytes when !prev_sweep_full. This condition
+        was removed in the new code, meaning promoted_bytes is now always accumulated from
+        scanned_bytes. This change in accumulation logic may affect the 15% promotion rate
+        threshold triggering behavior.
+    - finding: "Reset timing change is intentional for accuracy"
+      details: |
+        Moving the reset from before sweep to after sweep ensures heap_size_after_last_full_gc
+        captures the actual post-GC heap size after garbage is freed. This is the correct
+        baseline for calculating expected growth.
+    - finding: "Initialization safety verified"
+      details: |
+        heap_size_after_last_full_gc = 0 is safe because prev_sweep_full = 1 ensures the
+        first GC is always a full sweep, setting the variable before it is used.
+  callers_traced:
+    - function: "jl_gc_counted_malloc"
+      callers: |
+        src/gc-common.c:546: return jl_gc_counted_malloc(sz);
+        - Called by various FFI and external allocation paths
+        - Increments gc_heap_stats.heap_size via jl_batch_accum_heap_size
+    - function: "jl_batch_accum_heap_size"
+      callers: |
+        src/gc-stock.c:454: jl_batch_accum_heap_size(ptls, allocsz);  // big object allocation
+        src/gc-stock.c:572: jl_batch_accum_heap_size(ptls, sz);        // pool allocation
+        src/gc-stock.c:3806: jl_batch_accum_heap_size(ptls, sz);       // gc_counted_malloc
+        src/gc-stock.c:3823: jl_batch_accum_heap_size(ptls, sz);       // gc_counted_calloc
+        src/gc-stock.c:3854: jl_batch_accum_heap_size(ptls, diff);     // gc_counted_realloc
+        src/gc-stock.c:3899: jl_batch_accum_heap_size(ptls, allocated_bytes);  // aligned alloc
+    - function: "overallocation"
+      callers: |
+        src/gc-stock.c:3274: uint64_t max_target_allocs = overallocation(before_free_heap_size, heap_size, user_max);
+        src/gc-stock.c:3342: double expected_heap_size = overallocation(heap_size_after_last_full_gc, 0, UINT64_MAX) + heap_size_after_last_full_gc;
+        - Used both for heap target calculation and new heap growth heuristic
+
+evidence_search:
+  - summary: "rg results for heap_size_after_last_full_gc usage"
+    evidence:
+      - source: "rg"
+        path: "rg 'heap_size_after_last_full_gc' src/"
+        loc: "output"
+        snippet: |
+          src/gc-stock.c:206:static int64_t heap_size_after_last_full_gc = 0;
+          src/gc-stock.c:3336:        heap_size_after_last_full_gc = jl_atomic_load_relaxed(&gc_heap_stats.heap_size);
+          src/gc-stock.c:3342:    double expected_heap_size = overallocation(heap_size_after_last_full_gc, 0, UINT64_MAX) + heap_size_after_last_full_gc;
+  - summary: "rg results for FULL_SWEEP_REASON_LARGE_HEAP_GROWTH"
+    evidence:
+      - source: "rg"
+        path: "rg 'FULL_SWEEP_REASON_LARGE_HEAP_GROWTH' ."
+        loc: "output"
+        snippet: |
+          src/gc-stock.h:565:#define FULL_SWEEP_REASON_LARGE_HEAP_GROWTH (4)
+          src/gc-stock.c:3354:        gc_record_full_sweep_reason(FULL_SWEEP_REASON_LARGE_HEAP_GROWTH);
+          base/timing.jl:157:                            :FULL_SWEEP_REASON_USER_MAX_EXCEEDED, :FULL_SWEEP_REASON_LARGE_PROMOTION_RATE, :FULL_SWEEP_REASON_LARGE_HEAP_GROWTH]
+  - summary: "overallocation function implementation"
+    evidence:
+      - source: "code"
+        path: "src/gc-stock.c"
+        loc: "2993-3014"
+        url: "https://github.com/JuliaLang/julia/blob/fe564b49764894978b4afc2b52ddf68483ceee14/src/gc-stock.c#L2993-L3014"
+        snippet: |
+          // an overallocation curve inspired by array allocations
+          // grows very fast initially, then much slower at large heaps
+          static uint64_t overallocation(uint64_t old_val, uint64_t val, uint64_t max_val) JL_NOTSAFEPOINT
+          {
+              // compute maxsize = maxsize + 4*maxsize^(7/8) + maxsize/8
+              // for small n, we grow much faster than O(n)
+              // for large n, we grow at O(n/8)
+              // and as we reach O(memory) for memory>>1MB,
+              // this means we end up O(googol)
+              int exp2 = sizeof(old_val) * 8 -
+          #ifdef _P64
+                  __builtin_clzll(old_val);
+          #else
+                  __builtin_clz(old_val);
+          #endif
+              uint64_t inc = (uint64_t)((size_t)1 << (exp2 * 7 / 8)) * 4 + old_val / 8;
+              // once overallocation would exceed max_val, grow by no more than 5% of max_val
+              if (inc + val > max_val)
+                  if (inc > max_val / 20)
+                      return max_val / 20;
+              return inc;
+          }
+  - summary: "Test coverage for full_sweep_reasons"
+    evidence:
+      - source: "code"
+        path: "test/gc.jl"
+        loc: "52-57"
+        url: "https://github.com/JuliaLang/julia/blob/fe564b49764894978b4afc2b52ddf68483ceee14/test/gc.jl#L52-L57"
+        snippet: |
+          function full_sweep_reasons_test()
+              GC.gc()
+              reasons = Base.full_sweep_reasons()
+              @test reasons[:FULL_SWEEP_REASON_FORCED_FULL_SWEEP] >= 1
+              @test keys(reasons) == Set(Base.FULL_SWEEP_REASONS)
+          end
+  - summary: "jl_gc_counted_malloc implementation showing heap_size tracking"
+    evidence:
+      - source: "code"
+        path: "src/gc-stock.c"
+        loc: "3794-3808"
+        url: "https://github.com/JuliaLang/julia/blob/fe564b49764894978b4afc2b52ddf68483ceee14/src/gc-stock.c#L3794-L3808"
+        snippet: |
+          JL_DLLEXPORT void *jl_gc_counted_malloc(size_t sz)
+          {
+              void *data = malloc(sz);
+              jl_task_t *ct = jl_get_current_task();
+              if (data != NULL && ct != NULL) {
+                  sz = memory_block_usable_size(data, 0);
+                  jl_ptls_t ptls = ct->ptls;
+                  maybe_collect(ptls);
+                  jl_atomic_store_relaxed(&ptls->gc_tls_common.gc_num.allocd,
+                      jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.allocd) + sz);
+                  jl_atomic_store_relaxed(&ptls->gc_tls_common.gc_num.malloc,
+                      jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.malloc) + 1);
+                  jl_batch_accum_heap_size(ptls, sz);
+              }
+              return data;
+          }
+  - summary: "scanned_bytes tracking in marking phase"
+    evidence:
+      - source: "code"
+        path: "src/gc-stock.c"
+        loc: "274-286"
+        url: "https://github.com/JuliaLang/julia/blob/fe564b49764894978b4afc2b52ddf68483ceee14/src/gc-stock.c#L274-L286"
+        snippet: |
+          STATIC_INLINE void gc_setmark_big(jl_ptls_t ptls, jl_taggedvalue_t *o,
+                                            uint8_t mark_mode) JL_NOTSAFEPOINT
+          {
+              assert(!gc_alloc_map_is_set((char*)o));
+              bigval_t *hdr = bigval_header(o);
+              if (mark_mode == GC_OLD_MARKED) {
+                  ptls->gc_tls.gc_cache.perm_scanned_bytes += hdr->sz;
+              }
+              else {
+                  ptls->gc_tls.gc_cache.scanned_bytes += hdr->sz;
+                  if (mark_reset_age) {
+                      assert(jl_atomic_load(&gc_n_threads_marking) == 0);
+                      gc_big_object_unlink(hdr);
+                      gc_big_object_link(ptls->gc_tls.heap.young_generation_of_bigvals, hdr);
+                  }
+              }
+          }
+  - summary: "prev_sweep_full initialization ensuring first GC is full"
+    evidence:
+      - source: "code"
+        path: "src/gc-stock.c"
+        loc: "204-210"
+        url: "https://github.com/JuliaLang/julia/blob/fe564b49764894978b4afc2b52ddf68483ceee14/src/gc-stock.c#L204-L210"
+        snippet: |
+          static int64_t scanned_bytes; // young bytes scanned while marking
+          static int64_t perm_scanned_bytes; // old bytes scanned while marking
+          static int64_t heap_size_after_last_full_gc = 0;
+          int prev_sweep_full = 1;  // <-- ensures first GC is always full
+          int current_sweep_full = 0;
+          int next_sweep_full = 0;
+          int under_pressure = 0;

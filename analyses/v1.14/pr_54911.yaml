@@ -1,0 +1,287 @@
+schema_version: "1.0"
+
+pr:
+  number: 54911
+  title: "Rename some JL_HAVE_* constants to `JL_TASK_SWITCH_*` for clarity, and some related cleanup"
+  url: "https://github.com/JuliaLang/julia/pull/54911"
+  diff_url: "https://github.com/JuliaLang/julia/pull/54911.diff"
+  author: "fingolfin"
+  labels: []
+  merged_at: "2025-11-07T10:44:56Z"
+  merge_commit_sha: "ba13933465807132abc4e333d14a6081f83f89f8"
+
+scope:
+  files_touched:
+    - "src/julia_threads.h"
+    - "src/task.c"
+    - "src/stackwalk.c"
+  components:
+    - "Runtime"
+    - "Task switching"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Improves code clarity by renaming internal preprocessor constants that control
+      the task switching implementation. The old names (JL_HAVE_*) were confusing
+      because they didn't clearly indicate their purpose was task switching, and
+      JL_HAVE_UCONTEXT misleadingly referenced POSIX ucontext despite being used
+      exclusively on Windows. Also removes dead code paths for POSIX ucontext that
+      were never actually used.
+
+      KEY INSIGHT: JL_HAVE_UCONTEXT was ONLY ever defined when _OS_WINDOWS_ was set.
+      This means the POSIX ucontext code paths (getcontext, makecontext, etc.) inside
+      the JL_HAVE_UCONTEXT blocks were NEVER compiled - they were effectively dead code
+      because on Windows, POSIX ucontext.h does not exist. The "ucontext" in the name
+      was misleading: it used a Windows-specific win32_ucontext_t implementation, not
+      actual POSIX ucontext.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Rename JL_HAVE_UCONTEXT to JL_TASK_SWITCH_WINDOWS"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/julia_threads.h"
+          loc: "47-50"
+          url: "https://github.com/JuliaLang/julia/blob/ba13933465807132abc4e333d14a6081f83f89f8/src/julia_threads.h#L47-L50"
+          snippet: |
+            #ifdef _OS_WINDOWS_
+            #define JL_TASK_SWITCH_WINDOWS
+            typedef win32_ucontext_t jl_stack_context_t;
+            typedef jl_stack_context_t _jl_ucontext_t;
+
+    - summary: "Rename JL_HAVE_UNW_CONTEXT to JL_TASK_SWITCH_LIBUNWIND"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/julia_threads.h"
+          loc: "54-56"
+          url: "https://github.com/JuliaLang/julia/blob/ba13933465807132abc4e333d14a6081f83f89f8/src/julia_threads.h#L54-L56"
+          snippet: |
+            #if defined(_OS_OPENBSD_)
+            #define JL_TASK_SWITCH_LIBUNWIND
+            #endif
+
+    - summary: "Rename JL_HAVE_ASM to JL_TASK_SWITCH_ASM"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/julia_threads.h"
+          loc: "62-67"
+          url: "https://github.com/JuliaLang/julia/blob/ba13933465807132abc4e333d14a6081f83f89f8/src/julia_threads.h#L62-L67"
+          snippet: |
+            #if !defined(JL_TASK_SWITCH_ASM) && \
+                !defined(JL_TASK_SWITCH_LIBUNWIND)
+            #if (defined(_CPU_X86_64_) || defined(_CPU_X86_) || defined(_CPU_AARCH64_) ||  \
+                 defined(_CPU_ARM_) || defined(_CPU_PPC64_) || defined(_CPU_RISCV64_))
+            #define JL_TASK_SWITCH_ASM
+            #endif
+
+    - summary: "Remove dead POSIX ucontext.h include and typedef from julia_threads.h"
+      component: "Runtime"
+      evidence:
+        - source: "diff"
+          path: "src/julia_threads.h"
+          loc: "removed"
+          url: "https://github.com/JuliaLang/julia/pull/54911/files#diff-julia_threads.h"
+          snippet: |
+            # REMOVED - these lines no longer exist:
+            #if defined(JL_HAVE_UCONTEXT)
+            #include <ucontext.h>
+            typedef ucontext_t _jl_ucontext_t;
+            #endif
+            # This was dead code: JL_HAVE_UCONTEXT was only defined on Windows,
+            # but <ucontext.h> is a POSIX header that doesn't exist on Windows.
+
+    - summary: "Remove dead POSIX getcontext/makecontext code from make_fiber in task.c"
+      component: "Runtime"
+      evidence:
+        - source: "diff"
+          path: "src/task.c"
+          loc: "removed"
+          url: "https://github.com/JuliaLang/julia/pull/54911/files#diff-task.c"
+          snippet: |
+            # REMOVED - these non-Windows branches were dead code:
+            # static int make_fiber(jl_ucontext_t *t, _jl_ucontext_t *ctx)
+            # {
+            # #ifndef _OS_WINDOWS_
+            #     int r = getcontext(ctx);   // POSIX call - never compiled
+            #     if (r != 0) abort();
+            # #endif
+            #     ctx->uc_stack.ss_sp = (char*)t->stkbuf;
+            #     ctx->uc_stack.ss_size = t->bufsz;
+            # #ifdef _OS_WINDOWS_
+            #     jl_makecontext(ctx, &start_task);
+            # #else
+            #     ctx->uc_link = NULL;
+            #     makecontext(ctx, &start_task, 0);  // POSIX call - never compiled
+            # #endif
+            #     return 1;
+            # }
+            # Since JL_HAVE_UCONTEXT was only defined when _OS_WINDOWS_ was set,
+            # the #ifndef _OS_WINDOWS_ and #else branches were never compiled.
+
+    - summary: "Remove setcontext/swapcontext macro aliases in task.c"
+      component: "Runtime"
+      evidence:
+        - source: "diff"
+          path: "src/task.c"
+          loc: "removed"
+          url: "https://github.com/JuliaLang/julia/pull/54911/files#diff-task.c"
+          snippet: |
+            # REMOVED - unnecessary indirection:
+            # #if defined(JL_HAVE_UCONTEXT)
+            # #ifdef _OS_WINDOWS_
+            # #define setcontext jl_setcontext
+            # #define swapcontext jl_swapcontext
+            # #endif
+            # Now directly calls jl_setcontext() and jl_swapcontext() without macros.
+
+    - summary: "Clean up JL_TASK_SWITCH_WINDOWS section with simplified fiber functions"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/task.c"
+          loc: "1289-1320"
+          url: "https://github.com/JuliaLang/julia/blob/ba13933465807132abc4e333d14a6081f83f89f8/src/task.c#L1289-L1320"
+          snippet: |
+            #ifdef JL_TASK_SWITCH_WINDOWS
+            static int make_fiber(jl_ucontext_t *t, _jl_ucontext_t *ctx)
+            {
+                ctx->uc_stack.ss_sp = (char*)t->stkbuf;
+                ctx->uc_stack.ss_size = t->bufsz;
+                jl_makecontext(ctx, &start_task);
+                return 1;
+            }
+            static void jl_start_fiber_set(jl_ucontext_t *t)
+            {
+                _jl_ucontext_t ctx;
+                make_fiber(t, &ctx);
+                jl_setcontext(&ctx);
+            }
+
+    - summary: "Untangle OpenBSD-specific checks in julia_threads.h"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/julia_threads.h"
+          loc: "52-88"
+          url: "https://github.com/JuliaLang/julia/blob/ba13933465807132abc4e333d14a6081f83f89f8/src/julia_threads.h#L52-L88"
+          snippet: |
+            #else
+
+            #if defined(_OS_OPENBSD_)
+            #define JL_TASK_SWITCH_LIBUNWIND
+            #endif
+
+            typedef struct {
+                jl_jmp_buf uc_mcontext;
+            } jl_stack_context_t;
+
+            #if !defined(JL_TASK_SWITCH_ASM) && \
+                !defined(JL_TASK_SWITCH_LIBUNWIND)
+            #if (defined(_CPU_X86_64_) || defined(_CPU_X86_) || defined(_CPU_AARCH64_) ||  \
+                 defined(_CPU_ARM_) || defined(_CPU_PPC64_) || defined(_CPU_RISCV64_))
+            #define JL_TASK_SWITCH_ASM
+            #endif
+
+    - summary: "Update stackwalk.c to use new constant names"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/stackwalk.c"
+          loc: "1420-1432"
+          url: "https://github.com/JuliaLang/julia/blob/ba13933465807132abc4e333d14a6081f83f89f8/src/stackwalk.c#L1420-L1432"
+          snippet: |
+            #if defined(JL_TASK_SWITCH_WINDOWS)
+                    memset(&c, 0, sizeof(c));
+                    if (jl_simulate_longjmp(*mctx, &c))
+                        context = &c;
+            #elif defined(JL_TASK_SWITCH_LIBUNWIND)
+                    context = t->ctx.ctx;
+            #elif defined(JL_TASK_SWITCH_ASM)
+                    memset(&c, 0, sizeof(c));
+                    if (jl_simulate_longjmp(*mctx, &c))
+                        context = &c;
+
+  secondary_effects: []
+
+  compatibility:
+    internal_api:
+      - field: "JL_HAVE_UCONTEXT, JL_HAVE_UNW_CONTEXT, JL_HAVE_ASM preprocessor macros"
+        change: "Renamed to JL_TASK_SWITCH_WINDOWS, JL_TASK_SWITCH_LIBUNWIND, JL_TASK_SWITCH_ASM"
+        affected_tools:
+          - "External C code that checks these preprocessor macros (rare/unlikely)"
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure refactor with no behavioral changes"
+      - "Only renames internal C preprocessor constants"
+      - "No changes to Julia-level APIs or behaviors"
+      - "Removes dead code paths that were never executed"
+      - "The renamed constants are purely internal implementation details"
+
+  downstream_impact:
+    packages: []
+    surfaces: []
+    notes: |
+      This PR has effectively ZERO impact on downstream Julia packages. The changes
+      are to internal C preprocessor macros used only within the Julia runtime
+      implementation. Julia code has no way to access or depend on these constants.
+
+      The only theoretical impact would be on external C code that:
+      1. #include's julia_threads.h, AND
+      2. Uses the JL_HAVE_* macros in preprocessor conditionals
+
+      This is extremely unlikely as these are internal implementation details not
+      meant for external consumption. Any such code would need to update the macro
+      names, but this is a straightforward find-and-replace operation.
+
+  open_questions: []
+
+  recommendations:
+    - "No action required by downstream Julia package maintainers"
+    - "This PR may be safely ignored for Julia packages changelog/migration"
+    - "If maintaining C code that embeds Julia and uses these macros (unlikely), update macro names"
+
+classification:
+  type: "refactor"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false
+
+changelog:
+  category: "Internal"
+  entry: |
+    Renamed internal task-switching preprocessor constants for clarity:
+    - JL_HAVE_UCONTEXT -> JL_TASK_SWITCH_WINDOWS
+    - JL_HAVE_UNW_CONTEXT -> JL_TASK_SWITCH_LIBUNWIND
+    - JL_HAVE_ASM -> JL_TASK_SWITCH_ASM
+    Also removed dead code for POSIX ucontext that was never used.
+
+reviewer_verification:
+  verified_by: "independent_analysis"
+  verification_date: "2026-01-21"
+  verification_notes: |
+    Independent verification confirmed:
+    1. Grep search for old macros (JL_HAVE_UCONTEXT, JL_HAVE_UNW_CONTEXT, JL_HAVE_ASM)
+       returns NO matches - all instances have been renamed.
+    2. Grep search for new macros (JL_TASK_SWITCH_*) found usage in:
+       - src/julia_threads.h: Definition of macros (lines 42-87)
+       - src/task.c: Multiple usage sites (lines 257, 264, 277, 1289, 1322, 1352, 1366, 1430, 1437)
+       - src/stackwalk.c: Usage for backtrace collection (lines 1420, 1424, 1426)
+    3. Verified the dead code claim: JL_HAVE_UCONTEXT was defined ONLY when _OS_WINDOWS_
+       was set, making the POSIX ucontext code paths unreachable (POSIX ucontext.h doesn't
+       exist on Windows).
+    4. Confirmed no behavioral change: the actual compiled code on each platform remains
+       functionally identical - only macro names and dead code were changed.
+    5. No secondary compiler effects: this is pure runtime/task-switching code with no
+       impact on compilation, type inference, or code generation.

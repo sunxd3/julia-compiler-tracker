@@ -1,0 +1,414 @@
+schema_version: "1.0"
+
+pr:
+  number: 59615
+  title: "Add propagate_inbounds to some SubString operations"
+  url: "https://github.com/JuliaLang/julia/pull/59615"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59615.diff"
+  author: "jakobnissen"
+  labels:
+    - "strings"
+  merged_at: "2025-11-29T06:18:10Z"
+  merge_commit_sha: "9bbafb90677eebb4d518e5e9afa5e9102829692c"
+
+scope:
+  files_touched:
+    - "base/strings/substring.jl"
+  components:
+    - "Base.Strings"
+  pipeline_stages:
+    - "Runtime"
+    - "Codegen"
+
+analysis:
+  intent:
+    summary: |
+      Add @propagate_inbounds annotation to thisind and nextind methods for SubString{String}
+      to enable bounds-check elision when called from @inbounds context, reducing generated
+      code size and improving performance.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Add @propagate_inbounds to thisind(::SubString{String}, ::Int)"
+      component: "Base.Strings"
+      evidence:
+        - source: "diff"
+          path: "base/strings/substring.jl"
+          loc: "112"
+          url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/substring.jl#L112"
+          snippet: |
+            # Before:
+            thisind(s::SubString{String}, i::Int) = _thisind_str(s, i)
+
+            # After:
+            @propagate_inbounds thisind(s::SubString{String}, i::Int) = _thisind_str(s, i)
+
+    - summary: "Add @propagate_inbounds to nextind(::SubString{String}, ::Int)"
+      component: "Base.Strings"
+      evidence:
+        - source: "diff"
+          path: "base/strings/substring.jl"
+          loc: "113"
+          url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/substring.jl#L113"
+          snippet: |
+            # Before:
+            nextind(s::SubString{String}, i::Int) = _nextind_str(s, i)
+
+            # After:
+            @propagate_inbounds nextind(s::SubString{String}, i::Int) = _nextind_str(s, i)
+
+    - summary: "Consistency with String methods which already have @propagate_inbounds"
+      component: "Base.Strings"
+      evidence:
+        - source: "code"
+          path: "base/strings/string.jl"
+          loc: "194"
+          url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/string.jl#L194"
+          snippet: |
+            @propagate_inbounds thisind(s::String, i::Int) = _thisind_str(s, i)
+        - source: "code"
+          path: "base/strings/string.jl"
+          loc: "218"
+          url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/string.jl#L218"
+          snippet: |
+            @propagate_inbounds nextind(s::String, i::Int) = _nextind_str(s, i)
+
+  secondary_effects:
+    - effect: "Bounds checks elided in @inbounds call sites for SubString{String}"
+      mechanism: |
+        @propagate_inbounds macro definition [base/expr.jl:1069-1075]:
+          macro propagate_inbounds(ex)
+              if isa(ex, Expr)
+                  pushmeta!(ex, :inline)
+                  pushmeta!(ex, :propagate_inbounds)
+              end
+              esc(ex)
+          end
+
+        This adds both :inline and :propagate_inbounds metadata to the function.
+
+        When a caller uses @inbounds:
+        1. Caller's inbounds context is propagated through the call
+        2. _thisind_str/_nextind_str contain @boundscheck blocks [string.jl:201,224]
+        3. With propagated context, @boundscheck code is elided by the compiler
+
+        Call chain showing bounds check path:
+          @inbounds nextind(s::SubString{String}, i) [substring.jl:113]
+            -> _nextind_str(s, i) [string.jl:221]
+            -> @boundscheck between(i, 1, n) || throw(BoundsError(s, i)) [string.jl:224]
+            -> (elided when @inbounds context propagated)
+      downstream_surfaces:
+        - "String search functions (findfirst, findnext, findprev)"
+        - "Regex iteration and counting"
+        - "Any code using @inbounds with SubString{String} index operations"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Reduced generated code size for SubString operations"
+      mechanism: |
+        Without @propagate_inbounds, bounds checking code is always emitted:
+          - BoundsError construction
+          - throw() call
+          - Conditional branch
+
+        With @propagate_inbounds in @inbounds context, this code is omitted entirely.
+
+        Complete _nextind_str function showing @boundscheck [string.jl:221-251]:
+          @inline function _nextind_str(s, i::Int)
+              i == 0 && return 1
+              n = ncodeunits(s)
+              @boundscheck between(i, 1, n) || throw(BoundsError(s, i))
+              @inbounds l = codeunit(s, i)
+              between(l, 0x80, 0xf7) || return i+1
+              (@noinline function _nextind_continued(s, i, n, l)
+                  if l < 0xc0
+                      i' = @inbounds thisind(s, i)
+                      i' >= i && return i+1
+                      i = i'
+                      @inbounds l = codeunit(s, i)
+                      (l < 0x80) | (0xf8 <= l) && return i+1
+                      @assert l >= 0xc0 "invalid codeunit"
+                  end
+                  (i += 1) > n && return i
+                  @inbounds b = codeunit(s, i)
+                  b & 0xc0 != 0x80 && return i
+                  ((i += 1) > n) | (l < 0xe0) && return i
+                  @inbounds b = codeunit(s, i)
+                  b & 0xc0 != 0x80 && return i
+                  ((i += 1) > n) | (l < 0xf0) && return i
+                  @inbounds b = codeunit(s, i)
+                  return ifelse(b & 0xc0 != 0x80, i, i+1)
+              end)(s, i, n, l)
+          end
+      downstream_surfaces:
+        - "Hot loops in string processing"
+        - "SIMD-friendly code paths"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Asymmetry with prevind - no specialized SubString{String} method"
+      mechanism: |
+        IMPORTANT: Unlike nextind and thisind, prevind does NOT have a specialized
+        method for SubString{String}. This means:
+
+        1. prevind(::SubString{String}, ::Int) falls back to generic AbstractString method
+        2. The generic prevind [basic.jl:505-514] uses @inbounds isvalid internally:
+
+            function prevind(s::AbstractString, i::Int, n::Int)
+                n < 0 && throw(ArgumentError("n cannot be negative: $n"))
+                z = ncodeunits(s)::Int + 1
+                @boundscheck 0 < i <= z || throw(BoundsError(s, i))
+                n == 0 && return thisind(s, i)::Int == i ? i : string_index_err(s, i)
+                while n > 0 && 1 < i
+                    @inbounds n -= isvalid(s, i -= 1)::Bool
+                end
+                return i - n
+            end
+
+        3. Call sites using @inbounds prevind (search.jl:650, basic.jl:718) do NOT benefit
+           from bounds-check elision for SubString{String} the same way nextind/thisind now do
+
+        This represents a potential future optimization opportunity.
+      downstream_surfaces:
+        - "findprev with SubString{String}"
+        - "last(s::AbstractString, n) which uses @inbounds prevind"
+      likelihood: "medium"
+      impact: "low"
+
+  call_site_analysis:
+    - location: "base/strings/search.jl:332"
+      url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/search.jl#L332"
+      context: "findnext(testf::Function, s::AbstractString, i::Integer)"
+      snippet: |
+        while i <= e
+            testf(@inbounds s[i]) && return i
+            i = @inbounds nextind(s, i)
+        end
+      benefit: "nextind bounds check now elided for SubString{String} inputs"
+
+    - location: "base/strings/search.jl:636"
+      url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/search.jl#L636"
+      context: "findall(t, s; overlap)"
+      snippet: |
+        while true
+            r = findnext(t, s, i)
+            isnothing(r) && break
+            push!(found, r)
+            j = overlap || isempty(r) ? first(r) : last(r)
+            j > e && break
+            @inbounds i = nextind(s, j)
+        end
+      benefit: "nextind bounds check now elided for SubString{String} inputs"
+
+    - location: "base/regex.jl:577"
+      url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/regex.jl#L577"
+      context: "count(t::Union{...}, s::AbstractString; overlap)"
+      snippet: |
+        while true
+            r = findnext(t, s, i)
+            isnothing(r) && break
+            n += 1
+            j = overlap || isempty(r) ? first(r) : last(r)
+            j > e && break
+            @inbounds i = nextind(s, j)
+        end
+      benefit: "nextind bounds check now elided when counting regex matches on SubString"
+
+    - location: "base/strings/string.jl:231"
+      url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/string.jl#L231"
+      context: "_nextind_continued slow path"
+      snippet: |
+        i' = @inbounds thisind(s, i)
+      benefit: "thisind bounds check now elided for SubString{String} in _nextind_continued"
+
+    - location: "base/strings/string.jl:546"
+      url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/string.jl#L546"
+      context: "length(s::String, i::Int, j::Int)"
+      snippet: |
+        @inbounds i, k = thisind(s, i), i
+      benefit: "thisind bounds check now elided for SubString{String} in length calculation"
+
+    - location: "base/strings/basic.jl:699"
+      url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/basic.jl#L699"
+      context: "first(s::AbstractString, n::Integer)"
+      snippet: |
+        first(s::AbstractString, n::Integer) = @inbounds s[1:min(end, nextind(s, 0, n))]
+      benefit: "Improved code generation for first() on SubString{String}"
+
+    - location: "base/strings/search.jl:650"
+      url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/search.jl#L650"
+      context: "findprev(testf::Function, s::AbstractString, i::Integer)"
+      snippet: |
+        while i >= 1
+            testf(@inbounds s[i]) && return i
+            i = @inbounds prevind(s, i)
+        end
+      benefit: "NOTE: prevind does NOT have specialized SubString{String} - uses generic path"
+
+    - location: "base/strings/basic.jl:718"
+      url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/basic.jl#L718"
+      context: "last(s::AbstractString, n::Integer)"
+      snippet: |
+        last(s::AbstractString, n::Integer) = @inbounds s[max(1, prevind(s, ncodeunits(s)+1, n)):end]
+      benefit: "NOTE: prevind does NOT have specialized SubString{String} - uses generic path"
+
+  related_code_context:
+    - location: "base/strings/basic.jl:192"
+      url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/basic.jl#L192"
+      description: "TODO comment suggesting broader @propagate_inbounds effort"
+      snippet: |
+        # TODO: add more @propagate_inbounds annotations?
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - description: "No semantic change - bounds checks only elided when caller uses @inbounds"
+        breaking: false
+        evidence:
+          - source: "code"
+            path: "base/strings/string.jl"
+            loc: "221-251"
+            url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/base/strings/string.jl#L221-L251"
+            snippet: |
+              @inline function _nextind_str(s, i::Int)
+                  i == 0 && return 1
+                  n = ncodeunits(s)
+                  @boundscheck between(i, 1, n) || throw(BoundsError(s, i))
+                  @inbounds l = codeunit(s, i)
+                  between(l, 0x80, 0xf7) || return i+1
+                  (@noinline function _nextind_continued(s, i, n, l)
+                      # ... continuation byte handling
+                  end)(s, i, n, l)
+              end
+
+  performance:
+    compile_time:
+      - description: "No measurable compile-time impact"
+        rationale: "ESTIMATED: Single metadata flag addition per method, negligible cost"
+
+    runtime:
+      - description: "Reduced generated code size in @inbounds contexts"
+        evidence:
+          - "PR description states: 'This slightly improves efficiency, in particular generated code size.'"
+        rationale: |
+          ESTIMATED impact:
+          - ~10-20 bytes saved per inlined call site (branch + throw setup)
+          - Hot string processing loops benefit most
+          - No algorithmic change, pure constant-factor improvement
+
+  test_analysis:
+    existing_coverage:
+      - location: "test/strings/types.jl:174-203"
+        url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/test/strings/types.jl#L174-L203"
+        description: "Tests isvalid, length, prevind, nextind for SubString{String}"
+        snippet: |
+          @testset" isvalid, length, prevind, nextind for SubString{String}" begin
+              s = "lorem ipsum"
+              sdict = Dict(
+                  SubString(s, 1, 11)  => "lorem ipsum",
+                  SubString(s, 1, 6)   => "lorem ",
+                  SubString(s, 1, 0)   => "",
+                  SubString(s, 2, 4)   => "ore",
+                  SubString(s, 2, 11)  => "orem ipsum",
+                  SubString(s, 15, 14) => "",
+              )
+              for (ss, s) in sdict
+                  @test ncodeunits(ss) == ncodeunits(s)
+                  for i in -2:13
+                      @test isvalid(ss, i) == isvalid(s, i)
+                  end
+                  for i in 1:ncodeunits(ss), j = i-1:ncodeunits(ss)
+                      @test length(ss, i, j) == length(s, i, j)
+                  end
+              end
+              for (ss, s) in sdict
+                  @test length(ss) == length(s)
+                  for i in 0:ncodeunits(ss), j = 0:length(ss)+1
+                      @test prevind(ss, i+1, j) == prevind(s, i+1, j)
+                      @test nextind(ss, i, j) == nextind(s, i, j)
+                  end
+              end
+          end
+
+      - location: "test/strings/types.jl:209-240"
+        url: "https://github.com/JuliaLang/julia/blob/9bbafb90677eebb4d518e5e9afa5e9102829692c/test/strings/types.jl#L209-L240"
+        description: "Tests proper nextind/prevind/thisind for SubString{String} with random UTF-8 data"
+        snippet: |
+          rng = MersenneTwister(1)
+          strs = ["..." * String(rand(rng, UInt8, 40)) * "...",
+                  String(rand(rng, UInt8, 50))]
+          @testset "proper nextind/prevind/thisind for SubString{String}: $(repr(s))" for s in strs
+              a = 0
+              while a <= ncodeunits(s)
+                  a = nextind(s, a)
+                  b = a - 1
+                  while b <= ncodeunits(s)
+                      ss = SubString(s, a:b)
+                      s2 = s[a:b]
+                      for i in 0:ncodeunits(ss)+1
+                          @test thisind(ss, i) == thisind(s2, i)
+                      end
+                      for i in 0:ncodeunits(ss)
+                          @test nextind(ss, i) == nextind(s2, i)
+                      end
+                      for i in 1:ncodeunits(ss)+1
+                          @test prevind(ss, i) == prevind(s2, i)
+                      end
+                      b = nextind(s, b)
+                  end
+              end
+          end
+
+    new_tests_added: false
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure performance optimization with no semantic change"
+      - "Only affects code that explicitly uses @inbounds (opt-in)"
+      - "Matches existing behavior of String methods (thisind/nextind already had @propagate_inbounds)"
+      - "Extensive existing test coverage for SubString index operations with random UTF-8 data"
+      - "No new error conditions or changed invariants"
+
+  downstream_impact:
+    packages:
+      - name: "Any package using @inbounds with SubString{String}"
+        impact: "Positive - smaller generated code, faster execution"
+        mechanism: "Bounds checks elided when context propagated"
+
+    internal_tools:
+      - name: "JET.jl"
+        impact: "None - pure runtime optimization"
+      - name: "GPUCompiler.jl"
+        impact: "None - string operations typically not on GPU"
+
+  open_questions:
+    - "Should prevind also get a specialized SubString{String} method with @propagate_inbounds for symmetry?"
+    - "Are there other string operations mentioned in the TODO at basic.jl:192 that would benefit?"
+
+  recommendations:
+    - "No action required for downstream packages - this is a transparent performance improvement"
+    - "Users of SubString{String} in hot loops should consider using @inbounds when indices are known valid to benefit from this optimization"
+    - "Future work: Consider adding specialized prevind(::SubString{String}, ::Int) with @propagate_inbounds for symmetry"
+
+reviewer_notes:
+  independent_verification:
+    - "Confirmed @propagate_inbounds macro adds both :inline and :propagate_inbounds metadata"
+    - "Verified _thisind_str and _nextind_str contain @boundscheck blocks that get elided"
+    - "Identified all @inbounds call sites for nextind/thisind in base/strings/"
+    - "Discovered asymmetry: prevind lacks specialized SubString{String} method unlike nextind/thisind"
+    - "Found TODO comment at basic.jl:192 suggesting broader @propagate_inbounds effort"
+  additional_call_sites_found:
+    - "base/strings/search.jl:650 - findprev uses @inbounds prevind (does NOT benefit - generic path)"
+    - "base/strings/basic.jl:718 - last() uses @inbounds prevind (does NOT benefit - generic path)"
+    - "base/strings/string.jl:546 - length() uses @inbounds thisind (benefits from this PR)"
+  quality_assessment:
+    original_analysis_accuracy: "High - core findings correct and well-documented"
+    enhancements_made:
+      - "Added complete _nextind_str function showing full @boundscheck context"
+      - "Documented asymmetry between prevind and nextind/thisind specialization"
+      - "Added call sites that do NOT benefit (prevind) for completeness"
+      - "Corrected @propagate_inbounds macro line numbers (1069-1075, not 1073-1078)"
+      - "Added TODO comment context from basic.jl:192"
+      - "Expanded test analysis with actual test code structure"
+      - "Added GitHub URLs with line numbers for all evidence"

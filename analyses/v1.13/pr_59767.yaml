@@ -1,0 +1,599 @@
+schema_version: "1.0"
+pr:
+  number: 59767
+  title: "Bump the Pkg stdlib from 482399a51 to 92aae600c"
+  url: "https://github.com/JuliaLang/julia/pull/59767"
+  author: "DilumAluthgeBot"
+  labels: []
+  merged_at: "2025-10-07T10:25:33Z"
+  merge_commit_sha: "31d34272bcd7b265a9bbd6ae0e3c00133f3c33eb"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59767.diff"
+  upstream_diff_url: "https://github.com/JuliaLang/Pkg.jl/compare/482399a51bc8bea0c58cb8722fd7ddf7637aff77...92aae600c1c645bd46bc5937d47337ac7093d194"
+scope:
+  files_touched:
+    - "deps/checksums/Pkg-482399a51bc8bea0c58cb8722fd7ddf7637aff77.tar.gz/md5"
+    - "deps/checksums/Pkg-482399a51bc8bea0c58cb8722fd7ddf7637aff77.tar.gz/sha512"
+    - "deps/checksums/Pkg-92aae600c1c645bd46bc5937d47337ac7093d194.tar.gz/md5"
+    - "deps/checksums/Pkg-92aae600c1c645bd46bc5937d47337ac7093d194.tar.gz/sha512"
+    - "stdlib/Pkg.version"
+  components:
+    - "Stdlib.Pkg"
+  pipeline_stages:
+    - "PackageManagement"
+    - "Precompilation"
+    - "Artifacts"
+analysis:
+  intent:
+    summary: "Bump the Pkg stdlib to version 92aae600c, incorporating 12 upstream Pkg.jl commits with significant behavioral changes to garbage collection (immediate orphan deletion), precompilation scope (only added packages), readonly mode API, and julia version compat checking."
+    issue_links:
+      - "https://github.com/JuliaLang/Pkg.jl/pull/4403"
+      - "https://github.com/JuliaLang/Pkg.jl/pull/4402"
+      - "https://github.com/JuliaLang/Pkg.jl/pull/4397"
+      - "https://github.com/JuliaLang/Pkg.jl/pull/4395"
+      - "https://github.com/JuliaLang/Pkg.jl/pull/3848"
+      - "https://github.com/JuliaLang/Pkg.jl/issues/4380"
+      - "https://github.com/JuliaLang/Pkg.jl/issues/4041"
+      - "https://github.com/JuliaLang/Pkg.jl/issues/4087"
+  direct_changes:
+    - summary: "Remove orphanage GC mechanism - packages and artifacts are deleted immediately when orphaned instead of being held in temporary orphan state with a collect_delay."
+      component: "Stdlib.Pkg.GC"
+      evidence:
+        - source: "upstream_commit"
+          path: "Pkg.jl/src/API.jl"
+          loc: "563-590"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4395"
+          snippet: |
+            # OLD docstring and signature:
+            #   gc(ctx::Context=Context(); collect_delay::Period=Day(7), verbose=false, kwargs...)
+            #   finding artifacts and packages that are thereafter not used by any other projects,
+            #   marking them as "orphaned".  This method will only remove orphaned objects that
+            #   have been continually un-used for a period of `collect_delay`; which defaults to
+            #   seven days.
+
+            # NEW docstring and signature (Pkg.jl commit 543ee94):
+            """
+                gc(ctx::Context=Context(); verbose=false, force=false, kwargs...)
+
+            Garbage-collect package and artifact installations by sweeping over all known
+            `Manifest.toml` and `Artifacts.toml` files, noting those that have been deleted, and then
+            finding artifacts and packages that are thereafter not used by any other projects.
+            Unused packages, artifacts, repos, and scratch spaces are immediately deleted.
+            """
+            function gc(ctx::Context = Context(); collect_delay::Union{Period, Nothing} = nothing, verbose = false, force = false, kwargs...)
+                Context!(ctx; kwargs...)
+                if collect_delay !== nothing
+                    @warn "The `collect_delay` parameter is no longer used. Packages are now deleted immediately when they become unreachable."
+                end
+        - source: "upstream_commit"
+          path: "Pkg.jl/src/API.jl"
+          loc: "890-942"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4395"
+          snippet: |
+            # OLD: merge_orphanages!() would place orphaned paths in an orphan
+            # directory with a timestamp, then delete only after collect_delay
+            #
+            # NEW: Direct deletion without orphanage step
+            for depot in gc_depots
+                packagedir = abspath(depot, "packages")
+                if isdir(packagedir)
+                    for name in readdir(packagedir)
+                        !isdir(joinpath(packagedir, name)) && continue
+                        for slug in readdir(joinpath(packagedir, name))
+                            pkg_dir = joinpath(packagedir, name, slug)
+                            !isdir(pkg_dir) && continue
+                            if !(pkg_dir in packages_to_keep)
+                                push!(packages_to_delete, pkg_dir)  # <-- immediate deletion list
+                            end
+                        end
+                    end
+                end
+        - source: "test"
+          path: "Pkg.jl/test/pkg.jl"
+          loc: "187-200"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4395"
+          snippet: |
+            # OLD test code:
+            # Pkg.gc(; collect_delay = Day(1000))  # Long delay, nothing reaped
+            # @test !isempty(readdir(pkgdir))
+            # Pkg.gc(; collect_delay = Second(0))  # Zero delay, reaped immediately
+            # @test isempty(readdir(pkgdir))
+
+            # NEW test code (Pkg.jl commit 543ee94):
+            # Test that unused packages are reaped
+            Pkg.gc()
+            @test isempty(readdir(pkgdir))
+    - summary: "Limit auto-precompilation after Pkg.add to only the added package and its dependencies, rather than precompiling all packages in the environment."
+      component: "Stdlib.Pkg.Precompilation"
+      evidence:
+        - source: "upstream_commit"
+          path: "Pkg.jl/src/Operations.jl"
+          loc: "1923"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/3848"
+          snippet: |
+            # Pkg.jl commit e064c0b - single line change with big impact:
+            # OLD:
+            allow_autoprecomp && Pkg._auto_precompile(ctx)
+
+            # NEW:
+            allow_autoprecomp && Pkg._auto_precompile(ctx, pkgs)
+        - source: "code"
+          path: "Pkg.jl/src/Pkg.jl"
+          loc: "1009-1013"
+          url: "https://github.com/JuliaLang/Pkg.jl/blob/92aae600c/src/Pkg.jl#L1009-L1013"
+          snippet: |
+            function _auto_precompile(ctx::Types.Context, pkgs::Vector{PackageSpec} = PackageSpec[]; warn_loaded = true, already_instantiated = false)
+                return if should_autoprecompile()
+                    Pkg.precompile(ctx, pkgs; internal_call = true, warn_loaded = warn_loaded, already_instantiated = already_instantiated)
+                end
+            end
+        - source: "code"
+          path: "Pkg.jl/src/API.jl"
+          loc: "1203-1233"
+          url: "https://github.com/JuliaLang/Pkg.jl/blob/92aae600c/src/API.jl#L1232-L1233"
+          snippet: |
+            function precompile(ctx::Context, pkgs::Vector{PackageSpec}; ...)
+                # ...
+                pkgs_name = String[pkg.name for pkg in pkgs]
+                # When pkgs is non-empty, only those packages (+ their deps) are precompiled
+                return Base.Precompilation.precompilepkgs(pkgs_name; internal_call, strict, warn_loaded, timing, _from_loading, configs, manifest = workspace, io)
+            end
+    - summary: "Add readonly checks at Pkg entry points (Pkg.add, Pkg.rm, etc.) and provide a new API to programmatically enable/disable readonly mode."
+      component: "Stdlib.Pkg.API"
+      evidence:
+        - source: "upstream_commit"
+          path: "Pkg.jl/src/API.jl"
+          loc: "149-153"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4397"
+          snippet: |
+            # NEW: Check function called at entry points (Pkg.jl commit 8e99d09)
+            function check_readonly(ctx::Context)
+                return ctx.env.project.readonly && pkgerror("Cannot modify a readonly environment. The project at $(ctx.env.project_file) is marked as readonly.")
+            end
+        - source: "upstream_commit"
+          path: "Pkg.jl/src/API.jl"
+          loc: "256-494"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4397"
+          snippet: |
+            # NEW: check_readonly(ctx) is now called in each modifying function:
+            function develop(ctx::Context, pkgs::Vector{PackageSpec}; ...)
+                require_not_empty(pkgs, :develop)
+                Context!(ctx; kwargs...)
+                check_readonly(ctx)  # <-- NEW CHECK
+                # ...
+            end
+
+            function add(ctx::Context, pkgs::Vector{PackageSpec}; ...)
+                require_not_empty(pkgs, :add)
+                Context!(ctx; kwargs...)
+                check_readonly(ctx)  # <-- NEW CHECK
+                # ...
+            end
+
+            function rm(ctx::Context, pkgs::Vector{PackageSpec}; ...)
+                Context!(ctx; kwargs...)
+                check_readonly(ctx)  # <-- NEW CHECK
+                # ...
+            end
+
+            function up(ctx::Context, pkgs::Vector{PackageSpec}; ...)
+                Context!(ctx; kwargs...)
+                check_readonly(ctx)  # <-- NEW CHECK
+                # ...
+            end
+
+            function pin(ctx::Context, pkgs::Vector{PackageSpec}; ...)
+                Context!(ctx; kwargs...)
+                check_readonly(ctx)  # <-- NEW CHECK
+                # ...
+            end
+
+            function free(ctx::Context, pkgs::Vector{PackageSpec}; ...)
+                Context!(ctx; kwargs...)
+                check_readonly(ctx)  # <-- NEW CHECK
+                # ...
+            end
+        - source: "upstream_commit"
+          path: "Pkg.jl/src/API.jl"
+          loc: "1705-1734"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4397"
+          snippet: |
+            # NEW: Readonly API (Pkg.jl commit 8e99d09)
+            """
+                readonly()
+
+            Return whether the current environment is readonly.
+            """
+            function readonly(ctx::Context = Context())
+                return ctx.env.project.readonly
+            end
+
+            """
+                readonly(on::Bool)
+
+            Enable or disable readonly mode for the current environment.
+            Return the previous state.
+            """
+            function readonly(on::Bool, ctx::Context = Context())
+                previous_state = ctx.env.project.readonly
+                ctx.env.project.readonly = on
+                Types.write_env(ctx.env; skip_readonly_check = true)
+
+                mode_str = on ? "enabled" : "disabled"
+                printpkgstyle(ctx.io, :Updated, "Readonly mode $mode_str for project at $(ctx.env.project_file)")
+
+                return previous_state
+            end
+        - source: "test"
+          path: "Pkg.jl/test/new.jl"
+          loc: "3816-3864"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4397"
+          snippet: |
+            # Test readonly API (Pkg.jl commit 8e99d09):
+            @testset "Readonly Environment Tests" begin
+                mktempdir() do dir
+                    cd(dir) do
+                        Pkg.activate(".")
+
+                        # Test readonly API - should be false initially
+                        @test Pkg.readonly() == false
+
+                        Pkg.add("Test")
+
+                        # Enable readonly mode using new API
+                        previous_state = Pkg.readonly(true)
+                        @test previous_state == false
+                        @test Pkg.readonly() == true
+
+                        # Test that status shows readonly indicator
+                        io = IOBuffer()
+                        Pkg.status(io = io)
+                        status_output = String(take!(io))
+                        @test occursin("(readonly)", status_output)
+
+                        # These operations should fail with early readonly check
+                        @test_throws Pkg.Types.PkgError Pkg.add("Dates")
+                        @test_throws Pkg.Types.PkgError Pkg.rm("Test")
+                        @test_throws Pkg.Types.PkgError Pkg.update()
+                        @test_throws Pkg.Types.PkgError Pkg.pin("Test")
+                        @test_throws Pkg.Types.PkgError Pkg.free("Test")
+                        @test_throws Pkg.Types.PkgError Pkg.develop("Example")
+
+                        # Disable readonly mode
+                        previous_state = Pkg.readonly(false)
+                        @test previous_state == true
+                        @test Pkg.readonly() == false
+
+                        # Operations should work again
+                        @test_nowarn Pkg.add("Random")
+                        @test_nowarn Pkg.rm("Random")
+                    end
+                end
+            end
+    - summary: "Fix Julia compatibility checking to use julia_version parameter consistently throughout resolution and manifest generation."
+      component: "Stdlib.Pkg.Resolve"
+      evidence:
+        - source: "upstream_commit"
+          path: "Pkg.jl/src/Operations.jl"
+          loc: "363-376"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4403"
+          snippet: |
+            # Pkg.jl commit 92aae60 - collect_project now takes julia_version parameter:
+            # OLD:
+            function collect_project(pkg::Union{PackageSpec, Nothing}, path::String)
+                # ...
+                if !isnothing(julia_compat) && !(VERSION in julia_compat)
+                    pkgerror("julia version requirement from Project.toml's compat section not satisfied for package at `$path`")
+                end
+
+            # NEW:
+            function collect_project(pkg::Union{PackageSpec, Nothing}, path::String, julia_version)
+                deps = PackageSpec[]
+                weakdeps = Set{UUID}()
+                project_file = projectfile_path(path; strict = true)
+                project = project_file === nothing ? Project() : read_project(project_file)
+                julia_compat = get_compat(project, "julia")
+                if !isnothing(julia_compat) && !isnothing(julia_version) && !(julia_version in julia_compat)
+                    pkgerror("julia version requirement for package at `$path` not satisfied: compat entry \"julia = $(get_compat_str(project, \"julia\"))\" does not include Julia version $julia_version")
+                end
+        - source: "upstream_commit"
+          path: "Pkg.jl/src/Operations.jl"
+          loc: "538"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4403"
+          snippet: |
+            # Pkg.jl commit 92aae60 - manifest julia_version now uses the parameter:
+            # OLD:
+            env.manifest.julia_version = dropbuild(VERSION)
+
+            # NEW:
+            env.manifest.julia_version = dropbuild(julia_version)
+        - source: "test"
+          path: "Pkg.jl/test/api.jl"
+          loc: "382-386"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4403"
+          snippet: |
+            # Error message improved to be more informative:
+            # OLD:
+            @test_throws "julia version requirement from Project.toml's compat section not satisfied for package" Pkg.add(path = pathf)
+
+            # NEW:
+            @test_throws "julia version requirement for package" Pkg.add(path = pathf)
+    - summary: "Fix deleting packages in compat mode - backspace handling fixed to avoid BoundsError."
+      component: "Stdlib.Pkg.REPL"
+      evidence:
+        - source: "upstream_commit"
+          path: "Pkg.jl/ext/REPLExt/compat.jl"
+          loc: "58-82"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4402"
+          snippet: |
+            # Pkg.jl commit e7d415f - fix for DEL and backspace in compat mode:
+            # OLD (DEL key):
+            elseif inp == TerminalMenus.DEL_KEY
+                if cursor == 0
+                    buffer = buffer[2:end]  # BoundsError if buffer is empty!
+                # ...
+
+            # NEW (DEL key):
+            elseif inp == TerminalMenus.DEL_KEY
+                if cursor == 0 && !isempty(buffer)  # <-- Added !isempty check
+                    buffer = buffer[2:end]
+                # ...
+
+            # OLD (backspace):
+            elseif inp == '\x7f' # backspace
+                if cursor == 1
+                    buffer = buffer[2:end]
+                # ...
+                cursor -= 1  # Always decremented, could go negative
+
+            # NEW (backspace):
+            elseif inp == '\x7f' # backspace
+                if cursor > 0
+                    if cursor == 1
+                        buffer = buffer[2:end]
+                    elseif cursor == length(buffer)
+                        buffer = buffer[1:(end - 1)]
+                    else
+                        buffer = buffer[1:(cursor - 1)] * buffer[(cursor + 1):end]
+                    end
+                    cursor -= 1  # Only decremented when cursor > 0
+                else
+                    continue
+                end
+    - summary: "Allow overriding the Julia executable for apps via JULIA_APPS_JULIA_CMD environment variable."
+      component: "Stdlib.Pkg.Apps"
+      evidence:
+        - source: "upstream_commit"
+          path: "Pkg.jl/src/Apps/Apps.jl"
+          loc: "505-515"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4386"
+          snippet: |
+            # Pkg.jl commit c7375c5 - shell shim now checks env var:
+            # Allow overriding Julia executable via environment variable
+            if [ -n "\${JULIA_APPS_JULIA_CMD:-}" ]; then
+                julia_cmd="\$JULIA_APPS_JULIA_CMD"
+            else
+                julia_cmd=$julia_escaped
+            fi
+
+            # ... later in the shim:
+            exec "\$julia_cmd" --startup-file=no$julia_flags_part \$julia_args -m $module_spec_escaped "\$@"
+    - summary: "Allow apps to customize default Julia flags and accept custom flags at runtime via -- separator."
+      component: "Stdlib.Pkg.Apps"
+      evidence:
+        - source: "upstream_commit"
+          path: "Pkg.jl/src/Apps/Apps.jl"
+          loc: "451"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4381"
+          snippet: |
+            # Pkg.jl commit 43d39e8 - shim version bumped for new flags support:
+            const SHIM_VERSION = 1.1  # <-- was 1.0
+        - source: "documentation"
+          path: "Pkg.jl/docs/src/apps.md"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4381"
+          snippet: |
+            # NEW: App developers can specify julia_flags in Project.toml:
+            [apps]
+            myapp = { julia_flags = ["--threads=4", "--optimize=2"] }
+            performance-app = { julia_flags = ["--threads=auto", "--startup-file=yes", "--depwarn=no"] }
+            debug-app = { submodule = "Debug", julia_flags = ["--check-bounds=yes", "--optimize=0"] }
+
+            # Runtime override using -- separator:
+            myapp --threads=8 -- input.txt output.txt
+    - summary: "Improve warning message when computed artifact hash differs from recorded hash."
+      component: "Stdlib.Pkg.Artifacts"
+      evidence:
+        - source: "upstream_commit"
+          path: "Pkg.jl/src/Artifacts.jl"
+          loc: "hash verification section"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4385"
+          snippet: |
+            # Pkg.jl commit e749a51 - improved warning message now shows:
+            # - The computed hash value
+            # - The expected (recorded) hash value
+            # - The artifact in question
+    - summary: "Fix upgrade message display formatting."
+      component: "Stdlib.Pkg.Operations"
+      evidence:
+        - source: "upstream_commit"
+          path: "Pkg.jl/src/Operations.jl"
+          loc: "upgrade message section"
+          url: "https://github.com/JuliaLang/Pkg.jl/pull/4391"
+          snippet: |
+            # Pkg.jl commit 7344e26 - fixes issue #4087 with upgrade message display
+  secondary_effects:
+    - effect: "Disk space is reclaimed immediately after package removal with no recovery window."
+      mechanism: |
+        Call chain showing immediate deletion (Pkg.jl src/API.jl):
+          Pkg.rm("PackageName")
+            -> API.rm() modifies manifest
+            -> Pkg._auto_gc() called if enabled [API.jl:174]
+            -> API.gc() [API.jl:576]
+            -> for depot in gc_depots: [API.jl:880]
+                -> if !(pkg_dir in packages_to_keep): push!(packages_to_delete, pkg_dir) [API.jl:893]
+            -> for path in packages_to_delete: rm(path; recursive=true) [API.jl:950+]
+
+        BEHAVIORAL CHANGE: Old orphanage mechanism held packages for collect_delay
+        (default 7 days) before deletion. The orphaned.toml file in logdir()
+        no longer exists/is used.
+      downstream_surfaces:
+        - "Pkg.gc() behavior - immediate deletion"
+        - "orphaned.toml tracking file removed"
+        - "collect_delay parameter deprecated (emits warning if used)"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "Pkg.add operations complete faster but first `using` of unrelated packages may trigger load-time precompilation."
+      mechanism: |
+        Call chain for precompilation scope change (Pkg.jl src/Operations.jl + src/Pkg.jl):
+          Pkg.add("NewPackage")
+            -> Operations.add() [Operations.jl:1910+]
+            -> allow_autoprecomp && Pkg._auto_precompile(ctx, pkgs)  [Operations.jl:2324]
+                                                            ^^^^ NEW: pkgs argument
+            -> _auto_precompile(ctx, pkgs) [Pkg.jl:1009]
+            -> Pkg.precompile(ctx, pkgs; ...) [Pkg.jl:1011]
+            -> pkgs_name = String[pkg.name for pkg in pkgs] [API.jl:1232]
+            -> Base.Precompilation.precompilepkgs(pkgs_name; ...) [API.jl:1233]
+                ^^^^ Only added packages precompiled, not entire environment
+
+        SCENARIO: Environment with OrdinaryDiffEq + adding Cthulhu
+        OLD: Precompile all 300+ packages (10+ minutes)
+        NEW: Precompile only Cthulhu + its deps (~seconds)
+      downstream_surfaces:
+        - "Pkg.add latency (significantly reduced)"
+        - "First `using` of uncompiled packages (may be slower)"
+        - "CI pipeline timing patterns changed"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "Packages that modify environments may fail if readonly mode is enabled via Project.toml or API."
+      mechanism: |
+        Call chain for readonly enforcement (Pkg.jl src/API.jl):
+          Pkg.add("Package")  # or rm, up, pin, free, develop
+            -> API.add(ctx, pkgs; ...) [API.jl:302]
+            -> Context!(ctx; kwargs...) [API.jl:307]
+            -> check_readonly(ctx) [API.jl:308]
+            -> ctx.env.project.readonly && pkgerror("Cannot modify a readonly environment...") [API.jl:150]
+
+        Readonly can be set two ways:
+        1. Project.toml: readonly = true
+        2. API: Pkg.readonly(true)
+
+        Status display shows "(readonly)" suffix when enabled [Operations.jl:2955]
+      downstream_surfaces:
+        - "CI/CD pipelines with locked environments"
+        - "Automated package testing tools"
+        - "Production deployment environments"
+        - "Multi-user shared environments"
+      likelihood: "medium"
+      impact: "low"
+    - effect: "BinaryBuilder and cross-version package builds work correctly for non-current Julia version targets."
+      mechanism: |
+        Call chain for julia_version propagation (Pkg.jl src/Operations.jl):
+          resolve_versions!(env, pkgs; julia_version=v"1.13")
+            -> env.manifest.julia_version = dropbuild(julia_version) [Operations.jl:540]
+                                                       ^^^^^^^^^^^^^ NEW: was VERSION
+            -> fixed = collect_fixed!(env, pkgs, names, julia_version) [Operations.jl:562]
+            -> collect_project(pkg, path, julia_version) [Operations.jl:447,485]
+            -> !(julia_version in julia_compat) check [Operations.jl:372]
+                ^^^^^^^^^^^^^^ NEW: was VERSION
+
+        BUGFIX: Previously some code paths used running Julia VERSION instead
+        of the specified julia_version parameter, causing compat mismatches
+        when building for different Julia versions (e.g., BinaryBuilder for Julia 1.13).
+      downstream_surfaces:
+        - "BinaryBuilder.jl cross-version builds"
+        - "Yggdrasil build infrastructure"
+        - "PackageCompiler.jl targeting different Julia versions"
+      likelihood: "high"
+      impact: "low"
+    - effect: "Apps using the new julia_flags feature will have different startup behavior if installed with old Pkg version."
+      mechanism: |
+        Shim version bumped from 1.0 to 1.1 in Pkg.jl commit 43d39e8.
+        Apps installed with old Pkg will have shims that don't support:
+        1. julia_flags from Project.toml
+        2. Runtime flags via -- separator
+        3. JULIA_APPS_JULIA_CMD env var override
+
+        Reinstalling apps with new Pkg version regenerates shims with new features.
+      downstream_surfaces:
+        - "Pkg.Apps installed applications"
+        - "App shim scripts in ~/.julia/bin/"
+      likelihood: "low"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "Pkg.gc() collect_delay parameter"
+        change: "Parameter still accepted but now deprecated - emits warning and is ignored. Packages deleted immediately regardless of value."
+        affected_tools:
+          - tool: "Custom GC automation scripts"
+            usage: "Scripts using collect_delay=Day(N) for grace periods will need redesign. The parameter does nothing now."
+      - field: "orphaned.toml file in depot logdir"
+        change: "File no longer created or read. The entire orphanage tracking mechanism is removed."
+        affected_tools:
+          - tool: "Depot management tools"
+            usage: "Tools that inspect orphaned.toml to understand pending deletions will find no such file."
+      - field: "Pkg.readonly() API"
+        change: "New public API functions added: readonly() to check, readonly(::Bool) to set."
+        affected_tools:
+          - tool: "Environment management tools"
+            usage: "Can now programmatically lock/unlock environments without editing Project.toml."
+      - field: "JULIA_APPS_JULIA_CMD env var"
+        change: "New environment variable to override Julia executable for all app invocations."
+        affected_tools:
+          - tool: "CI systems running Julia apps"
+            usage: "Can test apps against different Julia versions by setting this variable."
+      - field: "AppInfo.julia_flags field"
+        change: "Apps can now specify default Julia command-line flags in Project.toml."
+        affected_tools:
+          - tool: "App developers"
+            usage: "Can configure threading, optimization, bounds checking defaults per-app."
+    behavioral:
+      - change: "Pkg.add no longer precompiles unrelated packages in the environment."
+        risk: "low"
+        rationale: "Reduces Pkg.add time; first `using` of uncompiled packages handles compilation."
+      - change: "Orphaned packages are immediately deleted instead of being held for 7 days."
+        risk: "medium"
+        rationale: "No recovery window; users must use version control for accidentally removed packages."
+      - change: "Pkg commands fail early if environment is readonly."
+        risk: "low"
+        rationale: "Clear error message; can be disabled via API."
+      - change: "Julia compat errors now show the compat string and target version in the error message."
+        risk: "low"
+        rationale: "Improved diagnostics, no behavioral change."
+  performance:
+    compile_time:
+      - impact: |
+          ESTIMATED: Significant improvement for Pkg.add in large environments.
+          - OLD: Pkg.add("X") -> precompile ALL packages in environment
+          - NEW: Pkg.add("X") -> precompile only X and its dependencies
+
+          Example scenario (from Pkg.jl PR #3848 discussion):
+          - Environment with OrdinaryDiffEq (large dep tree)
+          - Adding Cthulhu (medium dep tree, mostly non-overlapping)
+          - OLD: ~10+ minutes to precompile 287 packages
+          - NEW: ~30 seconds to precompile Cthulhu + its deps
+
+          Trade-off: First `using` of uncompiled packages may be slower due to
+          load-time precompilation, but this is standard Julia behavior.
+    runtime:
+      - impact: |
+          ESTIMATED: Pkg.gc() may be faster for large depots since orphanage
+          bookkeeping (reading/writing orphaned.toml, timestamp comparisons)
+          is eliminated. Direct deletion is simpler.
+  risk:
+    level: "medium"
+    rationale:
+      - "Orphanage removal is a user-visible behavioral change - packages deleted immediately with no recovery window."
+      - "Precompilation scope change alters timing expectations - users expecting all packages ready after add may be surprised."
+      - "Readonly mode could break existing tooling that assumes write access, though error is clear."
+      - "All changes are in Pkg stdlib, not compiler core, limiting blast radius to package management."
+      - "Apps shim changes require reinstallation to take effect."
+  open_questions:
+    - "How should users recover packages accidentally orphaned after the change? Answer: Version control (Project.toml/Manifest.toml) or registry re-add."
+    - "Will the precompilation change cause confusion for users in shared/global environments? Likely minimal - load-time precompilation handles it transparently."
+    - "Should Pkg.readonly(true) also prevent Pkg.gc()? Currently gc() is allowed even in readonly mode."
+    - "Do old app shims (version 1.0) need migration tooling, or is manual reinstall sufficient?"
+  recommendations:
+    - "CI pipelines that rely on specific GC timing behavior should be updated - collect_delay no longer provides a grace period."
+    - "Tools that automate Pkg operations should catch PkgError for readonly environments and provide clear user guidance."
+    - "Users with large global environments will see faster Pkg.add but should expect load-time precompilation on first use of packages not in the add dep tree."
+    - "BinaryBuilder/Yggdrasil maintainers should verify Julia 1.13 cross-builds work correctly with the julia_version fix."
+    - "App developers can now use julia_flags in Project.toml to set default threading/optimization settings."

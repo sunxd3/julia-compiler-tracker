@@ -1,0 +1,217 @@
+schema_version: "1.0"
+pr:
+  number: 59905
+  title: "Fix: waitall can throw when all tasks are done"
+  url: "https://github.com/JuliaLang/julia/pull/59905"
+  author: "jakobnissen"
+  labels:
+    - "multithreading"
+    - "bugfix"
+  merged_at: "2025-10-20T11:09:45Z"
+  merge_commit_sha: "c686e1fac8b316fcb84ce005088d55bbb0afa31a"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59905.diff"
+scope:
+  files_touched:
+    - "base/task.jl"
+    - "test/threads_exec.jl"
+  components:
+    - "Base.Task"
+    - "Base.Threads"
+  pipeline_stages:
+    - "Runtime"
+    - "TaskScheduler"
+analysis:
+  intent:
+    summary: "Fix a bug where waitall (and waitany) would silently return without throwing CompositeException when all tasks were already completed before the call, even when throw=true was specified and at least one task had failed. This violated the documented contract that these functions should throw when any task fails and throw=true."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59901"
+  direct_changes:
+    - summary: "Consolidated early return logic in _wait_multiple to properly check and throw exceptions when all tasks are done at the initial scan (nremaining == 0). Also removed unnecessary done_mask[i] = false assignment since BitVector is initialized with falses()."
+      component: "base/task.jl"
+      evidence:
+        - source: "code"
+          path: "base/task.jl"
+          loc: "441-454"
+          url: "https://github.com/JuliaLang/julia/blob/c686e1fac8b316fcb84ce005088d55bbb0afa31a/base/task.jl#L441-L454"
+          snippet: |
+            # We can return early all tasks are done, or if any is done and we only
+            # needed to wait for one, or if any task failed and we have failfast
+            if nremaining == 0 || (any(done_mask) && (!all || (failfast && exception)))
+                if throwexc && (!all || failfast) && exception
+                    exceptions = [TaskFailedException(t) for t in tasks[done_mask] if istaskfailed(t)]
+                    throw(CompositeException(exceptions))
+                else
+                    if nremaining == 0
+                        return tasks, Task[]
+                    else
+                        return tasks[done_mask], tasks[.~done_mask]
+                    end
+                end
+            end
+        - source: "diff"
+          path: "base/task.jl"
+          loc: "435-455"
+          url: "https://github.com/JuliaLang/julia/pull/59905.diff"
+          snippet: |
+            # BEFORE (buggy): Separate branches that skipped exception throwing for nremaining == 0
+            -    if nremaining == 0
+            -        return tasks, Task[]
+            -    elseif any(done_mask) && (!all || (failfast && exception))
+            +    # AFTER (fixed): Unified condition ensures exception path is always reachable
+            +    if nremaining == 0 || (any(done_mask) && (!all || (failfast && exception)))
+                     if throwexc && (!all || failfast) && exception
+                         exceptions = [TaskFailedException(t) for t in tasks[done_mask] if istaskfailed(t)]
+                         throw(CompositeException(exceptions))
+                     else
+            -            return tasks[done_mask], tasks[.~done_mask]
+            +            if nremaining == 0
+            +                return tasks, Task[]
+            +            else
+            +                return tasks[done_mask], tasks[.~done_mask]
+            +            end
+                     end
+                 end
+    - summary: "Added missing exception throwing when all tasks complete through the channel-based waiting loop."
+      component: "base/task.jl"
+      evidence:
+        - source: "code"
+          path: "base/task.jl"
+          loc: "493-498"
+          url: "https://github.com/JuliaLang/julia/blob/c686e1fac8b316fcb84ce005088d55bbb0afa31a/base/task.jl#L493-L498"
+          snippet: |
+            if nremaining == 0
+                if throwexc && exception
+                    exceptions = [TaskFailedException(t) for t in tasks if istaskfailed(t)]
+                    throw(CompositeException(exceptions))
+                end
+                return tasks, Task[]
+        - source: "diff"
+          path: "base/task.jl"
+          loc: "489-498"
+          url: "https://github.com/JuliaLang/julia/pull/59905.diff"
+          snippet: |
+            # BEFORE: No exception check before return
+            if nremaining == 0
+                return tasks, Task[]
+
+            # AFTER: Exception throwing added before return
+            if nremaining == 0
+                if throwexc && exception
+                    exceptions = [TaskFailedException(t) for t in tasks if istaskfailed(t)]
+                    throw(CompositeException(exceptions))
+                end
+                return tasks, Task[]
+    - summary: "Added regression tests for the pre-completed tasks scenario. Note: The second test block spawns new tasks inline rather than using the pre-waited tasks variable, relying on div(1,0) failing fast enough to still exercise the nremaining==0 code path."
+      component: "test/threads_exec.jl"
+      evidence:
+        - source: "test"
+          path: "test/threads_exec.jl"
+          loc: "1368-1377"
+          url: "https://github.com/JuliaLang/julia/blob/c686e1fac8b316fcb84ce005088d55bbb0afa31a/test/threads_exec.jl#L1368-L1377"
+          snippet: |
+            @test_throws CompositeException begin
+                waitall(Threads.@spawn(div(1, i)) for i = 0:1)
+            end
+
+            tasks = [Threads.@spawn(div(1, i)) for i = 0:1]
+            wait(tasks[1]; throw=false)
+            wait(tasks[2]; throw=false)
+            @test_throws CompositeException begin
+                waitall(Threads.@spawn(div(1, i)) for i = 0:1)
+            end
+  secondary_effects:
+    - effect: "The fix applies to BOTH waitall AND waitany functions since they both use _wait_multiple internally."
+      mechanism: |
+        waitany(tasks; throw=true) = _wait_multiple(tasks, throw)  [base/task.jl:387]
+          -> calls _wait_multiple(tasks, true, false, false)
+          -> with all=false, the condition (!all || failfast) at line 444 evaluates to true
+          -> so throwexc && exception is checked for waitany as well
+          -> BEFORE: if all waitany tasks were done, nremaining==0 branch returned early
+          -> AFTER: exception check is now reached for waitany when nremaining==0
+      downstream_surfaces:
+        - "waitany(tasks; throw=true) callers that had all tasks complete before the call"
+        - "waitall(tasks; throw=true) callers that had tasks complete before the call"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "Programs relying on the buggy behavior (waitall/waitany not throwing when tasks were pre-completed) will now see exceptions. This is a correctness fix that may surface latent bugs in user code."
+      mechanism: |
+        _wait_multiple(tasks, throwexc=true, all=true, failfast=true)  [base/task.jl:406]
+          -> Initial scan: for (i, t) in enumerate(tasks)  [line 433-438]
+             -> Marks done_mask[i] = true and decrements nremaining for completed tasks
+             -> Sets exception = true if any task failed via istaskfailed(t)
+          -> Early return check (FIXED):  [line 443]
+             BEFORE: if nremaining == 0 -> return tasks, Task[]  (skipped throw)
+             AFTER:  if nremaining == 0 || (any(done_mask) && (!all || (failfast && exception)))
+               -> Now falls through to exception check at line 444-446
+          -> Channel-based waiting path (FIXED):  [line 493-497]
+             if nremaining == 0
+               if throwexc && exception  # NEW: added check
+                 throw(CompositeException(exceptions))
+      downstream_surfaces:
+        - "waitall(tasks; throw=true) callers that had tasks complete before the call"
+        - "waitany(tasks; throw=true) callers that had tasks complete before the call"
+        - "Error handling code that assumed these functions would not throw for pre-completed tasks"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "The fix ensures consistent exception behavior between waitall/waitany and the manual pattern foreach(wait, tasks) that users were using as a workaround."
+      mechanism: |
+        Issue #59901 reported that foreach(wait, tasks) threw exceptions but waitall(tasks) did not:
+
+        # Before fix:
+        julia> waitall(Threads.@spawn(f(i)) for i = 0:1)
+        (Task[Task (failed), Task (done)], Task[])  # No exception!
+
+        # Users expected behavior matching:
+        julia> foreach(wait, tasks)  # This throws TaskFailedException
+
+        # After fix, both patterns throw when tasks fail and throw=true
+      downstream_surfaces:
+        - "Code migrating from foreach(wait, tasks) to waitall(tasks)"
+        - "Concurrent task orchestration patterns"
+      likelihood: "medium"
+      impact: "low"
+    - effect: "base/precompilation.jl uses waitall but is NOT affected since it uses throw=false."
+      mechanism: |
+        base/precompilation.jl:1121:  waitall(tasks; failfast=false, throw=false)
+        base/precompilation.jl:1130:  waitall(tasks; failfast=false, throw=false)
+
+        Since throw=false is explicitly passed, the CompositeException is never thrown
+        and this code path is unaffected by the fix.
+      downstream_surfaces:
+        - "Package precompilation (not affected)"
+      likelihood: "low"
+      impact: "none"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "waitall(tasks; throw=true) and waitany(tasks; throw=true) now correctly throw CompositeException when any task has failed, even if all tasks completed before the call. Previously, they would silently return the task tuples without throwing."
+        affected_surfaces:
+          - "waitall() callers expecting silent return for pre-completed failed tasks (bug workarounds may break)"
+          - "waitany() callers expecting silent return for pre-completed failed tasks"
+          - "Error handling patterns that checked return values instead of catching exceptions"
+  performance:
+    compile_time:
+      - impact: "No compile-time impact. Changes are purely to runtime task scheduling logic."
+    runtime:
+      - impact: |
+          ESTIMATED: negligible
+          - One additional boolean condition check (nremaining == 0) in the early return path
+          - One additional conditional block after channel close when nremaining == 0
+          - Both are simple comparisons in paths that are not hot loops
+          - Removal of done_mask[i] = false assignment is a micro-optimization (BitVector already initialized with falses())
+  risk:
+    level: "low"
+    rationale:
+      - "Pure bugfix that corrects behavior to match documented API contract."
+      - "Changes are localized to _wait_multiple function in base/task.jl."
+      - "Regression tests added to prevent future breakage."
+      - "PR was reviewed by vtjnash (Julia core team member with threading expertise)."
+      - "The fix is straightforward: adding exception checks where they were missing."
+      - "Affects both waitall and waitany, but both had the same bug and both benefit from the fix."
+  open_questions:
+    - "The test at lines 1375-1377 spawns new tasks inline rather than using the pre-waited tasks variable. This relies on div(1,0) failing fast enough to still hit the nremaining==0 path. A more robust test would explicitly wait on the tasks array before passing it to waitall."
+    - "Should there be documentation clarifying that waitall/waitany always throw when throw=true and any task fails, regardless of task completion timing?"
+  recommendations:
+    - "Downstream packages using waitall or waitany should ensure they have proper try-catch blocks around calls with throw=true, as previously hidden failures may now surface."
+    - "Consider adding a note to the waitall/waitany docstrings emphasizing the exception behavior is independent of task completion timing."
+    - "Consider fixing the regression test to explicitly use pre-completed tasks: waitall(tasks) instead of spawning new tasks inline."

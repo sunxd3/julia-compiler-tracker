@@ -1,0 +1,539 @@
+schema_version: "1.0"
+
+pr:
+  number: 60196
+  title: "Revert \"Add JLJITLinkMemoryManager (ports memory manager to JITLink)\""
+  url: "https://github.com/JuliaLang/julia/pull/60196"
+  author: "giordano"
+  labels:
+    - "revert"
+  created_at: "2025-11-21T21:57:29Z"
+  merged_at: "2025-11-22T01:20:18Z"
+  merge_commit_sha: "305ae33084f35dc5719492eaea7070297e71cc4d"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60196.diff"
+  base_branch: "master"
+  reverts:
+    pr_number: 60105
+    pr_title: "Add JLJITLinkMemoryManager (ports memory manager to JITLink)"
+    pr_url: "https://github.com/JuliaLang/julia/pull/60105"
+
+scope:
+  files_touched:
+    - "src/cgmemmgr.cpp"
+    - "src/jitlayers.cpp"
+  components:
+    - "Codegen"
+    - "JIT"
+  pipeline_stages:
+    - "Codegen"
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Emergency revert of PR 60105 (JLJITLinkMemoryManager) to fix startup hangs on
+      aarch64-darwin systems. Nightly builds of Julia on ARM64 macOS were hanging at
+      startup, causing CI timeouts of 6+ hours. The issue manifested as a deadlock in
+      pthread synchronization primitives (__psynch_cvwait, __psynch_mutexwait).
+    issue_links:
+      - "https://discourse.julialang.org/t/ci-testing-hangs-on-macos-nightly/133909"
+      - "https://github.com/julia-actions/julia-runtest/pull/155"
+    quoted_from_pr: |
+      Reverts JuliaLang/julia#60105. Nightly builds of aarch64-darwin Julia hang at
+      startup on some systems, notably on GitHub Actions, making all nightly jobs
+      timeout (after 6 hours...). The error message when the process receives a
+      SIGTERM signal is:
+        in expression starting at none:0
+        __psynch_cvwait at /usr/lib/system/libsystem_kernel.dylib (unknown line)
+        unknown function (ip: 0x0) at (unknown file)
+        __psynch_mutexwait at /usr/lib/system/libsystem_kernel.dylib (unknown line)
+        unknown function (ip: 0x0) at (unknown file)
+        Allocations: 1 (Pool: 1; Big: 0); GC: 0
+      I bisected the issue to #60105.
+
+  direct_changes:
+    - summary: |
+        Removed the JLJITLinkMemoryManager class that provided optimized JITLink
+        memory management. This class was ported from RTDyldMemoryManagerJL to work
+        with LLVM's newer JITLink infrastructure for memory efficiency.
+      component: "src/cgmemmgr.cpp"
+      evidence:
+        - source: "diff"
+          path: "src/cgmemmgr.cpp"
+          loc: "928-1060 (removed)"
+          url: "https://github.com/JuliaLang/julia/pull/60196/files#diff-4a55a6c8a7c7e7c9e4c63b3a34c65fa4"
+          snippet: |
+            -class JLJITLinkMemoryManager : public jitlink::JITLinkMemoryManager {
+            -    using OnFinalizedFunction =
+            -        jitlink::JITLinkMemoryManager::InFlightAlloc::OnFinalizedFunction;
+            -
+            -    std::mutex Mutex;
+            -    RWAllocator RWAlloc;
+            -    std::unique_ptr<ROAllocator> ROAlloc;
+            -    std::unique_ptr<ROAllocator> ExeAlloc;
+            -    SmallVector<OnFinalizedFunction> FinalizedCallbacks;
+            -    uint32_t InFlight{0};
+            -
+            -public:
+            -    class InFlightAlloc;
+            -
+            -    static std::unique_ptr<JITLinkMemoryManager> Create()
+            -    {
+            -        auto [ROAlloc, ExeAlloc] = get_preferred_allocators();
+            -        if (ROAlloc && ExeAlloc)
+            -            return std::unique_ptr<JLJITLinkMemoryManager>(
+            -                new JLJITLinkMemoryManager(std::move(ROAlloc), std::move(ExeAlloc)));
+            -
+            -        return cantFail(
+            -            orc::MapperJITLinkMemoryManager::CreateWithMapper<orc::InProcessMemoryMapper>(
+            -                /*Reservation Granularity*/ 16 * 1024 * 1024));
+            -    }
+
+    - summary: |
+        Removed get_preferred_allocators() helper function that selected optimal
+        allocator based on platform capabilities (SelfMemAllocator on Linux,
+        DualMapAllocator with shared memory mapping otherwise).
+      component: "src/cgmemmgr.cpp"
+      evidence:
+        - source: "diff"
+          path: "src/cgmemmgr.cpp"
+          loc: "764-778 (removed)"
+          url: "https://github.com/JuliaLang/julia/pull/60196/files#diff-4a55a6c8a7c7e7c9e4c63b3a34c65fa4"
+          snippet: |
+            -std::pair<std::unique_ptr<ROAllocator>, std::unique_ptr<ROAllocator>>
+            -get_preferred_allocators() JL_NOTSAFEPOINT
+            -{
+            -#ifdef _OS_LINUX_
+            -    if (get_self_mem_fd() != -1)
+            -        return {std::make_unique<SelfMemAllocator>(false),
+            -                std::make_unique<SelfMemAllocator>(true)};
+            -#endif
+            -    if (init_shared_map() != -1)
+            -        return {std::make_unique<DualMapAllocator>(false),
+            -                std::make_unique<DualMapAllocator>(true)};
+            -    return {};
+            -}
+
+    - summary: |
+        Restored template-based ROAllocator class design. The original PR 60105
+        changed ROAllocator from a template (ROAllocator<exec>) to a runtime bool
+        parameter. This revert restores the template version.
+      component: "src/cgmemmgr.cpp"
+      evidence:
+        - source: "diff"
+          path: "src/cgmemmgr.cpp"
+          loc: "533-611"
+          url: "https://github.com/JuliaLang/julia/blob/305ae33084f35dc5719492eaea7070297e71cc4d/src/cgmemmgr.cpp#L533-L611"
+          snippet: |
+            +template<bool exec>
+             class ROAllocator {
+             protected:
+                 static constexpr int nblocks = 8;
+                 SplitPtrBlock blocks[nblocks];
+                 SmallVector<SplitPtrBlock, 16> completed;
+                 virtual void *get_wr_ptr(SplitPtrBlock &block, void *rt_ptr,
+                                          size_t size, size_t align) JL_NOTSAFEPOINT = 0;
+                 virtual SplitPtrBlock alloc_block(size_t size) JL_NOTSAFEPOINT = 0;
+             public:
+                 ROAllocator() JL_NOTSAFEPOINT = default;
+                 virtual ~ROAllocator() JL_NOTSAFEPOINT {}
+
+    - summary: |
+        Restored the RWAllocator::alloc() to return void* directly instead of
+        Allocation struct. This simplifies the RTDyld interface.
+      component: "src/cgmemmgr.cpp"
+      evidence:
+        - source: "diff"
+          path: "src/cgmemmgr.cpp"
+          loc: "476-498"
+          url: "https://github.com/JuliaLang/julia/blob/305ae33084f35dc5719492eaea7070297e71cc4d/src/cgmemmgr.cpp#L476-L498"
+          snippet: |
+            -    Allocation alloc(size_t size, size_t align) JL_NOTSAFEPOINT
+            +    void *alloc(size_t size, size_t align) JL_NOTSAFEPOINT
+                 {
+                     size_t min_size = (size_t)-1;
+                     int min_id = 0;
+                     for (int i = 0;i < nblocks && blocks[i].ptr;i++) {
+                         if (void *ptr = blocks[i].alloc(size, align))
+            -                return {ptr, ptr, size, false};
+            +                return ptr;
+                         if (blocks[i].avail < min_size) {
+                             min_size = blocks[i].avail;
+                             min_id = i;
+                         }
+                     }
+                     size_t block_size = get_block_size(size);
+                     blocks[min_id].reset(map_anon_page(block_size), block_size);
+            -        void *ptr = blocks[min_id].alloc(size, align);
+            -        return {ptr, ptr, size, false};
+            +        return blocks[min_id].alloc(size, align);
+                 }
+
+    - summary: |
+        Added fallback createJITLinkMemoryManager() in jitlayers.cpp that uses
+        LLVM's default InProcessMemoryMapper instead of the custom implementation.
+      component: "src/jitlayers.cpp"
+      evidence:
+        - source: "diff"
+          path: "src/jitlayers.cpp"
+          loc: "1208-1216"
+          url: "https://github.com/JuliaLang/julia/blob/305ae33084f35dc5719492eaea7070297e71cc4d/src/jitlayers.cpp#L1208-L1216"
+          snippet: |
+            +// TODO: Port our memory management optimisations to JITLink instead of using the
+            +// default InProcessMemoryManager.
+            +std::unique_ptr<jitlink::JITLinkMemoryManager> createJITLinkMemoryManager() JL_NOTSAFEPOINT {
+            +    return cantFail(orc::MapperJITLinkMemoryManager::CreateWithMapper<orc::InProcessMemoryMapper>(/*Reservation Granularity*/ 16 * 1024 * 1024));
+            +}
+
+  secondary_effects:
+    - effect: |
+        JIT memory usage regression on JITLink platforms. The custom JLJITLinkMemoryManager
+        used Julia's optimized memory pooling (DualMapAllocator/SelfMemAllocator) which
+        provided better memory locality and reduced fragmentation. Reverting causes fallback
+        to LLVM's InProcessMemoryMapper with 16MB reservation granularity.
+      mechanism: |
+        JLJITLinkMemoryManager::Create()  [cgmemmgr.cpp:946]
+          calls get_preferred_allocators()  [cgmemmgr.cpp:771]
+          returns pair of ROAllocator instances with custom memory pooling
+
+        Without JLJITLinkMemoryManager, createJITLinkMemoryManager()  [jitlayers.cpp:1210]
+          falls back to MapperJITLinkMemoryManager::CreateWithMapper<InProcessMemoryMapper>()
+          which uses system mmap with 16MB granularity
+      downstream_surfaces:
+        - "JIT compilation memory usage"
+        - "Julia nightly/dev builds on JITLink platforms"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "code"
+          path: "src/jitlayers.cpp"
+          loc: "1210-1211"
+          url: "https://github.com/JuliaLang/julia/blob/305ae33084f35dc5719492eaea7070297e71cc4d/src/jitlayers.cpp#L1210-L1211"
+          snippet: |
+            return cantFail(orc::MapperJITLinkMemoryManager::CreateWithMapper<orc::InProcessMemoryMapper>(
+                /*Reservation Granularity*/ 16 * 1024 * 1024));
+
+    - effect: |
+        Deadlock on aarch64-darwin is resolved. The original JLJITLinkMemoryManager
+        used a std::mutex for thread synchronization in its finalize() method. The
+        root cause was discovered in PR 60230: Apple ARM CPUs treat the `ic ivau`
+        instruction (instruction cache invalidation) as a memory read. When
+        DualMapAllocator::finalize_block() calls protect_page() with Prot::NO on
+        the wr_addr before ROAllocator::finalize() calls InvalidateInstructionCache(),
+        it causes a fault while the mutex is held.
+      mechanism: |
+        JLJITLinkMemoryManager::finalize()  [cgmemmgr.cpp:975-992]
+          std::unique_lock Lock{Mutex};  <- acquires lock
+          FinalizedCallbacks.push_back(std::move(OnFinalized));
+          if (--InFlight > 0) return;
+          ROAlloc->finalize();  <- calls below while mutex held
+          ExeAlloc->finalize();
+
+        ROAllocator::finalize()  [cgmemmgr.cpp:549-559]
+          for (auto &alloc : allocations)
+              sys::Memory::InvalidateInstructionCache(alloc.rt_addr, alloc.sz);
+                <- on Apple ARM, `ic ivau` treats this as memory read
+                <- if DualMapAllocator already set wr_addr to Prot::NO, fault occurs
+
+        DualMapAllocator::finalize_block()  [cgmemmgr.cpp:640-673]
+          protect_page((void*)block.wr_ptr, block.total, Prot::NO);
+            <- sets write mapping to no-access BEFORE cache invalidation
+      downstream_surfaces:
+        - "Julia startup on aarch64-darwin"
+        - "CI/CD on GitHub Actions macOS runners"
+      likelihood: "high"
+      impact: "high"
+      evidence:
+        - source: "pr_body"
+          path: "N/A"
+          loc: "N/A"
+          url: "https://github.com/JuliaLang/julia/pull/60196"
+          snippet: |
+            __psynch_cvwait at /usr/lib/system/libsystem_kernel.dylib (unknown line)
+            unknown function (ip: 0x0) at (unknown file)
+            __psynch_mutexwait at /usr/lib/system/libsystem_kernel.dylib (unknown line)
+        - source: "pr_60230_explanation"
+          path: "N/A"
+          loc: "N/A"
+          url: "https://github.com/JuliaLang/julia/pull/60230"
+          snippet: |
+            Apple ARM CPUs treat the `ic ivau` as a memory read, which causes a
+            confusing crash in DualMapAllocator if we try using it on a `wr_addr`
+            that has been mprotected to `Prot::NO`, since we are still holding the
+            allocator lock.
+
+    - effect: |
+        This revert is temporary. PR 60230 re-landed the feature with architecture
+        guards (disabled on aarch64/riscv64), and PR 60245 added additional CodeModel
+        checks. Downstream tooling should not rely on the absence of JLJITLinkMemoryManager.
+      mechanism: |
+        Subsequent PRs restore the feature with guards:
+
+        PR 60230: Re-landed with aarch64/riscv64 exclusion
+          get_preferred_allocators() now has:
+          #if !(defined(_CPU_AARCH64_) || defined(_CPU_RISCV64_))
+            // custom allocators only on x86_64 and other platforms
+          #endif
+
+        PR 60245: Disabled when CodeModel != Large
+          Additional safety for non-large code models where JITLink
+          may abandon allocations if relocations become too large
+      downstream_surfaces:
+        - "Future Julia versions"
+        - "Tools depending on JIT memory layout"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "current_master"
+          path: "src/cgmemmgr.cpp"
+          loc: "771-785"
+          url: "https://github.com/JuliaLang/julia/blob/master/src/cgmemmgr.cpp#L771-L785"
+          snippet: |
+            std::pair<std::unique_ptr<ROAllocator>, std::unique_ptr<ROAllocator>>
+            get_preferred_allocators() JL_NOTSAFEPOINT
+            {
+            #if !(defined(_CPU_AARCH64_) || defined(_CPU_RISCV64_))
+            #ifdef _OS_LINUX_
+                if (get_self_mem_fd() != -1)
+                    return {std::make_unique<SelfMemAllocator>(false),
+                            std::make_unique<SelfMemAllocator>(true)};
+            #endif
+                if (init_shared_map() != -1)
+                    return {std::make_unique<DualMapAllocator>(false),
+                            std::make_unique<DualMapAllocator>(true)};
+            #endif
+                return {};
+            }
+        - source: "git_log"
+          path: "src/cgmemmgr.cpp"
+          loc: "N/A"
+          snippet: |
+            cf40898 JLJITLinkMemoryManager: Disable when CodeModel != Large (#60245)
+            88ee64f Fix aarch64 macOS crash when SIP disabled (re-land JLJITLinkMemoryManager/#60105) (#60230)
+            ddf1b02 Revert "Add JLJITLinkMemoryManager (ports memory manager to JITLink)" (#60196)
+            6fa0e75 Add JLJITLinkMemoryManager (ports memory manager to JITLink) (#60105)
+
+    - effect: |
+        JL_USE_JITLINK is the default path for most builds (except when using OProfile).
+        This revert affects all JITLink builds until subsequent PRs re-land the feature.
+      mechanism: |
+        src/jitlayers.h defines JL_USE_JITLINK by default:
+          #ifndef JL_USE_OPROFILE_JITEVENTS
+          #define JL_USE_JITLINK
+          #endif
+
+        JuliaOJIT constructor uses the memory manager:
+          #ifdef JL_USE_JITLINK
+          MemMgr(createJITLinkMemoryManager()),  <- this is affected
+          ObjectLayer(ES, *MemMgr),
+          #else
+          MemMgr(createRTDyldMemoryManager()),   <- RTDyld path unaffected
+          #endif
+      downstream_surfaces:
+        - "All JITLink-based Julia builds"
+        - "Most Julia nightly and dev builds"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "code"
+          path: "src/jitlayers.h"
+          loc: "56-58"
+          url: "https://github.com/JuliaLang/julia/blob/master/src/jitlayers.h#L56-L58"
+          snippet: |
+            #ifndef JL_USE_OPROFILE_JITEVENTS
+            #define JL_USE_JITLINK
+            #endif
+        - source: "code"
+          path: "src/jitlayers.cpp"
+          loc: "1930-1932"
+          url: "https://github.com/JuliaLang/julia/blob/master/src/jitlayers.cpp#L1930-L1932"
+          snippet: |
+            #ifdef JL_USE_JITLINK
+                MemMgr(createJITLinkMemoryManager()),
+                ObjectLayer(ES, *MemMgr),
+
+  compatibility:
+    public_api: []
+    internal_api:
+      - summary: |
+          createJITLinkMemoryManager() function signature unchanged but implementation
+          reverted to default LLVM memory manager. Code that depends on the specific
+          memory layout of JLJITLinkMemoryManager allocations may behave differently.
+        evidence:
+          - source: "diff"
+            path: "src/jitlayers.cpp"
+            loc: "1237"
+            url: "https://github.com/JuliaLang/julia/blob/305ae33084f35dc5719492eaea7070297e71cc4d/src/jitlayers.cpp#L1237"
+            snippet: |
+              std::unique_ptr<jitlink::JITLinkMemoryManager> createJITLinkMemoryManager() JL_NOTSAFEPOINT;
+      - summary: |
+          ROAllocator template parameter restored. Code that was updated for the
+          runtime bool parameter version (introduced in PR 60105) will not compile.
+        evidence:
+          - source: "diff"
+            path: "src/cgmemmgr.cpp"
+            loc: "536"
+            snippet: |
+              template<bool exec>
+              class ROAllocator { ... }
+    ir_format: []
+    behavioral:
+      - summary: |
+          JIT-compiled code memory placement may differ. The custom allocator used
+          Julia's memory pooling with dual-mapping for W^X enforcement, while the
+          fallback uses LLVM's InProcessMemoryMapper.
+        evidence:
+          - source: "code"
+            path: "src/cgmemmgr.cpp"
+            loc: "771-785"
+            snippet: |
+              // Custom allocator path (removed by this revert):
+              #ifdef _OS_LINUX_
+                  if (get_self_mem_fd() != -1)
+                      return {SelfMemAllocator, SelfMemAllocator};  // /proc/self/mem trick
+              #endif
+                  if (init_shared_map() != -1)
+                      return {DualMapAllocator, DualMapAllocator};  // shared file mapping
+
+  performance:
+    compile_time: []
+    runtime:
+      - summary: |
+          ESTIMATED: Memory usage regression for JIT compilation on affected platforms.
+          The 16MB reservation granularity of InProcessMemoryMapper vs Julia's block-based
+          pooling (256 pages per block, ~1MB) may cause higher peak memory usage for
+          JIT-heavy workloads. Impact is platform-dependent.
+        evidence:
+          - source: "code"
+            path: "src/cgmemmgr.cpp"
+            loc: "39-43"
+            url: "https://github.com/JuliaLang/julia/blob/305ae33084f35dc5719492eaea7070297e71cc4d/src/cgmemmgr.cpp#L39-L43"
+            snippet: |
+              static size_t get_block_size(size_t size) JL_NOTSAFEPOINT
+              {
+                  return (size > jl_page_size * 256 ? LLT_ALIGN(size, jl_page_size) :
+                          jl_page_size * 256);
+              }
+    memory:
+      - summary: |
+          ESTIMATED: Higher JIT memory fragmentation. The fallback allocator uses
+          coarse 16MB granularity vs Julia's fine-grained pooling. For typical
+          workloads, this may increase JIT memory overhead by 2-4x.
+        evidence:
+          - source: "code"
+            path: "src/jitlayers.cpp"
+            loc: "1211"
+            snippet: |
+              /*Reservation Granularity*/ 16 * 1024 * 1024  // 16MB blocks
+    code_size: []
+
+  tests:
+    changed_files: []
+    new_behavior_assertions: []
+    coverage_gaps:
+      - |
+        No specific tests for JLJITLinkMemoryManager were removed as there were none
+        in the original PR 60105. The deadlock was discovered through CI integration
+        testing on aarch64-darwin, not unit tests.
+
+  risk:
+    level: "low"
+    rationale:
+      - "This is a straightforward revert of a recently merged PR"
+      - "The revert fixes a critical CI-blocking issue on aarch64-darwin"
+      - "The reverted functionality (JLJITLinkMemoryManager) was an optimization, not a correctness fix"
+      - "LLVM's default InProcessMemoryMapper provides correct behavior, just with higher memory usage"
+      - "The feature was subsequently re-landed with proper guards in PR 60230 and PR 60245"
+      - "Author (giordano) is a core Julia maintainer who correctly bisected the regression"
+
+  open_questions:
+    - |
+      Root cause of the aarch64-darwin deadlock was discovered in PR 60230: Apple ARM
+      CPUs treat `ic ivau` (instruction cache invalidation) as a memory read. When
+      DualMapAllocator sets wr_addr to Prot::NO before cache invalidation while the
+      mutex is held, a fault occurs causing the deadlock.
+
+  recommendations:
+    - |
+      For downstream package maintainers: No action required. This PR only affects
+      internal JIT memory management and does not change any Julia-level APIs.
+    - |
+      For Julia contributors: The JLJITLinkMemoryManager feature requires careful
+      testing on aarch64-darwin before re-enabling. The current workaround (disabled
+      on aarch64/riscv64) may leave performance opportunities on the table.
+    - |
+      For CI maintainers: If using Julia nightly on aarch64-darwin between
+      2025-11-13 (PR 60105 merged) and 2025-11-22 (this revert merged), upgrade
+      to a version after this revert or PR 60230.
+
+reviewer_notes:
+  independent_analysis_date: "2026-01-21"
+  reviewer: "second_pass_analysis"
+  methodology: |
+    1. Read existing analysis and PR 60196 metadata/body
+    2. Cloned Julia repository and examined current master state
+    3. Traced git history to find commits: 6fa0e75 (60105), ddf1b02 (60196), 88ee64f (60230), cf40898 (60245)
+    4. Read original PR 60105 to understand what was being reverted
+    5. Examined cgmemmgr.cpp and jitlayers.cpp current state on master
+    6. Analyzed JLJITLinkMemoryManager::finalize() method and mutex usage
+    7. Traced call chain from finalize() -> ROAllocator::finalize() -> InvalidateInstructionCache()
+    8. Read PR 60230 description to understand root cause discovery
+    9. Verified architecture guards in current get_preferred_allocators()
+    10. Searched for all callers of createJITLinkMemoryManager()
+  additional_findings:
+    - finding: "Root cause discovered in PR 60230"
+      description: |
+        The deadlock root cause was NOT diagnosed in this revert PR, but was later
+        discovered when re-landing the feature in PR 60230. The issue is specific
+        to Apple ARM CPUs:
+
+        1. Apple ARM CPUs treat `ic ivau` (instruction cache invalidation) as a memory read
+        2. DualMapAllocator::finalize_block() calls protect_page(wr_ptr, Prot::NO)
+           BEFORE ROAllocator::finalize() calls InvalidateInstructionCache()
+        3. This causes a fault while the JLJITLinkMemoryManager::finalize() mutex is held
+        4. The fault manifests as __psynch_cvwait/__psynch_mutexwait hangs
+
+        The fix in PR 60230 added a comment to ROAllocator::finalize():
+          // Note: on some aarch64 platforms, like Apple CPUs, we need read
+          // permission in order to invalidate instruction cache lines.  We are
+          // not guaranteed to have read permission on the wr_addr when using
+          // DualMapAllocator.
+    - finding: "Revert was temporary - feature re-landed with guards"
+      description: |
+        This revert (PR 60196) was followed by:
+        - PR 60230: Re-landed with #if !(defined(_CPU_AARCH64_) || defined(_CPU_RISCV64_))
+        - PR 60245: Added CodeModel != Large check
+        The feature is now in master with these safety guards.
+    - finding: "JL_USE_JITLINK is default for most builds"
+      description: |
+        JL_USE_JITLINK is defined by default unless JL_USE_OPROFILE_JITEVENTS is set.
+        This means the createJITLinkMemoryManager() path is used for most Julia builds,
+        making this revert affect a wide audience.
+    - finding: "Memory pooling strategy differences verified"
+      description: |
+        Julia's custom allocators use:
+        - SelfMemAllocator: Linux /proc/self/mem for W^X bypass (kernel >= 4.10)
+        - DualMapAllocator: Shared file mapping for W^X on other platforms
+        Both use ~1MB block size (256 pages = 256 * 4KB) vs LLVM's 16MB granularity.
+
+        The fallback path (InProcessMemoryMapper with 16MB reservation) is functional
+        but uses significantly more memory for typical workloads.
+    - finding: "InFlight counter semantics verified"
+      description: |
+        The JLJITLinkMemoryManager uses uint32_t InFlight counter with pre-decrement:
+          if (--InFlight > 0) return;
+        This is safe because:
+        1. InFlight is only modified under Mutex lock
+        2. Increment happens in allocate() after OnAllocated callback
+        3. Decrement happens in finalize() at the start
+        The counter tracks outstanding allocations that need finalization.
+  agreement_with_original: |
+    The original analysis was accurate and comprehensive. This second-pass review:
+    1. CONFIRMED: All diff snippets and line numbers are accurate
+    2. CONFIRMED: Secondary effects accurately describe memory usage regression
+    3. ENHANCED: Added root cause explanation from PR 60230
+    4. ENHANCED: Added JL_USE_JITLINK default path detail
+    5. ENHANCED: Added call chain from finalize() to InvalidateInstructionCache()
+    6. CORRECTED: Updated open_questions to reflect that root cause was later discovered
+  confidence: "high"
+  risk_assessment_agrees: true

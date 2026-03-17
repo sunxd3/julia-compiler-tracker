@@ -1,0 +1,330 @@
+schema_version: "1.0"
+pr:
+  number: 59971
+  title: "Fix negativity check in codegen"
+  url: "https://github.com/JuliaLang/julia/pull/59971"
+  author: "yuyichao"
+  labels:
+    - "reverted"
+  merged_at: "2025-10-29T12:28:47Z"
+  merge_commit_sha: "073bb01fda200feef917ef03d651f3642392f735"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59971.diff"
+
+scope:
+  files_touched:
+    - "src/codegen.cpp"
+  components:
+    - "Codegen"
+  pipeline_stages:
+    - "Codegen"
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Fix signed/unsigned type mismatches in codegen.cpp where signed values from
+      jl_unbox_long() and struct jl_codeloc_t.line were incorrectly stored in unsigned
+      size_t variables, making negative checks always false (dead code).
+    issue_links: []
+
+  direct_changes:
+    - summary: "Change memory allocation length type from size_t to auto"
+      component: "Codegen"
+      evidence:
+        - source: "diff"
+          path: "src/codegen.cpp"
+          loc: "4141-4145"
+          url: "https://github.com/JuliaLang/julia/blob/073bb01fda200feef917ef03d651f3642392f735/src/codegen.cpp#L4141-L4145"
+          snippet: |
+            # BEFORE (buggy):
+            size_t nel = jl_unbox_long(argv[2].constant);
+            if (nel < 0)  # Always false! size_t is unsigned
+                return false;
+
+            # AFTER (PR 59971):
+            auto nel = jl_unbox_long(argv[2].constant);
+            if (nel < 0)  # Now works correctly
+                return false;
+
+    - summary: "Change debug line index type from size_t to ssize_t"
+      component: "Codegen"
+      evidence:
+        - source: "diff"
+          path: "src/codegen.cpp"
+          loc: "8939-8942"
+          url: "https://github.com/JuliaLang/julia/blob/073bb01fda200feef917ef03d651f3642392f735/src/codegen.cpp#L8939-L8942"
+          snippet: |
+            # BEFORE (buggy):
+            struct jl_codeloc_t lineidx = jl_uncompress1_codeloc(debuginfo->codelocs, pc);
+            size_t i = lineidx.line;
+            if (i < 0)  # Always false! size_t is unsigned
+                return false;
+
+            # AFTER (PR 59971):
+            struct jl_codeloc_t lineidx = jl_uncompress1_codeloc(debuginfo->codelocs, pc);
+            ssize_t i = lineidx.line;
+            if (i < 0)  # Now works correctly for broken debuginfo detection
+                return false;
+
+    - summary: "Type definitions proving signed source values"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/julia.h"
+          loc: "238-242"
+          url: "https://github.com/JuliaLang/julia/blob/master/src/julia.h#L238-L242"
+          snippet: |
+            struct jl_codeloc_t {
+                int32_t line;  // SIGNED - can be negative for error signaling
+                int32_t to;
+                int32_t pc;
+            };
+        - source: "code"
+          path: "src/julia.h"
+          loc: "1917"
+          url: "https://github.com/JuliaLang/julia/blob/master/src/julia.h#L1917"
+          snippet: |
+            JL_DLLEXPORT int64_t jl_unbox_int64(jl_value_t *v) JL_NOTSAFEPOINT;
+        - source: "code"
+          path: "src/julia.h"
+          loc: "1929"
+          url: "https://github.com/JuliaLang/julia/blob/master/src/julia.h#L1929"
+          snippet: |
+            #define jl_unbox_long(x) jl_unbox_int64(x)  // Returns SIGNED int64_t
+
+  secondary_effects:
+    - effect: "Stacktrace display format change (caused revert)"
+      mechanism: |
+        Using 'auto' for nel caused the type to be deduced as int64_t instead of size_t.
+        This propagated through to stack trace display code where type representations
+        changed from $(Int) to Int64, breaking test assertions.
+
+        Call chain:
+          auto nel = jl_unbox_long(...)  [codegen.cpp:4141]
+            -> nel type is int64_t (deduced by auto)
+            -> affects downstream type representation in compiled code
+            -> stacktraces.jl tests fail due to string mismatch
+      downstream_surfaces:
+        - "Stack trace formatting"
+        - "Test suite assertions"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Memory allocation negative size handling"
+      mechanism: |
+        emit_const_len_memorynew() already performs overflow checking including negative values:
+
+        emit_const_len_memorynew(ctx, typ, nel, inst)  [cgutils.cpp:4728]
+          -> Line 4743: overflow = __builtin_mul_overflow(nel, elsz, &nbytes)
+          -> Line 4749-4750: ssize_t tmp=1;
+          -> overflow |= __builtin_add_overflow(nel, 1, &tmp)
+          -> Detects if signed addition overflows (catches large unsigned values from negative)
+          -> Line 4751-4752: if (overflow) emit_error(ctx, ..., "invalid GenericMemory size...")
+
+        The explicit check `if (nel < 0) return false` was redundant because:
+        1. emit_const_len_memorynew validates nel fits in positive signed range
+        2. The function emits a proper user error message if validation fails
+      downstream_surfaces:
+        - "Memory allocation"
+        - "Error messages"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Debug info PC out-of-range detection"
+      mechanism: |
+        jl_uncompress1_codeloc returns badloc = {-1, 0, 0} for out-of-range PC values:
+
+        jl_uncompress1_codeloc(cl, pc)  [ircode.c:1460]
+          -> Line 1458: static const struct jl_codeloc_t badloc = {-1, 0, 0};
+          -> Line 1465-1466: if (pc > nstmts) return badloc;
+
+        update_lineinfo lambda in codegen.cpp (BUGGY code at line 9296-9297):
+          -> Line 9295: lineidx = jl_uncompress1_codeloc(...)
+          -> Line 9296: size_t i = lineidx.line  // BUG: -1 wraps to SIZE_MAX
+          -> Line 9297: if (i < 0) return false  // DEAD CODE: always false for size_t!
+
+        With ssize_t, the check correctly detects broken debuginfo and returns early.
+        Without this fix, when debuginfo is broken:
+          - -1 wraps to SIZE_MAX (18446744073709551615 on 64-bit)
+          - The function proceeds with invalid line number
+          - LLVM debug metadata may be corrupted
+      downstream_surfaces:
+        - "Debug line number emission"
+        - "LLVM debug metadata"
+        - "Stack unwinding"
+        - "GDB/LLDB debugging"
+        - "Profiler line attribution"
+      likelihood: "medium"
+      impact: "medium"
+
+  compatibility:
+    internal_api:
+      - field: "jl_unbox_long return type"
+        change: "No API change - always returned signed int64_t/int32_t"
+        affected_tools: []
+      - field: "jl_codeloc_t.line"
+        change: "No change - always int32_t (signed)"
+        affected_tools: []
+
+    behavioral:
+      - description: "Stack trace output format changed"
+        details: |
+          The 'auto' keyword caused type display to show Int64 instead of $(Int)
+          in certain contexts, breaking test assertions for stack trace formatting.
+        affected_code: "test/stacktraces.jl"
+
+  performance:
+    compile_time:
+      - description: "No measurable impact"
+        details: |
+          Type change from size_t to ssize_t has no performance impact.
+          LLVM optimizes both identically for positive values.
+        estimate: "ESTIMATED: 0% change"
+
+    runtime:
+      - description: "No measurable impact"
+        details: |
+          The negative checks are rarely hit (only for broken debuginfo).
+          Control flow remains identical for valid inputs.
+        estimate: "ESTIMATED: 0% change"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes only affect error handling paths for invalid inputs"
+      - "First change (memorynew) was redundant - emit_const_len_memorynew handles validation"
+      - "Second change (debuginfo) fixes a latent bug but was reverted due to unrelated test issues"
+      - "PR was reverted and only partially re-landed via PR #59992"
+
+  open_questions:
+    - "The second fix (ssize_t for lineidx.line at codegen.cpp:9296) was never re-applied - is the bug still present?"
+    - "Should a compiler warning be enabled to catch signed/unsigned comparison issues?"
+    - "Are there other locations in the codebase with similar signed/unsigned bugs?"
+
+  recommendations:
+    - "The ssize_t fix for lineidx.line should be re-applied in a separate PR that doesn't affect stack trace formatting"
+    - "Consider enabling -Wsign-compare or similar warnings in the Julia C++ build"
+    - "The current code at codegen.cpp:9296-9297 still has the latent bug where i < 0 is always false"
+    - "Follow the correct pattern from stackwalk.c:849 which uses intptr_t for the line field"
+
+related_prs:
+  - number: 59992
+    title: "Remove useless size check in Memory allocation"
+    relationship: "re-land"
+    url: "https://github.com/JuliaLang/julia/pull/59992"
+    merged_at: "2025-11-12T15:09:37Z"
+    description: |
+      Reapplied half of PR 59971 - only the memorynew fix.
+      Changed to explicit cast (size_t)jl_unbox_long() and removed redundant
+      if (nel < 0) check since emit_const_len_memorynew handles validation.
+      The ssize_t fix for lineidx.line was NOT included in the re-land.
+
+current_code_state:
+  memorynew_fix: "Applied via PR #59992 with explicit cast and comment"
+  debuginfo_fix: "NOT applied - bug still present at codegen.cpp:9296-9297"
+  code_snippet: |
+    # Current code at codegen.cpp:9296-9297 (still buggy):
+    size_t i = lineidx.line;
+    if (i < 0)  // ALWAYS FALSE - latent bug remains!
+        return false;
+
+    # Current code at codegen.cpp:4448-4451 (fixed via PR #59992):
+    // Cast to a unsigned size and let `emit_const_len_memorynew`
+    // make sure that `nel` fits in a positive signed integer.
+    size_t nel = (size_t)jl_unbox_long(argv[2].constant);
+    *ret = emit_const_len_memorynew(ctx, typ, nel, inst);
+
+# REVIEWER ENHANCEMENTS (independent analysis)
+reviewer_notes:
+  verification_status: "Confirmed via independent code inspection"
+  analysis_date: "2026-01-21"
+
+  additional_evidence:
+    - finding: "CORRECT pattern exists in stackwalk.c for contrast"
+      location: "src/stackwalk.c:849-855"
+      url: "https://github.com/JuliaLang/julia/blob/master/src/stackwalk.c#L849-L855"
+      code: |
+        intptr_t ip2 = stmt.line;  // <-- CORRECT: uses intptr_t (signed)
+        if (ip2 >= 0 && ip > 0 && (jl_value_t*)debuginfo->linetable != jl_nothing) {
+            jl_fprint_debugloc(s, debuginfo->linetable, func, ip2, 0);
+        }
+        else {
+            if (ip2 < 0) // set broken debug info to ignored  <-- This check WORKS
+                ip2 = 0;
+        }
+      explanation: |
+        This shows the CORRECT approach - use intptr_t (signed) for storing
+        lineidx.line, then the < 0 check works correctly. The codegen.cpp code
+        at line 9296 should follow this same pattern.
+
+    - finding: "Another correct pattern at codegen.cpp:9520"
+      location: "src/codegen.cpp:9520-9521"
+      url: "https://github.com/JuliaLang/julia/blob/master/src/codegen.cpp#L9520-L9521"
+      code: |
+        if (lineidx.line == -1)  // <-- CORRECT: compares int32_t directly to -1
+            break;
+      explanation: |
+        Here the code compares lineidx.line (int32_t) directly to -1 without
+        first storing in a size_t variable. This works because the comparison
+        is between int32_t and int literal, not size_t.
+
+    - finding: "jl_uncompress1_codeloc badloc definition"
+      location: "src/ircode.c:1458-1466"
+      url: "https://github.com/JuliaLang/julia/blob/master/src/ircode.c#L1458-L1466"
+      code: |
+        static const struct jl_codeloc_t badloc = {-1, 0, 0};
+
+        JL_DLLEXPORT struct jl_codeloc_t jl_uncompress1_codeloc(jl_string_t *cl, size_t pc) JL_NOTSAFEPOINT
+        {
+            assert(jl_is_string(cl));
+            int line_offset, line_bytes, to_bytes;
+            size_t nstmts = codelocs_parseheader(cl, &line_offset, &line_bytes, &to_bytes);
+            if (pc > nstmts)
+                return badloc;
+            return unpack_codeloc(cl, pc, line_offset, line_bytes, to_bytes);
+        }
+      explanation: |
+        Confirms that jl_uncompress1_codeloc returns badloc with line=-1
+        when PC is out of range. This is the source of the negative value
+        that the buggy codegen.cpp code fails to detect.
+
+    - finding: "emit_const_len_memorynew overflow validation"
+      location: "src/cgutils.cpp:4743-4752"
+      url: "https://github.com/JuliaLang/julia/blob/master/src/cgutils.cpp#L4743-L4752"
+      code: |
+        size_t nbytes;
+        bool overflow = __builtin_mul_overflow(nel, elsz, &nbytes);
+        if (isunion) {
+            // an extra byte for each isbits union memory element, stored at m->ptr + m->length
+            overflow |= __builtin_add_overflow(nbytes, nel, &nbytes);
+        }
+        // overflow if signed size is too big or nel is too big (the latter matters iff elsz==0)
+        ssize_t tmp=1;
+        overflow |= __builtin_add_overflow(nel, 1, &tmp) || __builtin_add_overflow(nbytes, 1, &tmp);
+        if (overflow)
+            emit_error(ctx, prepare_call(jlargumenterror_func), "invalid GenericMemory size: the number of elements is either negative or too large for system address width");
+      explanation: |
+        This confirms that emit_const_len_memorynew properly validates sizes using
+        __builtin_add_overflow with ssize_t. A negative value passed as nel would
+        be a huge positive size_t, causing overflow detection and proper error emission.
+        This is why the explicit `if (nel < 0)` check was unnecessary and removed.
+
+  similar_bug_scan: |
+    Grep for `size_t.*=.*jl_unbox` found 24 occurrences in src/.
+    Most appear safe (used as array indices where negative values wouldn't make sense
+    or are immediately validated), but careful review is recommended for:
+    - src/method.c:420: size_t lineidx = jl_unbox_long(...) - used as 1-indexed, no < 0 check
+    - src/codegen.cpp:3289: size_t idx = jl_unbox_long(...) - no negative check
+    - src/codegen.cpp:5897: size_t i = jl_unbox_long(...) - no negative check
+
+  suggested_fix: |
+    To fix the latent bug at codegen.cpp:9296-9297, change:
+      size_t i = lineidx.line;
+      if (i < 0)
+    To:
+      ssize_t i = lineidx.line;
+      if (i < 0)
+    Or follow the pattern at line 9520:
+      if (lineidx.line < 0) // compare int32_t directly
+          return false;
+    The second approach avoids storing in an intermediate variable.

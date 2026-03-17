@@ -1,0 +1,351 @@
+schema_version: "1.0"
+
+pr:
+  number: 60399
+  title: "type assert that `l.owned` is an `Int` for `AbstractSpinLock`"
+  url: "https://github.com/JuliaLang/julia/pull/60399"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60399.diff"
+  author: "KristofferC"
+  labels:
+    - "multithreading"
+    - "latency"
+    - "invalidations"
+  merged_at: "2025-12-17T11:22:16Z"
+  merge_commit_sha: "7e7f9613c2fc2a954b7fff53d0ae6ac8104177e1"
+  pr_body: |
+    This is often imprecisely inferred (due to e.g. `Base.Redirectable`).
+    Needed after https://github.com/JuliaLang/julia/pull/55944 I believe.
+
+scope:
+  files_touched:
+    - "base/locks-mt.jl"
+  components:
+    - "Base.Threads"
+    - "Multithreading"
+  pipeline_stages:
+    - "TypeInference"
+
+analysis:
+  intent:
+    summary: |
+      Adds explicit `::Int` type assertions to field accesses of `l.owned` in
+      AbstractSpinLock functions (trylock, unlock, islocked). This prevents
+      imprecise type inference that could cause method invalidations and
+      compilation latency issues. The PR is a follow-up to PR #55944 which
+      introduced the AbstractSpinLock type hierarchy.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/55944"
+
+  direct_changes:
+    - summary: "Add type assertion to owned field read in trylock()"
+      component: "Base.Threads"
+      evidence:
+        - source: "diff"
+          path: "base/locks-mt.jl"
+          loc: "88"
+          url: "https://github.com/JuliaLang/julia/blob/7e7f9613c2fc2a954b7fff53d0ae6ac8104177e1/base/locks-mt.jl#L88"
+          before: |
+            if l.owned == 0
+          after: |
+            if l.owned::Int == 0
+          snippet: |
+            function trylock(l::AbstractSpinLock)
+                if l.owned::Int == 0
+                    GC.disable_finalizers()
+
+    - summary: "Add type assertion to @atomicswap result in trylock()"
+      component: "Base.Threads"
+      evidence:
+        - source: "diff"
+          path: "base/locks-mt.jl"
+          loc: "90"
+          url: "https://github.com/JuliaLang/julia/blob/7e7f9613c2fc2a954b7fff53d0ae6ac8104177e1/base/locks-mt.jl#L90"
+          before: |
+            p = @atomicswap :acquire l.owned = 1
+          after: |
+            p = (@atomicswap :acquire l.owned = 1)::Int
+          snippet: |
+            function trylock(l::AbstractSpinLock)
+                if l.owned::Int == 0
+                    GC.disable_finalizers()
+                    p = (@atomicswap :acquire l.owned = 1)::Int
+                    if p == 0
+                        return true
+                    end
+                    GC.enable_finalizers()
+                end
+                return false
+            end
+
+    - summary: "Add type assertion to @atomicswap result in unlock()"
+      component: "Base.Threads"
+      evidence:
+        - source: "diff"
+          path: "base/locks-mt.jl"
+          loc: "100"
+          url: "https://github.com/JuliaLang/julia/blob/7e7f9613c2fc2a954b7fff53d0ae6ac8104177e1/base/locks-mt.jl#L100"
+          before: |
+            if (@atomicswap :release l.owned = 0) == 0
+          after: |
+            if (@atomicswap :release l.owned = 0)::Int == 0
+          snippet: |
+            function unlock(l::AbstractSpinLock)
+                if (@atomicswap :release l.owned = 0)::Int == 0
+                    error("unlock count must match lock count")
+                end
+                GC.enable_finalizers()
+                ccall(:jl_cpu_wake, Cvoid, ())
+                return
+            end
+
+    - summary: "Add type assertion to @atomic result in islocked()"
+      component: "Base.Threads"
+      evidence:
+        - source: "diff"
+          path: "base/locks-mt.jl"
+          loc: "109"
+          url: "https://github.com/JuliaLang/julia/blob/7e7f9613c2fc2a954b7fff53d0ae6ac8104177e1/base/locks-mt.jl#L109"
+          before: |
+            return (@atomic :monotonic l.owned) != 0
+          after: |
+            return (@atomic :monotonic l.owned)::Int != 0
+          snippet: |
+            function islocked(l::AbstractSpinLock)
+                return (@atomic :monotonic l.owned)::Int != 0
+            end
+
+  secondary_effects:
+    - effect: "Prevents inference imprecision propagation in lock-using code"
+      mechanism: |
+        When functions accept AbstractSpinLock (an abstract type), accessing the
+        `owned` field requires the compiler to consider all subtypes. Without explicit
+        type assertions, if inference cannot prove the concrete type, the return type
+        of these functions may become imprecise (e.g., Any or a union type).
+
+        The type hierarchy introduced by PR #55944:
+          abstract type AbstractSpinLock <: AbstractLock end
+          mutable struct SpinLock <: AbstractSpinLock      # @atomic owned::Int
+          mutable struct PaddedSpinLock <: AbstractSpinLock # @atomic owned::Int
+
+        The @atomicswap macro expansion path:
+          @atomicswap :acquire l.owned = 1   [locks-mt.jl:90]
+            -> make_atomicswap(order, ex)    [expr.jl:1541]
+            -> swapproperty!(l, :owned, 1, :acquire)  [Base_compiler.jl:89]
+            -> Core.swapfield!(l, :owned, 1, :acquire)
+
+        Without ::Int assertion, swapfield! return type depends on fieldtype(typeof(l), :owned).
+        Since l::AbstractSpinLock, the compiler must analyze all subtypes' field types.
+
+        The call chain affected:
+        1. trylock(l::AbstractSpinLock) [locks-mt.jl:87]
+           - l.owned::Int ensures the comparison `== 0` infers to Bool
+           - (@atomicswap ...)::Int ensures `p` has type Int
+        2. unlock(l::AbstractSpinLock) [locks-mt.jl:99]
+           - (@atomicswap ...)::Int ensures comparison infers correctly
+        3. islocked(l::AbstractSpinLock) [locks-mt.jl:108]
+           - (@atomic ...)::Int ensures `!= 0` comparison infers to Bool
+        4. lock(l::AbstractSpinLock) [locks-mt.jl:76] benefits transitively via @inline trylock
+
+        This is particularly important because SpinLock is used throughout Base:
+        - PCRE_COMPILE_LOCK in base/Base.jl:414 (was base/pcre.jl)
+        - threadcall_lock in base/threadcall.jl:6
+        - PerThreadLock in base/lock.jl:800
+        - preserve_handle_lock in base/libuv.jl:61
+        - heaps_lock array in base/partr.jl:20
+        - IntrusiveLinkedListSynchronized in base/task.jl:899-900
+        - taskheap struct has lock::SpinLock in base/partr.jl:9
+      downstream_surfaces:
+        - "All code paths that use SpinLock or PaddedSpinLock"
+        - "Task scheduling (partr.jl uses SpinLock for heap management)"
+        - "IO and process handling (preserve_handle_lock in libuv.jl)"
+        - "PCRE regex compilation (PCRE_COMPILE_LOCK)"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "code"
+          path: "base/locks-mt.jl"
+          loc: "41-45"
+          url: "https://github.com/JuliaLang/julia/blob/7e7f9613c2fc2a954b7fff53d0ae6ac8104177e1/base/locks-mt.jl#L41-L45"
+          snippet: |
+            mutable struct SpinLock <: AbstractSpinLock
+                # we make this much larger than necessary to minimize false-sharing
+                @atomic owned::Int
+                SpinLock() = new(0)
+            end
+        - source: "code"
+          path: "base/locks-mt.jl"
+          loc: "60-70"
+          url: "https://github.com/JuliaLang/julia/blob/7e7f9613c2fc2a954b7fff53d0ae6ac8104177e1/base/locks-mt.jl#L60-L70"
+          snippet: |
+            mutable struct PaddedSpinLock <: AbstractSpinLock
+                # we make this much larger than necessary to minimize false-sharing
+                _padding_before::NTuple{max(0, CACHE_LINE_SIZE - sizeof(Int)), UInt8}
+                @atomic owned::Int
+                _padding_after::NTuple{max(0, CACHE_LINE_SIZE - sizeof(Int)), UInt8}
+                function PaddedSpinLock()
+                    l = new()
+                    @atomic l.owned = 0
+                    return l
+                end
+            end
+        - source: "code"
+          path: "base/expr.jl"
+          loc: "1541-1547"
+          url: "https://github.com/JuliaLang/julia/blob/7e7f9613c2fc2a954b7fff53d0ae6ac8104177e1/base/expr.jl#L1541-L1547"
+          snippet: |
+            function make_atomicswap(order, ex)
+                @nospecialize
+                is_expr(ex, :(=), 2) || error("@atomicswap expression missing assignment")
+                l, val = ex.args[1], esc(ex.args[2])
+                if is_expr(l, :., 2)
+                    ll, lr = esc(l.args[1]), esc(l.args[2])
+                    return :(swapproperty!($ll, $lr, $val, $order))
+
+    - effect: "Reduces method invalidations during sysimage compilation"
+      mechanism: |
+        The PR body mentions this change is needed after PR #55944 introduced
+        AbstractSpinLock. The labels include "invalidations", indicating this
+        addresses invalidation issues.
+
+        When `l.owned` is imprecisely inferred, methods that depend on the
+        inferred types of lock operations may need to be recompiled when
+        type information changes (invalidation).
+
+        REVIEWER NOTE on Redirectable mention:
+        The PR author's comment "due to e.g. Base.Redirectable" is likely used as an
+        analogy - Redirectable is a well-known example of a complex Union type that
+        causes inference imprecision in other parts of Base:
+
+            const Redirectable = Union{IO, IOServer, FileRedirect, RawFD, OS_HANDLE}
+            [base/cmd.jl:212]
+
+        There is no direct code path connecting Redirectable to SpinLock. Rather,
+        the author is explaining that similar patterns (abstract types with multiple
+        subtypes, or Union types with many members) cause inference to widen return
+        types, leading to downstream invalidations. The AbstractSpinLock hierarchy
+        exhibits a similar pattern:
+
+            AbstractSpinLock -> {SpinLock, PaddedSpinLock}
+
+        The fix pattern is the same: explicit type assertions (::Int) bypass the
+        need for inference to analyze all possible subtypes.
+      downstream_surfaces:
+        - "Sysimage compilation invalidation count"
+        - "Package precompilation stability"
+      likelihood: "medium"
+      impact: "medium"
+      evidence:
+        - source: "code"
+          path: "base/cmd.jl"
+          loc: "212-213"
+          url: "https://github.com/JuliaLang/julia/blob/7e7f9613c2fc2a954b7fff53d0ae6ac8104177e1/base/cmd.jl#L212-L213"
+          snippet: |
+            const Redirectable = Union{IO, IOServer, FileRedirect, RawFD, OS_HANDLE}
+            const StdIOSet = NTuple{3, Redirectable}
+
+    - effect: "Improves compilation latency"
+      mechanism: |
+        The "latency" label indicates this PR addresses time-to-first-execution (TTFX).
+        With precise type assertions:
+        1. The compiler doesn't need to analyze multiple type possibilities
+        2. Method dispatch can be resolved earlier
+        3. Downstream functions that call lock/unlock/islocked get better type info
+
+        Since lock operations are fundamental to threading, they're often on
+        critical compilation paths.
+      downstream_surfaces:
+        - "Time-to-first-lock-operation"
+        - "Threaded code compilation time"
+      likelihood: "medium"
+      impact: "low"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - impact: "None - pure type narrowing, no semantic change"
+        affected: "N/A"
+        note: |
+          The `owned` field is declared as `@atomic owned::Int` in both SpinLock
+          and PaddedSpinLock. The type assertions simply inform the compiler of
+          what is already guaranteed by the struct definitions.
+
+  performance:
+    compile_time:
+      - impact: "ESTIMATED reduction in inference work for lock operations"
+        description: |
+          By providing explicit type assertions, the compiler can:
+          1. Skip subtype analysis for the owned field access
+          2. Emit more direct comparison code
+          3. Propagate Int type to callers without widening
+        measurement: "Not benchmarked - qualitative improvement from labels"
+
+    runtime:
+      - impact: "No change or marginal improvement"
+        description: |
+          At runtime, the type assertions may:
+          1. Be compiled away entirely (since the types match)
+          2. Add negligible typeassert checks (one comparison instruction)
+          The actual runtime impact is effectively zero since the field is
+          guaranteed to be Int by the struct definition.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Type assertions match the actual field type (Int) - no runtime failure possible"
+      - "Small, focused change to 4 locations in one file"
+      - "No semantic behavior change - purely type system improvement"
+      - "Author (KristofferC) is a core Julia developer with expertise in these areas"
+      - "Change affects fundamental locking primitives - extensively tested in CI"
+
+  open_questions:
+    - "Are there benchmarks showing the latency/invalidation improvement?"
+    - "Would similar type assertions help other abstract type hierarchies in Base?"
+
+  reviewer_notes:
+    verified_claims:
+      - claim: "Redirectable causes inference issues"
+        finding: |
+          The PR body mentions Redirectable as an *analogy*, not a direct code path.
+          Independent review found no code path connecting Redirectable to SpinLock.
+          Redirectable is used as an example of Union types that cause similar inference
+          imprecision patterns.
+      - claim: "lock() function also benefits"
+        finding: |
+          Verified: lock(l::AbstractSpinLock) at line 76 calls @inline trylock(l),
+          so it transitively benefits from the type assertions in trylock().
+      - claim: "Type assertions match actual field types"
+        finding: |
+          Verified: Both SpinLock and PaddedSpinLock declare `@atomic owned::Int`,
+          so the ::Int assertions will never fail at runtime.
+
+    additional_findings:
+      - finding: "Macro expansion path verified"
+        detail: |
+          @atomicswap expands through make_atomicswap() [expr.jl:1541] to swapproperty!()
+          [Base_compiler.jl:89] which calls Core.swapfield!(). The return type depends on
+          fieldtype(typeof(x), f), which requires subtype analysis for abstract types.
+      - finding: "SpinLock usage sites identified"
+        detail: |
+          Seven SpinLock instances found in Base:
+          1. PCRE_COMPILE_LOCK [Base.jl:414]
+          2. threadcall_lock [threadcall.jl:6]
+          3. preserve_handle_lock [libuv.jl:61]
+          4. PerThreadLock [lock.jl:800]
+          5. heaps_lock [partr.jl:20] - array of SpinLock
+          6. IntrusiveLinkedListSynchronized [task.jl:899]
+          7. taskheap.lock [partr.jl:9]
+
+  recommendations:
+    - "No action required for downstream packages - this is an internal optimization"
+    - "Package maintainers may see reduced invalidations when precompiling against new Julia versions"
+    - "If experiencing inference issues with custom AbstractSpinLock subtypes, consider similar type assertions"
+
+changelog:
+  category: "Compiler/Inference"
+  entry: |
+    Added explicit `::Int` type assertions to `trylock`, `unlock`, and `islocked`
+    methods for `AbstractSpinLock` to improve type inference precision. This
+    reduces method invalidations and improves compilation latency for code using
+    spinlocks. The change has no runtime behavior impact.
+  downstream_impact: "none - internal optimization only"
+  action_required: "none"

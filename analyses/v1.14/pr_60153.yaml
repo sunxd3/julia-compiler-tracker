@@ -1,0 +1,199 @@
+schema_version: "1.0"
+pr:
+  number: 60153
+  title: "Use imperative form in docstrings"
+  url: "https://github.com/JuliaLang/julia/pull/60153"
+  author: "fingolfin"
+  labels: []
+  merged_at: "2025-11-20T06:52:49Z"
+  merge_commit_sha: "4606012b73293d44db72977ddcb3caaf0a4a5df0"
+scope:
+  files_touched:
+    - "Compiler/src/abstractlattice.jl"
+    - "Compiler/src/ssair/EscapeAnalysis.jl"
+    - "Compiler/src/ssair/domtree.jl"
+    - "base/abstractset.jl"
+    - "base/channels.jl"
+    - "base/deprecated.jl"
+    - "base/docs/basedocs.jl"
+    - "base/essentials.jl"
+    - "base/experimental.jl"
+    - "base/file.jl"
+    - "base/floatfuncs.jl"
+    - "base/gcutils.jl"
+    - "base/int.jl"
+    - "base/intfuncs.jl"
+    - "base/libc.jl"
+    - "base/loading.jl"
+    - "base/lock.jl"
+    - "base/rational.jl"
+    - "base/rawbigfloats.jl"
+    - "base/reflection.jl"
+    - "base/runtime_internals.jl"
+    - "base/ryu/utils.jl"
+    - "base/sort.jl"
+    - "base/special/rem_pio2.jl"
+    - "base/special/trig.jl"
+    - "base/strings/cstring.jl"
+    - "base/sysinfo.jl"
+    - "base/task.jl"
+    - "base/threadingconstructs.jl"
+    - "base/tuple.jl"
+  components:
+    - "Compiler.EscapeAnalysis"
+    - "Compiler.Inference"
+    - "Other"
+  pipeline_stages:
+    - "TypeInference"
+    - "EscapeAnalysis"
+analysis:
+  intent:
+    summary: "Standardize Julia docstrings to use imperative verb forms (e.g., 'Return' instead of 'Returns', 'Determine' instead of 'Determines') per Julia documentation style guide."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/50301"
+    quoted_from_pr: "I.e. change 'Returns' to 'Return' and similar. Progress towards issue #50301"
+  direct_changes:
+    - summary: "Changed docstring verbs from third-person to imperative form in Compiler lattice and SSA IR utilities; no executable code changes."
+      component: "Compiler.Inference"
+      evidence:
+        - source: "diff"
+          path: "Compiler/src/abstractlattice.jl"
+          loc: "183-211"
+          url: "https://github.com/JuliaLang/julia/blob/4606012b73293d44db72977ddcb3caaf0a4a5df0/Compiler/src/abstractlattice.jl#L183-L211"
+          snippet: |
+            """
+                has_nontrivial_extended_info(𝕃::AbstractLattice, t)::Bool
+
+            Determine whether the given lattice element `t` of `𝕃` has non-trivial extended lattice
+            information that would not be available from the type itself.
+            """
+            @nospecializeinfer has_nontrivial_extended_info(𝕃::AbstractLattice, @nospecialize t) =
+                has_nontrivial_extended_info(widenlattice(𝕃), t)
+
+            """
+                is_const_prop_profitable_arg(𝕃::AbstractLattice, t)::Bool
+
+            Determine whether the given lattice element `t` of `𝕃` has new extended lattice information
+            that should be forwarded along with constant propagation.
+            """
+        - source: "diff"
+          path: "Compiler/src/ssair/EscapeAnalysis.jl"
+          loc: "415-424"
+          url: "https://github.com/JuliaLang/julia/blob/4606012b73293d44db72977ddcb3caaf0a4a5df0/Compiler/src/ssair/EscapeAnalysis.jl#L415-L424"
+          snippet: |
+            """
+                iridx(x, estate::EscapeState) -> xidx::Union{Int,Nothing}
+
+            Try to convert analyzable IR element `x::Union{Argument,SSAValue}` to
+            its unique identifier number `xidx` that is valid in the analysis context of `estate`.
+            Returns `nothing` if `x` isn't maintained by `estate` and thus unanalyzable (e.g. `x::GlobalRef`).
+
+            `irval` is the inverse function of `iridx` (not formally), i.e.
+            `irval(iridx(x::Union{Argument,SSAValue}, state), state) === x`.
+            """
+        - source: "diff"
+          path: "Compiler/src/ssair/domtree.jl"
+          loc: "597-615"
+          url: "https://github.com/JuliaLang/julia/blob/4606012b73293d44db72977ddcb3caaf0a4a5df0/Compiler/src/ssair/domtree.jl#L597-L615"
+          snippet: |
+            """
+                dominates(domtree::DomTree, bb1::Int, bb2::Int)::Bool
+
+            Check if `bb1` dominates `bb2`.
+            `bb1` and `bb2` are indexes into the `CFG` blocks.
+            `bb1` dominates `bb2` if the only way to enter `bb2` is via `bb1`.
+            (Other blocks may be in between, e.g `bb1->bbx->bb2`).
+            """
+            dominates(domtree::DomTree, bb1::BBNumber, bb2::BBNumber) =
+                _dominates(domtree, bb1, bb2)
+
+            """
+                postdominates(domtree::PostDomTree, bb1::Int, bb2::Int)::Bool
+
+            Check if `bb1` post-dominates `bb2`.
+            `bb1` and `bb2` are indexes into the `CFG` blocks.
+            `bb1` post-dominates `bb2` if every pass from `bb2` to the exit is via `bb1`.
+            (Other blocks may be in between, e.g `bb2->bbx->bb1->exit`).
+            """
+    - summary: "Changed docstring verbs from third-person to imperative form across Base library APIs; no executable code changes."
+      component: "Other"
+      evidence:
+        - source: "diff"
+          path: "base/channels.jl"
+          loc: "13-18"
+          url: "https://github.com/JuliaLang/julia/blob/4606012b73293d44db72977ddcb3caaf0a4a5df0/base/channels.jl#L13-L18"
+          snippet: |
+            """
+                Channel{T=Any}(size::Int=0)
+
+            Construct a `Channel` with an internal buffer that can hold a maximum of `size` objects
+            of type `T`.
+            [`put!`](@ref) calls on a full channel block until an object is removed with [`take!`](@ref).
+            """
+        - source: "diff"
+          path: "base/reflection.jl"
+          loc: "211-216"
+          url: "https://github.com/JuliaLang/julia/blob/4606012b73293d44db72977ddcb3caaf0a4a5df0/base/reflection.jl#L211-L216"
+          snippet: |
+            """
+                code_typed(f, types; kw...)
+
+            Return an array of type-inferred lowered form (IR) for the methods matching the given
+            generic function and type signature.
+            """
+        - source: "diff"
+          path: "base/runtime_internals.jl"
+          loc: "122-128"
+          url: "https://github.com/JuliaLang/julia/blob/4606012b73293d44db72977ddcb3caaf0a4a5df0/base/runtime_internals.jl#L122-L128"
+          snippet: |
+            """
+                isexported(m::Module, s::Symbol)::Bool
+
+            Return whether a symbol is exported from a module.
+
+            See also: [`ispublic`](@ref), [`names`](@ref)
+            """
+  secondary_effects:
+    - effect: "REPL help mode and generated documentation will display updated verb forms in function descriptions."
+      mechanism: "Julia's help system reads docstrings at runtime; the changed string literals propagate directly to help output without any code path changes."
+      downstream_surfaces:
+        - "REPL help mode (? command)"
+        - "Documenter.jl generated documentation"
+        - "@doc macro output"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "diff"
+          path: "base/channels.jl"
+          loc: "13-18"
+          url: "https://github.com/JuliaLang/julia/blob/4606012b73293d44db72977ddcb3caaf0a4a5df0/base/channels.jl#L13-L18"
+          snippet: |
+            # Before: "Constructs a `Channel`..."
+            # After:  "Construct a `Channel`..."
+            """
+                Channel{T=Any}(size::Int=0)
+
+            Construct a `Channel` with an internal buffer that can hold a maximum of `size` objects
+            of type `T`.
+            """
+  compatibility:
+    internal_api: []
+    behavioral: []
+  performance:
+    compile_time: []
+    runtime: []
+  tests:
+    changed_files: []
+    new_behavior_assertions: []
+    coverage_gaps:
+      - "No tests were added or modified; this is expected for a documentation-only change."
+  risk:
+    level: "low"
+    rationale:
+      - "Only docstring text literals were modified; no executable code, type signatures, or function bodies changed."
+      - "No tests were affected because documentation changes do not alter runtime behavior."
+      - "All changes follow the established Julia documentation style guide (issue #50301)."
+  open_questions: []
+  recommendations:
+    - "No downstream action required; documentation tooling will automatically pick up the updated wording."
+    - "Consider updating internal style guides if they reference Julia's docstring conventions."

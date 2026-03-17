@@ -1,0 +1,250 @@
+schema_version: "1.0"
+
+pr:
+  number: 60472
+  title: "REPL: fix completion overwriting input after cursor"
+  url: "https://github.com/JuliaLang/julia/pull/60472"
+  author: "IanButterworth"
+  labels:
+    - "REPL"
+    - "bugfix"
+    - "completions"
+    - "backport 1.12"
+  merged_at: "2025-12-25T11:55:14Z"
+  merge_commit_sha: "ffbf16fd1a47060fc9d2dc6ff3fc2442133d889e"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60472.diff"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/src/REPLCompletions.jl"
+    - "stdlib/REPL/test/replcompletions.jl"
+  components:
+    - "REPL"
+  pipeline_stages: []
+  compiler_related: false
+
+analysis:
+  intent:
+    summary: |
+      Fix REPL completion bug where completing with cursor mid-text would delete
+      characters after the cursor position. The completion range was incorrectly
+      extending past the cursor, causing input to be overwritten.
+
+      Example from issue #60444:
+        Input:  versioninfo(; verb|true)   # cursor at |
+        After TAB: versioninfo(; verbose=) # 'true' was incorrectly deleted
+
+      The fix ensures the returned range is truncated to `1:pos` before being
+      returned, so only text before the cursor is replaced.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60444"
+
+  direct_changes:
+    - summary: "Fix dict key completion range to not extend past cursor position"
+      component: "REPL"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1026-1036"
+          url: "https://github.com/JuliaLang/julia/blob/ffbf16fd1a47060fc9d2dc6ff3fc2442133d889e/stdlib/REPL/src/REPLCompletions.jl#L1026-L1036"
+          snippet: |
+            if obj !== nothing
+                # Skip leading whitespace inside brackets.
+                i = @something findnext(!isspace, string, first(key)) nextind(string, last(key))
+                key = intersect(i:last(key), 1:pos)  # <-- FIX: truncate key range to cursor pos
+                s = string[key]                       # <-- now key and s use same range
+                matches = find_dict_matches(obj, s)
+                length(matches) == 1 && !closed && (matches[1] *= ']')
+                if length(matches) > 0
+                    ret = Completion[DictCompletion(obj, match) for match in sort!(matches)]
+                    return ret, key, true  # <-- returned key is now correctly bounded
+                end
+            end
+      rationale: |
+        Before: key = i:last(key), then s = string[intersect(key, 1:pos)]
+        The string `s` was truncated for searching but the returned range `key`
+        extended past the cursor. When the caller replaces text at range `key`,
+        it would overwrite text after the cursor.
+
+        After: key = intersect(i:last(key), 1:pos), then s = string[key]
+        Both key and s now use the truncated range, so only text before cursor
+        is replaced.
+
+    - summary: "Fix string path completion range to not extend past cursor position"
+      component: "REPL"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1050-1063"
+          url: "https://github.com/JuliaLang/julia/blob/ffbf16fd1a47060fc9d2dc6ff3fc2442133d889e/stdlib/REPL/src/REPLCompletions.jl#L1050-L1063"
+          snippet: |
+            # Complete ordinary strings:
+            #  "~/exa TAB         => "~/example.txt"
+            #  "~/example.txt TAB => "/home/user/example.txt"
+            r, closed = find_str(cur)
+            if r !== nothing
+                r = intersect(r, 1:pos)            # <-- FIX: truncate r to cursor pos
+                s = do_string_unescape(string[r])  # <-- now r and s use same range
+                ret, success = complete_path_string(s, hint; string_escape=true,
+                                                    dirsep=Sys.iswindows() ? '\\' : '/')
+                if length(ret) == 1 && !closed && close_path_completion(ret[1].path)
+                    ret[1] = PathCompletion(ret[1].path * '"')
+                end
+                success && return ret, r, success  # <-- returned r is now correctly bounded
+            end
+      rationale: |
+        Before: s = do_string_unescape(string[intersect(r, 1:pos)]) but r was
+        returned unchanged. Same pattern as dict key fix.
+
+        After: r = intersect(r, 1:pos), then s = do_string_unescape(string[r]).
+        The range r is truncated before use, so both s and the returned range
+        respect cursor position.
+
+    - summary: "Fix keyword argument completion range to not extend past cursor position"
+      component: "REPL"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1096-1104"
+          url: "https://github.com/JuliaLang/julia/blob/ffbf16fd1a47060fc9d2dc6ff3fc2442133d889e/stdlib/REPL/src/REPLCompletions.jl#L1096-L1104"
+          snippet: |
+            # Keyword argument completion:
+            #   foo(ar TAB   => keyword arguments like `arg1=`
+            elseif kind(cur) == K"Identifier"
+                r = intersect(char_range(cur), 1:pos)  # <-- FIX: truncate r to cursor pos
+                s = string[r]                          # <-- now r and s use same range
+                # Return without adding more suggestions if kwargs only
+                complete_keyword_argument!(suggestions, e, s, context_module, arg_pos; shift) &&
+                    return sort_suggestions(), r, true  # <-- returned r is now correctly bounded
+      rationale: |
+        Before: r = char_range(cur), then s = string[intersect(r, 1:pos)].
+        Same pattern as dict key and string path fixes.
+
+        After: r = intersect(char_range(cur), 1:pos), then s = string[r].
+        The range r is truncated before use, ensuring keyword argument completions
+        only replace text up to the cursor position.
+
+  secondary_effects:
+    - effect: "None - this is a user-facing bug fix with no secondary effects"
+      mechanism: |
+        The fix is isolated to the range calculation in completions(). The call chain is:
+
+        completions(string, pos, module)  [REPLCompletions.jl:950]
+          returns (completions, range, should_complete)
+        -> complete_line(s.p.complete, s, mod)  [REPL.jl:851]
+          passes through range unchanged
+        -> complete_line(s::PromptState, repeats, mod)  [LineEdit.jl:503]
+          uses range to determine what text to replace
+        -> edit_splice!(s, (prev_pos - reg.second + reg.first) => prev_pos, completion)  [LineEdit.jl:887]
+          replaces text in the given range
+
+        The bug was that `range` extended past the cursor, so edit_splice! would
+        replace more text than intended. The fix truncates range to `1:pos` before return.
+      downstream_surfaces: []
+      likelihood: "low"
+      impact: "low"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "REPL completions no longer overwrite text after cursor"
+        impact: "Fixes incorrect behavior - completions now respect cursor position"
+        affected_users: "All REPL users who complete in the middle of existing text"
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "Strictly a user-facing REPL bug fix"
+      - "No compiler internals affected"
+      - "No API changes"
+      - "Comprehensive tests added for all three fix locations"
+      - "Marked for backport to 1.12"
+
+  test_coverage:
+    description: "Three test cases added covering each fixed completion type"
+    tests:
+      - location: "stdlib/REPL/test/replcompletions.jl:1499-1514"
+        description: "Path completion should not delete text after string (e.g. indexing)"
+        snippet: |
+          # Issue #60444: path completion should not delete text after the string (e.g. indexing)
+          let (c, r, res) = test_complete_pos("f(\"$(path)$(sep)foo|\")[1]")
+              @test res
+              @test length(c) == 2
+              @test "$(path_expected)$(sep)foo_dir$(sep)" in c
+              @test "$(path_expected)$(sep)foo_file.txt" in c
+              # Range should end at cursor position, not overwrite ")[1]"
+              pos = findfirst('|', "f(\"$(path)$(sep)foo|\")[1]") - 1
+              @test last(r) == pos
+          end
+
+      - location: "stdlib/REPL/test/replcompletions.jl:1669-1675"
+        description: "Dict key completion should not overwrite input after cursor"
+        snippet: |
+          # Issue #60444: completing dict keys should not overwrite input after cursor
+          let s = "test_dict[\"ab|c\"]"
+              c, r = test_complete_context_pos(s, Main.CompletionFoo)
+              @test "\"abc\"" in c
+              @test "\"abcd\"" in c
+              @test r == 11:13  # range ends at cursor, not at end of key
+          end
+
+      - location: "stdlib/REPL/test/replcompletions.jl:1823-1828"
+        description: "Keyword argument completion should not overwrite input after cursor"
+        snippet: |
+          # Issue #60444: completing keyword arguments should not overwrite input after cursor
+          let s = "CompletionFoo.kwtest3(a; foob|true)"
+              c, r = test_complete_pos(s)
+              @test c == ["foobar="]
+              @test r == 26:29
+          end
+
+  open_questions: []
+
+  recommendations:
+    - "No action required for downstream packages - this is a REPL-only fix"
+    - "Users experiencing completion issues in Julia 1.12 should update to a version containing this fix"
+
+downstream_impact:
+  summary: |
+    This PR has NO impact on downstream compiler tooling. It is purely a REPL
+    user interface bug fix that corrects the completion range calculation.
+
+    External IDE tools (VS Code Julia extension, LanguageServer.jl) implement
+    their own completion logic and do not directly consume REPLCompletions.
+    They are unaffected by this change.
+
+    The completions() function is an internal REPL API. The return type
+    (completions, range, should_complete) and semantics remain unchanged -
+    only the range values are now correct when cursor is mid-identifier.
+  affected_packages: []
+  opaque_closure: false
+  generated_functions: false
+  world_age: false
+  type_inference: false
+  optimization: false
+
+reviewer_notes:
+  reviewer: "Independent review"
+  date: "2026-01-22"
+  methodology: |
+    1. Read existing analysis and PR metadata
+    2. Fetched and checked out merge commit ffbf16fd1a47060fc9d2dc6ff3fc2442133d889e
+    3. Examined actual source code at:
+       - stdlib/REPL/src/REPLCompletions.jl (lines 1026-1036, 1050-1063, 1096-1104)
+       - stdlib/REPL/src/LineEdit.jl (lines 503, 882-887)
+       - stdlib/REPL/test/replcompletions.jl (tests at lines 1499-1514, 1669-1675, 1823-1828)
+    4. Traced call chain from completions() to edit_splice!()
+    5. Reviewed linked issue #60444 for original bug report
+  findings: |
+    The original analysis is accurate and comprehensive. Enhancements added:
+    - Concrete bug example from issue #60444 (versioninfo(; verb|true) scenario)
+    - Call chain showing how range flows through REPL.jl and LineEdit.jl
+    - Actual code snippets with inline annotations showing fix locations
+    - Note about external IDE tools (LanguageServer.jl) being unaffected
+  verification: |
+    All line numbers verified against merge commit ffbf16fd1a47060fc9d2dc6ff3fc2442133d889e.
+    All three fixes follow identical pattern: intersect range with 1:pos before return.

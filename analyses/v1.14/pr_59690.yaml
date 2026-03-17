@@ -1,0 +1,170 @@
+schema_version: "1.0"
+pr:
+  number: 59690
+  title: "[release-1.12] Fix namespace of `IOError` in `random_seed`"
+  url: "https://github.com/JuliaLang/julia/pull/59690"
+  author: "jishnub"
+  labels: []
+  merged_at: "2025-11-27T12:10:50Z"
+  merge_commit_sha: "6c89d07dea4f58b32646ff5e33a79c52b5d4738f"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59690.diff"
+scope:
+  files_touched:
+    - "stdlib/Random/src/RNGs.jl"
+  components:
+    - "stdlib.Random"
+  pipeline_stages:
+    - "Runtime"
+analysis:
+  intent:
+    summary: "Fix a namespace resolution bug where `IOError` was referenced without the `Base.` qualifier in the Random stdlib, causing the catch clause in `random_seed()` to fail since `IOError` is not exported from `Base`."
+    issue_links: []
+  direct_changes:
+    - summary: "Add `Base.` qualifier to `IOError` type check in `random_seed()` exception handler, ensuring the catch clause correctly identifies IO errors when the system entropy pool is unavailable."
+      component: "stdlib/Random/src/RNGs.jl (random_seed)"
+      evidence:
+        - source: "diff"
+          path: "stdlib/Random/src/RNGs.jl"
+          loc: "284-294"
+          url: "https://github.com/JuliaLang/julia/blob/6c89d07dea4f58b32646ff5e33a79c52b5d4738f/stdlib/Random/src/RNGs.jl#L284-L294"
+          snippet: |
+            function random_seed()
+                try
+                    # as MersenneTwister prints its seed when `show`ed, 128 bits is a good compromise for
+                    # almost surely always getting distinct seeds, while having them printed reasonably tersely
+                    return rand(RandomDevice(), UInt128)
+                catch ex
+                    ex isa Base.IOError || rethrow()  # <-- FIX: Added Base. qualifier
+                    @warn "Entropy pool not available to seed RNG; using ad-hoc entropy sources."
+                    return Libc.rand()
+                end
+            end
+        - source: "code"
+          path: "base/libuv.jl"
+          loc: "86-90"
+          url: "https://github.com/JuliaLang/julia/blob/6c89d07dea4f58b32646ff5e33a79c52b5d4738f/base/libuv.jl#L86-L90"
+          snippet: |
+            struct IOError <: Exception
+                msg::String
+                code::Int32
+                IOError(msg::AbstractString, code::Integer) = new(msg, code)
+            end
+        - source: "code"
+          path: "stdlib/Random/src/Random.jl"
+          loc: "18-21"
+          url: "https://github.com/JuliaLang/julia/blob/6c89d07dea4f58b32646ff5e33a79c52b5d4738f/stdlib/Random/src/Random.jl#L18-L21"
+          snippet: |
+            # NOTE: IOError is NOT imported here, unlike FileWatching and Sockets
+            using Base: BitInteger, BitInteger_types, BitUnsigned, require_one_based_indexing
+            import Base: copymutable, copy, copy!, ==, hash, convert,
+                         rand, randn, show
+    - summary: "The bug existed because `IOError` is defined in `base/libuv.jl` but is not exported from `Base`. The Random module's imports do not include `IOError`, so the unqualified reference would result in an `UndefVarError`."
+      component: "stdlib/Random namespace resolution"
+      evidence:
+        - source: "verification"
+          path: "base/exports.jl"
+          loc: "N/A"
+          url: "https://github.com/JuliaLang/julia/blob/6c89d07dea4f58b32646ff5e33a79c52b5d4738f/base/exports.jl"
+          snippet: |
+            # Searched for "export.*IOError" in base/exports.jl - no matches found.
+            # IOError is not exported from Base, only accessible as Base.IOError.
+        - source: "comparison"
+          path: "stdlib/FileWatching/src/FileWatching.jl"
+          loc: "24"
+          url: "https://github.com/JuliaLang/julia/blob/6c89d07dea4f58b32646ff5e33a79c52b5d4738f/stdlib/FileWatching/src/FileWatching.jl#L24"
+          snippet: |
+            # FileWatching properly imports IOError, enabling unqualified use:
+            import Base: @handle_as, wait, close, eventloop, notify_error, IOError,
+                uv_req_data, uv_req_set_data, associate_julia_struct, disassociate_julia_struct,
+                _sizeof_uv_poll, _sizeof_uv_fs, _sizeof_uv_fs_event, _uv_hook_close, uv_error, _UVError,
+                iolock_begin, iolock_end, preserve_handle, unpreserve_handle,
+                isreadable, iswritable, isopen, |, getproperty, propertynames
+        - source: "comparison"
+          path: "stdlib/Sockets/src/Sockets.jl"
+          loc: "36-37"
+          url: "https://github.com/JuliaLang/julia/blob/6c89d07dea4f58b32646ff5e33a79c52b5d4738f/stdlib/Sockets/src/Sockets.jl#L36-L37"
+          snippet: |
+            # Sockets also properly imports IOError:
+            using Base: LibuvStream, LibuvServer, PipeEndpoint, @handle_as, uv_error, associate_julia_struct, uvfinalize,
+                notify_error, uv_req_data, uv_req_set_data, preserve_handle, unpreserve_handle, _UVError, IOError,
+                eventloop, StatusUninit, StatusInit, StatusConnecting, StatusOpen, StatusClosing, StatusClosed, StatusActive
+  secondary_effects:
+    - effect: "Fixes fallback behavior when system entropy is unavailable on certain platforms or restricted environments."
+      mechanism: |
+        Complete call chain for IOError propagation:
+
+        random_seed()  [stdlib/Random/src/RNGs.jl:284]
+          -> rand(RandomDevice(), UInt128)  [line 288]
+          -> Libc.getrandom!(Ref{UInt128}())  [base/libc.jl:425]
+          -> ccall(:uv_random, ...)  [base/libc.jl:426-427]
+          -> Base.uv_error("getrandom", ret)  [base/libc.jl:428]
+          -> _uv_error(prefix, c)  [base/libuv.jl:113-114]
+          -> throw(_UVError(prefix, c))  [base/libuv.jl:114]
+          -> _UVError constructs IOError  [base/libuv.jl:100-102]:
+             function _UVError(pfx::AbstractString, code::Integer)
+                 code = Int32(code)
+                 IOError(string(pfx, ": ", struverror(code), " (", uverrorname(code), ")"), code)
+             end
+          -> catch clause now correctly matches Base.IOError  [line 290]
+          -> falls back to Libc.rand() with warning  [lines 291-292]
+      downstream_surfaces:
+        - "RNG initialization on systems without /dev/urandom or blocked entropy"
+        - "Containers/sandboxes with restricted device access"
+        - "Embedded systems without entropy sources"
+        - "chroot environments with missing /dev entries"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "Xoshiro seeding does NOT have fallback handling (related observation)"
+      mechanism: |
+        Note: seed!(rng::Union{TaskLocalRNG, Xoshiro}, ::Nothing) at Xoshiro.jl:249-257
+        uses RandomDevice() directly without try/catch:
+
+        function seed!(rng::Union{TaskLocalRNG, Xoshiro}, ::Nothing)
+            # as we get good randomness from RandomDevice, we can skip hashing
+            rd = RandomDevice()
+            s0 = rand(rd, UInt64)
+            s1 = rand(rd, UInt64)
+            s2 = rand(rd, UInt64)
+            s3 = rand(rd, UInt64)
+            initstate!(rng, (s0, s1, s2, s3))
+        end
+
+        This is different from MersenneTwister's fallback approach. If entropy is
+        unavailable, Xoshiro seeding will simply fail rather than fall back to Libc.rand().
+        This is likely intentional design (fail-fast vs. fallback) but worth noting.
+      downstream_surfaces:
+        - "Xoshiro/TaskLocalRNG initialization in restricted environments"
+      likelihood: "low"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "N/A"
+        change: "No API changes; pure bugfix for incorrect namespace reference."
+        affected_tools: []
+    behavioral:
+      - change: "The `random_seed()` function now correctly falls back to `Libc.rand()` when `RandomDevice()` throws an `IOError`, instead of propagating an `UndefVarError` for the unqualified `IOError` symbol."
+        risk: "low"
+      - change: "Before fix: On systems without entropy, MersenneTwister() would fail with UndefVarError: IOError not defined. After fix: Correctly falls back to Libc.rand() with warning message."
+        risk: "low"
+  performance:
+    compile_time:
+      - "No compile-time impact; single token change to qualify a type reference."
+    runtime:
+      - "No runtime performance change; exception handling path behavior is now correct."
+  risk:
+    level: "low"
+    rationale:
+      - "Pure bugfix with minimal scope - adds 5 characters ('Base.') to qualify a type reference."
+      - "No changes to code logic, only fixes the namespace for type comparison."
+      - "Targeted at release-1.12 branch as a backport."
+      - "The function was completely broken before this fix on systems without entropy (would throw UndefVarError instead of falling back)."
+      - "Other stdlib modules (FileWatching, Sockets) that use IOError properly import it, demonstrating this is a Random-specific oversight."
+  open_questions:
+    - "No test was added to verify the fallback behavior. Should a test mock `RandomDevice()` failure to ensure `Libc.rand()` fallback works? This would require either mocking or testing in a restricted environment."
+    - "Should `IOError` be added to the Random module's explicit imports for consistency with FileWatching/Sockets, or is `Base.IOError` the preferred pattern for stdlib?"
+    - "Should Xoshiro's seed! also have fallback handling like MersenneTwister, or is the fail-fast approach intentional?"
+  recommendations:
+    - "No action required for downstream packages; this is a bugfix in stdlib that restores intended behavior."
+    - "Users on systems with restricted entropy sources (containers, embedded) will now see the expected fallback to `Libc.rand()` with a warning rather than a crash when using MersenneTwister."
+    - "Consider adding `IOError` to Random module imports for consistency: `import Base: ..., IOError`"
+    - "Consider adding a test that verifies the fallback path works correctly."

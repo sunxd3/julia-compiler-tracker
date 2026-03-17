@@ -1,0 +1,383 @@
+schema_version: "1.0"
+pr:
+  number: 59840
+  title: "signals: acquire loader lock during stackwalk on Win32"
+  url: "https://github.com/JuliaLang/julia/pull/59840"
+  author: "vtjnash"
+  labels:
+    - "system:windows"
+  merged_at: "2025-10-15T14:03:39Z"
+  merge_commit_sha: "7ca7bcd59011bc77e3b5276b59e8ea319d5ef7dd"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59840.diff"
+
+scope:
+  files_touched:
+    - "src/julia_internal.h"
+    - "src/signals-mach.c"
+    - "src/signals-unix.c"
+    - "src/signals-win.c"
+    - "src/stackwalk.c"
+  components:
+    - "Runtime"
+    - "Signals"
+    - "Stackwalk"
+  pipeline_stages:
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Fixes deadlocks during stack walking on Windows by acquiring the Windows loader lock
+      (LdrLockLoaderLock/LdrUnlockLoaderLock) before performing stackwalk operations.
+      The loader lock prevents the Windows loader from modifying internal data structures
+      while Julia is walking the stack, which could otherwise cause crashes or hangs
+      during backtrace collection. This is analogous to how macOS acquires the keymgr lock
+      in jl_lock_profile_mach.
+
+      ADDITIONAL INTENT (from commit message): Also removes the FreeBSD special-case
+      handling since the new unified approach "should avoid similar issues on FreeBSD."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59650"
+
+  direct_changes:
+    - summary: "Add Windows loader lock acquisition during stack walks"
+      component: "signals-win.c"
+      evidence:
+        - source: "code"
+          path: "src/signals-win.c"
+          loc: "7-10"
+          url: "https://github.com/JuliaLang/julia/blob/7ca7bcd59011bc77e3b5276b59e8ea319d5ef7dd/src/signals-win.c#L7-L10"
+          snippet: |
+            // Loader lock functions from ntdll
+            // See https://devblogs.microsoft.com/oldnewthing/20140808-00/?p=293
+            extern NTSTATUS NTAPI LdrLockLoaderLock(ULONG Flags, ULONG *State, ULONG_PTR *Cookie);
+            extern NTSTATUS NTAPI LdrUnlockLoaderLock(ULONG Flags, ULONG_PTR Cookie);
+        - source: "code"
+          path: "src/signals-win.c"
+          loc: "447-458"
+          url: "https://github.com/JuliaLang/julia/blob/7ca7bcd59011bc77e3b5276b59e8ea319d5ef7dd/src/signals-win.c#L447-L458"
+          snippet: |
+            int jl_thread_suspend(int16_t tid, bt_context_t *ctx)
+            {
+                uv_mutex_lock(&jl_in_stackwalk);
+                jl_lock_profile();
+                ULONG_PTR lock_cookie = 0;
+                LdrLockLoaderLock(0x1, NULL, &lock_cookie);
+                int success = jl_thread_suspend_and_get_state(tid, 0, ctx);
+                LdrUnlockLoaderLock(0x1, lock_cookie);
+                jl_unlock_profile();
+                uv_mutex_unlock(&jl_in_stackwalk);
+                return success;
+            }
+
+    - summary: "Replace callback-based jl_with_stackwalk_lock with unified jl_thread_suspend API"
+      component: "stackwalk.c"
+      evidence:
+        - source: "code"
+          path: "src/stackwalk.c"
+          loc: "1260-1275"
+          url: "https://github.com/JuliaLang/julia/blob/7ca7bcd59011bc77e3b5276b59e8ea319d5ef7dd/src/stackwalk.c#L1260-L1275"
+          snippet: |
+            JL_DLLEXPORT size_t jl_try_record_thread_backtrace(jl_ptls_t ptls2, jl_bt_element_t *bt_data, size_t max_bt_size) JL_NOTSAFEPOINT
+            {
+                int16_t tid = ptls2->tid;
+                jl_task_t *t = NULL;
+                bt_context_t *context = NULL;
+                bt_context_t c;
+                if (!jl_thread_suspend(tid, &c)) {
+                    return 0;
+                }
+                // thread is stopped, safe to read the task it was running before we stopped it
+                t = jl_atomic_load_relaxed(&ptls2->current_task);
+                context = &c;
+                size_t bt_size = rec_backtrace_ctx(bt_data, max_bt_size, context, ptls2->previous_task ? NULL : t->gcstack);
+                jl_thread_resume(tid);
+                return bt_size;
+            }
+
+    - summary: "Remove jl_with_stackwalk_lock declaration from julia_internal.h"
+      component: "julia_internal.h"
+      evidence:
+        - source: "diff"
+          path: "src/julia_internal.h"
+          loc: "240-243"
+          snippet: |
+            -void jl_with_stackwalk_lock(void (*f)(void*) JL_NOTSAFEPOINT, void *ctx) JL_NOTSAFEPOINT;
+            -int jl_thread_suspend_and_get_state(int tid, int timeout, bt_context_t *ctx) JL_NOTSAFEPOINT;
+            +int jl_thread_suspend(int16_t tid, bt_context_t *ctx) JL_NOTSAFEPOINT;
+
+    - summary: "Update Unix signal handler to use jl_thread_suspend with dl_iterate_phdr"
+      component: "signals-unix.c"
+      evidence:
+        - source: "code"
+          path: "src/signals-unix.c"
+          loc: "315-334"
+          url: "https://github.com/JuliaLang/julia/blob/7ca7bcd59011bc77e3b5276b59e8ea319d5ef7dd/src/signals-unix.c#L315-L334"
+          snippet: |
+            typedef struct {
+                int16_t tid;
+                bt_context_t *ctx;
+                int success;
+            } callback_data_t;
+            static int with_dl_iterate_phdr_lock(struct dl_phdr_info *info, size_t size, void *data)
+            {
+                jl_lock_profile();
+                callback_data_t *cb_data = (callback_data_t*)data;
+                cb_data->success = jl_thread_suspend_and_get_state(cb_data->tid, 1, cb_data->ctx);
+                jl_unlock_profile();
+                return 1; // only call this once
+            }
+
+            int jl_thread_suspend(int16_t tid, bt_context_t *ctx)
+            {
+                callback_data_t cb_data = {tid, ctx, 0};
+                dl_iterate_phdr(with_dl_iterate_phdr_lock, &cb_data);
+                return cb_data.success;
+            }
+
+    - summary: "Add jl_thread_suspend wrapper for macOS with keymgr lock"
+      component: "signals-mach.c"
+      evidence:
+        - source: "code"
+          path: "src/signals-mach.c"
+          loc: "715-721"
+          url: "https://github.com/JuliaLang/julia/blob/7ca7bcd59011bc77e3b5276b59e8ea319d5ef7dd/src/signals-mach.c#L715-L721"
+          snippet: |
+            int jl_thread_suspend(int16_t tid, bt_context_t *ctx)
+            {
+                int lockret = jl_lock_profile_mach(1);
+                int success = jl_thread_suspend_and_get_state(tid, 1, ctx);
+                jl_unlock_profile_mach(1, lockret);
+                return success;
+            }
+
+    - summary: "Remove FreeBSD special-case handling (BEHAVIORAL CHANGE)"
+      component: "signals-unix.c"
+      evidence:
+        - source: "diff"
+          path: "src/signals-unix.c"
+          loc: "removed"
+          snippet: |
+            REMOVED CODE (previously bypassed dl_iterate_phdr on FreeBSD):
+            -#ifndef _OS_FREEBSD_
+            -typedef struct {
+            -    void (*f)(void*) JL_NOTSAFEPOINT;
+            -    void *ctx;
+            -} callback_t;
+            ...
+            -void jl_with_stackwalk_lock(void (*f)(void*), void *ctx)
+            -{
+            -#ifndef _OS_FREEBSD_
+            -    callback_t callback = {f, ctx};
+            -    dl_iterate_phdr(with_dl_iterate_phdr_lock, &callback);
+            -#else
+            -    // FreeBSD makes the questionable decisions to use a terrible implementation of a spin
+            -    // lock and to block all signals while a lock is held. However, that also means it is
+            -    // not currently vulnerable to this libunwind bug that other platforms can encounter.
+            -    jl_lock_profile();
+            -    f(ctx);
+            -    jl_unlock_profile();
+            -#endif
+            -}
+        - source: "commit_message"
+          snippet: |
+            "Should avoid similar issues on FreeBSD, so we can remove that special case also."
+
+  secondary_effects:
+    - effect: "Profiler thread now acquires loader lock during backtrace collection"
+      mechanism: |
+        profile_bt() [signals-win.c:460]
+          -> jl_thread_suspend(0, &c) [signals-win.c:479]
+            -> uv_mutex_lock(&jl_in_stackwalk) [signals-win.c:449]
+            -> jl_lock_profile() [signals-win.c:450]
+            -> LdrLockLoaderLock(0x1, NULL, &lock_cookie) [signals-win.c:452]
+            -> jl_thread_suspend_and_get_state(tid, 0, ctx) [signals-win.c:453]
+            -> LdrUnlockLoaderLock(0x1, lock_cookie) [signals-win.c:454]
+            -> jl_unlock_profile() [signals-win.c:455]
+            -> uv_mutex_unlock(&jl_in_stackwalk) [signals-win.c:456]
+      downstream_surfaces:
+        - "Windows profiling (Profile.@profile)"
+        - "Thread backtraces (jl_try_record_thread_backtrace)"
+        - "Task backtraces (jl_record_backtrace)"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "FreeBSD now uses dl_iterate_phdr for stackwalk locking"
+      mechanism: |
+        BEFORE: FreeBSD bypassed dl_iterate_phdr entirely
+          jl_with_stackwalk_lock(f, ctx) [signals-unix.c]
+            -> jl_lock_profile()
+            -> f(ctx)  // direct call, no dl_iterate_phdr
+            -> jl_unlock_profile()
+
+        AFTER: FreeBSD now uses dl_iterate_phdr like Linux
+          jl_thread_suspend(tid, ctx) [signals-unix.c:329-334]
+            -> dl_iterate_phdr(with_dl_iterate_phdr_lock, &cb_data)
+              -> jl_lock_profile()
+              -> jl_thread_suspend_and_get_state(cb_data->tid, 1, cb_data->ctx)
+              -> jl_unlock_profile()
+
+        The old code had a comment noting FreeBSD was "not currently vulnerable to this
+        libunwind bug" due to its spin lock implementation. The new unified approach
+        may have different timing characteristics on FreeBSD.
+      downstream_surfaces:
+        - "FreeBSD profiling (Profile.@profile)"
+        - "FreeBSD thread backtraces"
+        - "FreeBSD error handling/crash backtraces"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Unified API simplifies call sites"
+      mechanism: |
+        Previously: Call jl_with_stackwalk_lock with a callback function
+        After: Call jl_thread_suspend directly, which internally handles all necessary locking
+
+        Old pattern (stackwalk.c):
+          suspend_t suspenddata = {tid, &c};
+          jl_with_stackwalk_lock(suspend, &suspenddata);
+          if (!suspenddata.success) { return 0; }
+
+        New pattern (stackwalk.c):
+          if (!jl_thread_suspend(tid, &c)) { return 0; }
+      downstream_surfaces:
+        - "Simplified internal API"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "jl_with_stackwalk_lock still exists on macOS but removed from header"
+      mechanism: |
+        The function was removed from julia_internal.h (making it non-public) but
+        still exists in signals-mach.c:
+
+        void jl_with_stackwalk_lock(void (*f)(void*), void *ctx) [signals-mach.c:723-728]
+        {
+            int lockret = jl_lock_profile_mach(1);
+            f(ctx);
+            jl_unlock_profile_mach(1, lockret);
+        }
+
+        This preserves backward compatibility for macOS-only code paths that might
+        still use the callback pattern internally. However, it is no longer part
+        of the public internal API.
+      downstream_surfaces:
+        - "macOS internal signal handling"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Lock ordering on Windows interacts with debuginfo.cpp"
+      mechanism: |
+        The jl_in_stackwalk mutex is also used in debuginfo.cpp for Windows symbol operations:
+
+        debuginfo.cpp:202 - SymLoadModuleEx (conditional, currently disabled with if(0))
+        debuginfo.cpp:828 - SymFromAddr for function name resolution
+        debuginfo.cpp:1078 - jl_refresh_dbg_module_list
+        debuginfo.cpp:1180 - Additional symbol operations
+
+        Lock ordering in jl_thread_suspend is:
+        1. jl_in_stackwalk (uv_mutex)
+        2. jl_lock_profile() (profile rwlock)
+        3. LdrLockLoaderLock (Windows loader lock)
+
+        If debuginfo.cpp operations occur during profiling, the lock ordering
+        must be consistent to avoid deadlocks.
+      downstream_surfaces:
+        - "Windows debug symbol resolution"
+        - "Windows stack frame printing"
+      likelihood: "medium"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "jl_with_stackwalk_lock"
+        change: "Removed from julia_internal.h header; still exists internally in signals-mach.c for macOS"
+        affected_tools: []
+      - field: "jl_thread_suspend_and_get_state"
+        change: "Made static (internal) on all platforms; replaced by jl_thread_suspend in public API"
+        affected_tools: []
+      - field: "jl_thread_suspend"
+        change: "New unified API declared in julia_internal.h that handles platform-specific locking internally"
+        affected_tools: []
+      - field: "jl_lock_stackwalk / jl_unlock_stackwalk"
+        change: "Windows-specific functions removed entirely; locking now encapsulated in jl_thread_suspend"
+        affected_tools: []
+    behavioral:
+      - change: "Windows stackwalk now holds loader lock during unwinding"
+        impact: "Prevents deadlocks when loader is modifying DLL tables during profiling"
+        platforms: ["Windows"]
+      - change: "FreeBSD stackwalk now uses dl_iterate_phdr"
+        impact: "Changed from direct jl_lock_profile to dl_iterate_phdr callback; may have different timing/locking characteristics"
+        platforms: ["FreeBSD"]
+
+  performance:
+    compile_time: []
+    runtime:
+      - description: |
+          ESTIMATED: Minimal overhead from loader lock acquisition on Windows.
+          LdrLockLoaderLock is a lightweight operation that should add only a few
+          microseconds per stack walk. This only affects profiling and error handling
+          paths, not normal code execution.
+        platforms: ["Windows"]
+      - description: |
+          ESTIMATED: Possible slight overhead change on FreeBSD due to using dl_iterate_phdr.
+          The old code bypassed dl_iterate_phdr entirely; the new code calls it but returns
+          immediately (return 1 on first callback). The overhead should be minimal but is
+          a change from the previous behavior.
+        platforms: ["FreeBSD"]
+
+  risk:
+    level: "low"
+    rationale:
+      - "Primary Windows fix follows established pattern from macOS (keymgr lock)"
+      - "FreeBSD change is a simplification recommended by the commit author"
+      - "Only affects profiling and backtrace collection, not normal execution"
+      - "Fixes existing deadlock issues rather than introducing new behavior"
+      - "Author (vtjnash) is a core Julia developer with deep knowledge of runtime internals"
+      - "NOTE: PR label says 'system:windows' but FreeBSD is also affected"
+
+  open_questions:
+    - "Has the FreeBSD behavior change been tested on FreeBSD systems?"
+    - "Are there any edge cases where the old FreeBSD spin-lock workaround provided better behavior?"
+
+  recommendations:
+    - "No action required for downstream packages"
+    - "Windows users experiencing profile-related hangs should upgrade to Julia version containing this fix"
+    - "FreeBSD users should verify profiling still works correctly after this change"
+    - "This change only affects runtime signal handling; no compiler or type inference changes"
+
+downstream_impact:
+  enzyme: "none"
+  gpucompiler: "none"
+  jet: "none"
+  turing: "none"
+  summary: |
+    This PR has no impact on downstream compiler tooling. It modifies only the low-level
+    signal handling infrastructure for stack walking. The change is:
+    1. Primarily Windows-focused with additional FreeBSD simplification
+    2. Runtime-only (no compiler, inference, or optimization changes)
+    3. Internal implementation detail (API change is internal, not public Julia API)
+
+    Packages like Enzyme, GPUCompiler, JET, and Turing.jl do not
+    interact with these low-level signal handling internals and will not be affected.
+
+reviewer_notes:
+  independent_analysis_date: "2026-01-21"
+  additional_findings:
+    - finding: "FreeBSD behavioral change missed in original analysis"
+      details: |
+        The commit message explicitly states "Should avoid similar issues on FreeBSD,
+        so we can remove that special case also." The original analysis incorrectly
+        stated this was a "Windows-only change that does not affect other platforms."
+    - finding: "jl_with_stackwalk_lock still exists on macOS"
+      details: |
+        While removed from the header, the function still exists in signals-mach.c:723-728.
+        This was mentioned in the original analysis but could be clearer that the function
+        is still present and used, just no longer declared publicly.
+    - finding: "Lock ordering with debuginfo.cpp"
+      details: |
+        The jl_in_stackwalk mutex is used in multiple places in debuginfo.cpp for
+        Windows symbol operations. The analysis should note this interaction for
+        completeness, though the lock ordering appears consistent.
+    - finding: "PR labeling inconsistency"
+      details: |
+        The PR has only "system:windows" label but also changes FreeBSD behavior.
+        This could cause the FreeBSD change to be overlooked during release notes.

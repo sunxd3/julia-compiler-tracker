@@ -1,0 +1,287 @@
+schema_version: "1.0"
+
+pr:
+  number: 60033
+  title: "Make some tests not fail with uid 0"
+  url: "https://github.com/JuliaLang/julia/pull/60033"
+  author: "Keno"
+  labels: []
+  merged_at: "2025-11-04T07:22:17Z"
+  merge_commit_sha: "e0e743f725910b8acff4896d5e5c0637481bf272"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60033.diff"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/test/replcompletions.jl"
+    - "test/file.jl"
+    - "test/precompile.jl"
+    - "test/sysinfo.jl"
+  components:
+    - "TestSuite"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      When running as UID 0 (system root, or container root in sandboxing technologies),
+      the system ignores Unix file permissions. This PR adjusts tests that assume
+      mode 000 makes a file unreadable, which fails when running as root since root
+      bypasses these permission checks.
+
+      Technical note: The PR uses both Libc.getuid() and Libc.geteuid() depending on context:
+      - getuid() returns the real user ID (who actually logged in)
+      - geteuid() returns the effective user ID (current privilege level)
+      Both return 0 for root, but geteuid() is more commonly used since it reflects
+      the current effective privileges (e.g., after setuid).
+
+      Per the PR description, Keno notes: "There are more failures, but I'll look at
+      those in a follow-up" - indicating this is partial coverage of root-related test issues.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Skip REPL completion test for unreadable symlinks when running as root"
+      component: "TestSuite/REPL"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/test/replcompletions.jl"
+          loc: "1251-1255"
+          url: "https://github.com/JuliaLang/julia/blob/e0e743f725910b8acff4896d5e5c0637481bf272/stdlib/REPL/test/replcompletions.jl#L1251-L1255"
+          snippet: |
+            c,r = test_scomplete("replcompletions-link")
+            if !Sys.isunix() || Libc.getuid() != 0
+                # Root bypasses permissions
+                @test isempty(c)
+            end
+
+    - summary: "Handle root user in temp file cleanup tests where deletion cannot be prevented"
+      component: "TestSuite/File"
+      evidence:
+        - source: "code"
+          path: "test/file.jl"
+          loc: "284-293"
+          url: "https://github.com/JuliaLang/julia/blob/e0e743f725910b8acff4896d5e5c0637481bf272/test/file.jl#L284-L293"
+          snippet: |
+            if Libc.geteuid() == 0
+                # Root can delete anything
+                @test !isfile(t)
+            else
+                npending += 1
+                @test isfile(t)
+                @test length(TEMP_CLEANUP) == npending
+                @test TEMP_CLEANUP_MAX[] == 3
+                push!(temps, t)
+            end
+        - source: "code"
+          path: "test/file.jl"
+          loc: "315-324"
+          url: "https://github.com/JuliaLang/julia/blob/e0e743f725910b8acff4896d5e5c0637481bf272/test/file.jl#L315-L324"
+          snippet: |
+            if Libc.geteuid() == 0
+                # Root can delete anything
+                @test !isdir(t)
+            else
+                @test isdir(t)
+                npending += 1
+                @test length(TEMP_CLEANUP) == npending
+                @test TEMP_CLEANUP_MAX[] == 3
+                push!(temps, t)
+            end
+
+    - summary: "Skip stat error tests when running as root since root bypasses permission checks"
+      component: "TestSuite/File"
+      evidence:
+        - source: "code"
+          path: "test/file.jl"
+          loc: "436-448"
+          url: "https://github.com/JuliaLang/julia/blob/e0e743f725910b8acff4896d5e5c0637481bf272/test/file.jl#L436-L448"
+          snippet: |
+            function test_stat_error(stat::Function, pth)
+                if stat === lstat && !(pth isa AbstractString)
+                    return # no lstat for fd handles
+                end
+                if Libc.geteuid() == 0
+                    return # root bypasses permission checks
+                end
+                ex = try; stat(pth); false; catch ex; ex; end::Base.IOError
+                @test ex.code == (pth isa AbstractString ? Base.UV_EACCES : Base.UV_EBADF)
+                pth isa AbstractString || (pth = Base.INVALID_OS_HANDLE)
+                @test startswith(ex.msg, "stat($(repr(pth)))")
+                nothing
+            end
+
+    - summary: "Handle container-restricted uid/gid ranges in chown tests"
+      component: "TestSuite/File"
+      evidence:
+        - source: "code"
+          path: "test/file.jl"
+          loc: "573-593"
+          url: "https://github.com/JuliaLang/julia/blob/e0e743f725910b8acff4896d5e5c0637481bf272/test/file.jl#L573-L593"
+          snippet: |
+            read_linux_id_map_max(file) = parse(Int, split(strip(read(file, String)), " ", keepempty = false)[end]) % Cint
+            if !Sys.iswindows()
+                # chown will give an error if the user does not have permissions to change files
+                uid = Libc.geteuid()
+                @test stat(file).uid == uid
+                @test uid == Libc.getuid()
+                maxuid = maxgid = -1
+                # Containers may have restricted uid/gid ranges
+                if Sys.islinux() && isfile("/proc/self/uid_map")
+                    maxuid = read_linux_id_map_max("/proc/self/uid_map")
+                    maxgid = read_linux_id_map_max("/proc/self/gid_map")
+                end
+                if uid == 0 # root user
+                    chown(file, maxuid-1, -1)  # Change the file owner to nobody
+                    @test maxuid == 1 || stat(file).uid != 0
+                    chown(file, 0, maxgid-1)  # Change the file group to nogroup (and owner back to root)
+                    @test maxgid == 1 || stat(file).gid != 0
+                    @test stat(file).uid == 0
+                    @test chown(file, -1, 0) == file
+                    @test stat(file).gid == 0
+                    @test stat(file).uid == 0
+
+    - summary: "Skip rm non-empty directory test when root can override permissions"
+      component: "TestSuite/File"
+      evidence:
+        - source: "code"
+          path: "test/file.jl"
+          loc: "1893-1899"
+          url: "https://github.com/JuliaLang/julia/blob/e0e743f725910b8acff4896d5e5c0637481bf272/test/file.jl#L1893-L1899"
+          snippet: |
+            # But a non-empty directory is not
+            if Libc.geteuid() != 0 # root can override permissions
+                @test_throws Base.IOError rm(joinpath(d, "nonempty"); recursive=true)
+                chmod(joinpath(d, "nonempty"), 0o777)
+            end
+            rm(joinpath(d, "nonempty"); recursive=true, force=true)
+            @test !isdir(joinpath(d, "nonempty"))
+
+    - summary: "Skip isreadable/iswritable tests when running as root"
+      component: "TestSuite/File"
+      evidence:
+        - source: "code"
+          path: "test/file.jl"
+          loc: "2061-2068"
+          url: "https://github.com/JuliaLang/julia/blob/e0e743f725910b8acff4896d5e5c0637481bf272/test/file.jl#L2061-L2068"
+          snippet: |
+            chmod(fpath, 0o444)
+            @test !Sys.isexecutable(fpath)
+            @test Sys.isreadable(fpath)
+            @test !Sys.iswritable(fpath) skip=Libc.getuid() == 0
+            chmod(fpath, 0o244)
+            @test !Sys.isexecutable(fpath)
+            @test !Sys.isreadable(fpath) skip=(Sys.iswindows() || Libc.getuid() == 0)
+            @test Sys.iswritable(fpath) skip=Sys.iswindows()
+
+    - summary: "Skip precompile include_dependency permission error tests when running as root"
+      component: "TestSuite/Precompile"
+      evidence:
+        - source: "code"
+          path: "test/precompile.jl"
+          loc: "2246-2263"
+          url: "https://github.com/JuliaLang/julia/blob/e0e743f725910b8acff4896d5e5c0637481bf272/test/precompile.jl#L2246-L2263"
+          snippet: |
+            chmod(fname, 0x000)
+            @test try
+                include_dependency(fname); false
+            catch e
+                @test e isa SystemError
+                @test e.prefix == "opening file or folder $(repr(fname))"
+                true
+            end skip = (Sys.isunix() && Libc.geteuid() == 0)
+            dir = mktempdir() do dir
+                @test include_dependency(dir) === nothing
+                chmod(dir, 0x000)
+                @test try
+                     include_dependency(dir); false
+                catch e
+                    @test e isa SystemError
+                    @test e.prefix == "opening file or folder $(repr(dir))"
+                    true
+                end skip = (Sys.isunix() && Libc.geteuid() == 0)
+
+    - summary: "Handle Sys.which finding executables when root bypasses directory permissions"
+      component: "TestSuite/SysInfo"
+      evidence:
+        - source: "code"
+          path: "test/sysinfo.jl"
+          loc: "37-43"
+          url: "https://github.com/JuliaLang/julia/blob/e0e743f725910b8acff4896d5e5c0637481bf272/test/sysinfo.jl#L37-L43"
+          snippet: |
+            if Libc.geteuid() == 0
+                # Root bypasses permission checks
+                @test abspath(Base.Sys.which("foo")) == abspath(joinpath(firstdir, "foo"))
+            else
+                @test abspath(Base.Sys.which("foo")) == abspath(joinpath(seconddir, "foo"))
+            end
+
+  secondary_effects: []
+
+  compatibility:
+    internal_api: []
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "This PR only modifies test files, not any compiler or runtime code"
+      - "All changes are defensive additions to skip or adjust tests when running as root"
+      - "No functional changes to Julia's behavior - only test infrastructure improvements"
+      - "Tests now properly account for Unix root user bypassing permission checks"
+
+  open_questions: []
+
+  recommendations:
+    - "No action required for downstream packages - this is a test-only change"
+    - "Packages running their own tests as root may benefit from similar patterns:"
+    - |
+      Pattern 1 - Skip entire test block when root:
+        if Libc.geteuid() != 0
+            @test_throws Base.IOError some_permission_test()
+        end
+    - |
+      Pattern 2 - Use skip= keyword argument for individual tests:
+        @test !Sys.iswritable(path) skip=Libc.getuid() == 0
+    - |
+      Pattern 3 - Handle container uid/gid restrictions via /proc/self/uid_map:
+        if Sys.islinux() && isfile("/proc/self/uid_map")
+            maxuid = parse(Int, split(strip(read("/proc/self/uid_map", String)), " ", keepempty=false)[end])
+        end
+    - "Use geteuid() when checking effective privileges (most common); use getuid() for real user checks"
+
+downstream_impact:
+  affects_inference: false
+  affects_codegen: false
+  affects_optimizer: false
+  affects_lowering: false
+  affects_runtime: false
+
+  packages:
+    - name: "All downstream packages"
+      impact: "none"
+      reason: "This is a test-only change with no functional modifications to Julia"
+
+summary: |
+  PR 60033 is a test infrastructure improvement that makes Julia's test suite pass when
+  running as root (uid 0). On Unix systems, root bypasses file permission checks, so tests
+  that rely on permission denial (e.g., chmod to 000 and expect read/write failures) fail
+  when run as root. This is common in container environments where processes may run as
+  container root.
+
+  The changes add checks for `Libc.geteuid() == 0` or `Libc.getuid() == 0` to:
+  - Skip tests that expect permission errors (stat errors, include_dependency errors)
+  - Adjust expected behavior when root can delete files that normal users cannot
+  - Handle container-restricted uid/gid ranges via /proc/self/uid_map for chown tests
+  - Account for root bypassing directory execute permissions in Sys.which() tests
+
+  Files modified (all test files):
+  - stdlib/REPL/test/replcompletions.jl: REPL symlink completion test
+  - test/file.jl: temp cleanup, stat errors, chown, rm, isreadable/iswritable tests
+  - test/precompile.jl: include_dependency permission error tests
+  - test/sysinfo.jl: Sys.which PATH traversal test
+
+  This PR has NO impact on downstream packages as it modifies only test files.
+  The PR author notes additional root-related test failures may be addressed in follow-up work.

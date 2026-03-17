@@ -1,0 +1,151 @@
+schema_version: "1.0"
+pr:
+  number: 60357
+  title: "Fix `replace_beginend` with `kw`"
+  url: "https://github.com/JuliaLang/julia/pull/60357"
+  author: "mlechu"
+  labels:
+    - "JuliaLowering"
+  merged_at: "2025-12-11T00:28:00Z"
+  merge_commit_sha: "1806b0bc31d262ed7181162f6caeb8e8b944ddae"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60357.diff"
+scope:
+  files_touched:
+    - "JuliaLowering/src/desugaring.jl"
+    - "JuliaLowering/test/arrays.jl"
+  components:
+    - "JuliaLowering"
+  pipeline_stages:
+    - "Lowering"
+analysis:
+  intent:
+    summary: "Match flisp behavior by avoiding begin/end replacement in keyword argument names inside indexing expressions."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60309"
+  direct_changes:
+    - summary: "Handle K\"kw\" nodes in replace_beginend so only the keyword value is rewritten, preserving keyword identifiers like var\"begin\"/var\"end\"."
+      component: "JuliaLowering/desugaring"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "581-622"
+          url: "https://github.com/JuliaLang/julia/blob/1806b0bc31d262ed7181162f6caeb8e8b944ddae/JuliaLowering/src/desugaring.jl#L581-L622"
+          snippet: |
+            function replace_beginend(ctx, ex, arr, n, splats, is_last)
+                k = kind(ex)
+                if k == K"Identifier" && ex.name_val in ("begin", "end")
+                    indexfunc = @ast ctx ex (ex.name_val == "begin" ? "firstindex" : "lastindex")::K"top"
+                    if length(splats) == 0
+                        if is_last && n == 1
+                            @ast ctx ex [K"call" indexfunc arr]
+                        else
+                            @ast ctx ex [K"call" indexfunc arr n::K"Integer"]
+                        end
+                    else
+                        splat_lengths = SyntaxList(ctx)
+                        for splat in splats
+                            push!(splat_lengths, @ast ctx ex [K"call" "length"::K"top" splat])
+                        end
+                        @ast ctx ex [K"call"
+                            indexfunc
+                            arr
+                            [K"call"
+                                "+"::K"top"
+                                (n - length(splats))::K"Integer"
+                                splat_lengths...
+                            ]
+                        ]
+                    end
+                elseif is_leaf(ex) || is_quoted(ex)
+                    ex
+                elseif k == K"ref"
+                    # inside ref, only replace within the first argument
+                    @ast ctx ex [k
+                        replace_beginend(ctx, ex[1], arr, n, splats, is_last)
+                        ex[2:end]...
+                    ]
+                elseif k == K"kw"
+                    # note from flisp
+                    # TODO: this probably should not be allowed since keyword args aren't
+                    # positional, but in this context we have just used their positions anyway
+                    @ast ctx ex [K"kw" ex[1] replace_beginend(ctx, ex[2], arr, n, splats, is_last)]
+                else
+                    mapchildren(e->replace_beginend(ctx, e, arr, n, splats, is_last), ctx, ex)
+                end
+            end
+    - summary: "Added tests asserting begin/end identifiers are preserved in keyword names, quoted identifiers, and explicit var\"end\" bindings during indexing."
+      component: "JuliaLowering/tests"
+      evidence:
+        - source: "test"
+          path: "JuliaLowering/test/arrays.jl"
+          loc: "148-160"
+          url: "https://github.com/JuliaLang/julia/blob/1806b0bc31d262ed7181162f6caeb8e8b944ddae/JuliaLowering/test/arrays.jl#L148-L160"
+          snippet: |
+            # begin/end not replaced in some cases
+            JuliaLowering.include_string(test_mod, "f(args...;kws...) = 2")
+            @test JuliaLowering.include_string(test_mod, """
+                [7,8,9][f(;var\"end\"=123, var\"begin\"=456)]
+            """) === 8
+            @test JuliaLowering.include_string(test_mod, """
+                [7,8,9][f(quote var\"end\" end)]
+            """) === 8
+            @test JuliaLowering.include_string(test_mod, """
+            let var\"end\" = [1,2,3], y = [7,8,9]
+                y[var\"end\"[var\"end\"]]
+            end
+            """) === 9
+  secondary_effects:
+    - effect: "Keyword-argument names that are literally begin/end no longer get rewritten to firstindex/lastindex during indexing desugaring."
+      mechanism: |
+        Call chain (top-down):
+        expand_forms_2(ctx, ex) handles K"ref"  [desugaring.jl:4548-4560]
+          emits getindex call with rewritten indices
+        -> expand_ref_components(sctx, ex)  [desugaring.jl:651-662]
+          uses process_indices for ref nodes
+        -> process_indices(sctx, arr, idxs)  [desugaring.jl:629-645]
+          calls replace_beginend for each index expression
+        -> replace_beginend(ctx, ex, arr, n, splats, is_last)  [desugaring.jl:581-622]
+          NEW: handles K"kw" (lines 614-618) by rewriting only ex[2] (keyword value)
+          preserves ex[1] (keyword name) unchanged, preventing var"begin"/var"end" from becoming firstindex/lastindex
+      downstream_surfaces:
+        - "Indexing lowering (getindex/setindex!/dotview)"
+        - "Macros/tools that reason about lowered SyntaxTree for array refs"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "Index expressions that include keyword arguments with names var\"begin\"/var\"end\" now preserve those identifiers instead of rewriting them to firstindex/lastindex calls."
+        affected_surfaces:
+          - "Lowered syntax for array refs with keyword argument indices"
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/arrays.jl"
+            loc: "148-160"
+            url: "https://github.com/JuliaLang/julia/blob/1806b0bc31d262ed7181162f6caeb8e8b944ddae/JuliaLowering/test/arrays.jl#L148-L160"
+            snippet: |
+              # begin/end not replaced in some cases
+              JuliaLowering.include_string(test_mod, "f(args...;kws...) = 2")
+              @test JuliaLowering.include_string(test_mod, """
+                  [7,8,9][f(;var\"end\"=123, var\"begin\"=456)]
+              """) === 8
+              @test JuliaLowering.include_string(test_mod, """
+                  [7,8,9][f(quote var\"end\" end)]
+              """) === 8
+              @test JuliaLowering.include_string(test_mod, """
+              let var\"end\" = [1,2,3], y = [7,8,9]
+                  y[var\"end\"[var\"end\"]]
+              end
+              """) === 9
+  performance:
+    compile_time: []
+    runtime: []
+  risk:
+    level: "low"
+    rationale:
+      - "Change is localized to lowering of begin/end within keyword argument nodes in indexing expressions."
+      - "Tests lock in the intended behavior for keyword names and quoted identifiers."
+  open_questions:
+    - "The TODO comment at desugaring.jl:616-617 notes that keyword args 'probably should not be allowed' in indexing since they aren't positional. Should this be a syntax error instead of silently preserving the keyword name?"
+  recommendations:
+    - "Downstream tooling that inspects lowered SyntaxTree for array refs should ensure keyword name identifiers are preserved and only keyword values are eligible for begin/end rewriting."

@@ -1,0 +1,237 @@
+schema_version: "1.0"
+pr:
+  number: 59785
+  title: "Fix missing GC root"
+  url: "https://github.com/JuliaLang/julia/pull/59785"
+  author: "Keno"
+  labels:
+    - "compiler:codegen"
+    - "bugfix"
+  merged_at: "2025-10-08T21:28:25Z"
+  merge_commit_sha: "6941f2e331ada1e93a3aa229c4c8629cc90426f7"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59785.diff"
+scope:
+  files_touched:
+    - "src/julia.h"
+    - "src/rtutils.c"
+  components:
+    - "Runtime"
+    - "GC"
+  pipeline_stages:
+    - "Runtime"
+analysis:
+  intent:
+    summary: "Fix a missing GC root in jl_type_error_global introduced by PR #59766. The function was not protecting its MAYBE_UNROOTED arguments before calling allocation functions, and jl_module_globalref was incorrectly annotated as JL_GLOBALLY_ROOTED instead of JL_PROPAGATES_ROOT."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59766#discussion_r2414581780"
+    context: |
+      PR #59766 ("Align interpreter and codegen error behavior of setglobal! and friends")
+      introduced jl_type_error_global to emit TypeError for global assignment type mismatches.
+      The original code incorrectly:
+      1. Annotated jl_module_globalref return value as JL_GLOBALLY_ROOTED (implying it never needs rooting)
+      2. Did not protect the JL_MAYBE_UNROOTED parameters before allocating jl_new_struct
+
+      PR #59785 fixes both issues within 24 hours of the original PR's merge.
+  direct_changes:
+    - summary: "Change jl_module_globalref GC annotation from JL_GLOBALLY_ROOTED to JL_PROPAGATES_ROOT, reflecting that the returned GlobalRef is rooted through the module argument rather than globally."
+      component: "Runtime / Headers"
+      evidence:
+        - source: "code"
+          path: "src/julia.h"
+          loc: "2019"
+          url: "https://github.com/JuliaLang/julia/blob/6941f2e331ada1e93a3aa229c4c8629cc90426f7/src/julia.h#L2019"
+          snippet: |
+            JL_DLLEXPORT jl_value_t *jl_module_globalref(jl_module_t *m JL_PROPAGATES_ROOT, jl_sym_t *var);
+        - source: "code"
+          path: "src/module.c"
+          loc: "1132-1138"
+          url: "https://github.com/JuliaLang/julia/blob/6941f2e331ada1e93a3aa229c4c8629cc90426f7/src/module.c#L1132-L1138"
+          snippet: |
+            JL_DLLEXPORT jl_value_t *jl_module_globalref(jl_module_t *m, jl_sym_t *var)
+            {
+                jl_binding_t *b = jl_get_module_binding(m, var, 1);
+                jl_globalref_t *globalref = b->globalref;
+                assert(globalref != NULL);
+                return (jl_value_t*)globalref;
+            }
+        - source: "annotation_semantics"
+          path: "src/support/analyzer_annotations.h"
+          loc: "13-18"
+          url: "https://github.com/JuliaLang/julia/blob/6941f2e331ada1e93a3aa229c4c8629cc90426f7/src/support/analyzer_annotations.h#L13-L18"
+          snippet: |
+            #define JL_PROPAGATES_ROOT __attribute__((annotate("julia_propagates_root")))
+            #define JL_MAYBE_UNROOTED __attribute__((annotate("julia_maybe_unrooted")))
+            #define JL_GLOBALLY_ROOTED __attribute__((annotate("julia_globally_rooted")))
+
+            // JL_GLOBALLY_ROOTED: return value is a permanent root, never needs protection
+            // JL_PROPAGATES_ROOT: return value's lifetime tied to annotated argument
+    - summary: "Add JL_GC_PUSH2 to protect expected and got arguments in jl_type_error_global before allocation via jl_new_struct."
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/rtutils.c"
+          loc: "124-132"
+          url: "https://github.com/JuliaLang/julia/blob/6941f2e331ada1e93a3aa229c4c8629cc90426f7/src/rtutils.c#L124-L132"
+          snippet: |
+            JL_DLLEXPORT void JL_NORETURN jl_type_error_global(const char *fname, jl_module_t *mod, jl_sym_t *sym,
+                                                           jl_value_t *expected JL_MAYBE_UNROOTED,
+                                                           jl_value_t *got JL_MAYBE_UNROOTED)
+            {
+                jl_value_t *gr = jl_module_globalref(mod, sym);
+                JL_GC_PUSH2(&expected, &got);  // <-- FIX: root before jl_new_struct
+                jl_value_t *ex = jl_new_struct(jl_typeerror_type, jl_symbol(fname), gr, expected, got);
+                jl_throw(ex);
+            }
+        - source: "comparison"
+          path: "src/rtutils.c"
+          loc: "113-122"
+          url: "https://github.com/JuliaLang/julia/blob/6941f2e331ada1e93a3aa229c4c8629cc90426f7/src/rtutils.c#L113-L122"
+          snippet: |
+            // jl_type_error_rt follows correct pattern - roots BEFORE any allocation:
+            JL_DLLEXPORT void JL_NORETURN jl_type_error_rt(const char *fname, const char *context,
+                                                           jl_value_t *expected JL_MAYBE_UNROOTED,
+                                                           jl_value_t *got JL_MAYBE_UNROOTED)
+            {
+                jl_value_t *ctxt=NULL;
+                JL_GC_PUSH3(&ctxt, &expected, &got);  // <-- root FIRST
+                ctxt = jl_pchar_to_string((char*)context, strlen(context));
+                jl_value_t *ex = jl_new_struct(jl_typeerror_type, jl_symbol(fname), ctxt, expected, got);
+                jl_throw(ex);
+            }
+  secondary_effects:
+    - effect: "Corrects potential use-after-free/GC corruption when jl_type_error_global is called with unrooted expected/got values that could be collected during jl_new_struct allocation."
+      mechanism: |
+        jl_type_error_global(fname, mod, sym, expected, got) [rtutils.c:124-132]
+          expected and got are marked JL_MAYBE_UNROOTED (caller may not root them)
+          -> jl_module_globalref(mod, sym) [module.c:1132-1138]
+            returns globalref rooted through module (JL_PROPAGATES_ROOT)
+          -> jl_new_struct(jl_typeerror_type, ...) can trigger GC
+            without JL_GC_PUSH2, expected and got may be collected
+          -> use of collected pointers in struct fields = memory corruption
+
+        BEFORE FIX: expected/got could be GC'd during jl_new_struct
+        AFTER FIX: JL_GC_PUSH2 protects expected/got for duration of function
+      downstream_surfaces:
+        - "Any code path that triggers TypeError for global assignment type mismatches"
+        - "setglobal!/swapglobal!/replaceglobal!/modifyglobal!/setglobalonce! type errors"
+      likelihood: high
+      impact: high
+    - effect: "Subtle ordering concern: jl_module_globalref can also trigger GC via jl_get_module_binding allocation, before JL_GC_PUSH2 is executed."
+      mechanism: |
+        Call chain showing potential GC before JL_GC_PUSH2:
+
+        jl_type_error_global [rtutils.c:124-132]
+          -> jl_module_globalref(mod, sym) [module.c:1132-1138]
+            -> jl_get_module_binding(m, var, 1) [module.c:1522-1568]
+              if binding doesn't exist (alloc=1):
+                -> jl_alloc_svec_uninit(ncl) [module.c:1551] <- CAN TRIGGER GC
+                -> new_binding(m, var) [module.c:1560]
+                  -> jl_gc_alloc(...) [module.c:768] <- CAN TRIGGER GC
+          -> JL_GC_PUSH2(&expected, &got)  // <-- rooting happens AFTER potential GC
+
+        MITIGATING FACTORS:
+        1. Type errors only occur for existing globals, so binding typically exists
+        2. Conservative stack scan may find expected/got as live pointers
+        3. In practice, caller jl_check_binding_assign_value roots both values
+
+        Evidence from caller [module.c:1889-1902]:
+        jl_value_t *jl_check_binding_assign_value(jl_binding_t *b JL_PROPAGATES_ROOT,
+            jl_module_t *mod, jl_sym_t *var, jl_value_t *rhs JL_MAYBE_UNROOTED, const char *msg)
+        {
+            JL_GC_PUSH1(&rhs);  // <-- rhs (=got) rooted by caller
+            // ...
+            jl_value_t *old_ty = ... bpart->restriction;
+            JL_GC_PROMISE_ROOTED(old_ty);  // <-- old_ty (=expected) rooted by caller
+            if (...) {
+                jl_type_error_global(msg, mod, var, old_ty, rhs);
+            }
+        }
+      downstream_surfaces:
+        - "Theoretical edge case in jl_type_error_global if called with truly unrooted values"
+      likelihood: low
+      impact: low
+    - effect: "GC analyzer (clang static analyzer) will now correctly track rooting requirements for jl_module_globalref callers."
+      mechanism: |
+        JL_GLOBALLY_ROOTED annotation tells analyzer: return value never needs rooting
+        JL_PROPAGATES_ROOT annotation tells analyzer: return value rooted through argument
+
+        Callers of jl_module_globalref must now ensure the module argument is rooted
+        for the lifetime of the returned globalref usage. The analyzer can detect
+        if callers fail to maintain this invariant.
+
+        Verified callers with rooting status (rg "jl_module_globalref" julia/src/):
+
+        staticdata.c:4166 - jl_module_globalref(r->mod, r->name)
+          r is from deserialization context, mod is rooted through caller's GC frame
+
+        ast.c:518 - jl_module_globalref((jl_module_t*)ex, (jl_sym_t*)temp)
+          ex is result of scm_to_julia_ in same scope, rooted by caller
+
+        ast.c:524 - jl_module_globalref(jl_base_relative_to(mod), (jl_sym_t*)ex)
+          jl_base_relative_to returns globally rooted module
+
+        ast.c:529 - jl_module_globalref(jl_core_module, (jl_sym_t*)ex)
+          jl_core_module is globally rooted
+
+        ircode.c:746 - jl_module_globalref(mod, var)
+          mod has JL_GC_PROMISE_ROOTED on line 743
+
+        ircode.c:914 - jl_module_globalref(m->module, (jl_sym_t*)v)
+          m is s->method with JL_GC_PROMISE_ROOTED on line 911
+
+        rtutils.c:128 - jl_module_globalref(mod, sym)
+          mod is function parameter, kept live by caller
+      downstream_surfaces:
+        - "Clang GC analyzer static analysis correctness"
+        - "Future C code calling jl_module_globalref"
+      likelihood: medium
+      impact: low
+  compatibility:
+    internal_api:
+      - field: "jl_module_globalref signature"
+        change: "GC annotation changed from JL_GLOBALLY_ROOTED (on return) to JL_PROPAGATES_ROOT (on module parameter)."
+        affected_tools:
+          - tool: "C extensions"
+            usage: "Any C code calling jl_module_globalref must ensure the module argument remains rooted for the lifetime of the returned GlobalRef usage."
+          - tool: "Clang GC static analyzer"
+            usage: "Will now require proper rooting analysis for callers of jl_module_globalref. Code that passed analysis before may now fail if module rooting was inadequate."
+    behavioral: []
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: zero. This is a header annotation change and one additional GC push/pop."
+    runtime:
+      - impact: |
+          ESTIMATED: negligible. JL_GC_PUSH2 adds minimal overhead:
+          - Two pointer stores to GC frame (stack)
+          - One increment of GC frame pointer
+          - Only on error paths that are about to throw anyway
+          - Never on hot paths (type errors are exceptional conditions)
+  risk:
+    level: low
+    rationale:
+      - "This is a correctness fix for a potential GC bug, not a behavioral change."
+      - "The change is minimal: one annotation correction and one GC root addition."
+      - "The affected code path (jl_type_error_global) was only introduced in the immediately preceding PR #59766."
+      - "The fix follows established patterns - compare with jl_type_error_rt which correctly uses JL_GC_PUSH3."
+      - "The PR was authored by Keno (Julia core developer) who also authored the original PR #59766."
+  open_questions:
+    - "Are there other callers of jl_module_globalref that relied on the incorrect JL_GLOBALLY_ROOTED annotation and now need rooting fixes?"
+    - "Should jl_type_error_global also root the gr return value, or is relying on JL_PROPAGATES_ROOT through mod sufficient?"
+    - "Should JL_GC_PUSH2 be moved before jl_module_globalref to protect expected/got during potential allocation in jl_get_module_binding? (In practice mitigated by caller rooting and fact that bindings exist for type errors)"
+    - "Should jl_symbol(fname) be moved outside of jl_new_struct arguments to make evaluation order more explicit? (jl_symbol is JL_NOTSAFEPOINT so this is not a correctness issue)"
+  recommendations:
+    - "C extension authors calling jl_module_globalref should audit their code to ensure the module argument is rooted for the lifetime of GlobalRef usage."
+    - "Consider running the Clang GC analyzer on Julia C code to detect similar rooting issues elsewhere."
+    - "The pattern in jl_type_error_rt (using JL_GC_PUSH before any allocations including the first) should be followed consistently in all error-throwing functions."
+    - "When adding new API functions with JL_MAYBE_UNROOTED parameters, consider placing JL_GC_PUSH at function entry before any potential GC points."
+reviewer_notes:
+  independent_verification: |
+    Verified by examining actual code in Julia repo at commit 6941f2e331ada1e93a3aa229c4c8629cc90426f7:
+    - Confirmed jl_module_globalref implementation calls jl_get_module_binding(m, var, 1)
+    - Confirmed jl_get_module_binding can allocate via jl_alloc_svec_uninit and new_binding
+    - Confirmed new_binding calls jl_gc_alloc which is a GC safepoint
+    - Confirmed jl_symbol is marked JL_NOTSAFEPOINT (cannot trigger GC)
+    - Verified all callers of jl_module_globalref have proper module rooting
+    - Confirmed jl_check_binding_assign_value (the actual caller) roots both values
+  enhancement_date: "2026-01-21"
+  original_analysis_quality: "Good - identified core issues and provided correct call chains. Enhanced with deeper analysis of jl_get_module_binding allocation path and caller rooting verification."

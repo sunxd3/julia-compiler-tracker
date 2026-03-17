@@ -1,0 +1,219 @@
+schema_version: "1.0"
+
+pr:
+  number: 60006
+  title: "REPL: make interactive precompiles test more robust"
+  url: "https://github.com/JuliaLang/julia/pull/60006"
+  author: "IanButterworth"
+  labels:
+    - "backport 1.12"
+    - "backport 1.13"
+  merged_at: "2025-11-01T10:45:24Z"
+  merge_commit_sha: "a933cf4f8b061cb9fdb5b4a5d44c2c3c04b79de6"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60006.diff"
+  reviewers:
+    - "vtjnash"
+    - "Keno"
+  backported_to:
+    - "1.12.2"
+    - "1.13.0-alpha1"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/test/precompilation.jl"
+  components:
+    - "REPL"
+    - "Test"
+  pipeline_stages: []
+  is_compiler_change: false
+
+analysis:
+  intent:
+    summary: |
+      Fix a flaky REPL test that checks for no precompilation during interactive startup.
+      The test was failing intermittently on CI because it used a `sleep(1)` to wait for
+      precompile output, which was insufficient in some cases.
+    issue_links:
+      - "https://buildkite.com/organizations/julialang/analytics/suites/julialang-base/tests/9edb60ba-fd1d-88fa-a5f0-205fa951d302?period=1day"
+
+  direct_changes:
+    - summary: |
+        Replace sleep-based wait with deterministic prompt-based synchronization in the
+        interactive precompilation test. Instead of sleeping for 1 second and hoping
+        precompilation is done, the test now sends additional newlines and waits for
+        the corresponding prompts to ensure the REPL is truly idle before reading
+        trace-compile output.
+      component: "REPL/test"
+      mechanism: |
+        The synchronization pattern works as follows:
+        1. Wait for initial "julia>" prompt (REPL startup complete)
+        2. Send newline via @async (non-blocking write)
+        3. Wait for next "julia>" prompt (REPL processed empty input)
+        4. Repeat step 2-3 to ensure no pending background work
+        5. Only then read trace-compile output
+
+        This is more robust than sleep(1) because it synchronizes on REPL state,
+        not wall-clock time. The REPL only prints a prompt when idle.
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/test/precompilation.jl"
+          loc: "21-34"
+          url: "https://github.com/JuliaLang/julia/blob/a933cf4f8b061cb9fdb5b4a5d44c2c3c04b79de6/stdlib/REPL/test/precompilation.jl#L21-L34"
+          snippet: |
+            cmd = addenv(`$(Base.julia_cmd()) --trace-compile=$f -q --startup-file=no -i`,
+                         Dict("TERM" => ""))
+            pts, ptm = open_fake_pty()
+            p = run(cmd, pts, pts, pts; wait=false)
+            Base.close_stdio(pts)
+            std = readuntil(ptm, "julia>")
+            # check for newlines instead of equality with "julia>" because color may be on
+            occursin("\n", std) && @info "There was output before the julia prompt:\n$std"
+            @async write(ptm, "\n")  # another prompt
+            readuntil(ptm, "julia>")
+            @async write(ptm, "\n")  # another prompt
+            readuntil(ptm, "julia>")
+            tracecompile_out = read(f, String)
+            close(ptm) # close after reading so we don't get precompiles from error shutdown
+
+    - summary: |
+        Change from Base.julia_cmd()[1] to Base.julia_cmd() to propagate parent session
+        flags (compile mode, depwarn, bounds checking, etc.) to the test subprocess.
+        This ensures the test runs under conditions matching the parent Julia session.
+      component: "REPL/test"
+      mechanism: |
+        Base.julia_cmd() returns a Cmd with the Julia executable plus inherited flags:
+        - --compile={yes|no|all|min}
+        - --depwarn={yes|no|error}
+        - --check-bounds={yes|no}
+        - --inline={yes|no}
+        - and other session options
+
+        Base.julia_cmd()[1] returns only the executable path without any flags.
+
+        Using the full command ensures the test subprocess has the same compilation
+        behavior as the parent, which is more representative of actual usage.
+      evidence:
+        - source: "code"
+          path: "base/util.jl"
+          loc: "171-220"
+          url: "https://github.com/JuliaLang/julia/blob/a933cf4f8b061cb9fdb5b4a5d44c2c3c04b79de6/base/util.jl#L171-L220"
+          snippet: |
+            function julia_cmd(julia=joinpath(Sys.BINDIR, julia_exename()); cpu_target::Union{Nothing,String} = nothing)
+                opts = JLOptions()
+                if cpu_target === nothing
+                    cpu_target = unsafe_string(opts.cpu_target)
+                end
+                image_file = unsafe_string(opts.image_file)
+                addflags = String[]
+                let compile = if opts.compile_enabled == 0
+                              "no"
+                          elseif opts.compile_enabled == 2
+                              "all"
+                          elseif opts.compile_enabled == 3
+                              "min"
+                          else
+                              "" # default = "yes"
+                          end
+                    isempty(compile) || push!(addflags, "--compile=$compile")
+                end
+                # ... continues with depwarn, check_bounds, inline, etc.
+
+  secondary_effects:
+    - effect: "Test may now inherit compilation flags from parent session"
+      mechanism: |
+        Using Base.julia_cmd() instead of Base.julia_cmd()[1] means the test
+        subprocess inherits flags like --compile=, --depwarn=, --check-bounds=
+        from the parent Julia session. This could theoretically affect test
+        behavior if the parent runs with non-default options.
+      downstream_surfaces: []
+      likelihood: "low"
+      impact: "low"
+      notes: |
+        In practice, CI runs with default settings, so this change has no
+        observable effect. The test explicitly sets -q --startup-file=no -i
+        which override most behavior anyway.
+
+  compatibility:
+    internal_api: []
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "This is a test-only change with no impact on Julia runtime or compiler behavior"
+      - "The change improves test reliability without altering what is being tested"
+      - "No changes to any production code paths"
+
+  downstream_impact:
+    affected_packages: []
+    notes: |
+      This PR has NO downstream impact. It modifies only a test file in the REPL stdlib
+      and does not change any compiler, runtime, or API behavior. Downstream packages
+      like Turing.jl, Enzyme.jl, GPUCompiler, or JET are completely
+      unaffected.
+
+  open_questions:
+    - "Seven other locations still use julia_cmd()[1] - should they be updated too?"
+    - "Could similar prompt-based synchronization improve other flaky REPL tests?"
+
+  recommendations:
+    - "No action needed for downstream package maintainers"
+    - "This is purely a CI test reliability fix"
+    - "The prompt-based synchronization pattern (write newline, wait for prompt) is a robust alternative to sleep() in REPL tests"
+
+  codebase_notes:
+    similar_patterns:
+      - path: "stdlib/REPL/test/repl.jl:1865"
+        still_uses: "Base.julia_cmd()[1]"
+      - path: "stdlib/REPL/test/repl.jl:1874"
+        still_uses: "Base.julia_cmd()[1]"
+      - path: "stdlib/REPL/test/repl.jl:1878"
+        still_uses: "Base.julia_cmd()[1]"
+      - path: "stdlib/REPL/test/bad_history_startup.jl:17"
+        still_uses: "Base.julia_cmd()[1]"
+      - path: "test/cmdlineargs.jl:533"
+        still_uses: "Base.julia_cmd()[1]"
+      - path: "Compiler/test/special_loading.jl:9"
+        still_uses: "Base.julia_cmd()[1]"
+      - path: "Compiler/test/invalidation.jl:354"
+        still_uses: "Base.julia_cmd()[1]"
+    notes: |
+      These other uses of julia_cmd()[1] may be intentional (to avoid propagating
+      parent flags) or could potentially be updated for consistency. The choice
+      depends on whether the test should inherit parent session options.
+
+classification:
+  type: "test-infrastructure"
+  compiler_relevant: false
+  downstream_relevant: false
+  summary: |
+    Test-only change that fixes a flaky REPL precompilation test by replacing
+    an unreliable sleep(1) with deterministic prompt-based synchronization.
+    No compiler or runtime changes. No downstream impact.
+
+review_enhancement:
+  reviewed_by: "independent second analysis"
+  additional_findings:
+    - "Documented the synchronization mechanism in detail"
+    - "Traced the julia_cmd() vs julia_cmd()[1] difference to base/util.jl"
+    - "Found 7 other locations still using julia_cmd()[1]"
+    - "Added backport information (1.12.2, 1.13.0-alpha1)"
+    - "Noted reviewer approvals from vtjnash and Keno"
+  verification:
+    code_examined:
+      - "stdlib/REPL/test/precompilation.jl (full file)"
+      - "test/testhelpers/FakePTYs.jl (synchronization mechanism)"
+      - "base/util.jl (julia_cmd function definition)"
+    searches_performed:
+      - "Searched for sleep() patterns in REPL tests - none remaining"
+      - "Searched for julia_cmd()[1] usage - 7 other locations found"
+      - "Searched for open_fake_pty usage - 3 files use this helper"
+  confidence: "high"
+  notes: |
+    The original analysis correctly identified this as a low-risk, test-only
+    change. Enhancement adds technical depth about the synchronization mechanism
+    and documents related patterns in the codebase.

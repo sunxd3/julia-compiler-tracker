@@ -1,0 +1,478 @@
+schema_version: "1.0"
+pr:
+  number: 59881
+  title: "loading: More simplification"
+  url: "https://github.com/JuliaLang/julia/pull/59881"
+  author: "Keno"
+  labels: []
+  merged_at: "2025-10-30T02:19:07Z"
+  merge_commit_sha: "79f503bcf3d154d81b1370312eff9204fb2af685"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59881.diff"
+scope:
+  files_touched:
+    - "base/loading.jl"
+    - "test/loading.jl"
+  components:
+    - "Loading"
+    - "PackageResolution"
+  pipeline_stages:
+    - "PackageLoading"
+analysis:
+  intent:
+    summary: "Refactor package loading code to unify top-level package loading and dependency loading code paths, making the flow more linear and easier to follow. No behavioral changes intended."
+    issue_links: []
+  direct_changes:
+    - summary: "Unified identify_package_env into single function with Union{PkgId, Nothing} signature, removing separate overloads for top-level vs dependency lookup."
+      component: "Loading"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "336-384"
+          url: "https://github.com/JuliaLang/julia/blob/79f503bcf3d154d81b1370312eff9204fb2af685/base/loading.jl#L336-L384"
+          snippet: |
+            function identify_package_env(where::Union{PkgId, Nothing}, name::String)
+                # Special cases
+                if where !== nothing
+                    if where.name === name
+                        # Project tries to load itself
+                        return (where, nothing)
+                    elseif where.uuid === nothing
+                        # Project without Project.toml - treat as toplevel load
+                        where = nothing
+                    end
+                end
+
+                # Check if we have a cached answer for this
+                assert_havelock(require_lock)
+                cache = LOADING_CACHE[]
+                cache_key = where === nothing ? name : (where, name)
+                if cache !== nothing
+                    env_cache = where === nothing ? cache.identified : cache.identified_where
+                    pkg_env = get(env_cache, cache_key, missing)
+                    pkg_env === missing || return pkg_env
+                end
+
+                # Main part: Search through all environments in the load path
+                pkg_env = nothing
+                for env in load_path()
+                    pkgid = environment_deps_get(env, where, name)
+                    pkgid === nothing && continue
+                    if pkgid.uuid !== nothing || where === nothing
+                        pkg_env = pkgid, env
+                    end
+                    break
+                end
+                if pkg_env === nothing && where !== nothing && is_stdlib(where)
+                    pkg_env = identify_stdlib_project_dep(where, name)
+                end
+
+                # Cache the result
+                if cache !== nothing
+                    env_cache[cache_key] = pkg_env
+                end
+                return pkg_env
+            end
+            identify_package_env(name::String) = identify_package_env(nothing, name)
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "before"
+          url: "https://github.com/JuliaLang/julia/pull/59881.diff"
+          snippet: |
+            # BEFORE: Two separate functions with different logic
+            function identify_package_env(where::PkgId, name::String)
+                # ... cached lookup in cache.identified_where
+                if where.name === name
+                    return (where, nothing)
+                elseif where.uuid === nothing
+                    pkg_env = identify_package_env(name)  # Delegate to name-only version
+                else
+                    for env in load_path()
+                        pkgid = manifest_deps_get(env, where, name)  # Called manifest_deps_get
+                        # ...
+                    end
+                end
+                # ...
+            end
+            function identify_package_env(name::String)
+                # ... cached lookup in cache.identified
+                for env in load_path()
+                    pkg = project_deps_get(env, name)  # Called project_deps_get
+                    # ...
+                end
+                # ...
+            end
+    - summary: "Introduced environment_deps_get to replace both project_deps_get and manifest_deps_get, unifying environment dependency lookup."
+      component: "Loading"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "753-810"
+          url: "https://github.com/JuliaLang/julia/blob/79f503bcf3d154d81b1370312eff9204fb2af685/base/loading.jl#L753-L810"
+          snippet: |
+            function environment_deps_get(env::String, where::Union{Nothing,PkgId}, name::String)::Union{Nothing,PkgId}
+                @assert where === nothing || where.uuid !== nothing
+                project_file = env_project_file(env)
+                implicit_manifest = !(project_file isa String)
+                if implicit_manifest
+                    project_file || return nothing
+                    if where === nothing
+                        # Toplevel load with a directory (implicit manifest)
+                        pkg = implicit_manifest_pkgid(env, name)
+                        return pkg
+                    end
+                    project_file = implicit_manifest_project(env, where)
+                    project_file === nothing && return nothing
+                end
+
+                # Cases: a) loading into top-level project, b) loading into non-top-level
+                # project from implicit manifest, c) performing top-level load
+                pkg = package_get(project_file, where, name)
+                if pkg !== nothing
+                    if where === nothing && pkg.uuid === nothing
+                        # Top-level load - keep looking through environment stack
+                        return nothing
+                    end
+                    return pkg
+                end
+
+                @assert where !== nothing
+
+                # Are we an extension of a project?
+                pkg = package_extension_get(project_file, where, name)
+                pkg === nothing || return pkg
+
+                if implicit_manifest
+                    # Implicit environment has `where` but not the dependency
+                    return PkgId(name)
+                end
+
+                # All other cases, dependencies come from manifest
+                return explicit_manifest_deps_get(project_file, where, name)
+            end
+    - summary: "Removed standalone project_deps_get function, its logic is now part of environment_deps_get."
+      component: "Loading"
+      evidence:
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "removed"
+          url: "https://github.com/JuliaLang/julia/pull/59881.diff"
+          snippet: |
+            # REMOVED function:
+            function project_deps_get(env::String, name::String)::Union{Nothing,PkgId}
+                project_file = env_project_file(env)
+                if project_file isa String
+                    pkg_uuid = explicit_project_deps_get(project_file, name)
+                    pkg_uuid === nothing || return PkgId(pkg_uuid, name)
+                elseif project_file
+                    return implicit_project_deps_get(env, name)
+                end
+                return nothing
+            end
+    - summary: "Updated package_get to accept Union{Nothing, PkgId} for where parameter, enabling unified code path."
+      component: "Loading"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "718-724"
+          url: "https://github.com/JuliaLang/julia/blob/79f503bcf3d154d81b1370312eff9204fb2af685/base/loading.jl#L718-L724"
+          snippet: |
+            function package_get(project_file, where::Union{Nothing, PkgId}, name::String)
+                if where !== nothing
+                    proj = project_file_name_uuid(project_file, where.name)
+                    proj != where && return nothing
+                end
+                return package_get_here(project_file, name)
+            end
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "before"
+          url: "https://github.com/JuliaLang/julia/pull/59881.diff"
+          snippet: |
+            # BEFORE: Only accepted PkgId (not Nothing)
+            function package_get(project_file, where::PkgId, name::String)
+                proj = project_file_name_uuid(project_file, where.name)
+                proj != where && return nothing
+                return package_get_here(project_file, name)
+            end
+    - summary: "Renamed implicit_project_deps_get to implicit_manifest_pkgid with improved naming."
+      component: "Loading"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "1175-1184"
+          url: "https://github.com/JuliaLang/julia/blob/79f503bcf3d154d81b1370312eff9204fb2af685/base/loading.jl#L1175-L1184"
+          snippet: |
+            function implicit_manifest_pkgid(dir::String, name::String)::Union{Nothing,PkgId}
+                path, project_file = entry_point_and_project_file(dir, name)
+                if project_file === nothing
+                    path === nothing && return nothing
+                    return PkgId(name)
+                end
+                proj = project_file_name_uuid(project_file, name)
+                proj.name == name || return nothing
+                return proj
+            end
+    - summary: "Updated implicit_manifest_project type annotation for dir parameter from untyped to String."
+      component: "Loading"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "1186-1196"
+          url: "https://github.com/JuliaLang/julia/blob/79f503bcf3d154d81b1370312eff9204fb2af685/base/loading.jl#L1186-L1196"
+          snippet: |
+            function implicit_manifest_project(dir::String, pkg::PkgId)::Union{Nothing, String}
+                @assert pkg.uuid !== nothing
+                project_file = entry_point_and_project_file(dir, pkg.name)[2]
+                if project_file === nothing
+                    # `where` could be an extension
+                    return implicit_env_project_file_extension(dir, pkg)[2]
+                end
+                proj = project_file_name_uuid(project_file, pkg.name)
+                proj == pkg || return nothing
+                return project_file
+            end
+    - summary: "Tightened locate_package_env for pkg.uuid===nothing to ONLY search implicit manifest environments (directories without Project.toml)."
+      component: "Loading"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "443-461"
+          url: "https://github.com/JuliaLang/julia/blob/79f503bcf3d154d81b1370312eff9204fb2af685/base/loading.jl#L443-L461"
+          snippet: |
+            if pkg.uuid === nothing
+                # The project we're looking for does not have a Project.toml (n.b. - present
+                # `Project.toml` without UUID gets a path-based dummy UUID). It must have
+                # come from an implicit manifest environment, so go through those only.
+                for env in load_path()
+                    project_file = env_project_file(env)
+                    (project_file isa Bool && project_file) || continue  # <-- ONLY directories
+                    found = implicit_manifest_pkgid(env, pkg.name)
+                    if found !== nothing && found.uuid === nothing
+                        @assert found.name == pkg.name
+                        path = implicit_manifest_uuid_path(env, pkg)
+                        env' = env
+                        @goto done
+                    end
+                    if !(loading_extension || precompiling_extension)
+                        stopenv == env && @goto done
+                    end
+                end
+            end
+        - source: "diff"
+          path: "base/loading.jl"
+          loc: "before"
+          url: "https://github.com/JuliaLang/julia/pull/59881.diff"
+          snippet: |
+            # BEFORE: Searched all environments including explicit Project.toml files
+            if pkg.uuid === nothing
+                for env in load_path()
+                    # look for the toplevel pkg `pkg.name` in this entry
+                    found = project_deps_get(env, pkg.name)  # project_deps_get searched BOTH
+                    if found !== nothing
+                        @assert found.name == pkg.name
+                        if found.uuid === nothing
+                            path = implicit_manifest_uuid_path(env, pkg)
+                            env' = env
+                            @goto done
+                        end
+                    end
+                    # ...
+                end
+            end
+    - summary: "Test improvements: wrapped loading test loop in @testset let block for better test isolation and error reporting."
+      component: "Tests"
+      evidence:
+        - source: "code"
+          path: "test/loading.jl"
+          loc: "625-633"
+          url: "https://github.com/JuliaLang/julia/blob/79f503bcf3d154d81b1370312eff9204fb2af685/test/loading.jl#L625-L633"
+          snippet: |
+            @testset "find_package with one env in load path" begin
+                for idx in eachindex(envs)
+                    @testset let idx=idx  # <-- Captures loop variable for error reporting
+                        (env, (_, _, roots, graph, paths)) = envs[idx]
+                        push!(empty!(LOAD_PATH), env)
+                        test_find(roots, graph, paths)
+                    end
+                end
+            end
+  secondary_effects:
+    - effect: "Behavioral tightening in locate_package_env for packages without UUID - now only searches implicit manifest directories."
+      mechanism: |
+        Call chain with file:line references:
+
+        BEFORE (searched all environments):
+        1. locate_package_env(pkg) for pkg.uuid === nothing  [base/loading.jl:~450]
+        2. -> project_deps_get(env, pkg.name)  [base/loading.jl:718 - now removed]
+        3.   -> env_project_file(env) returns String (Project.toml) OR true (directory)
+        4.   -> If String: explicit_project_deps_get(project_file, name)
+        5.   -> If true: implicit_project_deps_get(env, name)
+
+        AFTER (only searches implicit manifest directories):
+        1. locate_package_env(pkg) for pkg.uuid === nothing  [base/loading.jl:443]
+        2. -> env_project_file(env) -> project_file  [base/loading.jl:448]
+        3. -> (project_file isa Bool && project_file) || continue  [base/loading.jl:449]
+             ^^ SKIPS Project.toml environments, only processes directories
+        4. -> implicit_manifest_pkgid(env, pkg.name)  [base/loading.jl:450]
+
+        This is a correctness improvement: packages with uuid===nothing must have come
+        from implicit manifest environments (directories without Project.toml), since
+        Project.toml files with no UUID get a path-based dummy UUID.
+      downstream_surfaces:
+        - "Package loading for legacy packages without Project.toml"
+        - "LOAD_PATH directory handling"
+        - "Edge case: environments mixing Project.toml and bare directories"
+      likelihood: "low"
+      impact: "low"
+    - effect: "Unified caching logic with dynamic cache key selection based on where parameter."
+      mechanism: |
+        Call chain with file:line references:
+        1. identify_package_env(where, name)  [base/loading.jl:336]
+        2.   cache_key = where === nothing ? name : (where, name)  [base/loading.jl:351]
+        3.   env_cache = where === nothing ? cache.identified : cache.identified_where  [base/loading.jl:353]
+        4.   pkg_env = get(env_cache, cache_key, missing)  [base/loading.jl:354]
+        5.   env_cache[cache_key] = pkg_env  [base/loading.jl:381]
+
+        This preserves the same cache structure (identified vs identified_where) but
+        uses dynamic selection within a single function instead of separate overloads.
+        Cache keys and behavior are identical to before.
+      downstream_surfaces:
+        - "Package loading performance for complex dependency graphs"
+        - "Loading cache behavior"
+      likelihood: "low"
+      impact: "low"
+    - effect: "The where.uuid === nothing case in identify_package_env now sets where = nothing instead of delegating to a separate function."
+      mechanism: |
+        Call chain with file:line references:
+        BEFORE:
+        1. identify_package_env(where::PkgId, name)  [old line ~336]
+        2.   elseif where.uuid === nothing
+        3.     pkg_env = identify_package_env(name)  # Recursive call to different overload
+
+        AFTER:
+        1. identify_package_env(where::Union{PkgId, Nothing}, name)  [base/loading.jl:336]
+        2.   elseif where.uuid === nothing
+        3.     where = nothing  [base/loading.jl:344]  # Mutate and continue in same function
+        4.   # ... continues with unified logic
+
+        This is semantically equivalent but avoids a recursive call, making the code
+        flow more linear and easier to follow.
+      downstream_surfaces:
+        - "Stack depth during package loading (very minor)"
+      likelihood: "low"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "project_deps_get function"
+        change: "REMOVED - functionality now in environment_deps_get"
+        affected_tools:
+          - tool: "Pkg.jl internals"
+            usage: "Verified: Pkg.jl and stdlib do not call Base.project_deps_get directly (rg search shows no matches in stdlib/)"
+          - tool: "Custom package loaders"
+            usage: "Any code calling Base.project_deps_get would need to use environment_deps_get with where=nothing"
+      - field: "manifest_deps_get function"
+        change: "REMOVED - functionality now in environment_deps_get"
+        affected_tools:
+          - tool: "Pkg.jl internals"
+            usage: "Verified: Pkg.jl and stdlib do not call Base.manifest_deps_get directly"
+      - field: "implicit_project_deps_get function"
+        change: "Renamed to implicit_manifest_pkgid"
+        affected_tools:
+          - tool: "Custom package loaders"
+            usage: "Any code calling implicit_project_deps_get would need to update to implicit_manifest_pkgid"
+      - field: "package_get signature"
+        change: "Now accepts Union{Nothing, PkgId} as where parameter instead of just PkgId"
+        affected_tools:
+          - tool: "Internal callers"
+            usage: "Existing calls with PkgId still work; new calls can pass nothing for top-level lookup"
+    behavioral:
+      - change: "locate_package_env for pkg.uuid===nothing now only searches implicit manifest directories"
+        severity: "low"
+        notes: |
+          This is arguably a correctness improvement, not a breaking change. Packages with
+          uuid===nothing must have come from implicit manifest environments by design -
+          Project.toml files without UUID get a path-based dummy UUID. The old code would
+          have searched Project.toml environments unnecessarily for such packages.
+      - change: "No other behavioral changes per PR description"
+        severity: "low"
+        notes: "Refactoring to make code flow more linear; semantics preserved"
+  performance:
+    compile_time: []
+    runtime:
+      - change: "Avoids recursive call in identify_package_env for where.uuid===nothing case"
+        estimate: "ESTIMATED: negligible, one less function call"
+      - change: "More linear code path with fewer branches"
+        estimate: "ESTIMATED: negligible, refactoring only"
+      - change: "locate_package_env skips Project.toml environments for uuid===nothing case"
+        estimate: "ESTIMATED: potential minor improvement for LOAD_PATH with many Project.toml entries"
+  risk:
+    level: "low"
+    rationale:
+      - "PR explicitly states 'No behavioral changes intended'"
+      - "Changes are structural refactoring to unify code paths"
+      - "The one behavioral tightening (locate_package_env for uuid===nothing) is a correctness improvement"
+      - "Test improvements suggest increased test coverage/isolation"
+      - "Author (Keno) is a core Julia developer with deep knowledge of loading system"
+      - "Verified: No downstream callers in stdlib for removed functions"
+  open_questions:
+    - "Are there any external tools (outside Julia repo) that directly call the removed project_deps_get or manifest_deps_get functions?"
+    - "Does the test improvement with @testset let catch any previously masked test failures?"
+  recommendations:
+    - "Downstream tools using Base internal loading functions should verify they don't rely on removed functions like project_deps_get or manifest_deps_get"
+    - "If you were calling project_deps_get(env, name), use environment_deps_get(env, nothing, name) instead"
+    - "If you were calling manifest_deps_get(env, where, name), use environment_deps_get(env, where, name) instead"
+    - "The refactoring makes the loading code more maintainable for future changes"
+    - "Package authors should not be affected as this is purely internal refactoring"
+  reviewer_notes:
+    added_by: "Independent review"
+    additions:
+      - "Added detailed before/after comparison for locate_package_env behavioral tightening"
+      - "Corrected line numbers to match actual source (e.g., environment_deps_get at line 753, not 812)"
+      - "Added explicit call chain traces with file:line for all secondary effects"
+      - "Verified no stdlib callers for removed functions via rg search"
+      - "Clarified that the behavioral tightening is a correctness improvement, not a regression"
+      - "Added package_get signature change as a direct change with before/after comparison"
+  evidence_search:
+    - summary: "rg results for environment_deps_get callers"
+      evidence:
+        - source: "rg"
+          path: "rg 'environment_deps_get' base/loading.jl"
+          loc: "output"
+          snippet: |
+            base/loading.jl:362:        pkgid = environment_deps_get(env, where, name)
+            base/loading.jl:753:function environment_deps_get(env::String, where::Union{Nothing,PkgId}, name::String)::Union{Nothing,PkgId}
+    - summary: "rg results for identify_package_env call sites"
+      evidence:
+        - source: "rg"
+          path: "rg 'identify_package_env' base/loading.jl"
+          loc: "output"
+          snippet: |
+            base/loading.jl:326:    pkgenv = identify_package_env(arg)
+            base/loading.jl:335:identify_package_env(where::Module, name::String) = identify_package_env(PkgId(where), name)
+            base/loading.jl:336:function identify_package_env(where::Union{PkgId, Nothing}, name::String)
+            base/loading.jl:385:identify_package_env(name::String) = identify_package_env(nothing, name)
+            base/loading.jl:430:identify_package(where::Module, name::String) = @lock require_lock _nothing_or_first(identify_package_env(where, name))
+            base/loading.jl:431:identify_package(where::PkgId, name::String)  = @lock require_lock _nothing_or_first(identify_package_env(where, name))
+            base/loading.jl:432:identify_package(name::String)                = @lock require_lock _nothing_or_first(identify_package_env(name))
+    - summary: "rg results for implicit_manifest functions"
+      evidence:
+        - source: "rg"
+          path: "rg 'implicit_manifest' base/loading.jl"
+          loc: "output"
+          snippet: |
+            base/loading.jl:450:            found = implicit_manifest_pkgid(env, pkg.name)
+            base/loading.jl:453:                path = implicit_manifest_uuid_path(env, pkg)
+            base/loading.jl:756:    implicit_manifest = !(project_file isa String)
+            base/loading.jl:757:    if implicit_manifest
+            base/loading.jl:762:            pkg = implicit_manifest_pkgid(env, name)
+            base/loading.jl:765:        project_file = implicit_manifest_project(env, where)
+            base/loading.jl:801:    if implicit_manifest
+            base/loading.jl:1175:function implicit_manifest_pkgid(dir::String, name::String)::Union{Nothing,PkgId}
+            base/loading.jl:1186:function implicit_manifest_project(dir::String, pkg::PkgId)::Union{Nothing, String}
+    - summary: "Verification that stdlib does not call removed functions"
+      evidence:
+        - source: "rg"
+          path: "rg 'project_deps_get|manifest_deps_get|implicit_project_deps_get' julia/stdlib/"
+          loc: "output"
+          snippet: |
+            No matches found

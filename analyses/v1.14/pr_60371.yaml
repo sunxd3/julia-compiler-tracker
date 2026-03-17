@@ -1,0 +1,218 @@
+schema_version: "1.0"
+pr:
+  number: 60371
+  title: "chore: fix some comments to improve readability"
+  url: "https://github.com/JuliaLang/julia/pull/60371"
+  author: "wangjingcun"
+  labels:
+    - "docs"
+  merged_at: "2025-12-12T08:51:24Z"
+  merge_commit_sha: "1d6d5667dd985dbb93b395110ba2684759e36ad1"
+  author_commit_sha: "8bb66466d1fae5ae181e309ed8e512dd5984cd45"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60371.diff"
+
+scope:
+  files_touched:
+    - "src/clangsa/GCChecker.cpp"
+    - "src/debuginfo.cpp"
+    - "src/features_x86.h"
+    - "src/subtype.c"
+    - "src/threading.c"
+  components:
+    - "Runtime"
+    - "Clang Static Analyzer"
+    - "Debug Info"
+    - "Subtyping"
+    - "Threading"
+  pipeline_stages: []
+  change_type: "documentation"
+
+analysis:
+  intent:
+    summary: |
+      Pure documentation/comment cleanup PR that fixes grammatical errors and typos in code
+      comments across several C/C++ source files in Julia's runtime. No functional code changes.
+
+      All changes are within comment text only - no executable code is modified.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Fix possessive 'its' vs contraction 'it's' in GCChecker.cpp pseudo-destructor comment"
+      component: "Clang Static Analyzer"
+      file: "src/clangsa/GCChecker.cpp"
+      change_type: "documentation"
+      before: "expression (which would have it's own CallEvent, if applicable)."
+      after: "expression (which would have its own CallEvent, if applicable)."
+      evidence:
+        - source: "code"
+          path: "src/clangsa/GCChecker.cpp"
+          loc: "919-923"
+          url: "https://github.com/JuliaLang/julia/blob/1d6d5667dd985dbb93b395110ba2684759e36ad1/src/clangsa/GCChecker.cpp#L919-L923"
+          snippet: |
+            // A pseudo-destructor is an expression that looks like a member
+            // access to a destructor of a scalar type. A pseudo-destructor
+            // expression has no run-time semantics beyond evaluating the base
+            // expression (which would have its own CallEvent, if applicable).
+            isCalleeSafepoint = false;
+
+    - summary: "Fix plural 'pointers' in GCChecker.cpp dead pointer tracking comment"
+      component: "Clang Static Analyzer"
+      file: "src/clangsa/GCChecker.cpp"
+      change_type: "documentation"
+      before: "We allow dead pointer to be"
+      after: "We allow dead pointers to be"
+      evidence:
+        - source: "code"
+          path: "src/clangsa/GCChecker.cpp"
+          loc: "1720-1722"
+          url: "https://github.com/JuliaLang/julia/blob/1d6d5667dd985dbb93b395110ba2684759e36ad1/src/clangsa/GCChecker.cpp#L1720-L1722"
+          snippet: |
+            // If it's just the symbol by itself, let it be. We allow dead pointers to be
+            // passed around, so long as they're not accessed. However, we do want to
+            // start tracking any globals that may have been accessed.
+
+    - summary: "Fix punctuation in debuginfo.cpp augmentation data comment"
+      component: "Debug Info"
+      file: "src/debuginfo.cpp"
+      change_type: "documentation"
+      before: "// Now it's the augmentation data. which may have"
+      after: "// Now it's the augmentation data, which may have"
+      evidence:
+        - source: "code"
+          path: "src/debuginfo.cpp"
+          loc: "1452-1453"
+          url: "https://github.com/JuliaLang/julia/blob/1d6d5667dd985dbb93b395110ba2684759e36ad1/src/debuginfo.cpp#L1452-L1453"
+          snippet: |
+            // Now it's the augmentation data, which may have the information we
+            // are interested in...
+
+    - summary: "Fix possessive 'its' in features_x86.h AVX10 TODO comment"
+      component: "Runtime"
+      file: "src/features_x86.h"
+      change_type: "documentation"
+      before: "avx10 and it's mess"
+      after: "avx10 and its mess"
+      evidence:
+        - source: "code"
+          path: "src/features_x86.h"
+          loc: "139"
+          url: "https://github.com/JuliaLang/julia/blob/1d6d5667dd985dbb93b395110ba2684759e36ad1/src/features_x86.h#L139"
+          snippet: |
+            // JL_FEATURE_DEF(avx10, 32 * 10 + 19, 170000) // TODO: What to do about avx10 and its mess?
+
+    - summary: "Fix possessive 'its' in subtype.c Vararg widening comment"
+      component: "Subtyping"
+      file: "src/subtype.c"
+      change_type: "documentation"
+      before: "widen it's var to ub"
+      after: "widen its var to ub"
+      evidence:
+        - source: "code"
+          path: "src/subtype.c"
+          loc: "4842-4843"
+          url: "https://github.com/JuliaLang/julia/blob/1d6d5667dd985dbb93b395110ba2684759e36ad1/src/subtype.c#L4842-L4843"
+          snippet: |
+            else if (jl_is_vararg(type)) {
+                // As for Vararg we'd better widen its var to ub as otherwise they are still diagonal
+
+    - summary: "Fix article 'an' before 'unknown' in threading.c TLS comment"
+      component: "Threading"
+      file: "src/threading.c"
+      change_type: "documentation"
+      before: "comes before a unknown size TCB"
+      after: "comes before an unknown size TCB"
+      evidence:
+        - source: "code"
+          path: "src/threading.c"
+          loc: "620-622"
+          url: "https://github.com/JuliaLang/julia/blob/1d6d5667dd985dbb93b395110ba2684759e36ad1/src/threading.c#L620-L622"
+          snippet: |
+            #  elif JL_ELF_TLS_VARIANT == 2
+            // In Variant 2, the static TLS buffer comes before an unknown size TCB.
+            // The alignment needs to be applied to the new size.
+
+    - summary: "Fix contractions 'let's' and 'don't' in threading.c interactive thread comment"
+      component: "Threading"
+      file: "src/threading.c"
+      change_type: "documentation"
+      before: "lets assume they dont want"
+      after: "let's assume they don't want"
+      evidence:
+        - source: "code"
+          path: "src/threading.c"
+          loc: "741"
+          url: "https://github.com/JuliaLang/julia/blob/1d6d5667dd985dbb93b395110ba2684759e36ad1/src/threading.c#L741"
+          snippet: |
+            if (nthreads == 1) // User asked for 1 thread so let's assume they don't want an interactive thread
+
+  secondary_effects: []
+
+  compatibility:
+    internal_api: []
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure documentation/comment changes with zero code modifications"
+      - "No functional behavior affected"
+      - "No API changes"
+      - "No test changes required or included"
+      - "All changes are within C/C++ comment syntax (//) only"
+
+  downstream_impact:
+    opaque_closure: "none"
+    generated_functions: "none"
+    world_age: "none"
+    internal_api_consumers: "none"
+    effect_flags: "none"
+    summary: |
+      This PR has no impact on downstream packages. It consists solely of typo corrections
+      in code comments across five C/C++ source files in Julia's runtime implementation.
+      The changes correct:
+      - "it's" -> "its" (possessive form, 4 occurrences across 3 files)
+      - "a unknown" -> "an unknown" (article correction)
+      - "lets ... dont" -> "let's ... don't" (contractions)
+      - "pointer" -> "pointers" (pluralization)
+      - ". which" -> ", which" (punctuation)
+
+      No functional code is modified, so downstream packages like Turing.jl, Enzyme.jl,
+      GPUCompiler, or JET are completely unaffected.
+
+  test_analysis:
+    tests_added: []
+    tests_modified: []
+    coverage_impact: "none"
+
+  open_questions: []
+
+  recommendations:
+    - "No action required by downstream package maintainers"
+    - "This PR improves code readability without changing any functionality"
+
+# Independent review verification
+independent_review:
+  reviewer: "Second analyst"
+  date: "2025-01-21"
+  verification_method: |
+    1. Checked out merge commit 1d6d5667dd985dbb93b395110ba2684759e36ad1
+    2. Verified all 5 files touched match the PR metadata
+    3. Confirmed all 7 comment changes with git diff
+    4. Verified line numbers by reading actual files at specified locations
+    5. Confirmed no code changes exist outside of C/C++ comments
+  findings:
+    - "All changes confirmed to be within // comment syntax only"
+    - "Line numbers in original analysis verified as accurate"
+    - "No hidden code changes discovered"
+    - "Commit statistics confirmed: 7 insertions, 7 deletions across 5 files"
+  corrections_made:
+    - "Added before/after text for each change to improve clarity"
+    - "Added author_commit_sha to distinguish from merge_commit_sha"
+    - "Enhanced summary descriptions for each change"
+  additional_findings: "None - this is a genuinely trivial documentation-only PR"
+  confidence: "high"
+  agreement_with_original: "Full agreement - original analysis was accurate and complete"

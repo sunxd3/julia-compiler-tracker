@@ -1,0 +1,448 @@
+schema_version: "1.0"
+
+pr:
+  number: 55456
+  title: "Cycle bullets when printing nested Markdown list"
+  url: "https://github.com/JuliaLang/julia/pull/55456"
+  diff_url: "https://github.com/JuliaLang/julia/pull/55456.diff"
+  author: "tecosaur"
+  labels:
+    - "display and printing"
+    - "markdown"
+  merged_at: "2025-11-07T11:04:29Z"
+  merge_commit_sha: "322ada5620ae9397540ba9653330c1001d7f8765"
+
+scope:
+  files_touched:
+    - "stdlib/Markdown/src/render/terminal/render.jl"
+  components:
+    - "Markdown"
+    - "Display"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Fixes nested Markdown list rendering in terminal output. Previously, nested lists were
+      limited to displaying only one level of nesting, all using the same bullet character.
+      This PR:
+      1. Fixes the 1-limited nesting depth bug so lists can render at arbitrary depths
+      2. Introduces depth-dependent bullet cycling (• → – → ▪ → – → ▪ ...)
+      3. Fixes a bug where non-loose nested lists incorrectly received extra newlines
+      4. Improves ordered list number alignment using lpad()
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/18615"
+
+  direct_changes:
+    - summary: "Added _list_bullets constant with three cycling bullet styles"
+      component: "Markdown"
+      evidence:
+        - source: "code"
+          path: "stdlib/Markdown/src/render/terminal/render.jl"
+          loc: "73"
+          url: "https://github.com/JuliaLang/julia/blob/322ada5620ae9397540ba9653330c1001d7f8765/stdlib/Markdown/src/render/terminal/render.jl#L73"
+          snippet: |
+            const _list_bullets = ("•  ", "–  ", "▪  ")
+
+    - summary: "Added depth parameter to term() for List to track nesting level"
+      component: "Markdown"
+      evidence:
+        - source: "code"
+          path: "stdlib/Markdown/src/render/terminal/render.jl"
+          loc: "75-77"
+          url: "https://github.com/JuliaLang/julia/blob/322ada5620ae9397540ba9653330c1001d7f8765/stdlib/Markdown/src/render/terminal/render.jl#L75-L77"
+          snippet: |
+            function term(io::IO, md::List, columns, depth::Int = 1)
+                dterm(io, md, columns, _depth)      = term(io, md, columns)
+                dterm(io, md::List, columns, depth) = term(io, md, columns, depth)
+
+    - summary: "Implemented depth-dependent bullet selection with modular cycling"
+      component: "Markdown"
+      evidence:
+        - source: "code"
+          path: "stdlib/Markdown/src/render/terminal/render.jl"
+          loc: "79-85"
+          url: "https://github.com/JuliaLang/julia/blob/322ada5620ae9397540ba9653330c1001d7f8765/stdlib/Markdown/src/render/terminal/render.jl#L79-L85"
+          snippet: |
+            bullet = if isordered(md)
+                string(lpad(i + md.ordered - 1, ndigits(length(md.items))), ". ")
+            elseif depth == 1
+                first(_list_bullets)
+            else
+                _list_bullets[2 + mod(depth, length(_list_bullets) - 1)]
+            end
+
+    - summary: "Implemented depth-aware indentation for list items"
+      component: "Markdown"
+      evidence:
+        - source: "code"
+          path: "stdlib/Markdown/src/render/terminal/render.jl"
+          loc: "86"
+          url: "https://github.com/JuliaLang/julia/blob/322ada5620ae9397540ba9653330c1001d7f8765/stdlib/Markdown/src/render/terminal/render.jl#L86"
+          snippet: |
+            print(io, ' '^ifelse(depth == 1, 2margin, 2*(depth-1)), styled"{markdown_list:$bullet}")
+
+    - summary: "Rewrote nested content rendering with AnnotatedIOBuffer and smart newline handling"
+      component: "Markdown"
+      evidence:
+        - source: "code"
+          path: "stdlib/Markdown/src/render/terminal/render.jl"
+          loc: "87-97"
+          url: "https://github.com/JuliaLang/julia/blob/322ada5620ae9397540ba9653330c1001d7f8765/stdlib/Markdown/src/render/terminal/render.jl#L87-L97"
+          snippet: |
+            buf = AnnotatedIOBuffer()
+            if point isa Vector && !isempty(point)
+                for (i, elt) in enumerate(point[1:end-1])
+                    dterm(buf, elt, columns - 10, depth + 1)
+                    println(buf)
+                    (!(point[i+1] isa List) || point[i+1].loose) && println(buf)
+                end
+                dterm(buf, point[end], columns - 10, depth + 1)
+            else
+                dterm(buf, point, columns - 10, depth + 1)
+            end
+
+    - summary: "Added common indent stripping to preserve relative indentation"
+      component: "Markdown"
+      evidence:
+        - source: "code"
+          path: "stdlib/Markdown/src/render/terminal/render.jl"
+          loc: "100-106"
+          url: "https://github.com/JuliaLang/julia/blob/322ada5620ae9397540ba9653330c1001d7f8765/stdlib/Markdown/src/render/terminal/render.jl#L100-L106"
+          snippet: |
+            common_indent = minimum(
+                (sum((1 for _ in Iterators.takewhile(isspace, line)), init=0)
+                 for line in Iterators.filter(!isempty, lines)),
+                init=if isempty(lines) 0 else length(first(lines)) end)
+            for (l, line) in enumerate(lines)
+                l > 1 && print(io, ' '^ifelse(depth == 1, 2margin + 3, 3))
+                !isempty(line) && print(io, line[common_indent+1:end])
+
+  secondary_effects:
+    - effect: "Visual output of nested lists changed significantly"
+      mechanism: |
+        BEFORE this PR (old code):
+            function term(io::IO, md::List, columns)
+                for (i, point) in enumerate(md.items)
+                    bullet = isordered(md) ? "$(i + md.ordered - 1)." : "• "
+                    print(io, ' '^2margin, styled"{markdown_list:$bullet} ")
+                    content = annotprint(term, point, columns - 10)  # <-- no depth tracking!
+                    lines = split(rstrip(content), '\n')
+                    for (l, line) in enumerate(lines)
+                        l > 1 && print(io, ' '^(2margin+3))
+                        print(io, lstrip(line))  # <-- stripped ALL leading whitespace
+                        l < length(lines) && println(io)
+                    end
+                    i < length(md.items) && print(io, '\n'^(1 + md.loose))
+                end
+            end
+
+        The bug: annotprint(term, point, ...) would recursively call term() on nested
+        content, but since term(md::List) had no depth tracking, nested lists would
+        render with the same bullet and indentation as level 1.
+
+        AFTER this PR, nested lists render with depth-cycling bullets.
+        Actual bullets in the code (NOT the PR description which shows different symbols):
+            const _list_bullets = ("•  ", "–  ", "▪  ")
+
+        The cycling pattern calculation at line 84:
+            _list_bullets[2 + mod(depth, length(_list_bullets) - 1)]
+            = _list_bullets[2 + mod(depth, 2)]
+
+        Results in:
+          depth 1: "•  " (bullet) - via first(_list_bullets)
+          depth 2: 2 + mod(2, 2) = 2 -> "–  " (en dash)
+          depth 3: 2 + mod(3, 2) = 3 -> "▪  " (small square)
+          depth 4: 2 + mod(4, 2) = 2 -> "–  " (cycles back)
+          depth 5: 2 + mod(5, 2) = 3 -> "▪  " (cycles back)
+          ... pattern continues alternating – and ▪
+
+        NOTE: The PR description shows ➤ (U+27A4 heavy right-pointing arrow) but
+        the actual implementation uses – (U+2013 en dash) and ▪ (U+25AA small square).
+
+        Call chain for list rendering:
+          Base.show(io, ::MIME"text/plain", md::MD)  [render.jl:256]
+            -> term(io, md)  [render.jl:16]
+            -> term(io, md.content, columns)  [render.jl:18]
+            -> term(io, md::List, columns, depth=1)  [render.jl:75]
+              -> dterm(buf, elt::List, columns-10, depth+1)  [render.jl:90 or 94]
+              -> term(io, md::List, columns, depth)  [render.jl:77]
+      downstream_surfaces:
+        - "REPL help output (docstrings with lists)"
+        - "Documentation display in terminal"
+        - "Any code capturing Markdown terminal output"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Non-loose nested list newline bug fixed"
+      mechanism: |
+        The PR fixes a bug where non-loose nested lists were getting extra newlines.
+
+        The fix is in the new content rendering loop at lines 89-93:
+            for (i, elt) in enumerate(point[1:end-1])
+                dterm(buf, elt, columns - 10, depth + 1)
+                println(buf)
+                (!(point[i+1] isa List) || point[i+1].loose) && println(buf)  # <-- conditional newline
+            end
+
+        The extra newline is now only added if:
+        1. The next element is NOT a List, OR
+        2. The next element IS a List but has loose=true
+
+        This prevents tight lists from having excessive spacing.
+      downstream_surfaces:
+        - "Markdown terminal output formatting"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "Ordered list number alignment improved"
+      mechanism: |
+        Old code used fixed-width bullet:
+            bullet = isordered(md) ? "$(i + md.ordered - 1)." : "• "
+
+        New code uses lpad for alignment:
+            string(lpad(i + md.ordered - 1, ndigits(length(md.items))), ". ")
+
+        Example for a 12-item list:
+          Old:  1. item   vs   New:  1. item
+                2. item              2. item
+                10. item            10. item
+                11. item            11. item
+
+        This ensures numbers align properly in lists with 10+ items.
+      downstream_surfaces:
+        - "Ordered list display in terminal"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "dterm helper function enables recursive depth tracking"
+      mechanism: |
+        A local helper function `dterm` is defined at lines 76-77:
+            dterm(io, md, columns, _depth)      = term(io, md, columns)
+            dterm(io, md::List, columns, depth) = term(io, md, columns, depth)
+
+        This allows depth to propagate through nested List elements while non-List
+        elements are rendered with the standard term() function (no depth argument).
+
+        The pattern enables the depth counter to pass through arbitrary markdown
+        elements until another List is encountered, at which point depth is incremented.
+      downstream_surfaces:
+        - "Internal implementation detail - no downstream impact"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Variable shadowing in nested loop (potential code smell)"
+      mechanism: |
+        At line 89, the inner loop reuses variable name `i`:
+            for (i, point) in enumerate(md.items)    # outer loop uses `i`
+                ...
+                for (i, elt) in enumerate(point[1:end-1])  # inner loop SHADOWS `i`
+                    dterm(buf, elt, columns - 10, depth + 1)
+                    println(buf)
+                    (!(point[i+1] isa List) || point[i+1].loose) && println(buf)
+                end
+
+        The inner `i` shadows the outer `i`. This works correctly because:
+        1. The outer `i` is not needed inside the inner loop
+        2. The inner loop uses `i+1` to look ahead in `point`, which is correct
+        3. After the inner loop, the outer `i` is restored for the next iteration
+
+        While functional, this shadowing could be confusing for maintainers.
+        A cleaner approach would use a different variable name (e.g., `j` or `idx`).
+      downstream_surfaces:
+        - "Code maintainability only - no runtime impact"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Column width reduction accumulates with nesting depth"
+      mechanism: |
+        Each recursive call reduces available columns by 10:
+            dterm(buf, elt, columns - 10, depth + 1)
+
+        For deeply nested lists:
+          depth 1: columns
+          depth 2: columns - 10
+          depth 3: columns - 20
+          depth 4: columns - 30
+          ...
+
+        With default terminal width of 80, this allows ~8 nesting levels before
+        columns becomes negative. The wraplines() function handles small/negative
+        widths gracefully, but output may become unreadable for extreme nesting.
+
+        This is unlikely to be an issue in practice as >5 levels of list nesting
+        is rare in documentation.
+      downstream_surfaces:
+        - "Deeply nested list rendering (edge case)"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Continuation line indentation is fixed for depth > 1"
+      mechanism: |
+        For multi-line list items, continuation lines use fixed indentation:
+            l > 1 && print(io, ' '^ifelse(depth == 1, 2margin + 3, 3))
+
+        This means:
+          depth 1: continuation indent = 2*2 + 3 = 7 spaces
+          depth 2+: continuation indent = 3 spaces (fixed, regardless of depth)
+
+        This design choice prioritizes horizontal space conservation over perfect
+        alignment for deeply nested multi-line items. The 3-space indent aligns
+        with the bullet width ("–  " or "▪  " = 3 chars).
+      downstream_surfaces:
+        - "Multi-line list item formatting"
+      likelihood: "medium"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "term(io::IO, md::List, columns) signature"
+        change: "Extended with optional depth::Int parameter (default 1)"
+        affected_tools:
+          - tool: "Code calling term() directly on List objects"
+            usage: "Backward compatible - existing calls without depth still work via default argument"
+    behavioral:
+      - change: "Nested list visual appearance changed"
+        description: |
+          The visual output of nested markdown lists in terminal rendering has changed.
+          Bullet characters now cycle based on depth level.
+          Indentation algorithm also changed to be depth-aware.
+          Tests expecting specific terminal output for nested lists may need updating.
+        impact: "visual-only"
+
+  performance:
+    compile_time:
+      - impact: "Negligible"
+        description: |
+          No new types or method signatures that would increase compilation.
+          Single new constant tuple _list_bullets = ("•  ", "–  ", "▪  ").
+          ESTIMATED: zero measurable compile time impact.
+    runtime:
+      - impact: "Negligible to slightly improved"
+        description: |
+          The AnnotatedIOBuffer approach may have minor overhead compared to the
+          old simpler implementation, but the common_indent calculation uses
+          lazy iterators (Iterators.takewhile, Iterators.filter).
+
+          Memory: Uses one AnnotatedIOBuffer per list item for content capture.
+          CPU: O(n*m) where n = lines and m = avg line length for indent calculation.
+
+          ESTIMATED: <1ms additional latency for typical documentation output.
+          The change may actually be faster for deeply nested lists since the old
+          code had the nesting bug and didn't render deep levels correctly anyway.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are entirely in Markdown stdlib terminal rendering code"
+      - "No compiler internals touched (parsing, lowering, inference, codegen)"
+      - "Backward compatible API - depth parameter has default value"
+      - "Visual-only changes that improve output readability"
+      - "Fixes existing bugs (1-limited nesting, extra newlines)"
+      - "No impact on type inference, optimization, or code generation"
+      - "Tests in Markdown stdlib validate the new behavior"
+
+  downstream_impact:
+    packages: []
+    surfaces:
+      - "REPL help output (docstrings containing lists)"
+      - "Documentation display in terminal via show(io, MIME\"text/plain\", md)"
+      - "Any code that captures and parses Markdown terminal output"
+    notes: |
+      This PR has NO impact on compiler internals or packages like JET, Enzyme,
+      or GPUCompiler. It is purely a display/rendering change
+      for the Markdown stdlib.
+
+      The only potential breakage is for code that:
+      1. Parses the exact terminal output of nested Markdown lists (bullet characters changed)
+      2. Has golden tests comparing Markdown terminal output (will see different formatting)
+
+      The API remains backward compatible since the new depth parameter has a default value.
+
+  open_questions:
+    - "Does the bullet cycling pattern (• -> – -> ▪) match common Markdown rendering conventions?"
+    - "Should the bullet characters be configurable in the future?"
+    - "PR description shows ➤ symbol but implementation uses – - was this an intentional late change?"
+    - "Should the inner loop variable shadowing (line 89) be refactored for clarity?"
+    - "Is the fixed 3-space continuation indent for depth > 1 sufficient for all use cases?"
+
+  recommendations:
+    - "No action required for compiler-focused downstream packages"
+    - "Update golden tests if comparing exact Markdown terminal output for nested lists"
+    - "Review documentation if it includes screenshots of terminal list rendering"
+    - "Note: Actual bullets are (•, –, ▪) not (•, ➤, –) as shown in some documentation"
+    - "Consider minor refactor: rename inner loop variable from `i` to `j` to avoid shadowing"
+
+classification:
+  type: "bugfix"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false
+
+notes: |
+  This PR is NOT a compiler change - it modifies only the Markdown stdlib terminal
+  rendering for lists. No compiler pipeline components (parsing, lowering, type
+  inference, optimization, codegen) are touched.
+
+  The single file modified is:
+  - stdlib/Markdown/src/render/terminal/render.jl (31 additions, 6 deletions)
+
+  Key data structures involved:
+  - List struct (defined in stdlib/Markdown/src/Common/block.jl:249):
+      mutable struct List <: MarkdownElement
+          items::Vector{Any}
+          ordered::Int # -1 is unordered, >= 0 is ordered
+          loose::Bool
+      end
+  - isordered(list::List) = list.ordered >= 0 (block.jl:259)
+  - margin constant = 2 (defined in Markdown.jl:19)
+
+  The PR closes issue #18615 which reported that nested lists were limited to
+  displaying only one level of nesting with the same bullet character.
+
+  IMPORTANT CORRECTION: The PR description shows ➤ (U+27A4) as a bullet, but the
+  actual implementation uses different characters:
+    const _list_bullets = ("•  ", "–  ", "▪  ")
+  Where:
+    • = U+2022 BULLET
+    – = U+2013 EN DASH
+    ▪ = U+25AA BLACK SMALL SQUARE
+
+  Actual Before/After based on code review:
+
+  BEFORE (buggy - from old code):
+      •  some list
+         • with nesting   # <-- all nested levels used same bullet
+         • and items
+         • at many levels # <-- incorrectly shown at same depth
+
+  AFTER (fixed - based on actual implementation):
+      •  some list
+         –  with nesting   # <-- depth 2: en dash
+         –  and items
+            ▪  at many levels  # <-- depth 3: small square
+
+  The term() function for List is called from:
+  1. Base.show(io, ::MIME"text/plain", md::MD) at render.jl:256
+  2. term(io::IO, content::Vector, cols) at render.jl:7 (iterates content calling term on each)
+
+  Independent Review Notes (2026-01-21):
+  - Verified all code snippets against actual source at merge commit 322ada5620
+  - Confirmed the nesting depth bug fix by tracing the dterm/term recursion
+  - Traced isordered() function in block.jl:259
+  - Verified backward compatibility of depth parameter via default value
+  - This is purely a display change with zero compiler impact
+  - CORRECTION: PR description bullet symbols differ from actual implementation
+  - Identified variable shadowing in inner loop (functional but code smell)
+  - Noted column width reduction pattern (columns - 10 per depth level)
+  - Verified continuation line indentation algorithm
+
+  Second Independent Review (2026-01-21):
+  - Checked out merge commit 322ada5620ae9397540ba9653330c1001d7f8765
+  - Read full source file stdlib/Markdown/src/render/terminal/render.jl
+  - Compared BEFORE/AFTER code to understand exact changes
+  - Verified bullet cycling formula: _list_bullets[2 + mod(depth, 2)]
+  - Confirmed margin = 2, so depth 1 indentation = 4 spaces
+  - Traced all callers of term() for List via grep
+  - Verified no compiler-related files or APIs are affected
+  - Added observations about variable shadowing and column width reduction

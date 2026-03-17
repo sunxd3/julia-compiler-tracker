@@ -1,0 +1,179 @@
+schema_version: "1.0"
+
+pr:
+  number: 59864
+  title: "make the styled repl tests more resilient against local colorschemes"
+  url: "https://github.com/JuliaLang/julia/pull/59864"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59864.diff"
+  author: "KristofferC"
+  labels:
+    - "REPL"
+  merged_at: "2025-10-16T18:54:05Z"
+  merge_commit_sha: "943e730413c461d178f26b8061a25d2e519775e8"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/test/repl.jl"
+  components:
+    - "REPL"
+    - "Tests"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Fixes test flakiness in styled REPL tests caused by local colorscheme configurations.
+      The original tests used readuntil with patterns like "beta)" which could fail when
+      "beta" and ")" were styled differently (causing ANSI codes to be inserted between them).
+      The fix replaces these patterns with SENTINEL comment markers that won't be split by styling.
+
+      From the PR body: "The `s = readuntil(stdout_read, "beta)", keep=true)` was not resilient
+      if `beta` and `)` were styled differently. There isn't a super good way to completely
+      'reset' the color scheme used but as long as we are not trying to `readuntil` things
+      that span multiple nodes (and then have ANSI spliced into the output) we should be ok."
+    issue_links: []
+
+  direct_changes:
+    - summary: "Test 1: Replace 'function' readuntil pattern with SENTINEL1"
+      component: "REPL Tests"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/test/repl.jl"
+          loc: "2062-2063"
+          url: "https://github.com/JuliaLang/julia/blob/943e730413c461d178f26b8061a25d2e519775e8/stdlib/REPL/test/repl.jl#L2062-L2063"
+          before: |
+            write(stdin_write, "function")
+            s = readuntil(stdout_read, "function", keep=true)
+          after: |
+            write(stdin_write, "function # SENTINEL1")
+            s = readuntil(stdout_read, "# SENTINEL1", keep=true)
+
+    - summary: "Test 2: Replace Unicode 'beta)' readuntil pattern with SENTINEL2"
+      component: "REPL Tests"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/test/repl.jl"
+          loc: "2078-2079"
+          url: "https://github.com/JuliaLang/julia/blob/943e730413c461d178f26b8061a25d2e519775e8/stdlib/REPL/test/repl.jl#L2078-L2079"
+          before: |
+            write(stdin_write, "function alphabeta(a, beta)")
+            s = readuntil(stdout_read, "beta)", keep=true)
+          after: |
+            write(stdin_write, "function alphabeta(a, beta) # SENTINEL2")
+            s = readuntil(stdout_read, "# SENTINEL2", keep=true)
+
+    - summary: "Test 3: Replace '42' readuntil pattern with SENTINEL3"
+      component: "REPL Tests"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/test/repl.jl"
+          loc: "2098-2099"
+          url: "https://github.com/JuliaLang/julia/blob/943e730413c461d178f26b8061a25d2e519775e8/stdlib/REPL/test/repl.jl#L2098-L2099"
+          before: |
+            write(stdin_write, "    local test_var_for_highlighting = 42\n")
+            s = readuntil(stdout_read, "42", keep=true)
+          after: |
+            write(stdin_write, "    local test_var_for_highlighting = 42 # SENTINEL3\n")
+            s = readuntil(stdout_read, "# SENTINEL3", keep=true)
+
+    - summary: "Test 4: Replace space readuntil with SENTINEL4 for bracket highlighting test"
+      component: "REPL Tests"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/test/repl.jl"
+          loc: "2107-2119"
+          url: "https://github.com/JuliaLang/julia/blob/943e730413c461d178f26b8061a25d2e519775e8/stdlib/REPL/test/repl.jl#L2107-L2119"
+          before: |
+            write(stdin_write, "(1 + (2 * 3))")
+            # Move cursor to be inside the inner parens: between 2 and *
+            # Current position is at end: (1 + (2 * 3))|
+            # Move left 5 times to get to: (1 + (2| * 3))
+            for _ in 1:5
+                write(stdin_write, "\e[D")  # Left arrow
+            end
+            # Give it a moment to process and re-render
+            sleep(0.1)
+            # Now write a character to trigger re-render and capture output
+            write(stdin_write, " ")
+            s = readuntil(stdout_read, " ", keep=true)
+          after: |
+            write(stdin_write, "(1 + (2 * 3)) # SENTINEL4")
+            # Move cursor to be inside the inner parens: between 2 and *
+            # Current position is at end: (1 + (2 * 3)) # SENTINEL4|
+            # Move left to get to: (1 + (2| * 3)) # SENTINEL4
+            # We need to move past " # SENTINEL4" which is 13 characters
+            for _ in 1:18  # 13 for " # SENTINEL4" + 5 to get between 2 and *
+                write(stdin_write, "\e[D")  # Left arrow
+            end
+            # Give it a moment to process and re-render
+            sleep(0.1)
+            # Now write a space to trigger re-render and capture output
+            write(stdin_write, " ")
+            s = readuntil(stdout_read, "# SENTINEL4", keep=true)
+
+    - summary: "Test 5: Replace 'function' readuntil with SENTINEL5 for style_input=false test"
+      component: "REPL Tests"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/test/repl.jl"
+          loc: "2139-2140"
+          url: "https://github.com/JuliaLang/julia/blob/943e730413c461d178f26b8061a25d2e519775e8/stdlib/REPL/test/repl.jl#L2139-L2140"
+          before: |
+            write(stdin_write, "function")
+            s = readuntil(stdout_read, "function", keep=true)
+          after: |
+            write(stdin_write, "function # SENTINEL5")
+            s = readuntil(stdout_read, "# SENTINEL5", keep=true)
+
+  secondary_effects: []
+
+  compatibility:
+    internal_api: []
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime: []
+
+  risk:
+    level: "low"
+    rationale:
+      - "Test-only change with no modifications to REPL or compiler code"
+      - "Improves test reliability without changing tested behavior"
+      - "No impact on any production code paths"
+      - "Only 15 additions and 14 deletions, all in test file"
+
+  downstream_impact:
+    packages: []
+    surfaces: []
+    notes: |
+      This PR has ZERO impact on downstream packages. It is purely a test robustness
+      improvement for the REPL test suite.
+
+      ROOT CAUSE: The original tests used readuntil() with patterns that could span
+      multiple syntax-highlighted "nodes" (e.g., "beta)" where beta is an identifier
+      and ) is a punctuation character). On systems with local colorscheme configurations,
+      ANSI escape codes would be inserted between these characters, breaking the pattern
+      match.
+
+      WHY SENTINEL WORKS: Comments in Julia (starting with #) are styled as a single
+      contiguous unit with no internal style boundaries. By using "# SENTINEL" markers,
+      the readuntil() pattern will never be split by ANSI codes because:
+      1. The # character and everything after it on the line is one AST node (comment)
+      2. Comments are typically styled uniformly (no sub-highlighting within comments)
+      3. The SENTINEL text is plain ASCII with no special characters
+
+      No REPL behavior, APIs, or output formats are affected.
+
+  open_questions: []
+
+  recommendations:
+    - "No action required by downstream package maintainers"
+    - "This PR may be safely ignored in changelog/migration documentation"
+    - "Pattern is useful for future REPL tests: use comment sentinels to avoid readuntil failures"
+
+classification:
+  type: "test-fix"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false

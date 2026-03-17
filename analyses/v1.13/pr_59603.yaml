@@ -1,0 +1,445 @@
+schema_version: "1.0"
+
+pr:
+  number: 59603
+  title: "Improve char to int parsing, and add `tryparse` method"
+  url: "https://github.com/JuliaLang/julia/pull/59603"
+  author: "jakobnissen"
+  labels:
+    - "performance"
+    - "strings"
+    - "reverted"
+  merged_at: "2025-10-09T08:56:39Z"
+  merge_commit_sha: "b122d43d7f055a328c6d307e23f102f7c6c7c31b"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59603.diff"
+
+scope:
+  files_touched:
+    - "base/parse.jl"
+    - "test/parse.jl"
+  components:
+    - "Base.Parse"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      This PR makes two changes to character-to-integer parsing:
+      1. Adds a previously missing `tryparse(::Type{T}, c::AbstractChar; base::Integer=10)` method
+      2. Speeds up parsing of chars to integer by approximately 4x through algorithmic optimizations
+
+      IMPORTANT: This PR was subsequently REVERTED (has "reverted" label). Any downstream code
+      that depended on the new behavior should be aware that it may not be available in all
+      Julia versions.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Add new `tryparse` method for AbstractChar input"
+      component: "Base.Parse"
+      evidence:
+        - source: "code"
+          path: "base/parse.jl"
+          loc: "65-67"
+          url: "https://github.com/JuliaLang/julia/blob/b122d43d7f055a328c6d307e23f102f7c6c7c31b/base/parse.jl#L65-L67"
+          snippet: |
+            function tryparse(::Type{T}, c::AbstractChar; base::Integer=10) where {T <: Integer}
+                @inline parse_char(T, c, base, false)
+            end
+
+    - summary: "Introduce internal `parse_char` function for shared parsing logic"
+      component: "Base.Parse"
+      evidence:
+        - source: "code"
+          path: "base/parse.jl"
+          loc: "47-59"
+          url: "https://github.com/JuliaLang/julia/blob/b122d43d7f055a328c6d307e23f102f7c6c7c31b/base/parse.jl#L47-L59"
+          snippet: |
+            function parse_char(::Type{T}, c::AbstractChar, base::Integer, throw::Bool) where T
+                a::UInt8 = (base <= 36 ? 10 : 36)
+                (2 <= base <= 62) || _invalid_base(base)
+                base = base % UInt8
+                cp = codepoint(c)
+                cp = cp > 0x7a ? 0xff : cp % UInt8
+                d = UInt8('0') <= cp <= UInt8('9') ? cp - UInt8('0') :
+                    UInt8('A') <= cp <= UInt8('Z') ? cp - UInt8('A') + UInt8(10) :
+                    UInt8('a') <= cp <= UInt8('z') ? cp - UInt8('a') + a :
+                    0xff
+                d < base || (throw ? _invalid_digit(base, c) : return nothing)
+                convert(T, d)::T
+            end
+
+    - summary: "Extract error-throwing functions as @noinline helpers"
+      component: "Base.Parse"
+      evidence:
+        - source: "code"
+          path: "base/parse.jl"
+          loc: "41-45"
+          url: "https://github.com/JuliaLang/julia/blob/b122d43d7f055a328c6d307e23f102f7c6c7c31b/base/parse.jl#L41-L45"
+          snippet: |
+            @noinline function _invalid_base(base)
+                throw(ArgumentError("invalid base: base must be 2 <= base <= 62, got $base"))
+            end
+
+            @noinline _invalid_digit(base, char) = throw(ArgumentError("invalid base $base digit $(repr(char))"))
+
+    - summary: "Refactor existing parse(::Type{T}, c::AbstractChar) to use parse_char"
+      component: "Base.Parse"
+      evidence:
+        - source: "code"
+          path: "base/parse.jl"
+          loc: "61-63"
+          url: "https://github.com/JuliaLang/julia/blob/b122d43d7f055a328c6d307e23f102f7c6c7c31b/base/parse.jl#L61-L63"
+          snippet: |
+            function parse(::Type{T}, c::AbstractChar; base::Integer=10) where {T <: Integer}
+                @inline parse_char(T, c, base, true)
+            end
+
+    - summary: "Add generic parse/tryparse methods for non-Integer types (POTENTIAL BUG)"
+      component: "Base.Parse"
+      evidence:
+        - source: "code"
+          path: "base/parse.jl"
+          loc: "69-71"
+          url: "https://github.com/JuliaLang/julia/blob/b122d43d7f055a328c6d307e23f102f7c6c7c31b/base/parse.jl#L69-L71"
+          snippet: |
+            # For consistency with parse(t, AbstractString), support a `base` argument only when T<:Integer
+            parse(::Type{T}, c::AbstractChar) where T = @inline parse_char(T, c, 10, true)
+            tryparse(::Type{T}, c::AbstractChar) where T = @inline parse_char(T, c, 10, false)
+          note: |
+            CRITICAL ISSUE: Despite the comment mentioning "only when T<:Integer", these methods
+            are defined with unconstrained `where T`, meaning they accept ANY type including
+            Float64, ComplexF64, etc. This allows calls like:
+              - parse(Float64, '3') -> returns 3.0 (converted from digit 3)
+              - parse(ComplexF64, '5') -> returns 5.0 + 0.0im
+            This is likely unintended behavior and may have contributed to the reversion.
+
+    - summary: "Reuse _invalid_base in tryparse_internal for string parsing"
+      component: "Base.Parse"
+      evidence:
+        - source: "code"
+          path: "base/parse.jl"
+          loc: "140-141"
+          url: "https://github.com/JuliaLang/julia/blob/b122d43d7f055a328c6d307e23f102f7c6c7c31b/base/parse.jl#L140-L141"
+          snippet: |
+            if !(2 <= base <= 62)
+                raise ? _invalid_base(base) : return nothing
+
+    - summary: "Reuse _invalid_base in check_valid_base"
+      component: "Base.Parse"
+      evidence:
+        - source: "code"
+          path: "base/parse.jl"
+          loc: "256-261"
+          url: "https://github.com/JuliaLang/julia/blob/b122d43d7f055a328c6d307e23f102f7c6c7c31b/base/parse.jl#L256-L261"
+          snippet: |
+            @inline function check_valid_base(base)
+                if 2 <= base <= 62
+                    return base
+                end
+                _invalid_base(base)
+            end
+
+  secondary_effects:
+    - effect: "Performance improvement from UInt8 arithmetic instead of Int/Char operations"
+      mechanism: |
+        parse_char() [base/parse.jl:47-59] uses explicit UInt8 arithmetic:
+
+        Call chain for parse(Int, '5'):
+          parse(::Type{Int}, '5'; base=10)  [base/parse.jl:61]
+            -> @inline parse_char(Int, '5', 10, true)  [base/parse.jl:47]
+              -> base = 10 % UInt8  [line 50]
+              -> cp = codepoint('5') = 0x35  [line 51]
+              -> cp = 0x35 % UInt8 = 0x35  [line 52]
+              -> d = 0x35 - UInt8('0') = 5  [line 53]
+              -> convert(Int, 5)::Int = 5  [line 58]
+
+        Key optimizations:
+        1. Converts base to UInt8: `base = base % UInt8`
+        2. Extracts and truncates codepoint: `cp = cp > 0x7a ? 0xff : cp % UInt8`
+        3. Uses UInt8 literals: `UInt8('0')`, `UInt8('A')`, `UInt8('a')`
+
+        This avoids Char-to-Int conversions and uses smaller integer arithmetic.
+      downstream_surfaces:
+        - "Code that heavily parses single digit characters"
+        - "Parsers that process character-by-character"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Out-of-range codepoints now handled via sentinel value"
+      mechanism: |
+        parse_char() handles non-ASCII characters differently:
+
+        Old behavior (before PR):
+          d = '0' <= c <= '9' ? c-'0' : ... : throw(ArgumentError(...))
+          # Direct throw for characters outside the ranges
+
+        New behavior (after PR):
+          cp = cp > 0x7a ? 0xff : cp % UInt8  # Characters > 'z' (0x7a) mapped to 0xff
+          d = ... : 0xff                       # Unknown ranges also become 0xff
+          d < base || (throw ? _invalid_digit(base, c) : return nothing)
+
+        Effect: Characters with codepoints > 0x7a (122, i.e., > 'z') are now
+        mapped to sentinel value 0xff and handled uniformly at the end.
+        This is functionally equivalent but changes the internal control flow.
+      downstream_surfaces:
+        - "Unicode character parsing edge cases"
+      likelihood: "medium"
+      impact: "none"
+
+    - effect: "Error message consolidation via shared _invalid_base helper"
+      mechanism: |
+        _invalid_base(base) [base/parse.jl:41-43] is now called from three locations:
+
+        1. parse_char() [parse.jl:49]:
+           (2 <= base <= 62) || _invalid_base(base)
+
+        2. tryparse_internal() [parse.jl:141]:
+           raise ? _invalid_base(base) : return nothing
+
+        3. check_valid_base() [parse.jl:260]:
+           _invalid_base(base)
+
+        All produce identical error message:
+          "invalid base: base must be 2 <= base <= 62, got $base"
+
+        Previously, tryparse_internal used LazyString for deferred allocation:
+          throw(ArgumentError(LazyString("invalid base: base must be 2 <= base <= 62, got ", base)))
+
+        Now uses direct interpolation, which allocates eagerly. This is a minor
+        semantic difference that could affect error-path performance.
+      downstream_surfaces:
+        - "Code that catches and inspects ArgumentError messages"
+        - "Error path performance (eager vs lazy allocation)"
+      likelihood: "low"
+      impact: "none"
+
+    - effect: "CRITICAL: Overly permissive generic methods for non-Integer type parsing"
+      mechanism: |
+        The PR adds generic methods that accept ANY type T:
+
+        parse(::Type{T}, c::AbstractChar) where T = @inline parse_char(T, c, 10, true)
+        tryparse(::Type{T}, c::AbstractChar) where T = @inline parse_char(T, c, 10, false)
+
+        These methods are NOT constrained to T<:Integer, despite the comment stating
+        "support a `base` argument only when T<:Integer".
+
+        This allows unexpected conversions:
+          parse(Float64, '3')     # Returns 3.0 (convert(Float64, UInt8(3)))
+          parse(ComplexF64, '5')  # Returns 5.0 + 0.0im
+          parse(Rational{Int}, '7')  # Returns 7//1
+
+        Call chain for parse(Float64, '3'):
+          parse(::Type{Float64}, '3')  [base/parse.jl:70]
+            -> @inline parse_char(Float64, '3', 10, true)  [base/parse.jl:47]
+              -> d = UInt8(3)  # digit value
+              -> convert(Float64, 3)::Float64 = 3.0  [line 58]
+
+        This is likely a bug - the methods should probably be:
+          parse(::Type{T}, c::AbstractChar) where {T <: Integer} = ...
+          tryparse(::Type{T}, c::AbstractChar) where {T <: Integer} = ...
+
+        This may have contributed to the PR being reverted.
+      downstream_surfaces:
+        - "Any code calling parse with non-Integer types on characters"
+        - "Type dispatch and method resolution"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "@inline annotation forces inlining of parse_char"
+      mechanism: |
+        All call sites use `@inline parse_char(...)`:
+
+        parse(::Type{T}, c::AbstractChar; base::Integer=10) where {T <: Integer}
+            @inline parse_char(T, c, base, true)
+
+        tryparse(::Type{T}, c::AbstractChar; base::Integer=10) where {T <: Integer}
+            @inline parse_char(T, c, base, false)
+
+        parse(::Type{T}, c::AbstractChar) where T
+            @inline parse_char(T, c, 10, true)
+
+        tryparse(::Type{T}, c::AbstractChar) where T
+            @inline parse_char(T, c, 10, false)
+
+        Benefits:
+        1. Hot path fully inlined, avoiding function call overhead
+        2. `throw::Bool` becomes constant, enabling dead code elimination
+        3. Combined with UInt8 arithmetic contributes to ~4x speedup
+      downstream_surfaces:
+        - "Compilation time (slightly increased due to inlining)"
+      likelihood: "high"
+      impact: "none"
+
+    - effect: "Type inference for parse_char relies on constant propagation"
+      mechanism: |
+        parse_char has signature:
+          function parse_char(::Type{T}, c::AbstractChar, base::Integer, throw::Bool) where T
+
+        Return type analysis:
+        - If throw=true (constant): returns T or throws (never nothing)
+        - If throw=false (constant): returns Union{Nothing, T}
+
+        At all call sites, throw is a literal (true or false), so Julia's
+        compiler can specialize and infer the precise return type:
+
+        parse(...)    -> @inline parse_char(..., true)  -> inferred return: T
+        tryparse(...) -> @inline parse_char(..., false) -> inferred return: Union{Nothing, T}
+
+        Type stability is preserved because:
+        1. @inline ensures the constant throw value is visible
+        2. Compiler specializes on the constant Bool value
+        3. Dead code elimination removes the unreachable branch
+      downstream_surfaces:
+        - "Type inference precision"
+        - "Code generation quality"
+      likelihood: "high"
+      impact: "none"
+
+  compatibility:
+    internal_api:
+      - field: "parse_char function"
+        change: "New internal function - not exported or documented"
+        affected_tools: []
+      - field: "_invalid_base function"
+        change: "New internal function - used for error generation"
+        affected_tools: []
+      - field: "_invalid_digit function"
+        change: "New internal function - used for error generation"
+        affected_tools: []
+    behavioral:
+      - field: "tryparse(::Type{T<:Integer}, ::AbstractChar)"
+        change: "New method added - previously missing from API"
+        affected_tools:
+          - "Any code that needed tryparse for single characters"
+      - field: "parse/tryparse(::Type{T}, ::AbstractChar) for non-Integer T"
+        change: |
+          POTENTIAL BUG: New generic methods allow parsing for ANY type T, not just
+          Integer types. This may produce unexpected behavior for calls like:
+            parse(Float64, '3') -> 3.0
+            parse(ComplexF64, '5') -> 5.0 + 0.0im
+        affected_tools:
+          - "Any code that might call parse with non-Integer type on a character"
+      - field: "Error message format in tryparse_internal"
+        change: |
+          Changed from LazyString to direct interpolation:
+          Before: LazyString("invalid base: base must be 2 <= base <= 62, got ", base)
+          After: "invalid base: base must be 2 <= base <= 62, got $base"
+        affected_tools:
+          - "Code that parses or matches against error messages"
+
+  performance:
+    compile_time:
+      - change: "@inline annotations increase code size at call sites"
+        impact: "ESTIMATED: Negligible - parse_char is small (~15 IR instructions)"
+    runtime:
+      - change: "UInt8 arithmetic instead of Char/Int operations"
+        impact: "ESTIMATED: ~4x speedup for single-character integer parsing (per PR author)"
+      - change: "@noinline error paths keep hot path small"
+        impact: "ESTIMATED: Improved branch prediction on happy path"
+      - change: "Eager string allocation in error message (was LazyString)"
+        impact: "ESTIMATED: Negligible - only affects error path"
+
+  risk:
+    level: "medium"
+    rationale:
+      - "PR was subsequently REVERTED (has 'reverted' label) - indicates issues discovered post-merge"
+      - "CRITICAL: Generic methods for non-Integer types may produce unexpected behavior"
+      - "The comment 'support a base argument only when T<:Integer' contradicts the actual code"
+      - "Sentinel value 0xff approach changes internal control flow"
+      - "API addition (tryparse for AbstractChar) is non-breaking but increases surface area"
+
+  likely_reversion_reasons:
+    - reason: "Overly permissive generic methods"
+      evidence: |
+        The methods on lines 70-71:
+          parse(::Type{T}, c::AbstractChar) where T = @inline parse_char(T, c, 10, true)
+          tryparse(::Type{T}, c::AbstractChar) where T = @inline parse_char(T, c, 10, false)
+
+        These accept ANY type T, not just Integer types. This is inconsistent with the
+        stated intent (the comment says "only when T<:Integer") and could cause:
+        1. Method ambiguity with other parse methods
+        2. Unexpected behavior for non-Integer types
+        3. Semantic confusion about what "parsing a character" means for floats/complex
+      likelihood: "high"
+
+    - reason: "Method dispatch changes"
+      evidence: |
+        The new generic methods could interfere with existing method dispatch.
+        For example, if a package defined:
+          parse(::Type{MyType}, c::AbstractChar) = ...
+
+        The new generic method would create ambiguity or change dispatch order.
+      likelihood: "medium"
+
+    - reason: "Error message format change"
+      evidence: |
+        tryparse_internal previously used LazyString:
+          throw(ArgumentError(LazyString("invalid base: ...", base)))
+
+        Now uses direct interpolation via _invalid_base:
+          throw(ArgumentError("invalid base: ... $base"))
+
+        This could affect:
+        1. Memory allocation on error paths
+        2. Tests that check exact error messages
+      likelihood: "low"
+
+  open_questions:
+    - "Why was this PR reverted? The reversion reason is not captured in this metadata"
+    - "Are there edge cases with non-BMP Unicode characters (codepoint > 0xFFFF) that behave differently?"
+    - "Does the generic `where T` constraint cause method ambiguity with downstream packages?"
+    - "Was the reversion due to the overly permissive generic methods or a different issue?"
+
+  recommendations:
+    - "Check the reversion PR/issue to understand what problems were discovered"
+    - "If re-implementing, constrain generic methods to T<:Integer to match the stated intent"
+    - "Downstream packages using tryparse for characters should check Julia version compatibility"
+    - "Test with edge-case characters (high Unicode codepoints, combining characters) if upgrading"
+    - "Consider whether the generic methods should exist at all for non-Integer types"
+
+test_changes:
+  - file: "test/parse.jl"
+    description: "Added tests for new tryparse(::Type{T}, ::AbstractChar) method"
+    evidence:
+      - source: "test"
+        path: "test/parse.jl"
+        loc: "33-38"
+        url: "https://github.com/JuliaLang/julia/blob/b122d43d7f055a328c6d307e23f102f7c6c7c31b/test/parse.jl#L33-L38"
+        snippet: |
+          @test tryparse(Int, '8') === 8
+          @test tryparse(Int, 'a') === nothing
+          @test tryparse(Int, 'a'; base=11) === 10
+          @test tryparse(Int32, 'a'; base=11) === Int32(10)
+          @test tryparse(UInt8, 'f'; base=16) === 0x0f
+          @test tryparse(UInt8, 'f'; base=15) === nothing
+        note: |
+          Tests cover:
+          - Basic decimal parsing: tryparse(Int, '8') === 8
+          - Invalid digit returns nothing: tryparse(Int, 'a') === nothing
+          - Base parameter works: tryparse(Int, 'a'; base=11) === 10
+          - Type parameter respected: tryparse(Int32, 'a'; base=11) === Int32(10)
+          - Unsigned types: tryparse(UInt8, 'f'; base=16) === 0x0f
+          - Out-of-range for base: tryparse(UInt8, 'f'; base=15) === nothing
+
+reviewer_notes:
+  verified_line_numbers: true
+  independent_analysis_date: "2026-01-21"
+  additional_findings:
+    - |
+      CRITICAL FINDING: The generic methods on lines 70-71 have unconstrained type
+      parameter `where T` despite the comment stating the intent is to only support
+      Integer types. This is a significant discrepancy between documentation and
+      implementation that likely contributed to the reversion.
+    - |
+      The call chain analysis confirms that type stability is preserved through
+      constant propagation of the `throw::Bool` parameter, as all call sites use
+      literal `true` or `false` values.
+    - |
+      The _invalid_base function is called from exactly 3 locations:
+      - parse_char (line 49)
+      - tryparse_internal (line 141)
+      - check_valid_base (line 260)
+      All verified with rg search.
+    - |
+      No additional callers of parse_char were found outside of the 4 wrapper methods
+      on lines 61-63, 65-67, 70, and 71.

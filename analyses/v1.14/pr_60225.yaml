@@ -1,0 +1,602 @@
+schema_version: "1.0"
+
+pr:
+  number: 60225
+  title: "Backports for 1.12.3"
+  url: "https://github.com/JuliaLang/julia/pull/60225"
+  author: "KristofferC"
+  labels: []
+  created_at: "2025-11-24T14:16:59Z"
+  closed_at: "2025-11-30T08:30:03Z"
+  merged_at: "2025-11-30T08:30:03Z"
+  merge_commit_sha: "7c7d8d67d3b9e425ed61f24a6d25eec547e573d5"
+  status: "merged"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60225.diff"
+
+scope:
+  files_touched:
+    # Core runtime
+    - "base/array.jl"
+    - "base/loading.jl"
+    - "base/sysinfo.jl"
+    - "base/methodshow.jl"
+    - "base/initdefs.jl"
+    - "base/Makefile"
+    # C/C++ codegen
+    - "src/cgutils.cpp"
+    - "src/llvm-multiversioning.cpp"
+    - "src/Makefile"
+    # Parser
+    - "src/flisp/julia_extensions.c"
+    - "src/flisp/Makefile"
+    - "src/julia-parser.scm"
+    # Stdlib
+    - "stdlib/Mmap/src/Mmap.jl"
+    - "stdlib/Profile/src/Profile.jl"
+    - "stdlib/REPL/src/latex_symbols.jl"
+    - "stdlib/REPL/src/precompile.jl"
+    - "stdlib/Random/src/RNGs.jl"
+    # Build system (MSYS2 fixes)
+    - "Make.inc"
+    - "deps/Makefile"
+    - "deps/libgit2.mk"
+    - "deps/libssh2.mk"
+    - "deps/libuv.mk"
+    - "deps/llvm.mk"
+    - "deps/openssl.mk"
+    - "deps/p7zip.mk"
+    - "deps/tools/common.mk"
+    # Contrib/packaging
+    - "contrib/generate_precompile.jl"
+    - "contrib/mac/app/Makefile"
+    # Documentation
+    - "doc/Manifest.toml"
+    - "doc/make.jl"
+    - "doc/src/index.md"
+    - "doc/src/devdocs/EscapeAnalysis.md"
+    - "NEWS.md"
+    # Version updates
+    - "stdlib/LinearAlgebra.version"
+    - "stdlib/Pkg.version"
+  components:
+    - "Base.Array"
+    - "Base.Loading"
+    - "Base.Sys"
+    - "Codegen"
+    - "LLVM-Multiversioning"
+    - "FLisp-Parser"
+    - "REPL"
+    - "Build-System"
+    - "Documentation"
+  pipeline_stages:
+    - "Parsing"
+    - "Codegen"
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Backport PR aggregating multiple fixes for Julia 1.12.3 release. This PR was
+      MERGED on 2025-11-30. The individual backported changes cover: array size safety,
+      atomic write barrier fix, LLVM multiversioning autoinit support, stdlib loading
+      fallback, path handling improvements, Unicode 16 operator support, MSYS2/Windows
+      build fixes, and various test/documentation updates.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/58848"
+      - "https://github.com/JuliaLang/julia/pull/59991"
+      - "https://github.com/JuliaLang/julia/pull/60171"
+      - "https://github.com/JuliaLang/julia/pull/60061"
+      - "https://github.com/JuliaLang/julia/pull/59998"
+      - "https://github.com/JuliaLang/julia/pull/57143"
+    backported_prs:
+      - number: 58848
+        title: "Set array size only when safe to do so"
+      - number: 59991
+        title: "cgutils: fix write barrier of atomic-setonce"
+      - number: 60171
+        title: "Add uninitialized multi-versioning trampoline for autoinit support"
+      - number: 60061
+        title: "allow finding stdlibs that are normal packages in the manifest but are now stdlibs"
+      - number: 59998
+        title: "Avoid hardcoding paths in Profile and Sys"
+      - number: 57143
+        title: "Add JuliaLang/JuliaSyntax.jl#525 to NEWS.md, flisp parser, and REPL"
+      - number: 60106
+        title: "Don't leave precompile-time tempdirs to be cleaned-up in binaries"
+      - number: 60155
+        title: "Better order for stdlibs in the Julia manual navbar"
+      - number: 59028
+        title: "build: More msys2 fixes"
+      - number: 59539
+        title: "doc: HISTORY: single method for multiple functions"
+      - number: 60041
+        title: "MozillaCACerts: Update to 2025-11-04"
+      - number: 60098
+        title: "deps: fix rpath of 7z after moving to libexecdir"
+      - number: 60219
+        title: "Remove list of stdlibs on the intro page"
+      - number: 60215
+        title: "Bump Documenter to 1.16.1"
+
+  direct_changes:
+    - summary: "Array size setting reordered to prevent race conditions"
+      component: "Base.Array"
+      description: |
+        Reorders setfield!(a, :size, ...) relative to setfield!(a, :ref, ...) to close
+        race condition windows:
+
+        For GROW operations (_growbeg!, _growend!, _growat!):
+          Size is set AFTER ref update and memory operations complete. This prevents
+          exposing a larger size before memory is ready, avoiding reads of uninitialized data.
+
+        For DELETE operations (_deletebeg!):
+          Size is set BEFORE ref update. This ensures concurrent readers see the smaller
+          size before the ref moves, preventing reads past valid memory bounds.
+
+        Both changes follow the principle: size should reflect the valid accessible range
+        at all times during concurrent access.
+      evidence:
+        - source: "diff"
+          path: "base/array.jl"
+          loc: "1138-1156"
+          url: "https://github.com/JuliaLang/julia/blob/7c7d8d67d3b9e425ed61f24a6d25eec547e573d5/base/array.jl#L1138-L1156"
+          snippet: |
+            function _growbeg!(a::Vector, delta::Integer)
+                @_noub_meta
+                delta = Int(delta)
+                delta == 0 && return
+                delta >= 0 || throw(ArgumentError("grow requires delta >= 0"))
+                ref = a.ref
+                len = length(a)
+                offset = memoryrefoffset(ref)
+                newlen = len + delta
+                # if offset is far enough advanced to fit data in existing memory without copying
+                if delta <= offset - 1
+                    setfield!(a, :ref, @inbounds memoryref(ref, 1 - delta))
+                    setfield!(a, :size, (newlen,))  # <-- size AFTER ref update
+                else
+                    @noinline _growbeg_internal!(a, delta, len)
+                    setfield!(a, :size, (newlen,))  # <-- size AFTER internal operation
+                end
+                return
+            end
+        - source: "diff"
+          path: "base/array.jl"
+          loc: "1259-1276"
+          url: "https://github.com/JuliaLang/julia/blob/7c7d8d67d3b9e425ed61f24a6d25eec547e573d5/base/array.jl#L1259-L1276"
+          snippet: |
+            function _deletebeg!(a::Vector, delta::Integer)
+                delta = Int(delta)
+                len = length(a)
+                if unsigned(delta) > unsigned(len)
+                    throw(ArgumentError("_deletebeg! requires delta in 0:length(a)"))
+                end
+                for i in 1:delta
+                    @inbounds _unsetindex!(a, i)
+                end
+                newlen = len - delta
+                setfield!(a, :size, (newlen,))  # <-- size BEFORE ref update
+                if newlen != 0
+                    newref = @inbounds memoryref(a.ref, delta + 1)
+                    setfield!(a, :ref, newref)  # <-- ref update after size
+                end
+                return
+            end
+
+    - summary: "Fix write barrier condition for atomic setonce operations"
+      component: "Codegen"
+      description: |
+        Corrects the 'Done' condition in typed_store for atomic setonce operations.
+        The write barrier must be emitted when either:
+        1. The atomic setonce succeeded (Success=true), OR
+        2. The pointer was already non-null (first_ptr != NULL)
+
+        Previously only checked first_ptr != NULL, missing the case where setonce
+        succeeded with a null-initialized field. This could cause GC to miss newly
+        stored references.
+      evidence:
+        - source: "diff"
+          path: "src/cgutils.cpp"
+          loc: "2634-2645"
+          url: "https://github.com/JuliaLang/julia/blob/7c7d8d67d3b9e425ed61f24a6d25eec547e573d5/src/cgutils.cpp#L2634-L2645"
+          snippet: |
+            assert(!isboxed && maybe_null_if_boxed);
+            Value *first_ptr = extract_first_ptr(ctx, realinstr);
+            assert(first_ptr != nullptr);
+            // Done = Success || first_ptr != NULL
+            Done = ctx.builder.CreateOr(Success, ctx.builder.CreateIsNotNull(first_ptr));
+
+    - summary: "Add autoinit trampoline for multi-versioned functions"
+      component: "LLVM-Multiversioning"
+      description: |
+        Creates a reusable create_trampoline() function that generates trampoline
+        functions for multi-versioned entry points. When autoinit=true, the trampoline
+        calls jl_autoinit_and_adopt_thread() before loading and tail-calling the
+        actual function from the relocation slot. This enables auto-initialization
+        to work correctly with CPU feature detection and multi-versioning.
+
+        The function also refactors rewrite_alias() to use create_trampoline() instead
+        of duplicating the trampoline generation logic.
+      evidence:
+        - source: "code"
+          path: "src/llvm-multiversioning.cpp"
+          loc: "498-540"
+          url: "https://github.com/JuliaLang/julia/blob/7c7d8d67d3b9e425ed61f24a6d25eec547e573d5/src/llvm-multiversioning.cpp#L498-L540"
+          snippet: |
+            Function *CloneCtx::create_trampoline(Function *F, GlobalVariable *slot, bool autoinit)
+            {
+                Function *trampoline =
+                    Function::Create(F->getFunctionType(), GlobalValue::ExternalLinkage, "", &M);
+
+                trampoline->copyAttributesFrom(F);
+                trampoline->setVisibility(GlobalValue::HiddenVisibility);
+                trampoline->setDSOLocal(true);
+
+                // drop multiversioning attributes
+                trampoline->removeFnAttr("julia.mv.reloc");
+                trampoline->removeFnAttr("julia.mv.clones");
+
+                auto BB = BasicBlock::Create(F->getContext(), "top", trampoline);
+                IRBuilder<> irbuilder(BB);
+
+                if (autoinit) {
+                    irbuilder.CreateCall(F->getParent()->getOrInsertFunction(
+                        XSTR(jl_autoinit_and_adopt_thread),
+                        PointerType::get(F->getContext(), 0)
+                    ));
+                }
+
+                auto ptr = irbuilder.CreateLoad(F->getType(), slot);
+                ptr->setMetadata(llvm::LLVMContext::MD_tbaa, tbaa_const);
+                ptr->setMetadata(llvm::LLVMContext::MD_invariant_load, MDNode::get(F->getContext(), None));
+
+                SmallVector<Value *, 0> Args;
+                for (auto &arg : trampoline->args())
+                    Args.push_back(&arg);
+                auto call = irbuilder.CreateCall(F->getFunctionType(), ptr, ArrayRef<Value *>(Args));
+                if (F->isVarArg()) {
+                    assert(!TT.isARM() && !TT.isPPC() && "musttail not supported on ARM/PPC!");
+                    call->setTailCallKind(CallInst::TCK_MustTail);
+                } else {
+                    call->setTailCallKind(CallInst::TCK_Tail);
+                }
+
+                if (F->getReturnType() == Type::getVoidTy(F->getContext()))
+                    irbuilder.CreateRetVoid();
+                else
+                    irbuilder.CreateRet(call);
+
+                return trampoline;
+            }
+
+    - summary: "Initialize reloc_slot with autoinit trampoline instead of null"
+      component: "LLVM-Multiversioning"
+      description: |
+        Changes the initialization of function relocation slots from null to the
+        autoinit trampoline. This ensures that if a multi-versioned function is
+        called before Julia is fully initialized, it will trigger auto-initialization
+        instead of crashing on a null function pointer dereference.
+      evidence:
+        - source: "code"
+          path: "src/llvm-multiversioning.cpp"
+          loc: "555-565"
+          url: "https://github.com/JuliaLang/julia/blob/7c7d8d67d3b9e425ed61f24a6d25eec547e573d5/src/llvm-multiversioning.cpp#L555-L565"
+          snippet: |
+            else {
+                auto id = get_func_id(F);
+                const_relocs[id] = GV;
+
+                // Initialize with a single-use trampoline that calls `jl_autoinit_and_adopt_thread`,
+                // so that auto-initialization works with multi-versioned entrypoints.
+                Function *trampoline = create_trampoline(F, GV, /* autoinit */ true);
+                trampoline->setName(F->getName() + ".autoinit_trampoline");
+                GV->setInitializer(trampoline);
+            }
+
+    - summary: "Add stdlib fallback in package loading"
+      component: "Base.Loading"
+      description: |
+        Adds a goto label to try stdlib fallback before giving up when a package
+        is marked as 'missing' in the manifest. This allows packages that were
+        previously normal packages but are now stdlibs to be found correctly.
+        This handles the case where a manifest still references an old package
+        UUID that has since been migrated to stdlib.
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "509-531"
+          url: "https://github.com/JuliaLang/julia/blob/7c7d8d67d3b9e425ed61f24a6d25eec547e573d5/base/loading.jl#L509-L531"
+          snippet: |
+            spec = manifest_uuid_load_spec(env, pkg)
+            # missing is used as a sentinel to stop looking further down in envs
+            if spec === missing
+                is_stdlib(pkg) && @goto stdlib_fallback
+                spec = nothing
+                @goto done
+            end
+            if spec !== nothing
+                env_prime = env  # Note: actual code uses env'
+                @goto done
+            end
+            # ...
+            @label stdlib_fallback
+            mbyspec = manifest_uuid_load_spec(Sys.STDLIB, pkg)
+            if mbyspec isa PkgLoadSpec
+                spec = mbyspec
+                env_prime = Sys.STDLIB  # Note: actual code uses env'
+                @goto done
+            end
+
+    - summary: "Add Unicode 16 character 🢲 as valid identifier and operator"
+      component: "FLisp-Parser"
+      description: |
+        Adds U+1F8B2 (RIGHTWARDS ARROW WITH LOWER HOOK) as a valid identifier
+        start/continue character and as an arrow-precedence operator. Accessible
+        via \hookunderrightarrow at the REPL.
+      evidence:
+        - source: "diff"
+          path: "src/flisp/julia_extensions.c"
+          loc: "130-157"
+          snippet: |
+            JL_DLLEXPORT int jl_id_start_char(uint32_t wc)
+            {
+                // ... existing code ...
+                if (wc < 0xA1 || wc > 0x10ffff)
+                    return 0;
+            +   // "Rightwards Arrow with Lower Hook"
+            +   if (wc == 0x1f8b2)
+            +       return 1;
+                return is_wc_cat_id_start(wc, utf8proc_category((utf8proc_int32_t) wc));
+            }
+
+            JL_DLLEXPORT int jl_id_char(uint32_t wc)
+            {
+                // ... existing code ...
+            +   // "Rightwards Arrow with Lower Hook"
+            +   wc == 0x1f8b2)
+                    return 1;
+            }
+        - source: "diff"
+          path: "src/julia-parser.scm"
+          loc: "13"
+          snippet: |
+            (define prec-arrow (add-dots '(← → ... 🢲)))
+
+    - summary: "Use DATAROOTDIR instead of hardcoded paths"
+      component: "Base.Sys"
+      description: |
+        Replaces hardcoded "../share/julia" paths with Base.DATAROOTDIR constant
+        throughout the codebase. Also:
+        - Adds Sys.PAGESIZE for platform-independent page size queries
+        - Removes BUILD_ROOT_PATH in favor of Base.SOURCEDIR
+        - Updates Profile.jl to use new path constants
+        - Updates stdlib tests and precompile code to use DATAROOTDIR
+      evidence:
+        - source: "code"
+          path: "base/sysinfo.jl"
+          loc: "54-58"
+          url: "https://github.com/JuliaLang/julia/blob/7c7d8d67d3b9e425ed61f24a6d25eec547e573d5/base/sysinfo.jl#L54-L58"
+          snippet: |
+            global STDLIB::String = "$BINDIR/$DATAROOTDIR/julia/stdlib/v$(VERSION.major).$(VERSION.minor)"
+        - source: "code"
+          path: "base/sysinfo.jl"
+          loc: "148-153"
+          url: "https://github.com/JuliaLang/julia/blob/7c7d8d67d3b9e425ed61f24a6d25eec547e573d5/base/sysinfo.jl#L148-L153"
+          snippet: |
+            """
+                Sys.PAGESIZE::Clong
+
+            A number providing the pagesize of the given OS.  Common values being 4kb or 64kb on Linux.
+            """
+            global PAGESIZE::Clong
+
+    - summary: "MSYS2/Windows build system fixes"
+      component: "Build-System"
+      description: |
+        Multiple fixes to enable building Julia from source on MSYS2/Windows:
+        - CMake detection: warns if using Cygwin CMake instead of MinGW CMake
+        - Path handling: MSYS2_ARG_CONV_EXCL prevents path conversion for CMAKE_INSTALL_PREFIX
+        - Symlink handling: MSYS=winsymlinks:native to handle broken symlinks in tarballs
+        - Generator command: proper CMAKE_GENERATOR_COMMAND usage in libssh2.mk
+        - Rpath fixes: p7zip now has correct rpath after moving to libexecdir
+      evidence:
+        - source: "code"
+          path: "deps/tools/common.mk"
+          loc: "70-90"
+          url: "https://github.com/JuliaLang/julia/blob/7c7d8d67d3b9e425ed61f24a6d25eec547e573d5/deps/tools/common.mk#L70-L90"
+          snippet: |
+            ifneq (,$(findstring MINGW,$(RAW_BUILD_OS)))
+            ifneq (,$(shell ldd $(shell which cmake) | grep msys-2.0.dll))
+            # Detect MSYS2 with cygwin CMake rather than MinGW cmake
+            override CMAKE := echo "ERROR: CMake is Cygwin CMake, not MinGW CMake. Build will fail. Use 'pacman -S mingw-w64-{i686,x86_64}-cmake'."; exit 1; $(CMAKE)
+            endif
+            override CMAKE := MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX" $(CMAKE)
+            endif
+
+            # Handle symlinks to non-existent targets in tarballs
+            MSYS_NONEXISTENT_SYMLINK_TARGET_FIX := export MSYS=winsymlinks:native
+
+    - summary: "Precompile tempdir cleanup fix for binaries"
+      component: "Build-System"
+      description: |
+        Fixes an issue where Julia binaries would attempt to clean up non-existent
+        tempdirs at exit. The tempname() calls during precompile generation now
+        use cleanup=false to prevent registration of cleanup handlers that would
+        persist into the final binary.
+      evidence:
+        - source: "code"
+          path: "contrib/generate_precompile.jl"
+          loc: "351-352"
+          url: "https://github.com/JuliaLang/julia/blob/7c7d8d67d3b9e425ed61f24a6d25eec547e573d5/contrib/generate_precompile.jl#L351-L352"
+          snippet: |
+            tmp_prec = tempname(prec_path; cleanup=false)
+            tmp_proc = tempname(prec_path; cleanup=false)
+
+  secondary_effects:
+    - effect: "Thread-safety improvement for array operations"
+      mechanism: |
+        The ordering of size vs ref updates now prevents race condition windows:
+
+        For GROW operations (_growbeg!, _growend!, _growat!) [array.jl:1138-1256]:
+          -> memory operations complete
+          -> setfield!(a, :ref, newref)
+          -> setfield!(a, :size, (newlen,))  # Size AFTER ref
+          PREVENTS: concurrent thread seeing larger size before memory is ready
+
+        For DELETE operations (_deletebeg!) [array.jl:1259-1276]:
+          -> _unsetindex! clears elements
+          -> setfield!(a, :size, (newlen,))  # Size BEFORE ref
+          -> setfield!(a, :ref, newref)
+          PREVENTS: concurrent thread reading past new size bounds
+
+        Both ensure: at any point, size reflects valid accessible range.
+      downstream_surfaces:
+        - "Concurrent array operations"
+        - "push!/pushfirst!/insert!/pop!/popfirst!/deleteat! safety"
+        - "Task-parallel code with shared vectors"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Correct GC write barrier for atomic operations"
+      mechanism: |
+        typed_store() [cgutils.cpp:2634]
+          -> atomic setonce operation
+          -> Success = cmpxchg success bit
+          -> first_ptr = extract_first_ptr(realinstr)
+          -> OLD: Done = CreateIsNotNull(first_ptr)  # Bug: ignores success
+          -> NEW: Done = CreateOr(Success, CreateIsNotNull(first_ptr))  # Fixed
+
+        The write barrier must trigger when the operation succeeds OR when
+        the pointer is non-null, not just the latter.
+      downstream_surfaces:
+        - "Atomic operations with GC-managed references"
+        - "@atomiconce macro"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "Auto-initialization with multi-versioned functions"
+      mechanism: |
+        prepare_slots() [llvm-multiversioning.cpp:506]
+          -> Creates GlobalVariable for reloc_slot
+          -> OLD: GV->setInitializer(Constant::getNullValue(F->getType()))
+          -> NEW: create_trampoline(F, GV, /* autoinit */ true)
+          -> Trampoline calls jl_autoinit_and_adopt_thread() before actual call
+
+        When a multi-versioned function is called before Julia init, the
+        trampoline ensures proper initialization instead of crashing on null.
+      downstream_surfaces:
+        - "Embedding Julia in other applications"
+        - "Multi-threaded initialization"
+        - "CPU feature detection at startup"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Stdlib resolution for migrated packages"
+      mechanism: |
+        locate_package_env() [loading.jl:462]
+          -> manifest_uuid_path(env, pkg) returns missing
+          -> OLD: @goto done (give up)
+          -> NEW: is_stdlib(pkg) && @goto stdlib_fallback
+          -> manifest_uuid_path(Sys.STDLIB, pkg) tried as fallback
+
+        Packages previously registered in manifests that became stdlibs
+        can now be found without manifest updates.
+      downstream_surfaces:
+        - "Package loading"
+        - "Manifest compatibility"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "Precompile tempdir cleanup fix for binaries"
+      mechanism: |
+        generate_precompile.jl [contrib/generate_precompile.jl:351-352]
+          -> OLD: tempname(prec_path) with default cleanup=true
+          -> NEW: tempname(prec_path; cleanup=false)
+
+        When building Julia binaries, the tempname() function with cleanup=true
+        would register cleanup handlers that persist into the final binary.
+        This caused the binary to attempt cleaning up non-existent tempdirs
+        at exit. Setting cleanup=false prevents this registration.
+      downstream_surfaces:
+        - "Julia binary distribution builds"
+        - "System image generation"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "MSYS2/Windows build compatibility improvements"
+      mechanism: |
+        Multiple fixes in deps/tools/common.mk and various deps/*.mk files:
+          -> CMake detection: warn if using Cygwin CMake instead of MinGW CMake
+          -> Path handling: MSYS2_ARG_CONV_EXCL prevents path conversion issues
+          -> Symlinks: MSYS=winsymlinks:native handles broken symlinks in tarballs
+          -> Generator: proper CMAKE_GENERATOR_COMMAND usage
+
+        These enable building Julia from source on MSYS2/Windows without errors
+        from path conversion, symlink handling, and generator mismatches.
+      downstream_surfaces:
+        - "Building Julia on Windows/MSYS2"
+        - "Dependency compilation (libgit2, libssh2, LLVM, etc.)"
+      likelihood: "high"
+      impact: "medium"
+
+  compatibility:
+    internal_api:
+      - field: "Sys.BUILD_ROOT_PATH"
+        change: "Removed - replaced by Base.SOURCEDIR"
+        affected_tools:
+          - "Profile.jl (uses for path shortening)"
+          - "Any code accessing Sys.BUILD_ROOT_PATH"
+      - field: "Sys.PAGESIZE"
+        change: "Added as public API"
+        affected_tools:
+          - "Mmap.jl (now uses Sys.PAGESIZE instead of local ccall)"
+    behavioral:
+      - change: "Array size now reflects actual memory state"
+        details: |
+          Code relying on seeing the new size before memory is ready
+          (a data race by definition) may behave differently. This is
+          a correctness fix, not a breaking change.
+      - change: "New Unicode operator 🢲"
+        details: |
+          Existing code cannot use this character, so no compatibility
+          impact. Adds \hookunderrightarrow REPL completion.
+
+  performance:
+    compile_time:
+      - description: "Autoinit trampoline generation"
+        impact: |
+          ESTIMATED: Negligible. One additional small function generated
+          per multi-versioned entry point. O(1) per function, ~10-20 LLVM
+          instructions per trampoline.
+    runtime:
+      - description: "Array operations"
+        impact: |
+          ESTIMATED: No measurable change. The size field write was just
+          reordered, same number of operations.
+      - description: "Autoinit trampoline"
+        impact: |
+          ESTIMATED: One-time cost on first call before Julia init. After
+          initialization, reloc_slot points to actual function, no overhead.
+
+  risk:
+    level: "low"
+    rationale:
+      - "PR was successfully merged to release-1.12 branch on 2025-11-30"
+      - "All changes are bug fixes or improvements with clear scoping"
+      - "Array fix closes race condition - pure correctness improvement"
+      - "Atomic fix addresses potential GC safety issue with clear fix"
+      - "Multiversioning change enables existing intended behavior"
+      - "Path changes are internal refactoring with no user-visible API changes"
+      - "Unicode addition is purely additive (new operator)"
+      - "MSYS2 fixes are build-only, no runtime impact"
+
+  open_questions:
+    - "Are there additional backport PRs for 1.12.3 with more fixes?"
+    - "Should downstream package maintainers test with 1.12.3-rc before release?"
+
+  recommendations:
+    - "Update any code using Sys.BUILD_ROOT_PATH to use Base.SOURCEDIR"
+    - "Verify atomic operations test coverage after #59991 fix"
+    - "Test multi-versioned functions in embedding scenarios after #60171"
+    - "Test MSYS2 builds to verify build system fixes work as expected"
+    - "Downstream packages using hardcoded '../share/julia' paths should update to use Base.DATAROOTDIR"

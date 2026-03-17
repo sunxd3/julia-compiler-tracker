@@ -1,0 +1,205 @@
+schema_version: "1.0"
+pr:
+  number: 59688
+  title: "fix overflow in complex muladd"
+  url: "https://github.com/JuliaLang/julia/pull/59688"
+  author: "adienes"
+  labels: ["maths", "complex", "bugfix"]
+  merged_at: "2025-10-17T20:48:33Z"
+  merge_commit_sha: "371fc373c896e12f99cc667bd755beb94c0bf93e"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59688.diff"
+scope:
+  files_touched:
+    - "base/complex.jl"
+    - "test/complex.jl"
+  components:
+    - "Base.Complex"
+  pipeline_stages:
+    - "Runtime"
+analysis:
+  intent:
+    summary: "Fix incorrect results from muladd on complex numbers when unsigned integer overflow occurs during intermediate calculations. The bug caused muladd(1im, 1im, 0x01) to return -256+0im instead of the correct 0+0im."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59684"
+  direct_changes:
+    - summary: "Introduce _mulsub helper function that promotes all arguments to the same type before computing muladd(a, b, -c), preventing overflow when operands have mixed types."
+      component: "Base.Complex"
+      evidence:
+        - source: "code"
+          path: "base/complex.jl"
+          loc: "293-294"
+          url: "https://github.com/JuliaLang/julia/blob/371fc373c896e12f99cc667bd755beb94c0bf93e/base/complex.jl#L293-L294"
+          snippet: |
+            _mulsub(a, b, c) = _mulsub(promote(a, b, c)...)
+            _mulsub(a::T, b::T, c::T) where {T<:Real} = muladd(a, b, -c)
+    - summary: "Update muladd(z::Complex, w::Complex, x::Complex) to use _mulsub for the real part computation, ensuring proper type promotion before the subtraction that could overflow."
+      component: "Base.Complex"
+      evidence:
+        - source: "code"
+          path: "base/complex.jl"
+          loc: "295-297"
+          url: "https://github.com/JuliaLang/julia/blob/371fc373c896e12f99cc667bd755beb94c0bf93e/base/complex.jl#L295-L297"
+          snippet: |
+            muladd(z::Complex, w::Complex, x::Complex) =
+                Complex(muladd(real(z), real(w), -_mulsub(imag(z), imag(w), real(x))),
+                        muladd(real(z), imag(w), muladd(imag(z), real(w), imag(x))))
+    - summary: "Update muladd(z::Complex, w::Complex, x::Real) to use _mulsub for consistent overflow-safe behavior when the addend is a real number."
+      component: "Base.Complex"
+      evidence:
+        - source: "code"
+          path: "base/complex.jl"
+          loc: "343-345"
+          url: "https://github.com/JuliaLang/julia/blob/371fc373c896e12f99cc667bd755beb94c0bf93e/base/complex.jl#L343-L345"
+          snippet: |
+            muladd(z::Complex, w::Complex, x::Real) =
+                Complex(muladd(real(z), real(w), -_mulsub(imag(z), imag(w), x)),
+                        muladd(real(z), imag(w), imag(z) * real(w)))
+    - summary: "Extend test coverage to include the problematic case with imaginary units and unsigned integers that triggered the overflow bug."
+      component: "Test"
+      evidence:
+        - source: "test"
+          path: "test/complex.jl"
+          loc: "1016-1021"
+          url: "https://github.com/JuliaLang/julia/blob/371fc373c896e12f99cc667bd755beb94c0bf93e/test/complex.jl#L1016-L1021"
+          snippet: |
+            @testset "issues #15969 #59684" begin
+                # specialized muladd for complex types
+                for x in (3, 3+13im, 1im), y in (2, 2+7im, 1im), z in (5, 5+11im, 0x01, 0x01 + 0x00*im)
+                    @test muladd(x,y,z) === x*y + z
+                end
+            end
+  secondary_effects:
+    - effect: "Type promotion behavior in complex muladd is now more explicit, ensuring all operands in the subtraction have consistent types before arithmetic."
+      mechanism: |
+        The core issue stems from how Julia handles unsigned integer negation:
+
+        Unsigned negation wraparound [Julia semantics]:
+          -0x01 evaluates to 0xff (255) as UInt8 due to modular arithmetic
+          Only AFTER this does promotion to Int64 occur in muladd
+
+        The fix restructures the computation order:
+
+        BEFORE (buggy):
+          muladd(z::Complex, w::Complex, x::Complex) [complex.jl:295-297]
+            real_part = muladd(real(z), real(w), -muladd(imag(z), imag(w), -real(x)))
+                                                 ^--- negation happens on result type
+
+        AFTER (fixed):
+          muladd(z::Complex, w::Complex, x::Complex) [complex.jl:295-297]
+            real_part = muladd(real(z), real(w), -_mulsub(imag(z), imag(w), real(x)))
+                                                  ^--- promotion THEN negation
+
+        _mulsub call chain [complex.jl:293-294]:
+          _mulsub(a, b, c) dispatches to promote(a, b, c)...
+            -> promote(1, 1, 0x01) uses int.jl promotion rules
+            -> promote_rule(Int64, UInt8) = Int64 [int.jl:777]
+            -> returns (1, 1, 1) all as Int64
+          _mulsub(a::T, b::T, c::T) then computes muladd(1, 1, -1)
+            -> -1 is Int64, no overflow
+            -> result is 0
+      downstream_surfaces:
+        - "Complex number arithmetic"
+        - "Numerical computations mixing Complex and unsigned integers"
+      likelihood: "high"
+      impact: "high"
+    - effect: "New internal function _mulsub is added to Base but not exported, available for potential reuse in similar overflow-sensitive computations."
+      mechanism: |
+        _mulsub(a, b, c) [complex.jl:293]
+          - generic method: promotes arguments to common type
+        _mulsub(a::T, b::T, c::T) where {T<:Real} [complex.jl:294]
+          - specialized method: computes muladd(a, b, -c) with uniform types
+
+        This pattern ensures -c is computed in type T, not the original type of c,
+        avoiding unsigned integer wraparound when c is unsigned.
+      downstream_surfaces:
+        - "Internal Base arithmetic helpers"
+      likelihood: "low"
+      impact: "low"
+    - effect: "The fix only applies to the two muladd methods that had the double-negation pattern in the real part computation. Other muladd methods for Complex are unaffected."
+      mechanism: |
+        Affected methods (both use double-negation pattern):
+          muladd(z::Complex, w::Complex, x::Complex) [complex.jl:295-297]
+          muladd(z::Complex, w::Complex, x::Real) [complex.jl:343-345]
+
+        Unaffected methods (no double-negation in unsigned-sensitive position):
+          muladd(x::Real, z::Complex, y::Union{Real,Complex}) [complex.jl:338]
+            -> delegates to muladd(z, x, y), no negation of x
+          muladd(z::Complex, x::Real, y::Real) [complex.jl:339]
+            -> real part: muladd(real(z),x,y), no negation
+          muladd(z::Complex, x::Real, w::Complex) [complex.jl:340-341]
+            -> real part: muladd(real(z),x,real(w)), no negation
+          muladd(x::Real, y::Real, z::Complex) [complex.jl:342]
+            -> real part: muladd(x,y,real(z)), no negation
+
+        The imaginary part computation in all methods uses addition, not subtraction,
+        so unsigned overflow is not an issue there.
+      downstream_surfaces:
+        - "Complex muladd method dispatch"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "Base._mulsub"
+        change: "New internal function added. Not exported but accessible via Base._mulsub."
+        affected_tools:
+          - tool: "None expected"
+            usage: "Internal helper function not intended for external use."
+    behavioral:
+      - change: "muladd on Complex numbers with unsigned integer addends now produces correct results matching x*y + z semantics."
+        risk: "low"
+      - change: "Type promotion order in complex muladd computation changes to promote before negation rather than after."
+        risk: "low"
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: negligible; adds one additional promote() call which may result in slightly more specialization but no measurable compile-time increase expected."
+    runtime:
+      - impact: |
+          ESTIMATED: negligible to minor overhead in mixed-type cases.
+
+          For uniform types (e.g., all Float64):
+            - promote(a::T, b::T, c::T) returns (a, b, c) unchanged
+            - Overhead: one method dispatch, optimized away by inlining
+
+          For mixed types (e.g., Int and UInt8):
+            - promote() performs type conversion
+            - This overhead is necessary for correctness
+            - Previously incorrect results were "faster" but wrong
+  risk:
+    level: "low"
+    rationale:
+      - "This is a targeted bugfix affecting only complex muladd computations with mixed types."
+      - "The change makes muladd consistent with the equivalent expanded form x*y + z."
+      - "Test coverage explicitly verifies the problematic cases are now handled correctly."
+      - "The fix uses existing promote() infrastructure, not introducing new mechanisms."
+      - "No fma function exists for Complex numbers, so muladd is the only affected path."
+  open_questions:
+    - "Test coverage only includes UInt8 (0x01). Larger unsigned types (UInt16, UInt32, UInt64) should also work correctly via the same promotion mechanism but are not explicitly tested."
+    - "The tests verify muladd(x,y,z) === x*y + z but do not separately verify the intermediate _mulsub behavior for edge cases."
+  recommendations:
+    - "Code relying on the (incorrect) prior behavior of muladd with Complex and unsigned integers will now produce different (correct) results."
+    - "No action needed for downstream packages unless they were explicitly working around this bug."
+    - "Consider expanding test coverage to include UInt16, UInt32, UInt64 to ensure all unsigned types work correctly."
+reviewer_notes:
+  independent_verification:
+    - "Verified _mulsub is only called from the two muladd methods listed (rg search confirmed no other callers in base/)"
+    - "Verified promotion rules in int.jl:775-788 explain why promote(1, 1, 0x01) yields Int64 values"
+    - "Verified no fma function exists for Complex types (grep for 'fma.*Complex' found no matches)"
+    - "The original issue #59684 confirms the exact bug manifestation: muladd(1im, 1im, 0x01) returned -256+0im"
+  additional_context:
+    promotion_rules: |
+      From int.jl:775-788, the relevant promotion rule:
+        promote_rule(::Type{Int64}, ::Union{..., Type{UInt8}}) = Int64
+
+      This means promote(1::Int, 1::Int, 0x01::UInt8) returns (1, 1, 1) as Int64,
+      allowing -1 to be computed correctly without wraparound.
+    overflow_mechanism: |
+      Julia unsigned integer semantics follow modular arithmetic:
+        -x::UInt8 computes as UInt8(0) - x, which wraps around
+        -0x01 = 0xff = 255 as UInt8
+
+      In the original code:
+        muladd(1, 1, -0x01) = muladd(1, 1, 0xff)
+        The muladd then promotes to Int: muladd(1, 1, 255) = 256
+        Outer negation: -256
+
+      This explains why muladd(1im, 1im, 0x01) returned -256+0im instead of 0+0im.

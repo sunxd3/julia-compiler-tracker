@@ -1,0 +1,323 @@
+schema_version: "1.0"
+pr:
+  number: 60257
+  title: "[JuliaLowering] `ccall((lib,sym)...)` and `cfunction` fixes"
+  url: "https://github.com/JuliaLang/julia/pull/60257"
+  author: "mlechu"
+  labels:
+    - "compiler:lowering"
+  merged_at: "2025-12-01T22:15:13Z"
+  merge_commit_sha: "7bc6a0358fcfa739be0fe16d6424d70c967cfa28"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60257.diff"
+scope:
+  files_touched:
+    - "JuliaLowering/src/desugaring.jl"
+    - "JuliaLowering/src/eval.jl"
+    - "JuliaLowering/src/syntax_macros.jl"
+    - "JuliaLowering/test/function_calls_ir.jl"
+    - "JuliaLowering/test/misc.jl"
+    - "JuliaLowering/test/misc_ir.jl"
+  components:
+    - "JuliaLowering"
+  pipeline_stages:
+    - "Lowering"
+    - "MacroExpansion"
+analysis:
+  intent:
+    summary: "Fix lowering for (sym, lib) tuples in ccall/cglobal and align @cfunction handling with Base by using K\"inert\" with :as_Expr flag for non-interpolated callables."
+    issue_links:
+      - "https://github.com/JuliaLang/JuliaLowering.jl/pull/36"
+    quoted_from_pr: |
+      - `ccall` with a `lib,sym` tuple argument was being desugared to a call to `Core.Tuple` when we actually want an `Expr(:tuple)`
+      - `cfunction` only worked in simple cases, since the check for local variables in scope resolution will fail with any nontrivial function body.
+  direct_changes:
+    - summary: "`expand_C_library_symbol` now wraps tuple arguments in `K\"static_eval\"` with per-child expansion using mapchildren, ensuring tuple syntax is preserved for ccall/cglobal library specs instead of emitting Core.Tuple calls."
+      component: "JuliaLowering/src/desugaring.jl"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "1725-1733"
+          url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/src/desugaring.jl#L1725-L1733"
+          snippet: |
+            # Expand the (sym,lib) argument to ccall/cglobal
+            function expand_C_library_symbol(ctx, ex)
+                if kind(ex) == K"tuple"
+                    return @ast ctx ex [K"static_eval"(meta=name_hint("function name and library expression"))
+                        mapchildren(e->expand_forms_2(ctx,e), ctx, ex)
+                    ]
+                end
+                return expand_forms_2(ctx, ex)
+            end
+        - source: "test"
+          path: "JuliaLowering/test/function_calls_ir.jl"
+          loc: "367-374"
+          url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/test/function_calls_ir.jl#L367-L374"
+          snippet: |
+            # ccall with library name as a global var
+            ccall((:strlen, libc), Csize_t, (Cstring,), "asdfg")
+            #---------------------
+            1   TestMod.Cstring
+            2   (call top.cconvert %₁ "asdfg")
+            3   (call top.unsafe_convert %₁ %₂)
+            4   (foreigncall (static_eval (tuple-p :strlen TestMod.libc)) (static_eval TestMod.Csize_t) (static_eval (call core.svec TestMod.Cstring)) 0 :ccall %₃ %₂)
+            5   (return %₄)
+    - summary: "`_to_lowered_expr` now explicitly handles `K\"static_eval\"` tuple payloads by emitting `Expr(:tuple, ...)` and handles function payloads by emitting `QuoteNode(Expr(ex))`. Additionally, `K\"cfunction\"` is now treated as a normal head rather than having special-case handling."
+      component: "JuliaLowering/src/eval.jl"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/eval.jl"
+          loc: "413-446"
+          url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/src/eval.jl#L413-L446"
+          snippet: |
+            elseif k == K"static_eval"
+                @assert numchildren(ex) == 1
+                if kind(ex[1]) === K"tuple"
+                    # Should just be ccall library spec
+                    @assert numchildren(ex[1]) === 2
+                    Expr(:tuple, _to_lowered_expr(ex[1][1], stmt_offset),
+                         _to_lowered_expr(ex[1][2], stmt_offset))
+                elseif kind(ex[1]) === K"function"
+                    QuoteNode(Expr(ex))
+                else
+                    _to_lowered_expr(ex[1], stmt_offset)
+                end
+            else
+                # Allowed forms according to https://docs.julialang.org/en/v1/devdocs/ast/
+                #
+                # call invoke static_parameter `=` method struct_type abstract_type
+                # primitive_type global const new splatnew isdefined
+                # enter leave pop_exception inbounds boundscheck loopinfo copyast meta
+                # lambda
+                head = k == K"call"      ? :call       :
+                       k == K"new"       ? :new        :
+                       k == K"splatnew"  ? :splatnew   :
+                       k == K"="         ? :(=)        :
+                       k == K"leave"     ? :leave      :
+                       k == K"isdefined" ? :isdefined  :
+                       k == K"latestworld"       ? :latestworld       :
+                       k == K"pop_exception"     ? :pop_exception     :
+                       k == K"captured_local"    ? :captured_local    :
+                       k == K"gc_preserve_begin" ? :gc_preserve_begin :
+                       k == K"gc_preserve_end"   ? :gc_preserve_end   :
+                       k == K"foreigncall"       ? :foreigncall       :
+                       k == K"cfunction"         ? :cfunction         :
+                       k == K"new_opaque_closure" ? :new_opaque_closure :
+                       nothing
+        - source: "test"
+          path: "JuliaLowering/test/function_calls_ir.jl"
+          loc: "520-525"
+          url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/test/function_calls_ir.jl#L520-L525"
+          snippet: |
+            # cglobal special support for (sym, lib) tuple
+            cglobal((:sym, lib), Int)
+            #---------------------
+            1   TestMod.Int
+            2   (call core.cglobal (static_eval (tuple-p :sym TestMod.lib)) %₁)
+            3   (return %₂)
+    - summary: "`@cfunction` macro now wraps non-interpolated callables in `K\"inert\"` with `CompileHints(:as_Expr, true)` instead of `K\"static_eval\"`, preserving expression form and matching Base behavior."
+      component: "JuliaLowering/src/syntax_macros.jl"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/syntax_macros.jl"
+          loc: "80-112"
+          url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/src/syntax_macros.jl#L80-L112"
+          snippet: |
+            function Base.var"@cfunction"(__context__::MacroContext, callable, return_type, arg_types)
+                if kind(arg_types) != K"tuple"
+                    throw(MacroExpansionError(arg_types, "@cfunction argument types must be a literal tuple"))
+                end
+                arg_types_svec = @ast __context__ arg_types [K"call"
+                    "svec"::K"core"
+                    children(arg_types)...
+                ]
+                if kind(callable) == K"$"
+                    fptr = callable[1]
+                    typ = Base.CFunction
+                else
+                    # Kinda weird semantics here - without `$`, the callable is a top level
+                    # expression evaluated within the module where the `@cfunction` is
+                    # expanded into.
+                    fptr = @ast __context__ callable [K"inert"(
+                            meta=CompileHints(:as_Expr, true))
+                        callable
+                    ]
+                    typ = Ptr{Cvoid}
+                end
+                @ast __context__ __context__.macrocall [K"cfunction"
+                    typ::K"Value"
+                    fptr
+                    [K"static_eval"(meta=name_hint("cfunction return type"))
+                        return_type
+                    ]
+                    [K"static_eval"(meta=name_hint("cfunction argument type"))
+                        arg_types_svec
+                    ]
+                    "ccall"::K"Symbol"
+                ]
+            end
+        - source: "test"
+          path: "JuliaLowering/test/misc_ir.jl"
+          loc: "355-359"
+          url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/test/misc_ir.jl#L355-L359"
+          snippet: |
+            # @cfunction expansion with global generic function as function argument
+            @cfunction(callable, Int, (Int, Float64))
+            #---------------------
+            1   (cfunction Ptr{Nothing} (inert callable) (static_eval TestMod.Int) (static_eval (call core.svec TestMod.Int TestMod.Float64)) :ccall)
+            2   (return %₁)
+  secondary_effects:
+    - effect: "`ccall`/`cglobal` library tuple specs are emitted as tuple syntax (tuple-p) instead of a Core.Tuple call, aligning IR shape with Base and preserving literal tuple intent."
+      mechanism: |
+        expand_C_library_symbol(ctx, ex)  [desugaring.jl:1726]
+          checks if kind(ex) == K"tuple"
+          returns K"static_eval" wrapping mapchildren(e->expand_forms_2(ctx,e), ctx, ex)
+        -> expand_ccall emits K"foreigncall" using expand_C_library_symbol(ctx, cfunc_name)  [desugaring.jl:1843]
+        -> cglobal handling uses expand_C_library_symbol(ctx, ex[2])  [desugaring.jl:1908]
+        -> _to_lowered_expr handles K"static_eval" with K"tuple" payload  [eval.jl:415-419]
+            emits Expr(:tuple, _to_lowered_expr(ex[1][1], ...), _to_lowered_expr(ex[1][2], ...))
+      downstream_surfaces:
+        - "IR pattern matchers that expect Core.Tuple in foreigncall/cglobal paths"
+        - "FFI wrapper generators relying on lowering IR shapes"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "1726-1733"
+          url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/src/desugaring.jl#L1726-L1733"
+          snippet: |
+            function expand_C_library_symbol(ctx, ex)
+                if kind(ex) == K"tuple"
+                    return @ast ctx ex [K"static_eval"(meta=name_hint("function name and library expression"))
+                        mapchildren(e->expand_forms_2(ctx,e), ctx, ex)
+                    ]
+                end
+                return expand_forms_2(ctx, ex)
+            end
+        - source: "diff"
+          path: "JuliaLowering/src/eval.jl"
+          loc: "415-419"
+          url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/src/eval.jl#L415-L419"
+          snippet: |
+            if kind(ex[1]) === K"tuple"
+                # Should just be ccall library spec
+                @assert numchildren(ex[1]) === 2
+                Expr(:tuple, _to_lowered_expr(ex[1][1], stmt_offset),
+                     _to_lowered_expr(ex[1][2], stmt_offset))
+    - effect: "Non-interpolated `@cfunction` callables are now preserved as quoted expressions via K\"inert\" with :as_Expr flag, improving hygiene and enabling function literal callables in lowering."
+      mechanism: |
+        @cfunction macro wraps callable in K"inert" with CompileHints(:as_Expr, true)  [syntax_macros.jl:95-98]
+        -> _to_lowered_expr handles K"inert" with :as_Expr metadata  [eval.jl:369-371]
+            getmeta(ex, :as_Expr, false) ? QuoteNode(Expr(e1)) : e1
+        -> cfunction IR now carries (inert callable), keeping the expression form
+        -> K"cfunction" treated as normal head, children recursively lowered  [eval.jl:444]
+      downstream_surfaces:
+        - "Macro expansions that depend on @cfunction hygiene in nested modules"
+        - "Users passing anonymous/quoted functions to @cfunction"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "diff"
+          path: "JuliaLowering/src/syntax_macros.jl"
+          loc: "95-98"
+          url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/src/syntax_macros.jl#L95-L98"
+          snippet: |
+            fptr = @ast __context__ callable [K"inert"(
+                    meta=CompileHints(:as_Expr, true))
+                callable
+            ]
+        - source: "diff"
+          path: "JuliaLowering/src/eval.jl"
+          loc: "369-371"
+          url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/src/eval.jl#L369-L371"
+          snippet: |
+            elseif k == K"inert"
+                e1 = ex[1]
+                getmeta(ex, :as_Expr, false) ? QuoteNode(Expr(e1)) : e1
+  compatibility:
+    internal_api: []
+    behavioral:
+      - summary: "Lowered IR for ccall/cglobal with (sym, lib) now yields tuple syntax (tuple-p) rather than Core.Tuple calls."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/function_calls_ir.jl"
+            loc: "367-374"
+            url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/test/function_calls_ir.jl#L367-L374"
+            snippet: |
+              # ccall with library name as a global var
+              ccall((:strlen, libc), Csize_t, (Cstring,), "asdfg")
+              #---------------------
+              1   TestMod.Cstring
+              2   (call top.cconvert %₁ "asdfg")
+              3   (call top.unsafe_convert %₁ %₂)
+              4   (foreigncall (static_eval (tuple-p :strlen TestMod.libc)) (static_eval TestMod.Csize_t) (static_eval (call core.svec TestMod.Cstring)) 0 :ccall %₃ %₂)
+              5   (return %₄)
+      - summary: "@cfunction with non-interpolated callable now resolves in the expansion module and accepts quoted function literals, matching Base behavior."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/misc.jl"
+            loc: "112-128"
+            url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/test/misc.jl#L112-L128"
+            snippet: |
+              # Same as above, but non-interpolated symbol.  Arguably this could return 20,
+              # but if it should, this is a bug in the macro implementation, not lowering.
+              # Match Base for now.
+              JuliaLowering.include_string(test_mod, raw"""
+              f_ccallable_hygiene() = 10
+
+              module Nested
+                  f_ccallable_hygiene() = 20
+                  macro cfunction_hygiene()
+                      :(@cfunction(f_ccallable_hygiene, Int, ()))
+                  end
+              end
+              """)
+              cf_hygiene = JuliaLowering.include_string(test_mod, """
+              Nested.@cfunction_hygiene
+              """)
+              @test @ccall($cf_hygiene()::Int) == 10
+  performance:
+    compile_time:
+      - summary: "ESTIMATED: negligible impact"
+        evidence:
+          - source: "diff"
+            path: "JuliaLowering/src/eval.jl"
+            loc: "413-424"
+            url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/src/eval.jl#L413-L424"
+            snippet: |
+              Tuple handling adds a small branch in _to_lowered_expr for K"static_eval";
+              no additional passes introduced. The mapchildren call in expand_C_library_symbol
+              is O(2) for the two-element tuple.
+    runtime:
+      - summary: "ESTIMATED: no impact"
+        evidence:
+          - source: "diff"
+            path: "JuliaLowering/src/desugaring.jl"
+            loc: "1726-1733"
+            url: "https://github.com/JuliaLang/julia/blob/7bc6a0358fcfa739be0fe16d6424d70c967cfa28/JuliaLowering/src/desugaring.jl#L1726-L1733"
+            snippet: |
+              Changes affect lowering/IR shape but not runtime foreigncall semantics;
+              the resulting IR is semantically equivalent.
+  tests:
+    changed_files:
+      - "JuliaLowering/test/function_calls_ir.jl"
+      - "JuliaLowering/test/misc.jl"
+      - "JuliaLowering/test/misc_ir.jl"
+    new_behavior_assertions:
+      - "ccall with (symbol, library) tuple emits (tuple-p ...) instead of (call core.tuple ...)"
+      - "cglobal with (symbol, library) tuple emits (tuple-p ...) instead of (call core.tuple ...)"
+      - "@cfunction with non-interpolated callable emits (inert callable) and resolves in expansion module"
+      - "@cfunction with quoted anonymous function literal works correctly"
+      - "@cfunction with quoted named function literal works correctly"
+    coverage_gaps: []
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are localized to JuliaLowering desugaring and eval paths."
+      - "New tests cover ccall/cglobal tuple IR and @cfunction hygiene/quoted callables."
+      - "Aligns with Base behavior, reducing divergence between old and new lowering."
+  open_questions:
+    - "The K\"static_eval\" handling for K\"function\" payloads (eval.jl:420-421) may be unused since @cfunction now uses K\"inert\" - is this dead code or reserved for future use?"
+  recommendations:
+    - "Downstream IR analyzers should accept tuple syntax (tuple-p) for ccall/cglobal library specs instead of matching Core.Tuple calls."
+    - "Macro tooling that inspects @cfunction callables should handle inert expressions with :as_Expr metadata, which produce QuoteNode(Expr(...))."

@@ -1,0 +1,272 @@
+schema_version: "1.0"
+
+pr:
+  number: 60389
+  title: "Fix `membarrier` usage on FreeBSD"
+  url: "https://github.com/JuliaLang/julia/pull/60389"
+  author: "ararslan"
+  labels:
+    - "bugfix"
+  merged_at: "2025-12-16T12:02:11Z"
+  merge_commit_sha: "6d944d15b2aa1a6df4782e18b50a824562601efb"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60389.diff"
+
+scope:
+  files_touched:
+    - "src/signals-unix.c"
+  components:
+    - "Runtime"
+  pipeline_stages:
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Fix compilation failure on FreeBSD 14.1+ where the membarrier syscall requires
+      three arguments instead of two. The Linux membarrier syscall also accepts three
+      arguments, so the fix is to consistently pass three arguments on both platforms.
+
+      The Linux membarrier(2) syscall signature is: membarrier(int cmd, unsigned int flags, int cpu_id)
+      The third argument (cpu_id) is only used when flags contains MEMBARRIER_CMD_FLAG_CPU;
+      otherwise it is ignored. Since Julia passes flags=0, the third argument (0) has no effect
+      on Linux - this is purely a FreeBSD compatibility fix.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Add third argument to membarrier syscall invocations for FreeBSD compatibility"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/signals-unix.c"
+          loc: "1520-1531"
+          url: "https://github.com/JuliaLang/julia/blob/6d944d15b2aa1a6df4782e18b50a824562601efb/src/signals-unix.c#L1520-L1531"
+          snippet: |
+            static enum membarrier_implementation jl_init_membarrier(void) {
+            #ifdef HAVE_MEMBARRIER_SYSCALL
+                int ret = membarrier(MEMBARRIER_CMD_QUERY, 0, 0);
+                int needed = MEMBARRIER_CMD_PRIVATE_EXPEDITED | MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED;
+                if (ret > 0 && ((ret & needed) == needed)) {
+                    // supported
+                    if (membarrier(MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED, 0, 0) == 0) {
+                        // working
+                        jl_atomic_store_relaxed(&membarrier_impl, MEMBARRIER_IMPLEMENTATION_SYS_MEMBARRIER);
+                        return MEMBARRIER_IMPLEMENTATION_SYS_MEMBARRIER;
+                    }
+                }
+            #endif
+        - source: "code"
+          path: "src/signals-unix.c"
+          loc: "1550-1557"
+          url: "https://github.com/JuliaLang/julia/blob/6d944d15b2aa1a6df4782e18b50a824562601efb/src/signals-unix.c#L1550-L1557"
+          snippet: |
+            switch (impl) {
+            #ifdef HAVE_MEMBARRIER_SYSCALL
+            case MEMBARRIER_IMPLEMENTATION_SYS_MEMBARRIER: {
+                int ret = membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED, 0, 0);
+                assert(ret == 0);
+                (void)ret;
+                break;
+            }
+            #endif
+
+    - summary: "Platform detection for FreeBSD membarrier support"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/signals-unix.c"
+          loc: "1512-1518"
+          url: "https://github.com/JuliaLang/julia/blob/6d944d15b2aa1a6df4782e18b50a824562601efb/src/signals-unix.c#L1512-L1518"
+          snippet: |
+            #elif defined(_OS_FREEBSD_)
+            #  include <sys/param.h>
+            #  if __FreeBSD_version >= 1401500
+            #    include <sys/membarrier.h>
+            #    define HAVE_MEMBARRIER_SYSCALL
+            #  endif
+            #endif
+
+    - summary: "Linux membarrier macro accepts variadic arguments"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/signals-unix.c"
+          loc: "1499-1508"
+          url: "https://github.com/JuliaLang/julia/blob/6d944d15b2aa1a6df4782e18b50a824562601efb/src/signals-unix.c#L1499-L1508"
+          snippet: |
+            #if defined(_OS_LINUX_)
+            #   include <sys/syscall.h>
+            #   if defined(__NR_membarrier)
+            enum membarrier_cmd {
+                MEMBARRIER_CMD_QUERY                        = 0,
+                MEMBARRIER_CMD_PRIVATE_EXPEDITED            = (1 << 3),
+                MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED   = (1 << 4),
+            };
+            #    define membarrier(...) syscall(__NR_membarrier, __VA_ARGS__)
+            #    define HAVE_MEMBARRIER_SYSCALL
+
+  exact_diff:
+    - location: "signals-unix.c:1522"
+      before: "int ret = membarrier(MEMBARRIER_CMD_QUERY, 0);"
+      after: "int ret = membarrier(MEMBARRIER_CMD_QUERY, 0, 0);"
+    - location: "signals-unix.c:1526"
+      before: "if (membarrier(MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED, 0) == 0)"
+      after: "if (membarrier(MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED, 0, 0) == 0)"
+    - location: "signals-unix.c:1553"
+      before: "int ret = membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED, 0);"
+      after: "int ret = membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED, 0, 0);"
+
+  secondary_effects:
+    - effect: "Enables jl_membarrier to use efficient membarrier syscall on FreeBSD 14.1+"
+      mechanism: |
+        jl_init_membarrier() [signals-unix.c:1520]
+          checks HAVE_MEMBARRIER_SYSCALL preprocessor flag
+          -> calls membarrier(MEMBARRIER_CMD_QUERY, 0, 0) to probe support
+          -> if supported, registers with membarrier(MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED, 0, 0)
+          -> sets membarrier_impl to MEMBARRIER_IMPLEMENTATION_SYS_MEMBARRIER
+
+        jl_membarrier() [signals-unix.c:1545]
+          reads membarrier_impl atomic
+          -> dispatches to membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED, 0, 0)
+
+        Without this fix, Julia would not compile on FreeBSD 14.1+ and the efficient
+        membarrier syscall path would be unavailable.
+      downstream_surfaces:
+        - "Threads.atomic_fence_heavy()"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Fallback paths remain unaffected"
+      mechanism: |
+        When membarrier syscall is unavailable (FreeBSD < 14.1 or unsupported):
+          -> jl_init_mprotect_membarrier() [signals-unix.c:1440] tries mprotect trick
+          -> jl_thread_suspend_membarrier() [signals-unix.c:1405] as final fallback
+
+        These paths are not touched by this PR.
+      downstream_surfaces:
+        - "Threads.atomic_fence_heavy()"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - field: "Threads.atomic_fence_heavy()"
+        change: "Now compiles and works correctly on FreeBSD 14.1+"
+        affected_tools: []
+
+  performance:
+    compile_time: []
+    runtime:
+      - description: |
+          ESTIMATED: No runtime performance change on Linux or other platforms.
+          On FreeBSD 14.1+, this fix enables the efficient membarrier syscall path
+          instead of falling back to slower mprotect or thread suspension methods.
+          The membarrier syscall is typically O(1) vs O(n_threads) for thread suspension.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure bugfix - no semantic changes to program behavior"
+      - "Only affects FreeBSD 14.1+ platform that was previously broken"
+      - "Linux membarrier syscall also accepts 3 arguments, so change is valid there too"
+      - "FreeBSD CI runs 13.4 which doesn't have membarrier, so code isn't tested in CI"
+      - "Change was tested locally by PR author on FreeBSD 14.3"
+
+  test_coverage:
+    - test_file: "test/threads_exec.jl"
+      test_name: "test_asymmetric_fence"
+      location: "lines 467-520"
+      description: |
+        Tests the asymmetric fence pattern using atomic_fence_heavy() and atomic_fence_light().
+        The test creates two threads that synchronize using monotonic atomics and asymmetric fences.
+        However, this test runs on Linux CI, not FreeBSD 14.1+, so it does not exercise the
+        FreeBSD membarrier code path specifically.
+      evidence:
+        - source: "code"
+          path: "test/threads_exec.jl"
+          loc: "475-488"
+          snippet: |
+            function test_asymmetric_fence(data::AsymmetricFenceTestData, cond1, cond2, threadid, it)
+                if (threadid % 2) == 0
+                    @atomic :monotonic data.x[it] = 1
+                    Threads.atomic_fence_heavy()
+                    @atomic :monotonic data.read_y[it] = @atomic :monotonic data.y[it]
+                    wait(cond1)
+                    notify(cond2)
+                else
+                    @atomic :monotonic data.y[it] = 1
+                    Threads.atomic_fence_light()
+                    @atomic :monotonic data.read_x[it] = @atomic :monotonic data.x[it]
+                    notify(cond1)
+                    wait(cond2)
+                end
+            end
+
+  open_questions:
+    - "FreeBSD 14.1+ membarrier support is not tested in CI (CI uses FreeBSD 13.4)"
+    - "No automated test verifies the membarrier syscall argument count on FreeBSD"
+
+  recommendations:
+    - "No action required for downstream packages"
+    - "Users building Julia on FreeBSD 14.1+ will benefit from this fix"
+    - "Consider updating FreeBSD CI to 14.1+ to enable testing of the membarrier code path"
+
+  downstream_impact:
+    opaque_closure: "not_affected"
+    generated_functions: "not_affected"
+    world_age_invalidation: "not_affected"
+    internal_api_consumers:
+      JET: "not_affected"
+      GPUCompiler: "not_affected"
+      Enzyme: "not_affected"
+
+  context:
+    membarrier_implementations:
+      - name: "SYS_MEMBARRIER"
+        description: "Uses kernel membarrier syscall (Linux, FreeBSD 14.1+)"
+        code_path: "signals-unix.c:1520-1531, 1552-1557"
+      - name: "MPROTECT"
+        description: "Uses mprotect trick to force memory barriers"
+        code_path: "signals-unix.c:1440-1483"
+      - name: "THREAD_SUSPEND"
+        description: "Suspends all threads to force memory barriers (slowest)"
+        code_path: "signals-unix.c:1405-1427"
+    exposed_api:
+      - name: "jl_membarrier"
+        type: "C function"
+        exported: true
+        file: "src/jl_exported_funcs.inc:509"
+      - name: "Threads.atomic_fence_heavy"
+        type: "Julia function"
+        binding: "ccall(:jl_membarrier, Cvoid, ())"
+        file: "base/atomics.jl:356"
+    platform_specific:
+      linux: "Uses membarrier syscall via __NR_membarrier if available"
+      freebsd: "Uses membarrier syscall if __FreeBSD_version >= 1401500"
+      macos: "Uses thread_get_register_pointer_values trick (signals-mach.c:900)"
+      windows: "Uses FlushProcessWriteBuffers (signals-win.c:668)"
+
+reviewer_verification:
+  date: "2026-01-21"
+  independent_analysis: true
+  findings:
+    - "Verified Linux membarrier(2) syscall signature: membarrier(int cmd, unsigned int flags, int cpu_id)"
+    - "Confirmed third argument (cpu_id) is ignored when flags=0 per Linux man pages"
+    - "Verified Linux membarrier macro uses variadic __VA_ARGS__ accepting any argument count"
+    - "Verified __FreeBSD_version 1401500 corresponds to FreeBSD 14.1.500"
+    - "Located test coverage for atomic_fence_heavy() in test/threads_exec.jl:467-520"
+    - "Confirmed no FreeBSD-specific test coverage exists due to CI running FreeBSD 13.4"
+    - "Verified jl_membarrier is exported via jl_exported_funcs.inc line 509"
+    - "Traced complete call chain: atomic_fence_heavy() -> ccall(:jl_membarrier) -> jl_membarrier() -> membarrier syscall"
+  assessment: |
+    The original analysis is accurate and comprehensive. This is a minimal, low-risk bugfix
+    that adds a third argument (0) to three membarrier() calls. The change is necessary for
+    FreeBSD 14.1+ compatibility and has no effect on Linux (where the third argument is
+    ignored when flags=0). The PR was tested by the author locally on FreeBSD 14.3.
+
+    Key verification points:
+    1. Linux compatibility confirmed - the variadic macro accepts 3 arguments
+    2. Linux behavior unchanged - cpu_id argument is ignored when flags=0
+    3. FreeBSD 14.1+ now compiles correctly
+    4. No behavioral changes - this only fixes a compilation error
+    5. Fallback paths (mprotect, thread suspend) remain unaffected

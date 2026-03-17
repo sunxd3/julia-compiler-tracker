@@ -1,0 +1,462 @@
+schema_version: "1.0"
+
+pr:
+  number: 59915
+  title: "reflection: enable `Base._which` with non-base `Compiler.MethodTableView`"
+  url: "https://github.com/JuliaLang/julia/pull/59915"
+  author: "aviatesk"
+  labels: []
+  merged_at: "2025-10-21T13:23:11Z"
+  merge_commit_sha: "493d72d3678c1f424297b7cc8772d2467259faed"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59915.diff"
+
+scope:
+  files_touched:
+    - "base/reflection.jl"
+  components:
+    - "Base.reflection"
+  pipeline_stages:
+    - "Reflection"
+    - "MethodLookup"
+
+analysis:
+  intent:
+    summary: |
+      Fix `Base._which` to properly handle custom `Compiler.MethodTableView` implementations
+      from non-Base compiler modules. Before this PR, calling `Base._which` with a custom
+      method table would cause a method error due to module context mismatch, because the
+      function always used `invoke_default_compiler` which routes to the Base `Compiler` module
+      instead of the module where the custom `MethodTableView` subtype is defined.
+    issue_links: []
+
+  direct_changes:
+    - summary: "Add `invoke_mt_compiler` function to resolve compiler module from MethodTableView type"
+      component: "Base.reflection"
+      evidence:
+        - source: "code"
+          path: "base/reflection.jl"
+          loc: "319-332"
+          url: "https://github.com/JuliaLang/julia/blob/493d72d3678c1f424297b7cc8772d2467259faed/base/reflection.jl#L319-L332"
+          snippet: |
+            function invoke_mt_compiler(mt, fname::Symbol, args...)
+                if mt === nothing
+                    return invoke_default_compiler(fname, args...)
+                else
+                    T = typeof(mt)
+                    while true
+                        Tname = typename(T).name
+                        Tname === :Any && error("Expected MethodTableView")
+                        Tname === :MethodTableView && break
+                        T = supertype(T)
+                    end
+                    return getglobal(typename(T).module, fname)(args...)
+                end
+            end
+
+    - summary: "Update `_which` to use `invoke_mt_compiler` instead of `invoke_default_compiler`"
+      component: "Base.reflection"
+      evidence:
+        - source: "code"
+          path: "base/reflection.jl"
+          loc: "935-946"
+          url: "https://github.com/JuliaLang/julia/blob/493d72d3678c1f424297b7cc8772d2467259faed/base/reflection.jl#L935-L946"
+          snippet: |
+            function _which(@nospecialize(tt::Type);
+                method_table #=::Union{Nothing,Core.MethodTable,Compiler.MethodTableView}=# =nothing,
+                world::UInt=get_world_counter(),
+                raise::Bool=true)
+                world == typemax(UInt) && error("code reflection cannot be used from generated functions")
+                match, = invoke_mt_compiler(method_table, :findsup_mt, tt, world, method_table)
+                if match === nothing
+                    raise && error("no unique matching method found for the specified argument types")
+                    return nothing
+                end
+                return match
+            end
+
+    - summary: "Fix typo in error message: 'Expected Interpreter' -> 'Expected AbstractInterpreter'"
+      component: "Base.reflection"
+      evidence:
+        - source: "code"
+          path: "base/reflection.jl"
+          loc: "311"
+          url: "https://github.com/JuliaLang/julia/blob/493d72d3678c1f424297b7cc8772d2467259faed/base/reflection.jl#L311"
+          snippet: |
+            Tname === :Any && error("Expected AbstractInterpreter")
+
+  secondary_effects:
+    - effect: "Custom AbstractInterpreter implementations can now use `Base._which` with their custom MethodTableView"
+      mechanism: |
+        invoke_mt_compiler(mt, fname, args...) [base/reflection.jl:319-331]
+          Step 1: Check if mt === nothing, fallback to invoke_default_compiler
+          Step 2: Get type T = typeof(mt)
+          Step 3: Walk up type hierarchy until T matches :MethodTableView
+            while true
+                Tname = typename(T).name        # e.g., :OverlayMethodTable
+                Tname === :Any && error(...)     # error if reached top
+                Tname === :MethodTableView && break
+                T = supertype(T)                 # walk up: OverlayMethodTable -> MethodTableView
+            end
+          Step 4: Get the module where T (first MethodTableView subtype) is defined
+            typename(T).module  # e.g., MyCompilerModule for custom MethodTableView subtypes
+          Step 5: Call function from that module
+            getglobal(typename(T).module, :findsup_mt)(args...)
+
+        The call chain then proceeds:
+        -> findsup_mt(tt, world, method_table) [Compiler/src/reflection_interface.jl:49-58]
+          Wraps raw method_table into appropriate MethodTableView:
+            if method_table === nothing -> InternalMethodTable(world)
+            elseif method_table isa Core.MethodTable -> OverlayMethodTable(world, method_table)
+            else -> method_table (already a MethodTableView)
+        -> findsup(tt, table) [Compiler/src/methodtable.jl:133-146]
+          Dispatches to table-specific implementation for actual lookup
+      downstream_surfaces:
+        - "GPUCompiler.jl - uses custom AbstractInterpreter with OverlayMethodTable"
+        - "JET.jl - uses custom AbstractInterpreter for static analysis"
+        - "Enzyme.jl - may use custom method tables for differentiation rules"
+        - "Custom compiler implementations that define MethodTableView subtypes"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Enables reflection on overlay methods in downstream compiler packages"
+      mechanism: |
+        When a package defines:
+          struct MyMethodTable <: Compiler.MethodTableView ... end
+          Compiler.method_table(interp::MyInterpreter) = MyMethodTable(...)
+
+        Now calling Base._which(tt; method_table=my_table) will:
+        1. invoke_mt_compiler finds MyMethodTable's defining module
+        2. Calls that module's findsup_mt function
+        3. Correctly looks up methods in the custom method table
+
+        Previously, this would error because invoke_default_compiler would
+        call Base.Compiler.findsup_mt which doesn't know about MyMethodTable.
+      downstream_surfaces:
+        - "Overlay method introspection"
+        - "Custom compiler tooling"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "All three built-in MethodTableView subtypes now work with _which"
+      mechanism: |
+        The following MethodTableView subtypes defined in Compiler/src/methodtable.jl benefit:
+
+        1. InternalMethodTable [line 27-29]:
+           struct InternalMethodTable <: MethodTableView
+               world::UInt
+           end
+           Used by default NativeInterpreter, accesses internal method table at given world age.
+
+        2. OverlayMethodTable [line 37-40]:
+           struct OverlayMethodTable <: MethodTableView
+               world::UInt
+               mt::MethodTable
+           end
+           Used by custom interpreters to overlay method definitions (e.g., GPU kernels).
+
+        3. CachedMethodTable [line 54-58]:
+           struct CachedMethodTable{T<:MethodTableView} <: MethodTableView
+               cache::IdDict{...}
+               table::T
+           end
+           Wraps another MethodTableView with caching for repeated queries.
+
+        All three can now be passed to Base._which(tt; method_table=table).
+      downstream_surfaces:
+        - "CachedMethodTable users - cached method lookups during reflection"
+        - "OverlayMethodTable users - GPU/custom compiler overlays"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Error message typo fix for invoke_interp_compiler"
+      mechanism: |
+        The PR also fixes an existing typo in invoke_interp_compiler [base/reflection.jl:311]:
+        Before: Tname === :Any && error("Expected Interpreter")
+        After:  Tname === :Any && error("Expected AbstractInterpreter")
+
+        This improves error messages when an invalid type is passed as interp parameter.
+      downstream_surfaces:
+        - "Error message clarity for debugging"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "Base._which method_table parameter"
+        change: "Now correctly resolves compiler module from MethodTableView type hierarchy"
+        affected_tools:
+          - tool: "GPUCompiler.jl"
+            usage: "Uses OverlayMethodTable for GPU-specific method overrides; can now use _which for introspection"
+          - tool: "JET.jl"
+            usage: "Custom AbstractInterpreter may use custom method tables; _which now works correctly"
+          - tool: "Enzyme.jl"
+            usage: "May define custom method tables for differentiation; benefits from fix"
+      - field: "invoke_mt_compiler (new function)"
+        change: "Added new function following same pattern as invoke_interp_compiler"
+        affected_tools:
+          - tool: "Internal Base reflection"
+            usage: "Used by _which; mirrors invoke_interp_compiler pattern for MethodTableView"
+
+    behavioral:
+      - description: "Base._which now correctly uses custom MethodTableView method tables"
+        before: |
+          # With custom MethodTableView, _which would fail with method error:
+          # invoke_default_compiler(:findsup_mt, ...) called Base.Compiler.findsup_mt
+          # which doesn't understand custom MethodTableView subtypes
+        after: |
+          # invoke_mt_compiler resolves the correct module from the type hierarchy:
+          # 1. Walk up type hierarchy until MethodTableView is found
+          # 2. Get module from typename(T).module where T is the first MethodTableView subtype
+          # 3. Call findsup_mt from that module
+        risk: "low"
+
+  performance:
+    compile_time:
+      - description: "Negligible overhead from type hierarchy walk"
+        detail: |
+          invoke_mt_compiler walks up the type hierarchy at runtime to find MethodTableView.
+          This is O(d) where d = depth of type hierarchy (typically 1-3 levels).
+          Only occurs when method_table is not nothing.
+          ESTIMATED: <0.1% overhead for reflection calls with custom method tables
+
+    runtime:
+      - description: "No runtime impact - reflection API only"
+        detail: "Changes only affect compile-time reflection operations"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Follows established pattern from invoke_interp_compiler for AbstractInterpreter"
+      - "No changes to inference, optimization, or code generation"
+      - "Only affects reflection API when explicitly using custom MethodTableView"
+      - "Backwards compatible - existing code with method_table=nothing unchanged"
+      - "Related fix in PR #60718 confirms this pattern is correct approach"
+
+  open_questions:
+    - "Should other reflection functions (e.g., code_typed, return_types) also use invoke_mt_compiler when passed a method_table parameter?"
+    - "Are there other places where custom MethodTableView is passed but module resolution doesn't happen?"
+    - "The method_instance function [base/reflection.jl:75-81] also accepts a method_table parameter but uses C-level jl_method_lookup_by_tt which only handles Core.MethodTable, not MethodTableView - should this be fixed similarly?"
+
+  recommendations:
+    - "Downstream packages using custom MethodTableView can now safely call Base._which with their method tables"
+    - "GPUCompiler.jl, JET.jl, and similar tools should verify _which works correctly with their custom interpreters"
+    - "Consider auditing other reflection functions for similar module context issues"
+    - "Note: Base.method_instance still does NOT support MethodTableView - it uses jl_method_lookup_by_tt which only handles Core.MethodTable; use _which for custom method table reflection"
+
+  test_coverage:
+    status: "No direct test coverage added"
+    detail: |
+      The PR does not add explicit tests verifying that _which works with custom MethodTableView.
+      However, the fix follows the same pattern as invoke_interp_compiler which is tested indirectly
+      through the AbstractInterpreter tests in Compiler/test/AbstractInterpreter.jl.
+
+      Existing tests that exercise custom interpreters (but not _which directly):
+      - MTOverlayInterp tests [Compiler/test/AbstractInterpreter.jl:33-91]
+      - Issue48097Interp tests [Compiler/test/AbstractInterpreter.jl:173-190]
+      - OverlaySinInterp tests [Compiler/test/AbstractInterpreter.jl:218-249]
+
+      These tests verify that custom OverlayMethodTable works with inference and code generation,
+      but none explicitly test Base._which with custom method tables.
+
+  callers_of_which:
+    description: "Known callers of Base._which that now benefit from this fix"
+    callers:
+      - location: "stdlib/InteractiveUtils/src/codeview.jl:227"
+        usage: "Used for code viewing when arginfo.oc === nothing"
+        snippet: |
+          match = Base._which(arginfo.tt; world)
+      - location: "stdlib/REPL/src/REPLCompletions.jl:272"
+        usage: "Field completion checking for getproperty fallback"
+        snippet: |
+          match = Base._which(Tuple{typeof(propertynames),t}; raise=false)
+      - location: "Compiler/test/EAUtils.jl:311"
+        usage: "Escape analysis utilities"
+        snippet: |
+          match = Base._which(tt; world, raise=true)
+      - location: "test/staged.jl:340,419"
+        usage: "Generated function tests with world parameter"
+        snippet: |
+          match = Base._which(Tuple{typeof(sin), Int}; world)
+      - location: "Base.which(tt::Type) [base/reflection.jl:977-978]"
+        usage: "Public which() delegates to _which"
+        snippet: |
+          function which(@nospecialize(tt))
+              return _which(tt).method
+          end
+
+  related_prs:
+    - number: 60718
+      title: "Fix jl_method_lookup_by_tt for custom method tables"
+      relationship: "Similar fix for C-level method lookup with custom method tables"
+      url: "https://github.com/JuliaLang/julia/pull/60718"
+
+  code_references:
+    - description: "MethodTableView type hierarchy definition"
+      path: "Compiler/src/methodtable.jl"
+      loc: "19"
+      url: "https://github.com/JuliaLang/julia/blob/493d72d3678c1f424297b7cc8772d2467259faed/Compiler/src/methodtable.jl#L19"
+      snippet: |
+        abstract type MethodTableView end
+
+    - description: "findsup_mt reflection interface called by _which"
+      path: "Compiler/src/reflection_interface.jl"
+      loc: "49-58"
+      url: "https://github.com/JuliaLang/julia/blob/493d72d3678c1f424297b7cc8772d2467259faed/Compiler/src/reflection_interface.jl#L49-L58"
+      snippet: |
+        function findsup_mt(@nospecialize(tt), world, method_table)
+            if method_table === nothing
+                table = InternalMethodTable(world)
+            elseif method_table isa Core.MethodTable
+                table = OverlayMethodTable(world, method_table)
+            else
+                table = method_table
+            end
+            return findsup(tt, table)
+        end
+
+    - description: "Example custom interpreter using OverlayMethodTable"
+      path: "Compiler/test/AbstractInterpreter.jl"
+      loc: "33-35"
+      url: "https://github.com/JuliaLang/julia/blob/493d72d3678c1f424297b7cc8772d2467259faed/Compiler/test/AbstractInterpreter.jl#L33-L35"
+      snippet: |
+        @newinterp MTOverlayInterp
+        @MethodTable OVERLAY_MT
+        Compiler.method_table(interp::MTOverlayInterp) = Compiler.OverlayMethodTable(Compiler.get_inference_world(interp), OVERLAY_MT)
+
+    - description: "invoke_interp_compiler pattern this PR mirrors"
+      path: "base/reflection.jl"
+      loc: "304-317"
+      url: "https://github.com/JuliaLang/julia/blob/493d72d3678c1f424297b7cc8772d2467259faed/base/reflection.jl#L304-L317"
+      snippet: |
+        function invoke_interp_compiler(interp, fname::Symbol, args...)
+            if interp === nothing
+                return invoke_default_compiler(fname, args...)
+            else
+                T = typeof(interp)
+                while true
+                    Tname = typename(T).name
+                    Tname === :Any && error("Expected AbstractInterpreter")
+                    Tname === :AbstractInterpreter && break
+                    T = supertype(T)
+                end
+                return getglobal(typename(T).module, fname)(args...)
+            end
+        end
+
+    - description: "invoke_default_compiler fallback function"
+      path: "base/reflection.jl"
+      loc: "296-302"
+      url: "https://github.com/JuliaLang/julia/blob/493d72d3678c1f424297b7cc8772d2467259faed/base/reflection.jl#L296-L302"
+      snippet: |
+        function invoke_default_compiler(fname::Symbol, args...)
+            if REFLECTION_COMPILER[] === nothing
+                return invoke_in_typeinf_world(getglobal(Compiler, fname), args...)
+            else
+                return getglobal(REFLECTION_COMPILER[], fname)(args...)
+            end
+        end
+
+    - description: "method_instance function that uses C-level lookup (does NOT benefit from this fix)"
+      path: "base/reflection.jl"
+      loc: "75-81"
+      url: "https://github.com/JuliaLang/julia/blob/493d72d3678c1f424297b7cc8772d2467259faed/base/reflection.jl#L75-L81"
+      snippet: |
+        function method_instance(@nospecialize(argtypes::Union{Tuple,Type{<:Tuple}});
+                                 world=Base.get_world_counter(), method_table=nothing)
+            tt = to_tuple_type(argtypes)
+            mi = ccall(:jl_method_lookup_by_tt, Any,
+                        (Any, Csize_t, Any),
+                        tt, world, method_table)
+            return mi::Union{Nothing, MethodInstance}
+        end
+
+    - description: "C-level jl_method_lookup_by_tt only handles Core.MethodTable"
+      path: "src/gf.c"
+      loc: "3183-3198"
+      url: "https://github.com/JuliaLang/julia/blob/493d72d3678c1f424297b7cc8772d2467259faed/src/gf.c#L3183-L3198"
+      snippet: |
+        JL_DLLEXPORT jl_value_t *jl_method_lookup_by_tt(jl_tupletype_t *tt, size_t world, jl_value_t *_mt)
+        {
+            jl_methtable_t *mt = NULL;
+            if (_mt == jl_nothing) {
+                mt = jl_method_table;
+            }
+            else {
+                assert(jl_is_mtable(_mt));
+                mt = (jl_methtable_t*) _mt;
+            }
+            jl_methcache_t *mc = mt->cache;
+            jl_method_instance_t *mi = jl_mt_assoc_by_type(mc, tt, world);
+            if (!mi)
+                return jl_nothing;
+            return (jl_value_t*) mi;
+        }
+
+    - description: "Default method_table implementation returns InternalMethodTable"
+      path: "Compiler/src/types.jl"
+      loc: "443-451"
+      url: "https://github.com/JuliaLang/julia/blob/493d72d3678c1f424297b7cc8772d2467259faed/Compiler/src/types.jl#L443-L451"
+      snippet: |
+        """
+            method_table(interp::AbstractInterpreter)::MethodTableView
+
+        Returns a method table this `interp` uses for method lookup.
+        External `AbstractInterpreter` can optionally return `OverlayMethodTable` here
+        to incorporate customized dispatches for the overridden methods.
+        """
+        method_table(interp::AbstractInterpreter) = InternalMethodTable(get_inference_world(interp))
+        method_table(interp::NativeInterpreter) = interp.method_table
+
+reviewer_notes:
+  reviewed_at: "2026-01-22"
+  reviewer: "Independent second-pass analysis"
+  methodology: |
+    1. Checked out PR merge commit 493d72d3678c1f424297b7cc8772d2467259faed
+    2. Read full source files (not just diff) for reflection.jl, methodtable.jl, reflection_interface.jl
+    3. Traced call chains with rg to find all callers of _which and invoke_mt_compiler
+    4. Examined AbstractInterpreter.jl test file for custom MethodTableView usage patterns
+    5. Identified C-level limitation in method_instance that doesn't benefit from this fix
+  key_findings:
+    - finding: "PR follows established invoke_interp_compiler pattern exactly"
+      confidence: "high"
+      evidence: "Code structure and logic identical, just targeting MethodTableView instead of AbstractInterpreter"
+
+    - finding: "No direct test coverage for _which with custom MethodTableView"
+      confidence: "high"
+      evidence: "Searched for tests using _which with method_table parameter; none found"
+
+    - finding: "method_instance function has same limitation but is NOT fixed"
+      confidence: "high"
+      evidence: |
+        method_instance [reflection.jl:75-81] uses ccall to jl_method_lookup_by_tt [gf.c:3183]
+        which only handles Core.MethodTable, not MethodTableView subtypes.
+        assert(jl_is_mtable(_mt)) would fail for MethodTableView instances.
+
+    - finding: "CachedMethodTable is a third MethodTableView subtype that benefits"
+      confidence: "high"
+      evidence: "Compiler/src/methodtable.jl:54-58 defines CachedMethodTable{T} <: MethodTableView"
+
+    - finding: "Five custom interpreter examples in test file use OverlayMethodTable"
+      confidence: "high"
+      evidence: |
+        MTOverlayInterp [line 33-35]
+        Issue48097Interp [line 173-175]
+        Issue52938Interp [line 193-195]
+        Cuda2241Interp [line 201-203]
+        OverlaySinInterp [line 218-220]
+        All define Compiler.method_table(interp::XXX) = Compiler.OverlayMethodTable(...)
+
+  original_analysis_accuracy:
+    overall: "Good"
+    strengths:
+      - "Correctly identified the problem and solution"
+      - "Good call chain tracing"
+      - "Appropriate downstream package impact assessment"
+    gaps_filled:
+      - "Added CachedMethodTable as third MethodTableView subtype"
+      - "Added note about method_instance NOT being fixed"
+      - "Added test coverage status (none direct)"
+      - "Added specific callers of _which with file:line"
+      - "Added C-level jl_method_lookup_by_tt limitation"
+      - "Fixed line numbers in evidence locations"
+      - "Added more detailed type hierarchy walk explanation"

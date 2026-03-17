@@ -1,0 +1,336 @@
+schema_version: "1.0"
+
+pr:
+  number: 60330
+  title: "Logging: define isless between Integer and LogLevel"
+  url: "https://github.com/JuliaLang/julia/pull/60330"
+  author: "EdsterG"
+  labels:
+    - "logging"
+    - "backport 1.10"
+    - "backport 1.11"
+  merged_at: "2025-12-10T07:33:24Z"
+  merge_commit_sha: "5ee081631674166af22f3677d50c2fd56a2ccf48"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60330.diff"
+
+scope:
+  files_touched:
+    - "base/logging/logging.jl"
+    - "stdlib/Logging/test/runtests.jl"
+  components:
+    - "Logging"
+    - "Base"
+  pipeline_stages:
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Fix a regression introduced by PR #57591 where LogLevel comparison with integers
+      broke. PR #57591 changed the internal _min_enabled_level from Ref{LogLevel} to
+      Threads.Atomic{Int32} for thread safety. This broke downstream packages (like
+      Logging2.jl) that relied on comparing LogLevel objects directly with integer values.
+
+      The fix adds two symmetric isless methods to enable comparison between LogLevel
+      and Integer types in both orderings.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/60317"
+      - "https://github.com/JuliaLang/julia/pull/57591"
+
+  direct_changes:
+    - summary: |
+        Add isless(LogLevel, Integer) method to compare a LogLevel with an Integer by
+        extracting the LogLevel's internal level field and comparing it directly with
+        the integer value.
+      component: "Logging (CoreLogging module)"
+      evidence:
+        - source: "code"
+          path: "base/logging/logging.jl"
+          loc: "132"
+          url: "https://github.com/JuliaLang/julia/blob/5ee081631674166af22f3677d50c2fd56a2ccf48/base/logging/logging.jl#L132"
+          snippet: |
+            isless(a::LogLevel, b::Integer) = isless(a.level, b)
+
+    - summary: |
+        Add symmetric isless(Integer, LogLevel) method to compare an Integer with a
+        LogLevel. This ensures comparison works in both argument orderings, as isless
+        is used to implement <, >, <=, >= operators.
+      component: "Logging (CoreLogging module)"
+      evidence:
+        - source: "code"
+          path: "base/logging/logging.jl"
+          loc: "133"
+          url: "https://github.com/JuliaLang/julia/blob/5ee081631674166af22f3677d50c2fd56a2ccf48/base/logging/logging.jl#L133"
+          snippet: |
+            isless(a::Integer, b::LogLevel) = isless(a, b.level)
+
+    - summary: |
+        The new methods follow the existing pattern for LogLevel operations. The
+        LogLevel struct contains a single Int32 field named 'level', and existing
+        methods for +, -, and convert already operate on this internal field.
+      component: "Logging (CoreLogging module)"
+      evidence:
+        - source: "code"
+          path: "base/logging/logging.jl"
+          loc: "125-137"
+          url: "https://github.com/JuliaLang/julia/blob/5ee081631674166af22f3677d50c2fd56a2ccf48/base/logging/logging.jl#L125-L137"
+          snippet: |
+            struct LogLevel
+                level::Int32
+            end
+
+            LogLevel(level::LogLevel) = level
+
+            isless(a::LogLevel, b::LogLevel) = isless(a.level, b.level)
+            isless(a::LogLevel, b::Integer) = isless(a.level, b)
+            isless(a::Integer, b::LogLevel) = isless(a, b.level)
+            +(level::LogLevel, inc::Integer) = LogLevel(level.level+inc)
+            -(level::LogLevel, inc::Integer) = LogLevel(level.level-inc)
+            convert(::Type{LogLevel}, level::Integer) = LogLevel(level)
+            convert(::Type{Int32}, level::LogLevel) = level.level
+
+    - summary: |
+        Tests added to verify LogLevel arithmetic and comparison with integers work
+        correctly. The tests verify both orderings of comparison (LogLevel < Integer
+        and Integer < LogLevel).
+      component: "Logging tests"
+      evidence:
+        - source: "test"
+          path: "stdlib/Logging/test/runtests.jl"
+          loc: "22-27"
+          url: "https://github.com/JuliaLang/julia/blob/5ee081631674166af22f3677d50c2fd56a2ccf48/stdlib/Logging/test/runtests.jl#L22-L27"
+          snippet: |
+            @testset "LogLevel compatibility with integers" begin
+                @test Logging.Debug + 1000 == Logging.Info
+                @test Logging.Warn - 1000 == Logging.Info
+                @test Logging.Info < 500
+                @test 500 < Logging.Warn
+            end
+
+  secondary_effects:
+    - effect: "Restore compatibility for packages accessing _min_enabled_level"
+      mechanism: |
+        Base.CoreLogging._min_enabled_level was changed from Ref{LogLevel} to Threads.Atomic{Int32}  [PR #57591]
+          -> _min_enabled_level[] now returns Int32 instead of LogLevel
+          -> Downstream packages (e.g., Logging2.jl) comparing LogLevel with _min_enabled_level[]
+             would get MethodError: no method matching isless(::LogLevel, ::Int32)
+          -> NEW: isless(LogLevel, Integer) and isless(Integer, LogLevel) methods  [logging.jl:132-133]
+             enable these comparisons to work again
+
+        Internal code in logmsg_code already handled this correctly:  [logging.jl:401]
+          if std_level.level >= $(_min_enabled_level)[]
+        by accessing the .level field explicitly.
+
+        Internal LogLevel comparisons in ConsoleLogger.jl are unaffected:  [ConsoleLogger.jl:65-68,76]
+          level < Info  ? Base.debug_color() : ...   # LogLevel < LogLevel
+          Info <= level < Warn && return ...          # LogLevel < LogLevel
+        These use the existing isless(LogLevel, LogLevel) method.
+      downstream_surfaces:
+        - "Logging2.jl package"
+        - "Any package accessing Base.CoreLogging._min_enabled_level"
+        - "Custom loggers comparing LogLevel with numeric thresholds"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Enable use of integer ranges with LogLevel for filtering"
+      mechanism: |
+        With isless defined for LogLevel and Integer, users can now write:
+          - LogLevel comparisons: Info < 500, 500 < Warn
+          - Sorting operations involving mixed LogLevel/Integer collections
+          - Range-based log level filtering using integer boundaries
+
+        The predefined LogLevel values have specific integer representations:  [logging.jl:144-174]
+          BelowMinLevel = LogLevel(-1000001)
+          Debug         = LogLevel(-1000)
+          Info          = LogLevel(0)
+          Warn          = LogLevel(1000)
+          Error         = LogLevel(2000)
+          AboveMaxLevel = LogLevel(1000001)
+      downstream_surfaces:
+        - "Custom logging systems using numeric level thresholds"
+        - "Log filtering middleware"
+      likelihood: "medium"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - item: "New isless methods for LogLevel <-> Integer comparison"
+        description: |
+          Adds two new method signatures to Base.isless:
+            isless(::LogLevel, ::Integer)
+            isless(::Integer, ::LogLevel)
+
+          This is purely additive and does not change any existing behavior.
+          Previously these comparisons would throw MethodError; now they work.
+
+    behavioral:
+      - item: "LogLevel can now be compared with any Integer subtype"
+        description: |
+          Previously: Logging.Info < 500 would throw MethodError
+          Now: Logging.Info < 500 returns true (since Info.level == 0 < 500)
+
+          This is the intended behavior and fixes the regression from #57591.
+
+      - item: "Edge case: Bool is a valid Integer subtype"
+        description: |
+          Since Bool <: Integer in Julia, comparisons like isless(Debug, true) now work.
+          This compares Debug.level (-1000) with true (1), returning true.
+          While unusual, this is technically correct behavior and unlikely to cause issues.
+
+  performance:
+    compile_time: []
+    runtime:
+      - item: "Negligible overhead for isless dispatch"
+        description: |
+          The new isless methods simply delegate to isless on the primitive types
+          (Int32 and Integer). This adds one level of indirection which the
+          compiler can easily inline away.
+          ESTIMATED: Zero measurable overhead after inlining.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure API extension - only adds new methods, no changes to existing behavior"
+      - "Methods follow existing pattern used by + and - operators"
+      - "Fix restores previously working functionality that regressed in #57591"
+      - "Simple implementation: just delegates to primitive type comparison"
+      - "Tests added to lock in expected behavior"
+      - "Backport labels indicate this is considered safe for stable branches"
+      - "Reviewed and merged by StefanKarpinski (Julia co-creator)"
+
+  open_questions: []
+
+  recommendations:
+    - "No action required for downstream packages - this restores expected behavior"
+    - "Packages affected by the #57591 regression should upgrade to get this fix"
+    - "Fix will be backported to Julia 1.10 and 1.11 per backport labels"
+
+downstream_impact:
+  opaque_closure: "none"
+  generated_functions: "none"
+  world_age: "none"
+  internal_api_consumers:
+    - tool: "Logging2.jl"
+      usage: |
+        Logging2.jl was explicitly mentioned in issue #60317 as being broken by
+        PR #57591. The package depends on Base.CoreLogging._min_enabled_level
+        for log level filtering. After #57591 changed this to Atomic{Int32},
+        comparisons with LogLevel objects failed. This fix restores compatibility.
+
+    - tool: "Custom logging packages"
+      usage: |
+        Any package that compares LogLevel objects with integer thresholds
+        (e.g., for custom filtering logic) will now work correctly. The new
+        isless methods enable natural comparisons like:
+          if level < 1000  # true for Debug and Info
+          if 500 < level   # true for Warn and Error
+
+context:
+  regression_source:
+    pr: 57591
+    description: |
+      PR #57591 "Logging: threading improvements" changed _min_enabled_level from
+      Ref{LogLevel}(Debug) to Threads.Atomic{Int32}(Debug) for thread safety.
+      This meant _min_enabled_level[] returns Int32 instead of LogLevel.
+
+      The internal logging code was updated to use std_level.level (the Int32 field)
+      for comparison, but external consumers comparing LogLevel directly with the
+      atomic value would fail.
+
+  loglevel_constants:
+    - name: "BelowMinLevel"
+      value: -1000001
+    - name: "Debug"
+      value: -1000
+    - name: "Info"
+      value: 0
+    - name: "Warn"
+      value: 1000
+    - name: "Error"
+      value: 2000
+    - name: "AboveMaxLevel"
+      value: 1000001
+
+additional_consumers:
+  - location: "base/logging/logging.jl:178"
+    description: "The _min_enabled_level atomic that triggered this regression"
+    url: "https://github.com/JuliaLang/julia/blob/5ee081631674166af22f3677d50c2fd56a2ccf48/base/logging/logging.jl#L178"
+    snippet: |
+      const _min_enabled_level = Threads.Atomic{Int32}(Debug)
+    note: |
+      The Atomic{Int32}(Debug) works because convert(Int32, Debug) uses the
+      convert(::Type{Int32}, level::LogLevel) = level.level method at line 137.
+
+  - location: "base/logging/logging.jl:401"
+    description: "Internal code correctly accesses .level field for comparison"
+    url: "https://github.com/JuliaLang/julia/blob/5ee081631674166af22f3677d50c2fd56a2ccf48/base/logging/logging.jl#L401"
+    snippet: |
+      if std_level.level >= $(_min_enabled_level)[]
+
+  - location: "base/logging/logging.jl:561"
+    description: "disable_logging uses LogLevel + Integer which already worked"
+    url: "https://github.com/JuliaLang/julia/blob/5ee081631674166af22f3677d50c2fd56a2ccf48/base/logging/logging.jl#L560-L562"
+    snippet: |
+      function disable_logging(level::LogLevel)
+          _min_enabled_level[] = level + 1
+      end
+
+internal_loglevel_comparisons:
+  - location: "base/logging/logging.jl:343"
+    description: "LogLevel >= LogLevel comparison (unaffected by this PR)"
+    url: "https://github.com/JuliaLang/julia/blob/5ee081631674166af22f3677d50c2fd56a2ccf48/base/logging/logging.jl#L343"
+    snippet: |
+      if std_level >= logstate.min_enabled_level || env_override_minlevel(group, _module)
+    uses_method: "isless(::LogLevel, ::LogLevel)"
+
+  - location: "base/logging/ConsoleLogger.jl:65-68"
+    description: "LogLevel comparisons for color selection (unaffected by this PR)"
+    url: "https://github.com/JuliaLang/julia/blob/5ee081631674166af22f3677d50c2fd56a2ccf48/base/logging/ConsoleLogger.jl#L65-L68"
+    snippet: |
+      function default_logcolor(level::LogLevel)
+          level < Info  ? Base.debug_color() :
+          level < Warn  ? Base.info_color()  :
+          level < Error ? Base.warn_color()  :
+                          Base.error_color()
+      end
+    uses_method: "isless(::LogLevel, ::LogLevel)"
+
+  - location: "base/logging/ConsoleLogger.jl:76"
+    description: "LogLevel range check for suffix display (unaffected by this PR)"
+    url: "https://github.com/JuliaLang/julia/blob/5ee081631674166af22f3677d50c2fd56a2ccf48/base/logging/ConsoleLogger.jl#L76"
+    snippet: |
+      Info <= level < Warn && return color, prefix, suffix
+    uses_method: "isless(::LogLevel, ::LogLevel)"
+
+test_changes:
+  summary: |
+    Added a new testset "LogLevel compatibility with integers" that verifies:
+    1. LogLevel + Integer arithmetic: Debug + 1000 == Info, Warn - 1000 == Info
+    2. LogLevel < Integer comparison: Info < 500 (since Info.level == 0)
+    3. Integer < LogLevel comparison: 500 < Warn (since Warn.level == 1000)
+
+    These tests lock in the expected behavior and prevent future regressions.
+  files:
+    - "stdlib/Logging/test/runtests.jl"
+
+reviewer_verification:
+  date: "2026-01-22"
+  checks_performed:
+    - "Verified line numbers 131-133 for isless methods against actual source"
+    - "Verified test lines 22-27 against actual test file"
+    - "Searched for all isless and LogLevel comparison callers with rg"
+    - "Verified ConsoleLogger.jl uses LogLevel < LogLevel (lines 65-68, 76)"
+    - "Confirmed internal code at line 401 uses .level field access"
+    - "Verified conversion mechanism at line 137 for Atomic initialization"
+    - "Checked for Bool <: Integer edge case"
+  findings:
+    - "All line numbers in original analysis are accurate"
+    - "Analysis correctly identifies regression source and fix mechanism"
+    - "Added ConsoleLogger.jl context to show internal callers are unaffected"
+    - "Added Bool edge case documentation"
+    - "Added note about Atomic initialization conversion"
+  verification_commands_used:
+    - "rg 'isless.*LogLevel|LogLevel.*isless' julia/"
+    - "rg '_min_enabled_level' julia/"
+    - "git show 9f6cfde -p (original implementation commit)"
+    - "git show 9e1827e -p (test addition commit)"

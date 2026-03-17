@@ -1,0 +1,661 @@
+schema_version: "1.0"
+pr:
+  number: 60030
+  title: "fix waitall deadlock if any errors occur"
+  url: "https://github.com/JuliaLang/julia/pull/60030"
+  author: "vtjnash"
+  labels: []
+  merged_at: "2025-11-05T22:26:16Z"
+  merge_commit_sha: "f904dc500cf917378e8ed8eeb11e56164e4ed830"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60030.diff"
+scope:
+  files_touched:
+    - "base/task.jl"
+    - "test/threads_exec.jl"
+  components:
+    - "Other"
+  pipeline_stages:
+    - "Runtime"
+    - "TaskScheduler"
+analysis:
+  intent:
+    summary: "Fixes a deadlock bug in waitall() when errors occur with failfast=true. The issue was that when errors caused early termination, not all Channel producers were created, but the subsequent loop tried to take from all of them, causing a deadlock."
+    issue_links: []
+    quoted_from_pr: |
+      When errors occur, `waitall` may skip allocating Channel producers, leading to deadlock
+      in the subsequent loop in the event that the user asked it to failfast (ironically).
+      This is seen often in the failing of the threads_exec test ever since the test was added
+      for this call. Simplify this to just use separate loops for the wait and the return computation.
+  direct_changes:
+    - summary: "Extracted task collection from _wait_multiple into a new collect_tasks function that validates and collects tasks upfront."
+      component: "TaskScheduler"
+      evidence:
+        - source: "code"
+          path: "base/task.jl"
+          loc: "412-419"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L412-L419"
+          snippet: |
+            function collect_tasks(waiting_tasks)
+                tasks = Task[]
+                for t in waiting_tasks
+                    t isa Task || error("Expected an iterator of `Task` object")
+                    push!(tasks, t)
+                end
+                return tasks
+            end
+    - summary: "Changed waitany and waitall to call collect_tasks before _wait_multiple, ensuring tasks are collected into a Vector{Task} upfront."
+      component: "TaskScheduler"
+      evidence:
+        - source: "code"
+          path: "base/task.jl"
+          loc: "390"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L390"
+          snippet: |
+            waitany(tasks; throw=true) = _wait_multiple(collect_tasks(tasks), throw)
+        - source: "code"
+          path: "base/task.jl"
+          loc: "410"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L410"
+          snippet: |
+            waitall(tasks; failfast=true, throw=true) = _wait_multiple(collect_tasks(tasks), throw, true, failfast)
+    - summary: "Changed _wait_multiple signature to accept Vector{Task} instead of generic iterator, with explicit Bool types for parameters."
+      component: "TaskScheduler"
+      evidence:
+        - source: "code"
+          path: "base/task.jl"
+          loc: "421"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L421"
+          snippet: |
+            function _wait_multiple(tasks::Vector{Task}, throwexc::Bool=false, all::Bool=false, failfast::Bool=false)
+    - summary: "Added early break from waiter-creation loop when exception && failfast, preventing unnecessary Channel producer creation."
+      component: "TaskScheduler"
+      evidence:
+        - source: "code"
+          path: "base/task.jl"
+          loc: "468-482"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L468-L482"
+          snippet: |
+            for (i, done) in enumerate(done_mask)
+                done && continue
+                t = tasks[i]
+                if istaskdone(t)
+                    done_mask[i] = true
+                    exception |= istaskfailed(t)
+                    nremaining -= 1
+                    exception && failfast && break
+                else
+                    waiter = @task put!(chan, i)
+                    waiter.sticky = false
+                    _wait2(t, waiter)
+                    waiter_tasks[i] = waiter
+                end
+            end
+    - summary: "Moved failfast early-exit check to the beginning of the main wait loop, before take!(chan)."
+      component: "TaskScheduler"
+      evidence:
+        - source: "code"
+          path: "base/task.jl"
+          loc: "484-494"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L484-L494"
+          snippet: |
+            while nremaining > 0
+                exception && failfast && break
+                i = take!(chan)
+                t = tasks[i]
+                waiter_tasks[i] = sentinel
+                done_mask[i] = true
+                exception |= istaskfailed(t)
+                nremaining -= 1
+                # stop early if requested
+                all || break
+            end
+    - summary: "Added a new post-channel-close loop to poll all remaining tasks directly via istaskdone, avoiding the channel entirely for cleanup."
+      component: "TaskScheduler"
+      evidence:
+        - source: "code"
+          path: "base/task.jl"
+          loc: "498-513"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L498-L513"
+          snippet: |
+            # now just read which tasks finished directly: the channel is not needed anymore for that
+            # repeat until we get (acquire) the list of all dependent-exited tasks
+            changed = true
+            while changed
+                changed = false
+                for (i, done) in enumerate(done_mask)
+                    done && continue
+                    t = tasks[i]
+                    if istaskdone(t)
+                        done_mask[i] = true
+                        exception |= istaskfailed(t)
+                        nremaining -= 1
+                        changed = true
+                    end
+                end
+            end
+    - summary: "Added sentinel check when removing waiters from donenotify queues to skip tasks that never had a waiter created."
+      component: "TaskScheduler"
+      evidence:
+        - source: "code"
+          path: "base/task.jl"
+          loc: "522-528"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L522-L528"
+          snippet: |
+            remaining_mask = .~done_mask
+            for i in findall(remaining_mask)
+                waiter = waiter_tasks[i]
+                waiter === sentinel && continue
+                donenotify = tasks[i].donenotify::ThreadSynchronizer
+                @lock donenotify list_deletefirst!(donenotify.waitq, waiter)
+            end
+    - summary: "Added Julia 1.12 compatibility notes to waitany and waitall docstrings."
+      component: "Documentation"
+      evidence:
+        - source: "code"
+          path: "base/task.jl"
+          loc: "387-389"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L387-L389"
+          snippet: |
+            !!! compat "Julia 1.12"
+                This function requires at least Julia 1.12.
+        - source: "code"
+          path: "base/task.jl"
+          loc: "406-408"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L406-L408"
+          snippet: |
+            !!! compat "Julia 1.12"
+                This function requires at least Julia 1.12.
+  secondary_effects:
+    - effect: "Tasks passed to waitany/waitall are now collected into a Vector upfront, which consumes the iterator eagerly."
+      mechanism: |
+        Call chain with file:line references:
+        1. waitall(tasks; ...) [base/task.jl:410]
+        2.   collect_tasks(tasks) [base/task.jl:412-419]
+        3.     for t in waiting_tasks -> push!(tasks, t)
+        4.   _wait_multiple(tasks::Vector{Task}, ...) [base/task.jl:421]
+
+        BEFORE: _wait_multiple accepted an iterator and collected tasks lazily during
+        the loop that also checked for done tasks and created waiters.
+
+        AFTER: collect_tasks() consumes the entire iterator upfront before any
+        other processing happens. This ensures a consistent task list throughout.
+
+        This could affect memory usage if a very large lazy iterator was passed,
+        but waitall/waitany are typically called with small task collections.
+      downstream_surfaces:
+        - "Code passing lazy iterators to waitall/waitany"
+        - "Memory-sensitive code with many tasks"
+      likelihood: "low"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/task.jl"
+          loc: "412-419"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L412-L419"
+          snippet: |
+            function collect_tasks(waiting_tasks)
+                tasks = Task[]
+                for t in waiting_tasks
+                    t isa Task || error("Expected an iterator of `Task` object")
+                    push!(tasks, t)
+                end
+                return tasks
+            end
+    - effect: "The post-channel cleanup loop uses polling (istaskdone) instead of channel takes for remaining tasks."
+      mechanism: |
+        Call chain with file:line references:
+        1. _wait_multiple(...) [base/task.jl:421]
+        2.   close(chan) [base/task.jl:496]
+        3.   while changed loop [base/task.jl:501-512]
+        4.     for (i, done) in enumerate(done_mask)
+        5.       istaskdone(t) [base/task.jl:506]
+        6.       done_mask[i] = true, exception |= istaskfailed(t)
+
+        This polling loop runs until no new tasks complete in a full scan. The comment
+        explains this is to "acquire the list of all dependent-exited tasks" - tasks
+        that may have finished between when we closed the channel and when we check.
+
+        The loop is bounded: each iteration must mark at least one task as done to
+        continue, so it runs at most O(n) iterations where n is the number of tasks.
+      downstream_surfaces:
+        - "Tasks that complete during the cleanup phase"
+        - "Accuracy of returned done_tasks list"
+      likelihood: "medium"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/task.jl"
+          loc: "498-513"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L498-L513"
+          snippet: |
+            # now just read which tasks finished directly: the channel is not needed anymore for that
+            # repeat until we get (acquire) the list of all dependent-exited tasks
+            changed = true
+            while changed
+                changed = false
+                for (i, done) in enumerate(done_mask)
+                    done && continue
+                    t = tasks[i]
+                    if istaskdone(t)
+                        done_mask[i] = true
+                        exception |= istaskfailed(t)
+                        nremaining -= 1
+                        changed = true
+                    end
+                end
+            end
+    - effect: "Precompilation uses waitall with failfast=false, so the deadlock bug fix primarily benefits user code with failfast=true."
+      mechanism: |
+        The precompilation system uses waitall with failfast=false in two places:
+        1. base/precompilation.jl:1121 - waitall(tasks; failfast=false, throw=false)
+        2. base/precompilation.jl:1130 - waitall(tasks; failfast=false, throw=false)
+
+        With failfast=false, the original bug would not trigger because:
+        - The waiter-creation loop would not break early (no `exception && failfast && break`)
+        - The main wait loop would not break early (no `exception && failfast && break`)
+
+        The deadlock only occurred with failfast=true because:
+        1. An exception causes early break from waiter-creation loop
+        2. Not all waiter tasks are created, so not all will put!() to channel
+        3. The main loop tries to take!() for all tasks, blocking forever on those
+           that never had a waiter created
+      downstream_surfaces:
+        - "User code calling waitall with failfast=true (the default)"
+        - "Code using waitall(Threads.@spawn(f()) for i = 1:n) patterns"
+      likelihood: "high"
+      impact: "high"
+      evidence:
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1121"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/precompilation.jl#L1121"
+          snippet: |
+            waitall(tasks; failfast=false, throw=false)
+        - source: "code"
+          path: "base/precompilation.jl"
+          loc: "1130"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/precompilation.jl#L1130"
+          snippet: |
+            waitall(tasks; failfast=false, throw=false)
+    - effect: "Waiter tasks that complete after channel close will throw exceptions silently."
+      mechanism: |
+        After the fix, when close(chan) is called:
+        1. Any waiter tasks not yet executed will eventually run when their target completes
+        2. They will attempt put!(chan, i) on the closed channel
+        3. This throws a ClosedChannelException [base/channels.jl:192-198]
+        4. The waiter task fails silently (no error propagation mechanism)
+
+        This is intentional and safe because:
+        1. We no longer need the channel after close() - the polling loop handles detection
+        2. Waiter tasks are helper tasks with no consumer of their results
+        3. Their failure has no impact on the correctness of done_mask computation
+
+        Code path for close [base/channels.jl:199-212]:
+          close(c::Channel) = close(c, closed_exception())
+          function close(c::Channel, @nospecialize(excp::Exception))
+              lock(c)
+              try
+                  c.excp = excp
+                  @atomic :release c.state = :closed
+                  notify_error(c.cond_take, excp)
+                  notify_error(c.cond_wait, excp)
+                  notify_error(c.cond_put, excp)
+              finally
+                  unlock(c)
+              end
+              nothing
+          end
+      downstream_surfaces:
+        - "Internal implementation detail - not user-visible"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/channels.jl"
+          loc: "192-212"
+          url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/channels.jl#L192-L212"
+          snippet: |
+            close(c::Channel[, excp::Exception])
+
+            Close a channel. An exception (optionally given by `excp`), is thrown by:
+            * [`put!`](@ref) on a closed channel.
+            * [`take!`](@ref) and [`fetch`](@ref) on an empty, closed channel.
+  compatibility:
+    internal_api:
+      - field: "_wait_multiple function signature"
+        change: "Changed from _wait_multiple(waiting_tasks, throwexc=false, all=false, failfast=false) to _wait_multiple(tasks::Vector{Task}, throwexc::Bool=false, all::Bool=false, failfast::Bool=false)"
+        affected_tools:
+          - tool: "Internal Julia code"
+            usage: "_wait_multiple is not exported; the public API is waitany/waitall"
+      - field: "collect_tasks function"
+        change: "New internal function added"
+        affected_tools:
+          - tool: "Internal Julia code"
+            usage: "collect_tasks is not exported; used internally by waitany/waitall"
+    behavioral:
+      - change: "waitall with failfast=true no longer deadlocks when tasks fail"
+        severity: "high"
+        notes: |
+          This is a critical bug fix. Previously, the following code would deadlock:
+
+            waitall(Threads.@spawn(div(1, i)) for i = 0:1)
+
+          The first task (div(1, 0)) would fail, triggering failfast early exit,
+          but the channel-based wait loop would block forever waiting for a message
+          that was never sent because the waiter task was never created.
+  performance:
+    compile_time: []
+    runtime:
+      - change: "Additional post-channel polling loop may add slight overhead"
+        estimate: |
+          ESTIMATED: O(n) polling loop where n = number of tasks
+          Each iteration calls istaskdone() which is a single atomic load [base/task.jl:209]
+          Loop terminates immediately if no tasks completed during close/cleanup phase
+          Negligible impact for typical task counts
+      - change: "Eager task collection may use slightly more memory for large lazy iterators"
+        estimate: |
+          ESTIMATED: O(n) memory for n tasks, same as before but allocated upfront
+          No impact for typical usage where tasks are already in a collection
+  tests:
+    changed_files:
+      - "test/threads_exec.jl"
+    new_behavior_assertions:
+      - "Test now uses pre-collected tasks instead of generator: @test_throws CompositeException waitall(tasks)"
+    coverage_gaps:
+      - "No explicit test for the deadlock scenario with generator syntax and early failure"
+  risk:
+    level: "low"
+    rationale:
+      - "Bug fix addresses a real deadlock observed in threads_exec test failures"
+      - "Author (vtjnash) is a core Julia developer with deep knowledge of the scheduler"
+      - "Changes are localized to task waiting logic, not affecting task execution"
+      - "Public API (waitany/waitall) behavior is unchanged except for the bug fix"
+      - "Test change confirms the fix works for the reported scenario"
+      - "The fix is straightforward: avoid taking from channel for tasks that never put"
+  open_questions:
+    - question: "Why was the test changed to use pre-collected tasks instead of a generator?"
+      status: "ANSWERED"
+      answer: |
+        The original test used a generator expression:
+          waitall(Threads.@spawn(div(1, i)) for i = 0:1)
+
+        The new test uses pre-collected tasks:
+          tasks = [Threads.@spawn(div(1, i)) for i = 0:1]
+          wait(tasks[1]; throw=false)
+          wait(tasks[2]; throw=false)
+          @test_throws CompositeException waitall(tasks)
+
+        This change was made to:
+        1. Ensure both tasks have completed before calling waitall
+        2. Test the CompositeException throwing path specifically
+        3. The generator syntax is still tested earlier in the same testset at line 1419
+    - question: "Is there a race condition in the post-channel polling loop?"
+      status: "ANSWERED"
+      answer: |
+        The polling loop is safe because:
+        1. It only reads task state via istaskdone() which uses atomic loads
+        2. Tasks can only transition from runnable to done, never back
+        3. The loop terminates when no changes occur in a full scan
+        4. Each task can only be marked done once (done_mask prevents re-processing)
+
+        The loop ensures we capture all tasks that completed between when we closed
+        the channel and when we finish scanning. This is important because waiter
+        tasks may complete and call put!() after we close the channel, but their
+        corresponding tasks are already done.
+  recommendations:
+    - "Code using waitall with failfast=true should work correctly after this fix without any changes needed"
+    - "The test simplification (using pre-collected tasks) is a good pattern for deterministic testing"
+    - "Users experiencing unexplained hangs in waitall should upgrade to include this fix"
+reviewer_notes:
+  independent_analysis_date: "2026-01-22"
+  second_review_date: "2026-01-22"
+  reviewer_findings:
+    - finding: "The deadlock mechanism was in the channel-based waiting"
+      details: |
+        BEFORE: The code would create waiter tasks that put!(chan, i) when their target
+        task completed. But if failfast && exception, it would break out of the waiter
+        creation loop early, leaving some tasks without waiters.
+
+        Then the main loop would do:
+          while nremaining > 0
+              i = take!(chan)  # DEADLOCK: waiting for a put that never comes
+              ...
+
+        AFTER: The main loop checks `exception && failfast && break` BEFORE take!(chan),
+        so it exits before trying to take from the channel. The post-channel polling
+        loop then handles any remaining tasks via direct istaskdone() checks.
+    - finding: "The fix correctly handles all edge cases"
+      details: |
+        1. All tasks done before any waiter creation -> returns immediately via early check
+        2. Some tasks fail with failfast=true -> breaks early, polls remaining, returns
+        3. All tasks complete normally -> waits via channel, no polling needed
+        4. waitany (all=false) -> breaks after first completion, polls for any others
+        5. waitall with failfast=false -> waits for all via channel, polls for stragglers
+    - finding: "The sentinel check is necessary for cleanup"
+      details: |
+        When cleaning up remaining (non-done) tasks, we need to remove waiters from
+        their donenotify queues. But some tasks may never have had a waiter created
+        (if we broke early due to failfast). The sentinel check:
+
+          waiter === sentinel && continue
+
+        Skips these tasks, preventing an error when trying to delete a waiter that
+        was never added to the queue.
+  second_review_findings:
+    - finding: "The _wait2 mechanism traces the waiter task lifecycle"
+      details: |
+        The _wait2(t, waiter) function [base/task.jl:322-348] implements a critical
+        synchronization pattern:
+
+        1. If target task t is not done:
+           - Acquires lock on t.donenotify::ThreadSynchronizer
+           - Pushes waiter onto t.donenotify.waitq
+           - Releases lock
+           - Returns without scheduling waiter (waiter will be scheduled when t completes)
+
+        2. If target task t is already done:
+           - Calls schedule(waiter) immediately
+
+        Code path [base/task.jl:336-346]:
+          donenotify = t.donenotify::ThreadSynchronizer
+          lock(donenotify)
+          if !istaskdone(t)
+              push!(donenotify.waitq, waiter)
+              unlock(donenotify)
+              return nothing
+          else
+              unlock(donenotify)
+          end
+          schedule(waiter)
+
+        When the target task completes, the runtime notifies donenotify (via
+        task completion path at base/task.jl:854-863), which schedules all
+        tasks in donenotify.waitq. Each waiter then executes: put!(chan, i).
+
+    - finding: "Removal of race-y isready(chan) check improves correctness"
+      details: |
+        The old code (from PR diff patch) contained:
+          # stop early if requested, unless there is something immediately
+          # ready to consume from the channel (using a race-y check)
+          if (!all || (failfast && exception)) && !isready(chan)
+              break
+          end
+
+        This was problematic because:
+        1. isready(chan) is a non-blocking check that could miss newly-arrived items
+        2. The race between isready() and the next take!() could cause inconsistent behavior
+        3. The comment explicitly acknowledged the check was "race-y"
+
+        The new code replaces this with deterministic checks:
+        - `exception && failfast && break` at loop start (before take!)
+        - `all || break` at loop end (stop on first completion for waitany)
+
+        This removes the race condition and makes behavior fully predictable.
+
+    - finding: "Channel close behavior is safe for orphaned waiter tasks"
+      details: |
+        When close(chan) is called [base/channels.jl:199-212]:
+          c.excp = closed_exception()
+          @atomic :release c.state = :closed
+          notify_error(c.cond_take, excp)
+          notify_error(c.cond_wait, excp)
+          notify_error(c.cond_put, excp)
+
+        After close(), any waiter task that tries to put!(chan, i) will throw
+        a closed channel exception. This is safe because:
+
+        1. Waiters that already completed their put!() are processed via take!()
+        2. Waiters for tasks that completed after close() are NOT waited upon
+        3. Their exceptions are silently ignored (no error propagation)
+        4. The polling loop handles detecting task completion directly via istaskdone()
+
+        The waiter tasks are effectively "fire and forget" helpers - their
+        failure after channel close has no impact on correctness.
+
+    - finding: "Thread safety guarantees in the polling loop"
+      details: |
+        The post-channel polling loop is thread-safe due to:
+
+        1. istaskdone(t) uses atomic acquire load [base/task.jl:209]:
+             istaskdone(t::Task) = (@atomic :acquire t._state) !== task_state_runnable
+
+        2. Task state transitions are monotonic and irreversible:
+           - A task can only transition: runnable -> done (success or failure)
+           - Once done, a task can never become runnable again
+
+        3. done_mask provides single-writer semantics:
+           - Only the main (calling) task modifies done_mask
+           - Each index is set to true exactly once
+
+        4. The loop terminates deterministically:
+           - changed = true only if at least one new done task is found
+           - Maximum iterations = n (number of tasks)
+           - Each task can be marked done at most once
+
+        There are no data races because the main task is the only writer to
+        done_mask, nremaining, and exception flag. Other tasks only write to
+        their own _state field via atomic operations.
+
+    - finding: "Test coverage includes both generator and pre-collected patterns"
+      details: |
+        The test file test/threads_exec.jl now has two distinct test patterns:
+
+        1. Line 1369 - Generator pattern (still tested):
+             @test_throws CompositeException begin
+                 waitall(Threads.@spawn(div(1, i)) for i = 0:1)
+             end
+
+        2. Lines 1372-1375 - Pre-collected pattern (new):
+             tasks = [Threads.@spawn(div(1, i)) for i = 0:1]
+             wait(tasks[1]; throw=false)
+             wait(tasks[2]; throw=false)
+             @test_throws CompositeException waitall(tasks)
+
+        The second pattern ensures both tasks have completed before waitall,
+        specifically testing the CompositeException path when multiple tasks
+        have already failed. This provides complementary coverage to the
+        generator pattern which tests the failfast early-exit behavior.
+  callers_traced:
+    - function: "waitall"
+      callers: |
+        base/precompilation.jl:1121: waitall(tasks; failfast=false, throw=false)
+        base/precompilation.jl:1130: waitall(tasks; failfast=false, throw=false)
+        test/threads_exec.jl: Multiple test cases
+    - function: "waitany"
+      callers: |
+        test/threads_exec.jl: Multiple test cases
+        Docstring refers users to waitall(tasks; failfast=true) as alternative
+    - function: "_wait_multiple"
+      callers: |
+        base/task.jl:390: waitany(tasks; throw=true) = _wait_multiple(collect_tasks(tasks), throw)
+        base/task.jl:410: waitall(tasks; failfast=true, throw=true) = _wait_multiple(collect_tasks(tasks), throw, true, failfast)
+    - function: "collect_tasks"
+      callers: |
+        base/task.jl:390: waitany
+        base/task.jl:410: waitall
+evidence_search:
+  - summary: "rg results for waitall usage across codebase"
+    evidence:
+      - source: "rg"
+        path: "rg 'waitall' base/"
+        loc: "output"
+        snippet: |
+          base/task.jl:385:    [`waitall(tasks; failfast=true)`](@ref waitall) instead.
+          base/task.jl:393:    waitall(tasks; failfast=true, throw=true) -> (done_tasks, remaining_tasks)
+          base/task.jl:410:waitall(tasks; failfast=true, throw=true) = _wait_multiple(collect_tasks(tasks), throw, true, failfast)
+          base/exports.jl:759:    waitany,
+          base/exports.jl:760:    waitall,
+          base/precompilation.jl:1121:        waitall(tasks; failfast=false, throw=false)
+          base/precompilation.jl:1130:            waitall(tasks; failfast=false, throw=false)
+  - summary: "Channel and task synchronization primitives used"
+    evidence:
+      - source: "code"
+        path: "base/task.jl"
+        loc: "464-466"
+        url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L464-L466"
+        snippet: |
+          chan = Channel{Int}(Inf)
+          sentinel = current_task()
+          waiter_tasks = fill(sentinel, length(tasks))
+  - summary: "istaskdone implementation showing atomic load"
+    evidence:
+      - source: "code"
+        path: "base/task.jl"
+        loc: "209"
+        url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L209"
+        snippet: |
+          istaskdone(t::Task) = (@atomic :acquire t._state) !== task_state_runnable
+  - summary: "_wait2 implementation showing waiter task registration"
+    evidence:
+      - source: "code"
+        path: "base/task.jl"
+        loc: "322-348"
+        url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L322-L348"
+        snippet: |
+          # have `waiter` wait for `t`
+          function _wait2(t::Task, waiter::Task)
+              if !istaskdone(t)
+                  # since _wait2 is similar to schedule, we should observe the sticky
+                  # bit, even if we don't call `schedule` with early-return below
+                  if waiter.sticky && Threads.threadid(waiter) == 0 && !GC.in_finalizer()
+                      # Issue #41324
+                      # t.sticky && tid == 0 is a task that needs to be co-scheduled with
+                      # the parent task. If the parent (current_task) is not sticky we must
+                      # set it to be sticky.
+                      # XXX: Ideally we would be able to unset this
+                      current_task().sticky = true
+                      tid = Threads.threadid()
+                      ccall(:jl_set_task_tid, Cint, (Any, Cint), waiter, tid-1)
+                  end
+                  donenotify = t.donenotify::ThreadSynchronizer
+                  lock(donenotify)
+                  if !istaskdone(t)
+                      push!(donenotify.waitq, waiter)
+                      unlock(donenotify)
+                      return nothing
+                  else
+                      unlock(donenotify)
+                  end
+              end
+              schedule(waiter)
+              nothing
+          end
+  - summary: "Task completion notification mechanism"
+    evidence:
+      - source: "code"
+        path: "base/task.jl"
+        loc: "854-863"
+        url: "https://github.com/JuliaLang/julia/blob/f904dc500cf917378e8ed8eeb11e56164e4ed830/base/task.jl#L854-L863"
+        snippet: |
+          donenotify = t.donenotify
+          if isa(donenotify, ThreadSynchronizer)
+              lock(donenotify)
+              try
+                  if !isempty(donenotify.waitq)
+                      # schedule all waiters
+                      notify(donenotify)
+                  end
+              finally
+                  unlock(donenotify)
+              end
+          end

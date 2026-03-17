@@ -1,0 +1,179 @@
+schema_version: "1.0"
+pr:
+  number: 60414
+  title: "compiler: Fix typo in `abstract_invoke`"
+  url: "https://github.com/JuliaLang/julia/pull/60414"
+  author: "aviatesk"
+  labels: []
+  merged_at: "2025-12-19T08:22:40Z"
+  merge_commit_sha: "ea7dbfc6a1b9d9b2e677c8af34079380244a65be"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60414.diff"
+scope:
+  files_touched:
+    - "Compiler/src/abstractinterpretation.jl"
+  components:
+    - "Compiler.AbstractInterpretation"
+  pipeline_stages:
+    - "TypeInference"
+    - "EffectsInference"
+analysis:
+  intent:
+    summary: "Fix a typo where `method_ir_ci` was used instead of `method_or_ci` in the CodeInstance branch of abstract_invoke, which would cause an UndefVarError during inference when checking whether to add ErrorException to the exception set."
+    issue_links: []
+  direct_changes:
+    - summary: "Corrected typo `method_ir_ci` to `method_or_ci` on line 2240 in abstract_invoke's CodeInstance branch. This fixes the condition that checks whether to union ErrorException into the call's exception type."
+      component: "Compiler/abstractinterpretation"
+      evidence:
+        - source: "diff"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "2240"
+          url: "https://github.com/JuliaLang/julia/pull/60414/files#diff-3808797"
+          snippet: |
+            # BEFORE (with typo - would cause UndefVarError):
+            -            if (method_or_ci.owner === Nothing && method_ir_ci.def.def isa Method)
+            # AFTER (fixed):
+            +            if (method_or_ci.owner === Nothing && method_or_ci.def.def isa Method)
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "2218-2245"
+          url: "https://github.com/JuliaLang/julia/blob/ea7dbfc6a1b9d9b2e677c8af34079380244a65be/Compiler/src/abstractinterpretation.jl#L2218-L2245"
+          snippet: |
+            if types isa Const && types.val isa Union{Method, CodeInstance}
+                method_or_ci = types.val
+                if isa(method_or_ci, CodeInstance)
+                    argtype = argtypes_to_type(pushfirst!(argtype_tail(argtypes, 4), ft))
+                    specsig = get_ci_abi(method_or_ci)
+                    defdef = get_ci_mi(method_or_ci).def
+                    exct = method_or_ci.exctype
+                    if !hasintersect(argtype, specsig)
+                        return Future(CallMeta(Bottom, TypeError, EFFECTS_THROWS, NoCallInfo()))
+                    elseif !(argtype <: specsig) || ((!isa(method_or_ci.def, ABIOverride) && isa(defdef, Method)) && !(argtype <: defdef.sig))
+                        exct = Union{exct, TypeError}
+                    end
+                    callee_valid_range = WorldRange(method_or_ci.min_world, method_or_ci.max_world)
+                    if !(our_world in callee_valid_range)
+                        if our_world < first(callee_valid_range)
+                            update_valid_age!(sv, our_world, WorldRange(first(sv.valid_worlds), first(callee_valid_range)-1))
+                        else
+                            update_valid_age!(sv, our_world, WorldRange(last(callee_valid_range)+1, last(sv.valid_worlds)))
+                        end
+                        return Future(CallMeta(Bottom, ErrorException, EFFECTS_THROWS, NoCallInfo()))
+                    end
+                    # TODO: When we add curing, we may want to assume this is nothrow
+                    if (method_or_ci.owner === Nothing && method_or_ci.def.def isa Method)
+                        exct = Union{exct, ErrorException}
+                    end
+                    update_valid_age!(sv, our_world, callee_valid_range)
+                    return Future(CallMeta(method_or_ci.rettype, exct, Effects(decode_effects(method_or_ci.ipo_purity_bits), nothrow=(exct===Bottom)),
+                        InvokeCICallInfo(method_or_ci)))
+    - summary: "abstract_invoke is called from abstract_call_known when the callee is the invoke builtin. The call chain shows how this typo could be reached during inference."
+      component: "Compiler/abstractinterpretation"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "2637-2651"
+          url: "https://github.com/JuliaLang/julia/blob/ea7dbfc6a1b9d9b2e677c8af34079380244a65be/Compiler/src/abstractinterpretation.jl#L2637-L2651"
+          snippet: |
+            # call where the function is known exactly
+            function abstract_call_known(interp::AbstractInterpreter, @nospecialize(f),
+                    arginfo::ArgInfo, si::StmtInfo, sv::AbsIntState,
+                    max_methods::Int = get_max_methods(interp, f, sv))
+                (; fargs, argtypes) = arginfo
+                argtypes::Vector{Any} = arginfo.argtypes
+                fargs = arginfo.fargs
+                la = length(argtypes)
+                𝕃ᵢ = typeinf_lattice(interp)
+                if isa(f, Builtin)
+                    if f === _apply_iterate
+                        return abstract_apply(interp, argtypes, si, sv, max_methods)
+                    elseif f === invoke
+                        return abstract_invoke(interp, arginfo, si, sv)
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "2211"
+          url: "https://github.com/JuliaLang/julia/blob/ea7dbfc6a1b9d9b2e677c8af34079380244a65be/Compiler/src/abstractinterpretation.jl#L2211"
+          snippet: |
+            function abstract_invoke(interp::AbstractInterpreter, arginfo::ArgInfo, si::StmtInfo, sv::AbsIntState)
+  secondary_effects:
+    - effect: "Fixes inference-time UndefVarError in the CodeInstance branch of abstract_invoke, allowing proper exception type accounting for invoke calls with CodeInstance targets."
+      mechanism: |
+        Call chain showing how the typo was reached:
+          abstract_call_known(interp, f, arginfo, si, sv)  [abstractinterpretation.jl:2637]
+            -> f === invoke branch  [abstractinterpretation.jl:2649-2650]
+            -> abstract_invoke(interp, arginfo, si, sv)  [abstractinterpretation.jl:2211]
+            -> types.val isa CodeInstance branch  [abstractinterpretation.jl:2220]
+            -> TYPO: method_ir_ci.def.def isa Method  [abstractinterpretation.jl:2240]
+               (method_ir_ci is undefined, should be method_or_ci)
+            -> Would throw UndefVarError before reaching:
+               exct = Union{exct, ErrorException}  [abstractinterpretation.jl:2241]
+
+        After fix, the condition correctly reads:
+          if (method_or_ci.owner === Nothing && method_or_ci.def.def isa Method)
+              exct = Union{exct, ErrorException}
+          end
+        This properly adds ErrorException to the exception type for invoke calls
+        on CodeInstances where owner === Nothing and the definition is a Method.
+      downstream_surfaces:
+        - "Base.return_types and other inference queries involving invoke with CodeInstance"
+        - "Effect inference (nothrow flag) for invoke callsites with CodeInstance targets"
+        - "Exception type inference for invoke calls"
+      likelihood: "medium"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/abstractinterpretation.jl"
+          loc: "2239-2245"
+          url: "https://github.com/JuliaLang/julia/blob/ea7dbfc6a1b9d9b2e677c8af34079380244a65be/Compiler/src/abstractinterpretation.jl#L2239-L2245"
+          snippet: |
+            # TODO: When we add curing, we may want to assume this is nothrow
+            if (method_or_ci.owner === Nothing && method_or_ci.def.def isa Method)
+                exct = Union{exct, ErrorException}
+            end
+            update_valid_age!(sv, our_world, callee_valid_range)
+            return Future(CallMeta(method_or_ci.rettype, exct, Effects(decode_effects(method_or_ci.ipo_purity_bits), nothrow=(exct===Bottom)),
+                InvokeCICallInfo(method_or_ci)))
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "invoke effect modeling for CodeInstance paths now correctly evaluates the exception type condition without triggering UndefVarError. This is a pure bugfix with no behavioral change for correctly-typed code paths."
+        evidence:
+          - source: "code"
+            path: "Compiler/src/abstractinterpretation.jl"
+            loc: "2240"
+            url: "https://github.com/JuliaLang/julia/blob/ea7dbfc6a1b9d9b2e677c8af34079380244a65be/Compiler/src/abstractinterpretation.jl#L2240"
+            snippet: |
+              if (method_or_ci.owner === Nothing && method_or_ci.def.def isa Method)
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: No measurable change; the fix is a corrected variable reference in an existing conditional with no additional computation."
+        evidence:
+          - source: "diff"
+            path: "Compiler/src/abstractinterpretation.jl"
+            loc: "2240"
+            url: "https://github.com/JuliaLang/julia/pull/60414/files"
+            snippet: |
+              -            if (method_or_ci.owner === Nothing && method_ir_ci.def.def isa Method)
+              +            if (method_or_ci.owner === Nothing && method_or_ci.def.def isa Method)
+    runtime:
+      - impact: "ESTIMATED: No runtime changes; impacts are limited to inference-time exception type bookkeeping for invoke."
+        evidence:
+          - source: "code"
+            path: "Compiler/src/abstractinterpretation.jl"
+            loc: "2239-2245"
+            url: "https://github.com/JuliaLang/julia/blob/ea7dbfc6a1b9d9b2e677c8af34079380244a65be/Compiler/src/abstractinterpretation.jl#L2239-L2245"
+            snippet: |
+              # TODO: When we add curing, we may want to assume this is nothrow
+              if (method_or_ci.owner === Nothing && method_or_ci.def.def isa Method)
+                  exct = Union{exct, ErrorException}
+              end
+  risk:
+    level: "low"
+    rationale:
+      - "One-line typo fix correcting a variable name from method_ir_ci to method_or_ci."
+      - "No new control flow, data structures, or logic added - purely a variable reference correction."
+      - "Change only affects exception-type modeling for invoke with CodeInstance inputs."
+      - "No tests added or changed by this PR; the fix is straightforward enough to not require new test coverage."
+  open_questions:
+    - "How often is the CodeInstance branch of abstract_invoke exercised in practice? The typo would cause an UndefVarError if this path was ever reached."
+  recommendations:
+    - "Downstream tooling that depends on inference effects for invoke with CodeInstance should verify ErrorException is now correctly surfaced for cases where owner === Nothing."

@@ -1,0 +1,602 @@
+schema_version: "1.0"
+
+pr:
+  number: 60248
+  title: "Remove libjulia-internal.so dependency on libstdc++ and libgcc"
+  url: "https://github.com/JuliaLang/julia/pull/60248"
+  author: "xal-0"
+  labels: []
+  created_at: "2025-11-25T21:47:56Z"
+  merged_at: "2025-11-27T01:27:47Z"
+  merge_commit_sha: "6352e561dc88e9c2238e2ecda8398d076ae680cc"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60248.diff"
+
+scope:
+  files_touched:
+    - "Make.inc"
+    - "cli/Makefile"
+    - "cli/loader_lib.c"
+    - "src/Makefile"
+    - "src/coverage.cpp"
+    - "src/gc-heap-snapshot.cpp"
+    - "src/processor.cpp"
+    - "src/runtime_ccall.cpp"
+  components:
+    - "Other"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Remove runtime dependency on libstdc++ and libgcc_s shared libraries from libjulia-internal.so
+      by statically linking these libraries. This improves hermeticity when loading Julia into programs
+      that may have already loaded older versions of libstdc++, particularly for JuliaC-built libraries
+      and embedded Julia applications.
+    issue_links: []
+    quoted_from_pr: |
+      Some testing by @BenChung has revealed how hard it is to load a JuliaC-built library into
+      a program that has already loaded a very old version of libstdc++. Even with probing disabled,
+      libjulia-internal.so fails because of missing GLIBCXX symbols.
+
+      We use so little of the C++ standard library in libjulia-internal.so that it's worth the
+      tradeoff to link it statically: it barely changes the size of the resulting library, removes
+      a medium-size library we have to ship in trimmed bundles, and solves some of our hermeticity
+      issues when being loaded by other software.
+
+  direct_changes:
+    - summary: "Add USE_RT_STATIC_LIBGCC and USE_RT_STATIC_LIBSTDCXX build flags (enabled by default)"
+      component: "Build System"
+      evidence:
+        - source: "code"
+          path: "Make.inc"
+          loc: "66-68"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/Make.inc#L66-L68"
+          snippet: |
+            # Link libjulia-internal with static libgcc and libstdc++
+            USE_RT_STATIC_LIBGCC:=1
+            USE_RT_STATIC_LIBSTDCXX:=1
+
+    - summary: "Add USE_LINKER_GC flag and enable --gc-sections/-dead_strip for removing unused code"
+      component: "Build System"
+      evidence:
+        - source: "code"
+          path: "Make.inc"
+          loc: "104-105"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/Make.inc#L104-L105"
+          snippet: |
+            # Should --gc-sections/-dead_strip be used to remove unreferenced code?
+            USE_LINKER_GC:=1
+
+    - summary: "Implement linker GC with platform-specific flags"
+      component: "Build System"
+      evidence:
+        - source: "code"
+          path: "Make.inc"
+          loc: "948-957"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/Make.inc#L948-L957"
+          snippet: |
+            # Linker garbage collection
+            ifeq ($(USE_LINKER_GC), 1)
+            ifeq ($(OS), Darwin)
+              JLDFLAGS += -Wl,-dead_strip
+            else
+              JLDFLAGS += -Wl,--gc-sections
+              JCFLAGS += -ffunction-sections -fdata-sections
+              JCXXFLAGS += -ffunction-sections -fdata-sections
+            endif
+            endif
+
+    - summary: "Disable static linking flags on Windows, FreeBSD, and OpenBSD"
+      component: "Build System"
+      evidence:
+        - source: "code"
+          path: "Make.inc"
+          loc: "942-946"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/Make.inc#L942-L946"
+          snippet: |
+            ifneq ($(findstring $(OS),WINNT FreeBSD OpenBSD),)
+              USE_LINKER_GC := 0
+              USE_RT_STATIC_LIBGCC := 0
+              USE_RT_STATIC_LIBSTDCXX := 0
+            endif
+
+    - summary: "Pass -static-libgcc and -static-libstdc++ to GCC for libjulia-internal"
+      component: "Build System"
+      evidence:
+        - source: "code"
+          path: "src/Makefile"
+          loc: "210-217"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/src/Makefile#L210-L217"
+          snippet: |
+            ifeq ($(USEGCC),1)
+            ifeq ($(USE_RT_STATIC_LIBGCC),1)
+            RT_LIBS += -static-libgcc
+            endif
+            ifeq ($(USE_RT_STATIC_LIBSTDCXX),1)
+            RT_LIBS += -static-libstdc++
+            endif
+            endif
+
+    - summary: "Define RT_STATIC_LIBSTDCXX preprocessor macro for loader"
+      component: "Build System"
+      evidence:
+        - source: "code"
+          path: "cli/Makefile"
+          loc: "42-45"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/cli/Makefile#L42-L45"
+          snippet: |
+            ifeq ($(USE_RT_STATIC_LIBSTDCXX),1)
+            SHIPFLAGS += -DRT_STATIC_LIBSTDCXX
+            DEBUGFLAGS += -DRT_STATIC_LIBSTDCXX
+            endif # USE_RT_STATIC_LIBSTDCXX
+
+    - summary: "Make libstdc++ loading optional when RT_STATIC_LIBSTDCXX is defined"
+      component: "Loader"
+      evidence:
+        - source: "code"
+          path: "cli/loader_lib.c"
+          loc: "497-507"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/cli/loader_lib.c#L497-L507"
+          snippet: |
+            // If the probe rejected the system libstdc++ (or didn't find one!)
+            // just load our bundled libstdc++ as identified by curr_dep;
+            if (!probe_successful) {
+            # ifdef RT_STATIC_LIBSTDCXX
+                    // If we have a statically-linked libstdc++, it is ok for
+                    // this to fail.
+                    load_library(curr_dep, lib_dir, 0);
+            # else
+                    load_library(curr_dep, lib_dir, 1);
+            # endif
+            }
+
+    - summary: "Replace C++ iostreams with C stdio in coverage.cpp write_log_data()"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/coverage.cpp"
+          loc: "137-171"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/src/coverage.cpp#L137-L171"
+          snippet: |
+            FILE *inf = fopen(filename.c_str(), "r");
+            if (!inf)
+                continue;
+            std::string outfile = filename + extension;
+            FILE *outf = fopen(outfile.c_str(), "wb");
+            if (outf) {
+                char line[1024];
+                int l = 1;
+                unsigned block = 0;
+                int ret = 0;
+                while (ret != EOF && (ret = fscanf(inf, "%1023[^\n]", line)) != EOF) {
+                    // Skip n non-newline chars and a single trailing newline
+                    if ((ret = fscanf(inf, "%*[^\n]")) != EOF)
+                        ret = fscanf(inf, "%*1[\n]");
+                    logdata_block *data = NULL;
+                    if (block < values.size()) {
+                        data = values[block];
+                    }
+                    uint64_t value = data ? (*data)[l] : 0;
+                    if (++l >= logdata_blocksize) {
+                        l = 0;
+                        block++;
+                    }
+                    if (value == 0)
+                        fprintf(outf, "        -");
+                    else
+                        fprintf(outf, "%9" PRIu64, value - 1);
+                    fprintf(outf, " %s\n", line);
+                    line[0] = 0;
+                }
+                fclose(outf);
+            }
+            fclose(inf);
+
+    - summary: "Replace C++ iostreams with C stdio in coverage.cpp write_lcov_data()"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/coverage.cpp"
+          loc: "174-213"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/src/coverage.cpp#L174-L213"
+          snippet: |
+            static void write_lcov_data(logdata_t &logData, const std::string &outfile) JL_NOTSAFEPOINT
+            {
+                FILE *outf = fopen(outfile.c_str(), "ab");
+                if (!outf) return;
+                logdata_t::iterator it = logData.begin();
+                for (; it != logData.end(); it++) {
+                    StringRef filename = it->first();
+                    const SmallVector<logdata_block*, 0> &values = it->second;
+                    if (!values.empty()) {
+                        fprintf(outf, "SF:%.*s\n", (int)filename.size(), filename.data());
+                        size_t n_covered = 0;
+                        size_t n_instrumented = 0;
+                        size_t lno = 0;
+                        for (auto &itv : values) {
+                            if (itv) {
+                                logdata_block &data = *itv;
+                                for (int i = 0; i < logdata_blocksize; i++) {
+                                    auto cov = data[i];
+                                    if (cov > 0) {
+                                        n_instrumented++;
+                                        if (cov > 1)
+                                            n_covered++;
+                                        fprintf(outf, "DA:%zu,%" PRIu64 "\n", lno, cov - 1);
+                                    }
+                                    lno++;
+                                }
+                            }
+                            else {
+                                lno += logdata_blocksize;
+                            }
+                        }
+                        fprintf(outf, "LH:%zu\n", n_covered);
+                        fprintf(outf, "LF:%zu\n", n_instrumented);
+                        fprintf(outf, "end_of_record\n");
+                    }
+                }
+                fclose(outf);
+            }
+
+    - summary: "Replace std::ostringstream with llvm::formatv in gc-heap-snapshot.cpp"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/gc-heap-snapshot.cpp"
+          loc: "9-21"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/src/gc-heap-snapshot.cpp#L9-L21"
+          snippet: |
+            #include "llvm/ADT/DenseMap.h"
+            #include "llvm/ADT/SmallString.h"
+            #include "llvm/ADT/SmallVector.h"
+            #include "llvm/ADT/StringMap.h"
+            #include "llvm/Support/FormatVariadic.h"
+
+            using std::make_pair;
+            using llvm::SmallVector;
+            using llvm::StringMap;
+            using llvm::DenseMap;
+            using llvm::StringRef;
+            using llvm::SmallString;
+            using llvm::formatv;
+        - source: "code"
+          path: "src/gc-heap-snapshot.cpp"
+          loc: "419-446"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/src/gc-heap-snapshot.cpp#L419-L446"
+          snippet: |
+            static SmallString<128> _fieldpath_for_slot(void *obj, void *slot) JL_NOTSAFEPOINT
+            {
+                SmallString<128> res;
+                jl_datatype_t *objtype = (jl_datatype_t*)jl_typeof(obj);
+
+                while (1) {
+                    int i = gc_slot_to_fieldidx(obj, slot, objtype);
+
+                    if (jl_is_tuple_type(objtype) || jl_is_namedtuple_type(objtype)) {
+                        res += formatv("[{0}]", i).sstr<8>();
+                    }
+                    else {
+                        jl_svec_t *field_names = jl_field_names(objtype);
+                        jl_sym_t *name = (jl_sym_t*)jl_svecref(field_names, i);
+                        res += jl_symbol_name(name);
+                    }
+
+                    if (!jl_field_isptr(objtype, i)) {
+                        // Tail recurse
+                        res += ".";
+                        obj = (void*)((char*)obj + jl_field_offset(objtype, i));
+                        objtype = (jl_datatype_t*)jl_field_type_concrete(objtype, i);
+                    }
+                    else {
+                        return res;
+                    }
+                }
+            }
+
+    - summary: "Replace std::map with llvm::StringMap in runtime_ccall.cpp"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/runtime_ccall.cpp"
+          loc: "26-28"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/src/runtime_ccall.cpp#L26-L28"
+          snippet: |
+            // map from user-specified lib names to handles
+            static StringMap<void*> libMap;
+            static jl_mutex_t libmap_lock;
+
+    - summary: "Remove unused <iostream> and <map> includes from processor.cpp"
+      component: "Runtime"
+      evidence:
+        - source: "code"
+          path: "src/processor.cpp"
+          loc: "1-25"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/src/processor.cpp#L1-L25"
+          snippet: |
+            // This file is a part of Julia. License is MIT: https://julialang.org/license
+
+            // Processor feature detection
+
+            #include "llvm-version.h"
+            #include <llvm/ADT/StringRef.h>
+            #include <llvm/ADT/ArrayRef.h>
+            #include <llvm/ADT/SmallVector.h>
+            #include <llvm/ADT/StringMap.h>
+            #include <llvm/TargetParser/Host.h>
+            #include <llvm/Support/MathExtras.h>
+            #include <llvm/Support/raw_ostream.h>
+
+            #include "processor.h"
+
+            #include "julia.h"
+            #include "julia_internal.h"
+
+            #include <algorithm>
+
+            #include "julia_assert.h"
+
+            #ifndef _OS_WINDOWS_
+            #include <dlfcn.h>
+            #endif
+
+  secondary_effects:
+    - effect: "Improved binary hermeticity for JuliaC-built libraries"
+      mechanism: |
+        By statically linking libstdc++ and libgcc into libjulia-internal.so, the Julia runtime
+        no longer requires specific GLIBCXX symbol versions from the host system's libstdc++.
+        This allows Julia libraries built with JuliaC/juliac to be loaded into applications that
+        have already loaded older versions of libstdc++ without symbol version conflicts.
+
+        The call chain for libstdc++ loading is:
+        1. jl_load_libjulia_internal() [cli/loader_lib.c:411]
+           -> iterates through DEP_LIBS dependencies
+        2. When special_idx == 0 (libstdc++), libstdcxxprobe() [cli/loader_lib.c:280] is called
+           -> forks child process to probe system libstdc++ for GLIBCXX symbols
+        3. If probe fails: load_library(curr_dep, lib_dir, throw_err) [cli/loader_lib.c:499-506]
+           -> With RT_STATIC_LIBSTDCXX: throw_err=0 (non-fatal if bundled libstdc++ fails to load)
+           -> Without RT_STATIC_LIBSTDCXX: throw_err=1 (fatal if bundled libstdc++ fails to load)
+      downstream_surfaces:
+        - "JuliaC/juliac compiled libraries and executables"
+        - "Embedded Julia applications via jl_init()"
+        - "Julia FFI bindings loaded into host programs"
+        - "Trimmed Julia bundles"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "code"
+          path: "cli/loader_lib.c"
+          loc: "468-507"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/cli/loader_lib.c#L468-L507"
+          snippet: |
+            // First special library to be loaded is `libstdc++`; perform probing here.
+            int do_probe = 1;
+            int probe_successful = 0;
+            // Check to see if the user has disabled libstdc++ probing
+            const char *cxxprobe = getenv("JULIA_PROBE_LIBSTDCXX");
+            if (cxxprobe != NULL) {
+                do_probe = strcmp(cxxprobe, "yes") == 0
+                        || strcmp(cxxprobe, "1") == 0;
+            }
+            if (do_probe) {
+                char *cxxpath = libstdcxxprobe();
+                if (cxxpath) {
+                    void *cxx_handle = dlopen(cxxpath, RTLD_LAZY);
+                    (void)cxx_handle;
+                    const char *dlr = dlerror();
+                    if (dlr) {
+                        jl_loader_print_stderr("ERROR: Unable to dlopen(cxxpath) in parent!\n");
+                        jl_loader_print_stderr3("Message: ", dlr, "\n");
+                        exit(1);
+                    }
+                    free(cxxpath);
+                    probe_successful = 1;
+                }
+            }
+            // If the probe rejected the system libstdc++ (or didn't find one!)
+            // just load our bundled libstdc++ as identified by curr_dep;
+            if (!probe_successful) {
+            # ifdef RT_STATIC_LIBSTDCXX
+                    // If we have a statically-linked libstdc++, it is ok for
+                    // this to fail.
+                    load_library(curr_dep, lib_dir, 0);
+            # else
+                    load_library(curr_dep, lib_dir, 1);
+            # endif
+            }
+
+    - effect: "Reduced dependency footprint for trimmed bundles"
+      mechanism: |
+        With libstdc++ statically linked, trimmed Julia bundles no longer need to ship a
+        separate libstdc++.so file. The linker GC (--gc-sections) removes unused code,
+        partially offsetting the size increase from static linking.
+
+        Build flag propagation chain:
+        1. Make.inc defines USE_RT_STATIC_LIBSTDCXX=1, USE_RT_STATIC_LIBGCC=1, USE_LINKER_GC=1
+        2. src/Makefile adds -static-libgcc and -static-libstdc++ to RT_LIBS when USEGCC=1
+        3. cli/Makefile defines -DRT_STATIC_LIBSTDCXX for loader compilation
+        4. loader_lib.c uses RT_STATIC_LIBSTDCXX to make bundled libstdc++ loading optional
+      downstream_surfaces:
+        - "Trimmed Julia bundles (via juliac --trim)"
+        - "Standalone Julia executables"
+        - "Julia packaging and distribution"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "discussion"
+          path: "PR description"
+          snippet: |
+            removes a medium-size library we have to ship in trimmed bundles
+
+    - effect: "Slight increase in libjulia-internal.so size"
+      mechanism: |
+        Static linking adds code from libstdc++ and libgcc directly into libjulia-internal.so.
+        However, linker GC and removal of iostreams dependencies largely offset this increase.
+        The PR shows a net change from 14524 KiB to 15036 KiB (+3.5%).
+      downstream_surfaces:
+        - "Binary distribution size"
+        - "Memory footprint (minor)"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "discussion"
+          path: "PR description"
+          snippet: |
+            | Change                               | Size of libjulia-internal.so (KiB) |
+            |--------------------------------------|-------------------------------------|
+            | No change                            |                               14524 |
+            | Linker GC enabled                    |                               13220 |
+            | -static-libstdc++ and -static-libgcc |                               22136 |
+            | Excise iostreams                     |                               15036 |
+
+    - effect: "libjulia-codegen.so remains dynamically linked to libstdc++"
+      mechanism: |
+        libjulia-codegen.so is explicitly NOT included in this static linking change because
+        it uses libstdc++ more extensively, and the PR authors expect to be able to load it
+        as a plugin for LLVM's opt tool, which requires dynamic linking compatibility.
+        This means libjulia-codegen.so still depends on a compatible libstdc++ at runtime.
+      downstream_surfaces:
+        - "LLVM opt plugin usage"
+        - "JIT compilation via libjulia-codegen"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "discussion"
+          path: "PR description"
+          snippet: |
+            libjulia-codegen.so uses it more extensively, and we expect to be able to load it
+            as a plugin for opt, meaning it may have to remain dynamically linked.
+
+    - effect: "libstdcxxprobe continues to work for libjulia-codegen compatibility"
+      mechanism: |
+        The libstdcxxprobe() mechanism in loader_lib.c continues to function to find a
+        compatible system libstdc++ for libjulia-codegen. The probe searches for
+        GLIBCXX_LEAST_VERSION_SYMBOL (defined as GLIBCXX_3.4.34 or similar) in the system
+        libstdc++ to determine if it's new enough. When RT_STATIC_LIBSTDCXX is defined,
+        the probe result only affects whether a bundled libstdc++ is loaded (no longer fatal
+        if it fails), but the probe still informs whether system libstdc++ is usable.
+      downstream_surfaces:
+        - "System libstdc++ compatibility detection"
+        - "libjulia-codegen loading"
+      likelihood: "medium"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "cli/Makefile"
+          loc: "16"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/cli/Makefile#L16"
+          snippet: |
+            LOADER_CFLAGS += -DGLIBCXX_LEAST_VERSION_SYMBOL=\"$(shell echo "$(CSL_NEXT_GLIBCXX_VERSION)" | cut -d'|' -f1 | sed 's/\\//g')\"
+        - source: "code"
+          path: "cli/loader_lib.c"
+          loc: "217-219"
+          url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/cli/loader_lib.c#L217-L219"
+          snippet: |
+            #ifndef GLIBCXX_LEAST_VERSION_SYMBOL
+            #warning GLIBCXX_LEAST_VERSION_SYMBOL should always be defined in the makefile.
+            #define GLIBCXX_LEAST_VERSION_SYMBOL "GLIBCXX_a.b.c" /* Appease the linter */
+
+  compatibility:
+    internal_api:
+      - summary: "No API changes - this is purely a build system and code refactoring change"
+        fields_changed: []
+        affected_tools: []
+        evidence:
+          - source: "code"
+            path: "src/coverage.cpp"
+            snippet: "Function signatures unchanged; only implementation uses C stdio instead of C++ iostreams"
+
+    behavioral:
+      - summary: "libstdc++ loading becomes optional when built with RT_STATIC_LIBSTDCXX"
+        fields_changed:
+          - field: "load_library() throw_err parameter"
+            change: "Changed from 1 (fatal) to 0 (non-fatal) for libstdc++ when RT_STATIC_LIBSTDCXX defined"
+        affected_tools: []
+        evidence:
+          - source: "code"
+            path: "cli/loader_lib.c"
+            loc: "499-506"
+            url: "https://github.com/JuliaLang/julia/blob/6352e561dc88e9c2238e2ecda8398d076ae680cc/cli/loader_lib.c#L499-L506"
+            snippet: |
+              if (!probe_successful) {
+              # ifdef RT_STATIC_LIBSTDCXX
+                      // If we have a statically-linked libstdc++, it is ok for
+                      // this to fail.
+                      load_library(curr_dep, lib_dir, 0);
+              # else
+                      load_library(curr_dep, lib_dir, 1);
+              # endif
+              }
+
+      - summary: "Build flags can be overridden to restore dynamic linking"
+        fields_changed:
+          - field: "USE_RT_STATIC_LIBGCC"
+            change: "Set to 0 to disable static libgcc linking"
+          - field: "USE_RT_STATIC_LIBSTDCXX"
+            change: "Set to 0 to disable static libstdc++ linking"
+          - field: "USE_LINKER_GC"
+            change: "Set to 0 to disable linker garbage collection"
+        affected_tools: []
+        evidence:
+          - source: "code"
+            path: "Make.inc"
+            loc: "66-68, 105"
+            snippet: |
+              Build flags are defined with := (simple assignment), so they can be
+              overridden on the command line: make USE_RT_STATIC_LIBSTDCXX=0
+
+  performance:
+    compile_time: []
+    runtime: []
+    memory: []
+    code_size:
+      - summary: |
+          Net size increase of approximately 3.5% for libjulia-internal.so (14524 KiB -> 15036 KiB).
+          MEASURED: PR author measured size changes across different configurations:
+          - Linker GC alone saves ~1300 KiB
+          - Static linking adds ~7600 KiB (before iostreams removal)
+          - Removing iostreams saves ~7100 KiB
+          Net effect is +512 KiB (+3.5%)
+        evidence:
+          - source: "discussion"
+            path: "PR description"
+            snippet: |
+              | Change                               | Size of libjulia-internal.so (KiB) |
+              |--------------------------------------|-------------------------------------|
+              | No change                            |                               14524 |
+              | Linker GC enabled                    |                               13220 |
+              | -static-libstdc++ and -static-libgcc |                               22136 |
+              | Excise iostreams                     |                               15036 |
+              | DWARF GC (not in this PR)            |                               11488 |
+
+  tests:
+    changed_files: []
+    new_behavior_assertions: []
+    coverage_gaps:
+      - "No explicit tests for static linking behavior - relies on CI build testing"
+      - "No tests verifying library loading with old libstdc++ versions"
+      - "Embedding tests (test/embedding/) do not specifically test static linking scenario"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are limited to build system and non-compiler runtime code"
+      - "No changes to Julia compilation pipeline or semantics"
+      - "C++ to C stdio conversion is straightforward and well-understood"
+      - "Static linking is a well-tested technique with clear tradeoffs"
+      - "Changes are disabled on platforms where they cause issues (Windows, FreeBSD, OpenBSD)"
+      - "PR was merged quickly (2 days) indicating reviewer confidence"
+      - "llvm::formatv is a stable LLVM API replacement for std::ostringstream"
+      - "llvm::StringMap is a direct replacement for std::map<std::string, T>"
+
+  open_questions:
+    - "Will DWARF GC (llvm-dwarfutil --garbage-collection) be added in a follow-up PR to reduce debug info size further (could save ~3.5MB)?"
+    - "Should libjulia-codegen.so also get static linking? PR notes it 'may have to remain dynamically linked' for LLVM opt plugin compatibility"
+    - "Are there other C++ standard library usages that could be replaced to further reduce dependencies?"
+
+  recommendations:
+    - "For downstream package maintainers: No action required - this change improves compatibility without affecting Julia APIs"
+    - "For JuliaC/juliac users: This change should improve embedding Julia in applications with older libstdc++ (common in enterprise environments)"
+    - "For packagers: Trimmed bundles may need fewer shipped libraries after this change; verify with ldd"
+    - "For build customizers: USE_RT_STATIC_LIBGCC=0, USE_RT_STATIC_LIBSTDCXX=0, and USE_LINKER_GC=0 can be set to revert to dynamic linking"
+    - "For embedders: The JULIA_PROBE_LIBSTDCXX=no environment variable can still be used to disable libstdc++ probing"

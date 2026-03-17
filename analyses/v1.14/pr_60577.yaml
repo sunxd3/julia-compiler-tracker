@@ -1,0 +1,306 @@
+schema_version: "1.0"
+pr:
+  number: 60577
+  title: "[JuliaLowering] Enrich closure tests and fix static parameter capture"
+  url: "https://github.com/JuliaLang/julia/pull/60577"
+  author: "aviatesk"
+  labels:
+    - "compiler:lowering"
+    - "JuliaLowering"
+  merged_at: "2026-01-12T12:17:51Z"
+  merge_commit_sha: "f8b8f542b95dd999af92f97d02763368b6155602"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60577.diff"
+scope:
+  files_touched:
+    - "JuliaLowering/src/closure_conversion.jl"
+    - "JuliaLowering/test/closures.jl"
+    - "JuliaLowering/test/closures_ir.jl"
+    - "JuliaLowering/test/functions.jl"
+  components:
+    - "JuliaLowering"
+  pipeline_stages:
+    - "Lowering"
+analysis:
+  intent:
+    summary: "Add runtime coverage for closure behavior (previously only IR tests) and fix static-parameter capture so static parameters are not boxed when closures are built."
+    issue_links: []
+  direct_changes:
+    - summary: "Static parameters now early-return as unboxed in `is_boxed`, preventing boxing decisions from treating `:static_parameter` as capturable boxes."
+      component: "JuliaLowering/closure_conversion"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/closure_conversion.jl"
+          loc: "304-318"
+          url: "https://github.com/JuliaLang/julia/blob/f8b8f542b95dd999af92f97d02763368b6155602/JuliaLowering/src/closure_conversion.jl#L304-L318"
+          snippet: |
+            function is_boxed(binfo::BindingInfo)
+                # Static parameters can't be reassigned, so they never need boxing
+                binfo.kind === :static_parameter && return false
+                # No box needed for:
+                # * :argument when it's not reassigned
+                defined_but_not_assigned = binfo.is_always_defined && !binfo.is_assigned
+                # * Single-assigned variables (local or argument) assigned before any closure captures them
+                #   (identified by liveness analysis in optimize_captured_vars!)
+                #   For arguments, the liveness analysis resets is_always_defined and only sets it back
+                #   if the outer-scope assignment dominates all captures. This distinguishes arguments
+                #   reassigned in outer scope (no box) from those reassigned only inside closures (needs box).
+                single_assigned_never_undef = binfo.kind in (:local, :argument) &&
+                                              binfo.is_always_defined && binfo.is_assigned_once
+                return binfo.is_captured && !defined_but_not_assigned && !single_assigned_never_undef
+            end
+    - summary: "Added runtime closure tests for boxed argument capture, empty closure declarations, keyword-arg closures, anonymous `function` syntax, and static-parameter capture (including undefined static parameters)."
+      component: "JuliaLowering/tests"
+      evidence:
+        - source: "test"
+          path: "JuliaLowering/test/closures.jl"
+          loc: "408-474"
+          url: "https://github.com/JuliaLang/julia/blob/f8b8f542b95dd999af92f97d02763368b6155602/JuliaLowering/test/closures.jl#L408-L474"
+          snippet: |
+            # Function where arguments are captured into closure and assigned (boxed)
+            @test JuliaLowering.include_string(test_mod, """
+            begin
+                function f_arg_captured_assigned(x)
+                    function g()
+                        x = 10
+                    end
+                    g()
+                    x
+                end
+                f_arg_captured_assigned(1)
+            end
+            """) == 10
+
+            # Closure declaration with no methods
+            @test JuliaLowering.include_string(test_mod, """
+            begin
+                local no_method_f
+                function no_method_f
+                end
+                no_method_f
+            end
+            """) isa Function
+
+            # Closure with keyword arguments
+            @test JuliaLowering.include_string(test_mod, """
+            let y = 10
+                function f_kw_closure(; x=1)
+                    x + y
+                end
+                (f_kw_closure(), f_kw_closure(x=5))
+            end
+            """) == (11, 15)
+
+            # Anonymous function syntax with `function`
+            @test JuliaLowering.include_string(test_mod, """
+            begin
+                local y = 2
+                call_it(function (x) x + y end, 3)
+            end
+            """) == 5
+
+            # Closure where static parameter is captured
+            @test JuliaLowering.include_string(test_mod, """
+            begin
+                function f_static_param_capture(::T) where T
+                    function g()
+                        T
+                    end
+                    g()
+                end
+                f_static_param_capture(1)
+            end
+            """) == Int
+
+            # Closure with static parameter that may be undefined
+            JuliaLowering.include_string(test_mod, """
+            function f_undef_static_param(x::Union{T,Nothing}) where T
+                function inner()
+                    return T
+                end
+                inner
+            end
+            """)
+            @test_throws UndefVarError test_mod.f_undef_static_param(nothing)()
+            @test test_mod.f_undef_static_param(42)() == Int
+        - source: "test"
+          path: "JuliaLowering/test/functions.jl"
+          loc: "176-182"
+          url: "https://github.com/JuliaLang/julia/blob/f8b8f542b95dd999af92f97d02763368b6155602/JuliaLowering/test/functions.jl#L176-L182"
+          snippet: |
+            # Static parameter may be undefined
+            @test JuliaLowering.include_string(test_mod, """
+            begin
+                func_undef_static_param(x::Union{T,Nothing}) where T = @isdefined(T)
+                (func_undef_static_param(nothing), func_undef_static_param(42))
+            end
+            """) === (false, true)
+    - summary: "IR expectations updated for static-parameter capture to show unboxed closure fields and simpler body IR (no `isdefined`/`Box`)."
+      component: "JuliaLowering/tests"
+      evidence:
+        - source: "test"
+          path: "JuliaLowering/test/closures_ir.jl"
+          loc: "255-295"
+          url: "https://github.com/JuliaLang/julia/blob/f8b8f542b95dd999af92f97d02763368b6155602/JuliaLowering/test/closures_ir.jl#L255-L295"
+          snippet: |
+            1   (method TestMod.f)
+            2   latestworld
+            3   (call core.svec :T)
+            4   (call core.svec false)  # <-- field_is_box = false (fix: static param not boxed)
+            5   (call JuliaLowering.eval_closure_type TestMod :#f#g##2 %₃ %₄)
+            6   latestworld
+            7   TestMod.#f#g##2
+            8   (call core.svec %₇)
+            9   (call core.svec)
+            10  SourceLocation::2:14
+            11  (call core.svec %₈ %₉ %₁₀)
+            12  --- method core.nothing %₁₁
+                slots: [slot₁/#self#(!read)]  # <-- no T slot needed (unboxed)
+                1   TestMod.use
+                2   (call core.getfield slot₁/#self# :T)  # <-- direct field access
+                3   (call %₁ %₂)
+                4   (return %₃)
+            13  latestworld
+            14  (= slot₁/T (call core.TypeVar :T))
+            15  TestMod.f
+            16  (call core.Typeof %₁₅)
+            17  slot₁/T
+            18  (call core.svec %₁₆ %₁₇)
+            19  slot₁/T
+            20  (call core.svec %₁₉)
+            21  SourceLocation::1:10
+            22  (call core.svec %₁₈ %₂₀ %₂₁)
+            23  --- method core.nothing %₂₂
+                slots: [slot₁/#self#(!read) slot₂/#arg1#(!read) slot₃/g(single_assign)]
+                1   TestMod.#f#g##2
+                2   static_parameter₁
+                3   (call core.typeof %₂)  # <-- type specialization for unboxed capture
+                4   (call core.apply_type %₁ %₃)
+                5   static_parameter₁
+                6   (new %₄ %₅)
+                7   (= slot₃/g %₆)
+                8   slot₃/g
+                9   (return %₈)
+            24  latestworld
+            25  TestMod.f
+            26  (return %₂₅)
+        - source: "test (BEFORE fix - for comparison)"
+          path: "JuliaLowering/test/closures_ir.jl"
+          loc: "255-295"
+          url: "https://github.com/JuliaLang/julia/blob/b4da4fc3d4ecd95c6fb5b7b32128ce63f1432a2a/JuliaLowering/test/closures_ir.jl#L255-L295"
+          snippet: |
+            1   (method TestMod.f)
+            2   latestworld
+            3   (call core.svec :T)
+            4   (call core.svec true)  # <-- OLD: field_is_box = true (static param boxed)
+            5   (call JuliaLowering.eval_closure_type TestMod :#f#g##2 %₃ %₄)
+            6   latestworld
+            7   TestMod.#f#g##2
+            8   (call core.svec %₇)
+            9   (call core.svec)
+            10  SourceLocation::2:14
+            11  (call core.svec %₈ %₉ %₁₀)
+            12  --- method core.nothing %₁₁
+                slots: [slot₁/#self#(!read) slot₂/T(!read,maybe_undef)]  # <-- OLD: T slot for UndefVarError
+                1   TestMod.use
+                2   (call core.getfield slot₁/#self# :T)
+                3   (call core.isdefined %₂ :contents)  # <-- OLD: Box isdefined check
+                4   (gotoifnot %₃ label₆)
+                5   (goto label₈)
+                6   (newvar slot₂/T)  # <-- OLD: setup for UndefVarError
+                7   slot₂/T
+                8   (call core.getfield %₂ :contents)  # <-- OLD: unbox via getfield :contents
+                9   (call %₁ %₈)
+                10  (return %₉)
+            13  latestworld
+            14  (= slot₁/T (call core.TypeVar :T))
+            15  TestMod.f
+            16  (call core.Typeof %₁₅)
+            17  slot₁/T
+            18  (call core.svec %₁₆ %₁₇)
+            19  slot₁/T
+            20  (call core.svec %₁₉)
+            21  SourceLocation::1:10
+            22  (call core.svec %₁₈ %₂₀ %₂₁)
+            23  --- method core.nothing %₂₂
+                slots: [slot₁/#self#(!read) slot₂/#arg1#(!read) slot₃/g(single_assign)]
+                1   TestMod.#f#g##2
+                2   static_parameter₁
+                3   (new %₁ %₂)  # <-- OLD: simpler (no type specialization)
+                4   (= slot₃/g %₃)
+                5   slot₃/g
+                6   (return %₅)
+  secondary_effects:
+    - effect: "Static-parameter captures are treated as unboxed closure fields, eliminating `Box`-style `isdefined` checks for the captured `T` in the lowered closure body."
+      mechanism: |
+        is_boxed(binfo::BindingInfo) returns false for :static_parameter  [closure_conversion.jl:304-318]
+          -> closure_type_fields(...) computes field_is_box using is_boxed(ctx, id)  [closure_conversion.jl:235-283]
+          -> type_for_closure(...) embeds field_is_box in the closure type svec  [closure_conversion.jl:288-302]
+          -> _convert_closures(...) uses is_boxed to decide direct vs Box access  [closure_conversion.jl:355-359]
+          -> closures_ir test shows field_is_box = false and body without isdefined/Box  [closures_ir.jl:255-295]
+      downstream_surfaces:
+        - "Lowered IR for closures capturing static parameters"
+        - "Closure field boxing flags (field_is_box) in JuliaLowering"
+      likelihood: "high"
+      impact: "medium"
+  compatibility:
+    internal_api:
+      - field: "JuliaLowering.is_boxed(::BindingInfo)"
+        change: "Returns false for :static_parameter, altering boxing decisions for closure fields and captured-variable access."
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/closure_conversion.jl"
+            loc: "304-318"
+            url: "https://github.com/JuliaLang/julia/blob/f8b8f542b95dd999af92f97d02763368b6155602/JuliaLowering/src/closure_conversion.jl#L304-L318"
+            snippet: |
+              function is_boxed(binfo::BindingInfo)
+                  # Static parameters can't be reassigned, so they never need boxing
+                  binfo.kind === :static_parameter && return false
+                  # No box needed for:
+                  # * :argument when it's not reassigned
+                  defined_but_not_assigned = binfo.is_always_defined && !binfo.is_assigned
+                  # * Single-assigned variables (local or argument) assigned before any closure captures them
+                  #   (identified by liveness analysis in optimize_captured_vars!)
+                  #   For arguments, the liveness analysis resets is_always_defined and only sets it back
+                  #   if the outer-scope assignment dominates all captures. This distinguishes arguments
+                  #   reassigned in outer scope (no box) from those reassigned only inside closures (needs box).
+                  single_assigned_never_undef = binfo.kind in (:local, :argument) &&
+                                                binfo.is_always_defined && binfo.is_assigned_once
+                  return binfo.is_captured && !defined_but_not_assigned && !single_assigned_never_undef
+              end
+    behavioral:
+      - change: "IR for static-parameter capture no longer allocates or branches on `Box` contents; closure body reads `T` directly from `#self#`."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/closures_ir.jl"
+            loc: "255-271"
+            url: "https://github.com/JuliaLang/julia/blob/f8b8f542b95dd999af92f97d02763368b6155602/JuliaLowering/test/closures_ir.jl#L255-L271"
+            snippet: |
+              1   (method TestMod.f)
+              2   latestworld
+              3   (call core.svec :T)
+              4   (call core.svec false)  # <-- unboxed: field_is_box = false
+              5   (call JuliaLowering.eval_closure_type TestMod :#f#g##2 %₃ %₄)
+              6   latestworld
+              7   TestMod.#f#g##2
+              8   (call core.svec %₇)
+              9   (call core.svec)
+              10  SourceLocation::2:14
+              11  (call core.svec %₈ %₉ %₁₀)
+              12  --- method core.nothing %₁₁
+                  slots: [slot₁/#self#(!read)]  # <-- no maybe_undef slot for T
+                  1   TestMod.use
+                  2   (call core.getfield slot₁/#self# :T)  # <-- direct access, no Box
+                  3   (call %₁ %₂)
+                  4   (return %₃)
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: negligible change; `is_boxed` adds a fast early return for static parameters during closure conversion."
+    runtime:
+      - impact: "ESTIMATED: slight improvement for static-parameter captures by eliminating `Box` allocation and `isdefined` checks in lowered closure bodies."
+  risk:
+    level: "low"
+    rationale:
+      - "Change is localized to boxing decision for static parameters with added tests covering static-parameter capture and undefined-static-parameter behavior."
+  open_questions: []
+  recommendations:
+    - "Downstream tooling that inspects closure field boxing flags should account for static-parameter captures being unboxed and represented directly in closure fields."

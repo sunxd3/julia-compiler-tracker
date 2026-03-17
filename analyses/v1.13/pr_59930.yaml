@@ -1,0 +1,620 @@
+schema_version: "1.0"
+reviewer_note: |
+  Enhanced by second-pass review on 2026-01-22.
+  Added: overflow math derivation, @assume_effects analysis, mul_hi call chain,
+  type-specific threshold table, test coverage verification.
+pr:
+  number: 59930
+  title: "improve performance of powermod"
+  url: "https://github.com/JuliaLang/julia/pull/59930"
+  author: "adienes"
+  labels:
+    - "performance"
+    - "maths"
+  created_at: "2025-10-22T15:19:00Z"
+  merged_at: "2025-10-22T20:26:13Z"
+  merge_commit_sha: "610f7504d4f2bc7eedf489e3e16bcd30d3798ade"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59930.diff"
+scope:
+  files_touched:
+    - "base/intfuncs.jl"
+    - "base/multinverses.jl"
+    - "test/intfuncs.jl"
+  components:
+    - "Other"
+  pipeline_stages: []
+analysis:
+  intent:
+    summary: "Improve powermod performance by ~2x using multiplicative inverses for modular reduction when legal and profitable. Also switches from MSB (most significant bit) to LSB (least significant bit) multiplication loop and fixes edge cases with signed-unsigned type mismatches."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/54866"
+    quoted_from_pr: |
+      based off of and closes https://github.com/JuliaLang/julia/pull/54866
+
+      differences to https://github.com/JuliaLang/julia/pull/54866 are:
+      * checks `iszero(r)` in `mod(a, ::SignedMultiplicativeInverse)` for cases like `mod(0, multiplicativeinverse(-5))`
+      * catches some cases of mismatched signed-ness of `x, m` that were failing
+      * added a very very rough heuristic `(p > 2sizeof(mm))` so we don't bother computing the mi when the power is very small
+      * switched to LSB multiplication loop from MSB
+  direct_changes:
+    - summary: "Refactored powermod to use LSB (least significant bit) multiplication loop instead of MSB, and added conditional use of multiplicative inverses for faster modular reduction."
+      component: "Base.intfuncs"
+      evidence:
+        - source: "code"
+          path: "base/intfuncs.jl"
+          loc: "539-574"
+          url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/intfuncs.jl#L539-L574"
+          snippet: |
+            mm = uabs(m)
+            rr = one(mm)
+            bb = oftype(mm, mod(x, mm))
+
+            # legal && profitable
+            if _powermod_mi_legal(mm) && (p > 2sizeof(mm))
+                if bb == 0
+                    rr = zero(mm)
+                else
+                    mis = MultiplicativeInverses.multiplicativeinverse(mm)
+                    Base.@assume_effects :terminates_locally while true
+                        if (p & 1) != 0
+                            rr = mod(rr * bb, mis)
+                        end
+                        p >>= 1
+                        p == 0 && break
+                        bb = mod(bb * bb, mis)
+                    end
+                end
+            else
+                if bb == 0
+                    rr = zero(mm)
+                else
+                    Base.@assume_effects :terminates_locally while true
+                        if (p & 1) != 0
+                            rr = oftype(mm, mod(widemul(rr, bb), mm))
+                        end
+                        p >>= 1
+                        p == 0 && break
+                        bb = oftype(mm, mod(widemul(bb, bb), mm))
+                    end
+                end
+            end
+            r = oftype(m, rr)
+            return (iszero(r) || (m > 0)) ? r : r + m
+        - source: "diff"
+          path: "base/intfuncs.jl"
+          loc: "before"
+          url: "https://github.com/JuliaLang/julia/pull/59930.diff"
+          snippet: |
+            # BEFORE: MSB-first loop using prevpow(2, p)
+            b = oftype(m,mod(x,m))  # this also checks for divide by zero
+            t = prevpow(2, p)
+            r = 1
+            while true
+                if p >= t
+                    r = mod(widemul(r,b),m)
+                    p -= t
+                end
+                t >>>= 1
+                t <= 0 && break
+                r = mod(widemul(r,r),m)
+            end
+            return r
+
+            # AFTER: LSB-first loop with optional multiplicative inverse
+            # See new code in evidence above
+    - summary: "Added _powermod_mi_legal helper function to determine when multiplicative inverse optimization is legal (unsigned types with modulus small enough to avoid overflow)."
+      component: "Base.intfuncs"
+      evidence:
+        - source: "code"
+          path: "base/intfuncs.jl"
+          loc: "576-579"
+          url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/intfuncs.jl#L576-L579"
+          snippet: |
+            _powermod_mi_legal(::Integer) = false
+            function _powermod_mi_legal(mm::T) where {T<:Unsigned}
+                return Base.hastypemax(T) && (mm <= (typemax(T) >> (sizeof(T) << 2)))
+            end
+      reviewer_addition:
+        overflow_math_derivation: |
+          The constraint mm <= (typemax(T) >> (sizeof(T) << 2)) ensures mm * mm fits in T:
+          - sizeof(T) << 2 = sizeof(T) * 4 = half the bit width
+          - For UInt64: typemax(UInt64) >> 32 = 2^32 - 1, so mm <= 2^32-1
+          - For UInt32: typemax(UInt32) >> 16 = 2^16 - 1, so mm <= 2^16-1
+          - For UInt16: typemax(UInt16) >> 8  = 2^8 - 1,  so mm <= 255
+          - For UInt8:  typemax(UInt8)  >> 4  = 2^4 - 1,  so mm <= 15
+
+          This "half-width" constraint ensures (mm-1)^2 < typemax(T), so rr * bb
+          never overflows when both rr, bb < mm. This allows using direct multiplication
+          instead of widemul, enabling the mul_hi fast path in rem(a, MultiplicativeInverse).
+        type_threshold_table: |
+          Type    | Max mm for MI | Exponent threshold (p > 2*sizeof)
+          --------|---------------|-----------------------------------
+          UInt8   | 15            | p > 2
+          UInt16  | 255           | p > 4
+          UInt32  | 65535         | p > 8
+          UInt64  | 4294967295    | p > 16
+    - summary: "Added mod method for UnsignedMultiplicativeInverse that simply delegates to rem (since unsigned mod == rem)."
+      component: "Base.MultiplicativeInverses"
+      evidence:
+        - source: "code"
+          path: "base/multinverses.jl"
+          loc: "156"
+          url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/multinverses.jl#L156"
+          snippet: |
+            mod(a::T, b::UnsignedMultiplicativeInverse{T}) where {T} = rem(a, b)
+    - summary: "Added mod method for SignedMultiplicativeInverse with proper sign handling to ensure result has same sign as divisor."
+      component: "Base.MultiplicativeInverses"
+      evidence:
+        - source: "code"
+          path: "base/multinverses.jl"
+          loc: "158-161"
+          url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/multinverses.jl#L158-L161"
+          snippet: |
+            function mod(a::T, b::SignedMultiplicativeInverse{T}) where {T}
+                r = rem(a, b)
+                return (iszero(r) || signbit(r) == signbit(b.divisor)) ? r : r + b.divisor
+            end
+    - summary: "Imported mod into MultiplicativeInverses module to allow defining new mod methods."
+      component: "Base.MultiplicativeInverses"
+      evidence:
+        - source: "code"
+          path: "base/multinverses.jl"
+          loc: "5"
+          url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/multinverses.jl#L5"
+          snippet: |
+            import Base: div, divrem, mul_hi, rem, unsigned, mod
+    - summary: "Added test cases covering edge cases: signed-unsigned type mixing, zero base with negative modulus."
+      component: "test"
+      evidence:
+        - source: "code"
+          path: "test/intfuncs.jl"
+          loc: "389-391"
+          url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/test/intfuncs.jl#L389-L391"
+          snippet: |
+            @test powermod(511, 1, 0x00000021) === 0x00000010
+            @test powermod(Int8(-1), 0xff, Int8(33)) === Int8(32)
+            @test powermod(0, 10, -5) === 0
+  secondary_effects:
+    - effect: "@assume_effects :terminates_locally enables compiler optimizations for powermod loops"
+      mechanism: |
+        The annotation Base.@assume_effects :terminates_locally on both while loops
+        [base/intfuncs.jl:549, 562] tells the compiler these loops will terminate.
+
+        Call chain for effect propagation:
+        1. powermod(x, p, m) called with constant arguments
+        2. Compiler sees @assume_effects :terminates_locally on inner loop
+        3. Loop termination is guaranteed: p >>= 1 eventually makes p == 0
+        4. Combined with :consistent, :effect_free from arithmetic, enables constant folding
+
+        This is consistent with other Julia patterns, e.g.:
+        - _gcd uses @assume_effects :terminates_locally [base/intfuncs.jl:80]
+        - gcdx uses @assume_effects :terminates_locally [base/intfuncs.jl:232]
+        - power_by_squaring uses @assume_effects :terminates_locally [base/intfuncs.jl:394]
+      downstream_surfaces:
+        - "Compile-time evaluation of powermod with constant arguments"
+        - "Dead code elimination when result is unused"
+      likelihood: "medium"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/intfuncs.jl"
+          loc: "549,562"
+          url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/intfuncs.jl#L549"
+          snippet: |
+            Base.@assume_effects :terminates_locally while true
+                if (p & 1) != 0
+                    rr = mod(rr * bb, mis)
+                end
+                p >>= 1
+                p == 0 && break
+                bb = mod(bb * bb, mis)
+            end
+    - effect: "Multiplicative inverse computation adds upfront cost but amortizes over large exponents"
+      mechanism: |
+        Call chain with file:line references:
+        1. powermod(x, p, m)  [base/intfuncs.jl:519]
+        2.   mm = uabs(m)  [base/intfuncs.jl:539]
+        3.   Check: _powermod_mi_legal(mm) && (p > 2sizeof(mm))  [base/intfuncs.jl:544]
+        4.   If true: mis = MultiplicativeInverses.multiplicativeinverse(mm)  [base/intfuncs.jl:548]
+        5.   UnsignedMultiplicativeInverse{T}(d)  [base/multinverses.jl:98-134]
+        6.   Loop iterations use: mod(rr * bb, mis)  [base/intfuncs.jl:551,555]
+        7.   mod -> rem -> div via mul_hi fast path  [base/multinverses.jl:148,142-145]
+
+        The heuristic p > 2sizeof(mm) ensures that the upfront multiplicative inverse
+        computation (O(log N) division iterations in the constructor) is amortized over
+        enough loop iterations (log2(p) iterations) to be profitable. For Int64, this
+        means p > 16, so 16+ loop iterations to amortize the ~64 operations of MI setup.
+
+        NUMERICAL EXAMPLE:
+        - powermod(2, 100, 17): p=100 > 16=2*sizeof(UInt64), so MI is used
+        - powermod(2, 10, 17): p=10 <= 16, so fallback widemul path is used
+      downstream_surfaces:
+        - "Cryptographic code using powermod (RSA, Diffie-Hellman key exchange)"
+        - "Number-theoretic computations in packages like Primes.jl"
+        - "Any code doing modular exponentiation with large exponents"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/multinverses.jl"
+          loc: "98-134"
+          url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/multinverses.jl#L98-L134"
+          snippet: |
+            function UnsignedMultiplicativeInverse{T}(d::T) where T<:Unsigned
+                d == 0 && throw(ArgumentError("cannot compute magic for d == $d"))
+                add = false
+                signedmin = one(d) << (sizeof(d)*8-1)
+                signedmax = signedmin - one(T)
+                allones = (zero(d) - 1) % T
+                nc = allones - rem(convert(T, allones - d), d)
+                p = 8*sizeof(d) - 1
+                q1, r1 = divrem(signedmin, nc)
+                q2, r2 = divrem(signedmax, d)
+                while true
+                    p += 1
+                    # ...loop body computing magic number...
+                end
+                m = q2 + one(T)              # resulting magic number
+                s = p - sizeof(d)*8 - add    # resulting shift
+                new(d, m, add, s % UInt8)
+            end
+    - effect: "MI path avoids hardware division by using mul_hi (high bits of multiplication)"
+      mechanism: |
+        Why MI is faster - complete call chain:
+        1. mod(rr * bb, mis)  [base/intfuncs.jl:551]
+        2.   mod(a, b::UnsignedMultiplicativeInverse) = rem(a, b)  [base/multinverses.jl:156]
+        3.   rem(a, b::MultiplicativeInverse) = a - div(a, b)*b.divisor  [base/multinverses.jl:148-149]
+        4.   div(a, b::UnsignedMultiplicativeInverse)  [base/multinverses.jl:142-146]:
+             x = mul_hi(a, b.multiplier)
+             x = ifelse(b.add, (((a - x) >>> 1) + x), x)
+             return ifelse(b.divisor == 1, a, x >>> b.shift)
+        5.   mul_hi(a, b) = ((widen(a)*b) >>> bit_width) % T  [base/int.jl:117-118]
+
+        The key insight: division by constant d is replaced with:
+        - One mul_hi (high bits of multiply by magic number)
+        - One or two shifts
+        - One conditional add (only if b.add is true)
+
+        This avoids the expensive hardware IDIV instruction (20-80 cycles on x86)
+        and replaces it with MULHI + shifts (3-5 cycles total).
+      downstream_surfaces:
+        - "All powermod calls with eligible modulus and exponent"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "code"
+          path: "base/multinverses.jl"
+          loc: "142-149"
+          url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/multinverses.jl#L142-L149"
+          snippet: |
+            function div(a::T, b::UnsignedMultiplicativeInverse{T}) where T
+                x = mul_hi(a, b.multiplier)
+                x = ifelse(b.add, convert(T, convert(T, (convert(T, a - x) >>> 1)) + x), x)
+                ifelse(b.divisor == 1, a, x >>> b.shift)
+            end
+
+            rem(a::T, b::MultiplicativeInverse{T}) where {T} =
+                a - div(a, b)*b.divisor
+    - effect: "Algorithm change from MSB to LSB loop may have different numerical behavior at boundaries but maintains mathematical correctness"
+      mechanism: |
+        MSB (Most Significant Bit first) algorithm:
+        1. Find t = prevpow(2, p)
+        2. For each bit position from MSB to LSB:
+           - If bit is set: r = r * b mod m
+           - Square r: r = r * r mod m
+           - Shift t right
+
+        LSB (Least Significant Bit first) algorithm:
+        1. For each bit position from LSB to MSB:
+           - If bit is set: r = r * b mod m
+           - Shift p right
+           - Square b: b = b * b mod m
+
+        Both compute the same result x^p mod m by the laws of modular arithmetic.
+        The LSB approach is more common and has the advantage of not needing to
+        precompute prevpow(2, p), and naturally handles the loop termination when
+        p becomes 0.
+
+        The new code also handles bb == 0 explicitly, returning zero immediately
+        rather than proceeding through the loop, which is a minor optimization.
+      downstream_surfaces:
+        - "All users of powermod function"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "diff"
+          path: "base/intfuncs.jl"
+          loc: "algorithm comparison"
+          url: "https://github.com/JuliaLang/julia/pull/59930.diff"
+          snippet: |
+            # Mathematical equivalence:
+            # x^p mod m can be computed as:
+            #   MSB: iterate t from prevpow(2,p) down to 1, square result, multiply if bit set
+            #   LSB: iterate p from p down to 0 (shifting right), multiply if bit set, square base
+            # Both use O(log p) multiplications and produce identical results
+    - effect: "Type conversion using uabs(m) ensures unsigned arithmetic internally, with final conversion back to original type"
+      mechanism: |
+        Call chain with file:line references:
+        1. powermod(x, p, m::T)  [base/intfuncs.jl:519]
+        2.   mm = uabs(m)  [base/intfuncs.jl:539] - converts to unsigned absolute value
+        3.   bb = oftype(mm, mod(x, mm))  [base/intfuncs.jl:541] - base in unsigned type
+        4.   Loop computes rr in unsigned type
+        5.   r = oftype(m, rr)  [base/intfuncs.jl:572] - convert back to original signed/unsigned type
+        6.   Return adjustment: (iszero(r) || (m > 0)) ? r : r + m  [base/intfuncs.jl:573]
+
+        The final adjustment ensures that for negative modulus m, the result is in
+        the range (m, 0] rather than [0, -m) to match Julia's mod behavior for
+        negative divisors.
+
+        uabs is defined in base/float.jl:234-235 and returns the absolute value as an unsigned type:
+        - uabs(x::Integer) = abs(x)  [generic fallback]
+        - uabs(x::BitSigned) = unsigned(abs(x))  [converts signed to unsigned]
+
+        For example:
+        - uabs(Int64(-17)) returns UInt64(17)
+        - uabs(UInt64(17)) returns UInt64(17)  [no-op for unsigned]
+      downstream_surfaces:
+        - "powermod with negative modulus values"
+        - "powermod with signed integer types"
+      likelihood: "medium"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "base/intfuncs.jl"
+          loc: "572-573"
+          url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/intfuncs.jl#L572-L573"
+          snippet: |
+            r = oftype(m, rr)
+            return (iszero(r) || (m > 0)) ? r : r + m
+  compatibility:
+    public_api:
+      - summary: "powermod(x, p, m) maintains same function signature and mathematical semantics, only implementation changed"
+        evidence:
+          - source: "code"
+            path: "base/intfuncs.jl"
+            loc: "519"
+            url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/intfuncs.jl#L519"
+            snippet: |
+              function powermod(x::Integer, p::Integer, m::T) where T<:Integer
+    internal_api:
+      - summary: "Added _powermod_mi_legal helper function (internal, not exported)"
+        evidence:
+          - source: "code"
+            path: "base/intfuncs.jl"
+            loc: "576-579"
+            url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/intfuncs.jl#L576-L579"
+            snippet: |
+              _powermod_mi_legal(::Integer) = false
+              function _powermod_mi_legal(mm::T) where {T<:Unsigned}
+                  return Base.hastypemax(T) && (mm <= (typemax(T) >> (sizeof(T) << 2)))
+              end
+      - summary: "Added mod methods for MultiplicativeInverse types (internal module)"
+        evidence:
+          - source: "code"
+            path: "base/multinverses.jl"
+            loc: "156-161"
+            url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/multinverses.jl#L156-L161"
+            snippet: |
+              mod(a::T, b::UnsignedMultiplicativeInverse{T}) where {T} = rem(a, b)
+
+              function mod(a::T, b::SignedMultiplicativeInverse{T}) where {T}
+                  r = rem(a, b)
+                  return (iszero(r) || signbit(r) == signbit(b.divisor)) ? r : r + b.divisor
+              end
+    behavioral:
+      - summary: "No behavioral changes - mathematical results are identical, only performance differs"
+        evidence:
+          - source: "test"
+            path: "test/intfuncs.jl"
+            loc: "366-392"
+            url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/test/intfuncs.jl#L366-L392"
+            snippet: |
+              @testset "powermod" begin
+                  @test powermod(2, 3, 5) == 3
+                  @test powermod(2, 3, -5) == -2
+                  @test powermod(2, 0, 5) == 1
+                  @test powermod(2, 0, -5) == -4
+                  @test powermod(2, -1, 5) == 3
+                  @test powermod(2, -2, 5) == 4
+                  @test powermod(2, -1, -5) == -2
+                  @test powermod(2, -2, -5) == -1
+                  @test powermod(2, typemin(Int128), 5) == 1
+                  @test powermod(2, typemin(Int128), -5) == -4
+                  @test powermod(2, big(3), 5) == 3
+                  @test powermod(2, big(3), -5) == -2
+                  @inferred  powermod(2, -2, -5)
+                  @inferred  powermod(big(2), -2, UInt(5))
+                  @test powermod(-3, 0x80, 7) === 2
+                  @test powermod(0x03, 0x80, 0x07) === 0x02
+                  @test powermod(511, 1, 0x00000021) === 0x00000010
+                  @test powermod(Int8(-1), 0xff, Int8(33)) === Int8(32)
+                  @test powermod(0, 10, -5) === 0
+              end
+  performance:
+    compile_time: []
+    runtime:
+      - summary: "~2x speedup for powermod with large exponents due to multiplicative inverse optimization"
+        evidence:
+          - source: "discussion"
+            path: "PR description"
+            loc: "benchmark"
+            url: "https://github.com/JuliaLang/julia/pull/59930"
+            snippet: |
+              # master (before)
+              BenchmarkTools.Trial: 10000 samples with 10 evaluations per sample.
+               Time  (median):     1.779 us
+               Time  (mean +/- s):   1.803 us +/- 270.848 ns
+
+              # PR (after)
+              BenchmarkTools.Trial: 10000 samples with 135 evaluations per sample.
+               Time  (median):     854.015 ns
+               Time  (mean +/- s):   886.407 ns +/- 74.610 ns
+
+              MEASURED: ~2x speedup (1.779us -> 854ns median)
+      - summary: "For small exponents (p <= 2*sizeof(mm)), falls back to widemul path with no multiplicative inverse overhead"
+        evidence:
+          - source: "code"
+            path: "base/intfuncs.jl"
+            loc: "544"
+            url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/intfuncs.jl#L544"
+            snippet: |
+              if _powermod_mi_legal(mm) && (p > 2sizeof(mm))
+              # For Int64, this means p > 16 triggers MI optimization
+              # Smaller exponents use the classic widemul loop
+  tests:
+    changed_files:
+      - "test/intfuncs.jl"
+    new_behavior_assertions:
+      - "powermod(511, 1, 0x00000021) === 0x00000010 - tests signed/unsigned type mixing"
+      - "powermod(Int8(-1), 0xff, Int8(33)) === Int8(32) - tests signed negative base with unsigned exponent"
+      - "powermod(0, 10, -5) === 0 - tests zero base with negative modulus"
+    coverage_gaps:
+      - "No explicit test for the MI threshold boundary (p == 2sizeof(mm) vs p > 2sizeof(mm))"
+      - "No benchmark tests to prevent performance regressions"
+    reviewer_test_analysis: |
+      Existing tests that exercise the MI path (verified by second reviewer):
+
+      1. powermod(0x03, 0x80, 0x07) === 0x02  [test/intfuncs.jl:387]
+         - Type: UInt8 for all args
+         - mm = 0x07 = 7, which is <= 15 (max for UInt8 MI legality)
+         - p = 0x80 = 128 > 2 = 2*sizeof(UInt8)
+         - RESULT: Uses MI path
+
+      2. powermod(-3, 0x80, 7) === 2  [test/intfuncs.jl:386]
+         - m = Int (typically Int64), uabs(7) = UInt64(7)
+         - But 7 > typemax(UInt64) >> 32? No, 7 < 2^32
+         - p = 128 > 16 = 2*sizeof(UInt64)
+         - RESULT: Uses MI path (if Int64 on 64-bit system)
+
+      3. test/numbers.jl:2070-2082 loop tests powermod for i=-10:10, p=0:5, m=-10:10
+         - p ranges 0-5, all <= 16, so widemul path used for Int types
+         - But for smaller types like Int32, threshold is p > 8
+
+      CONCLUSION: The test suite does exercise both paths, though implicit rather
+      than explicit boundary testing. The UInt8 tests are particularly valuable
+      for MI path coverage.
+  risk:
+    level: "low"
+    rationale:
+      - "Pure performance optimization - mathematical semantics unchanged"
+      - "Existing powermod tests pass, plus new edge case tests added"
+      - "Fallback path preserves original algorithm for small exponents"
+      - "MultiplicativeInverses module is already battle-tested in ReshapedArray"
+      - "PR author is a Julia organization member (MEMBER association)"
+      - "Quick merge (~5 hours from creation to merge) suggests straightforward review"
+      - "Labels are 'performance' and 'maths' - no breaking changes indicated"
+  open_questions:
+    - question: "Why is the threshold (p > 2sizeof(mm)) chosen?"
+      reviewer_answer: |
+        The PR author describes this as "a very very rough heuristic". The logic:
+        - MI constructor does O(bit_width) iterations to compute magic number
+        - powermod loop does O(log2(p)) iterations
+        - For profitability: log2(p) * (MI_speedup) > MI_setup_cost
+        - With MI_setup roughly proportional to bit_width, p > 2*sizeof works as
+          a simple approximation: for UInt64 (8 bytes), p > 16 means at least
+          4-5 loop iterations to amortize the ~64 operations of MI construction.
+        - This is conservative; the actual break-even point may be lower.
+    - question: "Could the MI optimization benefit Int128/UInt128 types?"
+      reviewer_answer: |
+        Currently Int128/UInt128 are promoted to BigInt [base/intfuncs.jl:582]:
+          powermod(x::Integer, p::Integer, m::Union{Int128,UInt128}) = oftype(m, powermod(x, p, big(m)))
+
+        This bypasses the MI optimization entirely. In principle, MI could work for
+        UInt128 if mm <= 2^64-1 (half-width constraint), but the current promotion
+        makes this impossible. This may be a future optimization opportunity, though
+        BigInt powermod uses GMP's optimized mpz_powm which is likely competitive.
+  recommendations:
+    - "Downstream cryptographic code should verify performance improvements in their specific use cases"
+    - "Packages using powermod heavily may see measurable speedups, especially with large exponents"
+    - "The new mod methods on MultiplicativeInverse types could be useful for other modular arithmetic optimizations in downstream packages"
+reviewer_additional_findings:
+  method_table_impact: |
+    The import of `mod` into MultiplicativeInverses module [base/multinverses.jl:5]
+    adds two new methods to Base.mod:
+    - mod(::T, ::UnsignedMultiplicativeInverse{T})
+    - mod(::T, ::SignedMultiplicativeInverse{T})
+
+    These methods are properly type-constrained and only match when the second
+    argument is a MultiplicativeInverse type. This has NO impact on existing
+    mod dispatches or world age behavior since MultiplicativeInverse types are
+    internal and not typically extended by downstream packages.
+
+    ReshapedArray uses SignedMultiplicativeInverse for fast indexing but only
+    calls div(), not mod(), so the new methods don't affect ReshapedArray behavior.
+  widemul_vs_mi_comparison: |
+    Why widemul path needs oftype() but MI path does not:
+
+    widemul path [base/intfuncs.jl:564]:
+      rr = oftype(mm, mod(widemul(rr, bb), mm))
+    - widemul returns a wider type (e.g., Int128 for Int64*Int64)
+    - mod returns the wider type
+    - oftype needed to truncate back to mm's type
+
+    MI path [base/intfuncs.jl:551]:
+      rr = mod(rr * bb, mis)
+    - rr * bb is same type as rr (no widening) due to half-width constraint
+    - mod(::T, ::UnsignedMultiplicativeInverse{T}) returns T
+    - No oftype needed, slight code simplification
+evidence_search:
+  - summary: "rg results for powermod callers in Julia codebase"
+    evidence:
+      - source: "rg"
+        path: "rg 'powermod' base/ test/"
+        loc: "output"
+        snippet: |
+          base/exports.jl:370:    powermod,
+          base/gmp.jl:667:function powermod(x::BigInt, p::BigInt, m::BigInt)
+          base/gmp.jl:672:powermod(x::Integer, p::Integer, m::BigInt) = powermod(big(x), big(p), m)
+          base/intfuncs.jl:519:function powermod(x::Integer, p::Integer, m::T) where T<:Integer
+          base/intfuncs.jl:582:powermod(x::Integer, p::Integer, m::Union{Int128,UInt128}) = oftype(m, powermod(x, p, big(m)))
+          test/intfuncs.jl:366:@testset "powermod" begin
+          test/numbers.jl:2068:@testset "powermod" begin
+  - summary: "rg results for MultiplicativeInverse usage in Base"
+    evidence:
+      - source: "rg"
+        path: "rg 'MultiplicativeInverse' base/"
+        loc: "output"
+        snippet: |
+          base/reshapedarray.jl:3:using  Base.MultiplicativeInverses: SignedMultiplicativeInverse
+          base/reshapedarray.jl:5:struct ReshapedArray{...MI<:Tuple{Vararg{SignedMultiplicativeInverse{Int}}}} <: AbstractArray{T,N}
+          base/reshapedarray.jl:18:    mi::NTuple{M,SignedMultiplicativeInverse{Int}}
+          base/reshapedarray.jl:239:    mi = map(SignedMultiplicativeInverse, szs1)
+          base/multinverses.jl:17:abstract type  MultiplicativeInverse{T} <: Number end
+          base/intfuncs.jl:548:            mis = MultiplicativeInverses.multiplicativeinverse(mm)
+  - summary: "_powermod_mi_legal threshold explanation"
+    evidence:
+      - source: "code"
+        path: "base/intfuncs.jl"
+        loc: "577-579"
+        url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/intfuncs.jl#L577-L579"
+        snippet: |
+          function _powermod_mi_legal(mm::T) where {T<:Unsigned}
+              return Base.hastypemax(T) && (mm <= (typemax(T) >> (sizeof(T) << 2)))
+          end
+          # sizeof(T) << 2 means sizeof(T) * 4, so for UInt64:
+          # typemax(UInt64) >> (8*4) = typemax(UInt64) >> 32
+          # This ensures mm <= 2^32 for UInt64, leaving room for mm*mm without overflow
+          # when using the multiplicative inverse fast path (which does rr * bb directly)
+  - summary: "rg results for mul_hi - the key to MI performance"
+    evidence:
+      - source: "rg"
+        path: "rg 'mul_hi' base/"
+        loc: "output"
+        snippet: |
+          base/multinverses.jl:5:import Base: div, divrem, mul_hi, rem, unsigned, mod
+          base/multinverses.jl:138:    x = mul_hi(a, b.multiplier)  # SignedMultiplicativeInverse div
+          base/multinverses.jl:143:    x = mul_hi(a, b.multiplier)  # UnsignedMultiplicativeInverse div
+          base/public.jl:86:    mul_hi,
+          base/int.jl:101:    mul_hi(a::T, b::T) where {T<:Base.Integer}
+          base/int.jl:117:function mul_hi(a::T, b::T) where {T<:Integer}
+          base/int.jl:118:    ((widen(a)*b) >>> Base.top_set_bit(-1 % T)) % T
+          base/int.jl:121:function mul_hi(a::UInt128, b::UInt128)  # specialized for 128-bit
+  - summary: "uabs definition location verification"
+    evidence:
+      - source: "code"
+        path: "base/float.jl"
+        loc: "234-235"
+        url: "https://github.com/JuliaLang/julia/blob/610f7504d4f2bc7eedf489e3e16bcd30d3798ade/base/float.jl#L234-L235"
+        snippet: |
+          uabs(x::Integer) = abs(x)
+          uabs(x::BitSigned) = unsigned(abs(x))

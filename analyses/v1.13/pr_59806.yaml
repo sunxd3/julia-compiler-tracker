@@ -1,0 +1,392 @@
+schema_version: "1.0"
+pr:
+  number: 59806
+  title: "Markdown: fix string interpolation"
+  url: "https://github.com/JuliaLang/julia/pull/59806"
+  author: "barucden"
+  labels: []
+  merged_at: "2025-10-15T12:07:40Z"
+  merge_commit_sha: "20c787d695a53bb05c95946b723eed1f2d07a53a"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59806.diff"
+
+scope:
+  files_touched:
+    - "stdlib/Markdown/src/Julia/interp.jl"
+    - "stdlib/Markdown/test/runtests.jl"
+  components:
+    - Markdown stdlib
+  pipeline_stages:
+    - Macro expansion
+
+analysis:
+  intent:
+    summary: |
+      Fix string interpolation in the @md_str macro for Footnote and Admonition markdown elements.
+      Before this fix, using $variable inside footnotes or admonitions would display the literal
+      symbol name (:x) instead of the evaluated value (1).
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59783"
+
+  direct_changes:
+    - summary: |
+        Add Footnote and Admonition types to the toexpr method generation loop, enabling
+        recursive expression conversion for these markdown elements during @md_str macro expansion.
+      component: "Markdown stdlib (interp.jl)"
+      evidence:
+        - source: "code"
+          path: "stdlib/Markdown/src/Julia/interp.jl"
+          loc: "49-53"
+          url: "https://github.com/JuliaLang/julia/blob/20c787d695a53bb05c95946b723eed1f2d07a53a/stdlib/Markdown/src/Julia/interp.jl#L49-L53"
+          snippet: |
+            for T in Any[MD, Paragraph, Header, Link, Bold, Italic, Footnote, Admonition]
+                @eval function toexpr(md::$T)
+                    Expr(:call, typeof(md), $(map(x->:(toexpr(md.$x)), fieldnames(Base.unwrap_unionall(T)))...))
+                end
+            end
+
+    - summary: |
+        Add test case verifying interpolation works correctly in regular text, footnotes, and admonitions.
+      component: "Markdown stdlib tests"
+      evidence:
+        - source: "test"
+          path: "stdlib/Markdown/test/runtests.jl"
+          loc: "505-527"
+          url: "https://github.com/JuliaLang/julia/blob/20c787d695a53bb05c95946b723eed1f2d07a53a/stdlib/Markdown/test/runtests.jl#L505-L527"
+          snippet: |
+            # JuliaLang/julia#59783
+            let x = 1,
+                result = md"""
+                $x
+
+                [^1]: $x
+
+                !!! note
+                $x
+                """,
+                expected = """
+                1
+
+                [^1]: 1
+
+                !!! note
+
+
+
+                1
+                """
+                @test plain(result) == expected
+            end
+
+  root_cause_analysis:
+    problem: |
+      The @md_str macro uses a two-phase process:
+      1. Parse the markdown string into an MD AST at compile time
+      2. Convert the AST to an expression via toexpr() that gets evaluated at runtime
+
+      When parsing, interpolations like $x are stored as AST expression nodes.
+      The toexpr function must recursively traverse the MD tree and convert each
+      node into a runtime expression that reconstructs the markdown structure
+      while evaluating any interpolated values.
+
+      Without a specialized toexpr method for a type, the fallback is used:
+        toexpr(x) = x
+
+      This returns the object unchanged, meaning any interpolated expressions
+      inside Footnote or Admonition nodes were not converted to evaluable code.
+      Instead, the raw Symbol or Expr object was embedded, displaying as :x.
+
+    fix_mechanism: |
+      The loop at line 49 generates toexpr methods for each listed type T:
+
+        function toexpr(md::T)
+            Expr(:call, typeof(md), toexpr(md.field1), toexpr(md.field2), ...)
+        end
+
+      This creates an expression that:
+      1. Calls the type constructor at runtime
+      2. Recursively calls toexpr on each field to convert nested content
+
+      By adding Footnote and Admonition to the loop, their fields (which may
+      contain interpolated expressions) are now properly converted.
+
+    type_definitions:
+      - source: "code"
+        path: "stdlib/Markdown/src/Common/block.jl"
+        loc: "127-130"
+        url: "https://github.com/JuliaLang/julia/blob/20c787d695a53bb05c95946b723eed1f2d07a53a/stdlib/Markdown/src/Common/block.jl#L127-L130"
+        snippet: |
+          mutable struct Footnote <: MarkdownElement
+              id::String
+              text
+          end
+
+      - source: "code"
+        path: "stdlib/Markdown/src/Common/block.jl"
+        loc: "191-195"
+        url: "https://github.com/JuliaLang/julia/blob/20c787d695a53bb05c95946b723eed1f2d07a53a/stdlib/Markdown/src/Common/block.jl#L191-L195"
+        snippet: |
+          mutable struct Admonition <: MarkdownElement
+              category::String
+              title::String
+              content::Vector
+          end
+
+  secondary_effects:
+    - effect: "Interpolation now works in footnote text fields"
+      mechanism: |
+        toexpr(md::Footnote) now generates:
+          Expr(:call, Footnote, toexpr(md.id), toexpr(md.text))
+
+        The md.text field (which can contain parsed content with interpolations)
+        is now recursively processed via toexpr, enabling variable substitution.
+      downstream_surfaces:
+        - "@md_str macro users"
+        - "Documentation using md string literals with footnotes"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Interpolation now works in admonition content fields"
+      mechanism: |
+        toexpr(md::Admonition) now generates:
+          Expr(:call, Admonition, toexpr(md.category), toexpr(md.title), toexpr(md.content))
+
+        The md.content field (Vector of nested elements) is recursively processed.
+      downstream_surfaces:
+        - "@md_str macro users"
+        - "Documentation using md string literals with admonitions"
+      likelihood: "high"
+      impact: "low"
+
+  call_chain_trace:
+    description: |
+      Flow from @md_str to the fixed toexpr methods:
+    trace: |
+      @md_str(s)  [Markdown.jl:101-103]
+        calls mdexpr(s, ...)
+
+      mdexpr(s, flavor)  [Markdown.jl:74-77]
+        md = parse(s, flavor=Symbol(flavor))  # Parse to MD AST
+        esc(toexpr(md))                       # Convert AST to expression
+
+      toexpr(md::MD)  [interp.jl:49-53, generated]
+        Expr(:call, MD, toexpr(md.content), toexpr(md.meta))
+        # Recursively processes content which may contain Footnote/Admonition
+
+      toexpr(md::Footnote)  [interp.jl:49-53, NOW GENERATED]
+        Expr(:call, Footnote, toexpr(md.id), toexpr(md.text))
+        # md.text contains parsed content with interpolation expressions
+
+      toexpr(md::Admonition)  [interp.jl:49-53, NOW GENERATED]
+        Expr(:call, Admonition, toexpr(md.category), toexpr(md.title), toexpr(md.content))
+        # md.content contains nested elements with interpolation expressions
+
+      toexpr(x)  [interp.jl:44]
+        # Fallback: returns x unchanged (for raw values and expressions)
+        # Expressions like :(x) pass through and get evaluated at runtime
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "String interpolation in @md_str now works for Footnote and Admonition elements"
+        severity: "fix"
+        migration: "None required - this is a pure bug fix"
+
+  performance:
+    compile_time:
+      - impact: "Negligible"
+        details: |
+          ESTIMATED: Two additional method definitions generated at Markdown module load time.
+          No measurable impact on user code compilation.
+    runtime:
+      - impact: "None"
+        details: |
+          The generated toexpr methods follow the same pattern as existing types.
+          No additional runtime overhead.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure bug fix - restores expected behavior for @md_str interpolation"
+      - "Limited scope - only affects Markdown stdlib, not compiler"
+      - "Non-breaking - existing code that didn't use interpolation in these elements is unaffected"
+      - "Well-tested - new test case directly verifies the fix"
+
+  other_potentially_missing_types:
+    note: |
+      Analysis of all MarkdownElement types reveals other types that may also be
+      missing toexpr methods:
+      - Image (stdlib/Markdown/src/Common/inline.jl:69)
+      - Code (stdlib/Markdown/src/Common/block.jl:98)
+      - BlockQuote (stdlib/Markdown/src/Common/block.jl:162)
+      - LaTeX (stdlib/Markdown/src/IPython/IPython.jl:3)
+      - LineBreak, HorizontalRule (likely don't need interpolation support)
+
+      However, these may not be affected if their field types don't support
+      interpolated content, or users haven't reported issues. This PR addresses
+      the specific reported issue (#59783) without over-engineering the fix.
+
+  open_questions:
+    - "Should BlockQuote be added to the toexpr loop? (See reviewer analysis below)"
+    - "Are there edge cases with deeply nested interpolations in admonition content?"
+
+  recommendations:
+    - "No action required for downstream packages - this is a stdlib bug fix"
+    - "Documentation authors using @md_str with footnotes/admonitions can now use interpolation"
+
+# ============================================================================
+# INDEPENDENT REVIEWER ANALYSIS
+# ============================================================================
+reviewer_analysis:
+  reviewer_date: "2026-01-21"
+
+  verification_of_original_analysis:
+    status: "confirmed"
+    notes: |
+      Independent review confirms the original analysis is accurate.
+      The fix correctly adds Footnote and Admonition to the toexpr generation loop.
+      Call chain trace and root cause analysis are verified correct.
+
+  deep_dive_on_missing_types:
+    summary: |
+      Performed field-by-field analysis of all MarkdownElement types lacking
+      toexpr methods to determine which can contain interpolated content.
+
+    types_that_need_toexpr:
+      - type: "BlockQuote"
+        status: "CONFIRMED BUG - same issue as Footnote/Admonition"
+        evidence:
+          - source: "code"
+            path: "stdlib/Markdown/src/Common/block.jl"
+            loc: "162-164"
+            url: "https://github.com/JuliaLang/julia/blob/20c787d695a53bb05c95946b723eed1f2d07a53a/stdlib/Markdown/src/Common/block.jl#L162-L164"
+            snippet: |
+              mutable struct BlockQuote <: MarkdownElement
+                  content
+              end
+          - source: "code"
+            path: "stdlib/Markdown/src/Common/block.jl"
+            loc: "181-182"
+            url: "https://github.com/JuliaLang/julia/blob/20c787d695a53bb05c95946b723eed1f2d07a53a/stdlib/Markdown/src/Common/block.jl#L181-L182"
+            snippet: |
+              md = takestring!(buffer)
+              push!(block, BlockQuote(parse(md, flavor = config(block)).content))
+        analysis: |
+          BlockQuote has an untyped `content` field initialized from `parse(...).content`.
+          The parse() function DOES support interpolation via interpinner() and blockinterp().
+          Therefore, a user writing:
+            x = 1
+            md"""> $x"""
+          would expect to see "1" in the blockquote, but without a toexpr method,
+          the fallback `toexpr(x) = x` returns the BlockQuote unchanged, and the
+          embedded Symbol/Expr is never evaluated - displaying ":x" instead.
+
+          This is the EXACT same bug pattern as Footnote and Admonition.
+
+    types_that_do_not_need_toexpr:
+      - type: "Code"
+        status: "NOT AFFECTED"
+        reason: |
+          Code has fields: language::String, code::String
+          Both fields are typed as String. The parser (indentcode) reads literal
+          code content and does not support interpolation in code blocks.
+          String fields cannot contain unevaluated Julia expressions.
+        evidence:
+          - source: "code"
+            path: "stdlib/Markdown/src/Common/block.jl"
+            loc: "98-101"
+            snippet: |
+              mutable struct Code <: MarkdownElement
+                  language::String
+                  code::String
+              end
+
+      - type: "Image"
+        status: "NOT AFFECTED"
+        reason: |
+          Image has fields: url::String, alt::String
+          Both fields are typed as String. The image() parser extracts these
+          from markdown syntax ![alt](url) via readuntil(). String fields
+          cannot contain unevaluated Julia expressions.
+        evidence:
+          - source: "code"
+            path: "stdlib/Markdown/src/Common/inline.jl"
+            loc: "69-72"
+            snippet: |
+              mutable struct Image <: MarkdownElement
+                  url::String
+                  alt::String
+              end
+
+      - type: "LaTeX"
+        status: "NOT AFFECTED"
+        reason: |
+          LaTeX has field: formula::String
+          Field is typed as String. Additionally, LaTeX uses $ as its delimiter,
+          which conflicts with Julia interpolation syntax - the $ triggers LaTeX
+          parsing, not interpolation.
+        evidence:
+          - source: "code"
+            path: "stdlib/Markdown/src/IPython/IPython.jl"
+            loc: "3-5"
+            snippet: |
+              mutable struct LaTeX <: MarkdownElement
+                  formula::String
+              end
+
+      - type: "LineBreak"
+        status: "NOT AFFECTED"
+        reason: "No fields - empty struct"
+
+      - type: "HorizontalRule"
+        status: "NOT AFFECTED"
+        reason: "No fields - empty struct"
+
+  complete_toexpr_coverage_table:
+    description: |
+      Complete mapping of MarkdownElement types to their toexpr handling:
+    table: |
+      Type           | Has toexpr? | Can contain interpolations? | Status
+      ---------------|-------------|-----------------------------|-----------------
+      MD             | Yes (loop)  | Yes (via content)           | OK
+      Paragraph      | Yes (loop)  | Yes (via content)           | OK
+      Header         | Yes (loop)  | Yes (via text)              | OK
+      Link           | Yes (loop)  | Yes (via text)              | OK
+      Bold           | Yes (loop)  | Yes (via text)              | OK
+      Italic         | Yes (loop)  | Yes (via text)              | OK
+      Footnote       | Yes (loop)  | Yes (via text)              | FIXED by this PR
+      Admonition     | Yes (loop)  | Yes (via content)           | FIXED by this PR
+      Table          | Yes (custom)| Yes (via rows)              | OK
+      List           | Yes (custom)| Yes (via items)             | OK
+      BlockQuote     | NO          | Yes (via content)           | BUG - needs fix
+      Code           | NO          | No (String fields)          | OK - no fix needed
+      Image          | NO          | No (String fields)          | OK - no fix needed
+      LaTeX          | NO          | No (String field, $ conflict)| OK - no fix needed
+      LineBreak      | NO          | No (no fields)              | OK - no fix needed
+      HorizontalRule | NO          | No (no fields)              | OK - no fix needed
+
+  additional_finding:
+    title: "BlockQuote has the same interpolation bug"
+    severity: "low"
+    description: |
+      Independent analysis confirms BlockQuote definitively has the same bug as
+      Footnote and Admonition. The fix would be to add BlockQuote to the loop:
+
+        for T in Any[MD, Paragraph, Header, Link, Bold, Italic, Footnote, Admonition, BlockQuote]
+
+      However, the PR author may have intentionally limited the fix to the
+      specific types reported in issue #59783. A follow-up PR could address
+      BlockQuote if users report the issue.
+
+    reproduction: |
+      The bug can be reproduced with:
+        julia> x = 1
+        julia> md"""> $x"""
+      Expected: blockquote containing "1"
+      Actual: blockquote containing ":x" (the symbol)
+
+  conclusion: |
+    The PR is a correct and complete fix for the reported issue (#59783).
+    The analysis correctly identifies the root cause and fix mechanism.
+    One additional finding: BlockQuote has the same bug pattern but was not
+    included in the fix, likely because it wasn't part of the original report.
+    This could be addressed in a follow-up PR if users report the issue.

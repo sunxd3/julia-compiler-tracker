@@ -1,0 +1,360 @@
+schema_version: "1.0"
+pr:
+  number: 56201
+  title: "use stmt instead of `Instruction` in `populate_def_use_map!`"
+  url: "https://github.com/JuliaLang/julia/pull/56201"
+  author: "jumerckx"
+  labels:
+    - "bugfix"
+    - "compiler:optimizer"
+  merged_at: "2025-10-14T14:05:48Z"
+  merge_commit_sha: "860af1620f05c99760bc76dc5db9a7dbb43f500d"
+  diff_url: "https://github.com/JuliaLang/julia/pull/56201.diff"
+scope:
+  files_touched:
+    - "Compiler/src/optimize.jl"
+    - "Compiler/src/ssair/irinterp.jl"
+  components:
+    - "Compiler.src.optimize"
+    - "Compiler.src.ssair.irinterp"
+  pipeline_stages:
+    - "Optimization"
+    - "EffectAnalysis"
+    - "SSA IR"
+    - "IRInterpretation"
+analysis:
+  intent:
+    summary: "Fix def-use map population by passing the statement (not Instruction wrapper) to userefs(), and prevent early scan exits that left def-use counts incomplete."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/56193"
+  direct_changes:
+    - summary: "Fix populate_def_use_map! to iterate over statement operands instead of Instruction metadata."
+      component: "Compiler/src/ssair/irinterp.jl"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/ssair/irinterp.jl"
+          loc: "295-305"
+          url: "https://github.com/JuliaLang/julia/blob/860af1620f05c99760bc76dc5db9a7dbb43f500d/Compiler/src/ssair/irinterp.jl#L295-L305"
+          snippet: |
+            function populate_def_use_map!(tpdum::TwoPhaseDefUseMap, scanner::BBScanner)
+                scan!(scanner, false) do inst::Instruction, lstmt::Int, bb::Int
+                    for ur in userefs(inst[:stmt])  # <-- Fixed: was userefs(inst)
+                        val = ur[]
+                        if isa(val, SSAValue)
+                            push!(tpdum[val.id], inst.idx)
+                        end
+                    end
+                    return true
+                end
+            end
+        - source: "code"
+          path: "Compiler/src/ssair/ir.jl"
+          loc: "643-648"
+          url: "https://github.com/JuliaLang/julia/blob/860af1620f05c99760bc76dc5db9a7dbb43f500d/Compiler/src/ssair/ir.jl#L643-L648"
+          snippet: |
+            function userefs(@nospecialize(x))
+                relevant = (isa(x, Expr) && is_relevant_expr(x)) ||
+                    isa(x, GotoIfNot) || isa(x, ReturnNode) || isa(x, SSAValue) || isa(x, OldSSAValue) || isa(x, NewSSAValue) ||
+                    isa(x, PiNode) || isa(x, PhiNode) || isa(x, PhiCNode) || isa(x, UpsilonNode) || isa(x, EnterNode) || isa(x, Argument)
+                return UseRefIterator(x, relevant)
+            end
+            # Bug: Instruction is NOT in this list, so userefs(inst) returns UseRefIterator with relevant=false
+            # causing the iteration to never execute
+    - summary: "Scan boundscheck calls using statement arguments, counting SSA uses while excluding the final boundscheck argument from inconsistency propagation."
+      component: "Compiler/src/optimize.jl"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/optimize.jl"
+          loc: "857-886"
+          url: "https://github.com/JuliaLang/julia/blob/860af1620f05c99760bc76dc5db9a7dbb43f500d/Compiler/src/optimize.jl#L857-L886"
+          snippet: |
+            function scan_inconsistency!(inst::Instruction, sv::PostOptAnalysisState)
+                flag = inst[:flag]
+                stmt_inconsistent = !has_flag(flag, IR_FLAG_CONSISTENT)
+                stmt = inst[:stmt]
+                # Special case: For `getfield` and memory operations, we allow inconsistency of the :boundscheck argument
+                (; inconsistent, tpdum) = sv
+                if iscall_with_boundscheck(stmt, sv)
+                    for i = 1:length(stmt.args)
+                        val = stmt.args[i]
+                        # SSAValue should be the only permitted argument type which can be inconsistent found here.
+                        # Others (e.g. GlobalRef) should have been moved to statement position. See stmt_effect_flags.
+                        if isa(val, SSAValue)
+                            if i < length(stmt.args)  # not the boundscheck argument (which is last)
+                                stmt_inconsistent |= val.id in inconsistent
+                            end
+                            count!(tpdum, val)
+                        end
+                    end
+                else
+                    for ur in userefs(stmt)
+                        val = ur[]
+                        if isa(val, SSAValue)
+                            stmt_inconsistent |= val.id in inconsistent
+                            count!(tpdum, val)
+                        end
+                    end
+                end
+                stmt_inconsistent && push!(inconsistent, inst.idx)
+                return stmt_inconsistent
+            end
+    - summary: "Prevent early bail-out from scan phase to ensure def-use map counts are accurate."
+      component: "Compiler/src/optimize.jl"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/optimize.jl"
+          loc: "892-951"
+          url: "https://github.com/JuliaLang/julia/blob/860af1620f05c99760bc76dc5db9a7dbb43f500d/Compiler/src/optimize.jl#L892-L951"
+          snippet: |
+            function ((; sv)::ScanStmt)(inst::Instruction, lstmt::Int, bb::Int)
+                stmt = inst[:stmt]
+
+                if isa(stmt, EnterNode)
+                    # try/catch not yet modeled
+                    give_up_refinements!(sv)
+                    return true # don't bail out early -- can cause tpdum counts to be off
+                end
+
+                scan_non_dataflow_flags!(inst, sv)
+
+                stmt_inconsistent = scan_inconsistency!(inst, sv)
+
+                if stmt_inconsistent
+                    if !has_flag(inst[:flag], IR_FLAG_NOTHROW)
+                        sv.all_retpaths_consistent = false
+                    end
+                    if inst.idx == lstmt
+                        if isa(stmt, ReturnNode) && isdefined(stmt, :val)
+                            sv.all_retpaths_consistent = false
+                        elseif isa(stmt, GotoIfNot)
+                            if !sv.result.ipo_effects.terminates
+                                sv.all_retpaths_consistent = false
+                            elseif visit_conditional_successors(sv.lazypostdomtree, sv.ir, bb) do succ::Int
+                                    return any_stmt_may_throw(sv.ir, succ)
+                                end
+                                sv.all_retpaths_consistent = false
+                            else
+                                (; cfg, domtree) = get!(sv.lazyagdomtree)
+                                for succ in iterated_dominance_frontier(cfg, BlockLiveness(sv.ir.cfg.blocks[bb].succs, nothing), domtree)
+                                    if succ == length(cfg.blocks)
+                                        sv.all_retpaths_consistent = false
+                                    else
+                                        visit_bb_phis!(sv.ir, succ) do phiidx::Int
+                                            push!(sv.inconsistent, phiidx)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                # Do not bail out early, as this can cause tpdum counts to be off.
+                # # bail out early if there are no possibilities to refine the effects
+                # if !any_refinable(sv)
+                #     return nothing
+                # end
+
+                return true
+            end
+    - summary: "Tighten inconsistent propagation to avoid reprocessing already-marked statements and add early returns."
+      component: "Compiler/src/optimize.jl"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/optimize.jl"
+          loc: "953-999"
+          url: "https://github.com/JuliaLang/julia/blob/860af1620f05c99760bc76dc5db9a7dbb43f500d/Compiler/src/optimize.jl#L953-L999"
+          snippet: |
+            function check_inconsistentcy!(sv::PostOptAnalysisState, scanner::BBScanner)
+                (; ir, inconsistent, tpdum) = sv
+
+                sv.all_retpaths_consistent || return
+                scan!(ScanStmt(sv), scanner, false)
+                sv.all_retpaths_consistent || return
+                complete!(tpdum); push!(scanner.bb_ip, 1)
+                populate_def_use_map!(tpdum, scanner)
+
+                stmt_ip = BitSetBoundedMinPrioritySet(length(ir.stmts))
+                for def in inconsistent
+                    append!(stmt_ip, tpdum[def])
+               end
+                lazydomtree = LazyDomtree(ir)
+                while !isempty(stmt_ip)
+                    idx = popfirst!(stmt_ip)
+                    idx in inconsistent && continue # already processed
+                    inst = ir[SSAValue(idx)]
+                    stmt = inst[:stmt]
+                    if iscall_with_boundscheck(stmt, sv)
+                        # recompute inconsistent flags for call while skipping boundscheck (last) argument
+                        any_non_boundscheck_inconsistent = false
+                        for i = 1:(length(stmt.args)-1)
+                            val = stmt.args[i]
+                            if isa(val, SSAValue)
+                                any_non_boundscheck_inconsistent |= val.id in inconsistent
+                                any_non_boundscheck_inconsistent && break
+                            end
+                        end
+                        any_non_boundscheck_inconsistent || continue
+                    elseif isa(stmt, ReturnNode)
+                        sv.all_retpaths_consistent = false
+                        return
+                    elseif isa(stmt, GotoIfNot)
+                        bb = block_for_inst(ir, idx)
+                        cfg = ir.cfg
+                        blockliveness = BlockLiveness(cfg.blocks[bb].succs, nothing)
+                        for succ in iterated_dominance_frontier(cfg, blockliveness, get!(lazydomtree))
+                            visit_bb_phis!(ir, succ) do phiidx::Int
+                                phiidx in inconsistent || push!(stmt_ip, phiidx)
+                            end
+                        end
+                    end
+                    push!(inconsistent, idx)
+                    append!(stmt_ip, tpdum[idx])
+                end
+            end
+    - summary: "Always call check_inconsistentcy! regardless of initial all_retpaths_consistent state."
+      component: "Compiler/src/optimize.jl"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/optimize.jl"
+          loc: "1001-1031"
+          url: "https://github.com/JuliaLang/julia/blob/860af1620f05c99760bc76dc5db9a7dbb43f500d/Compiler/src/optimize.jl#L1001-L1031"
+          snippet: |
+            function ipo_dataflow_analysis!(interp::AbstractInterpreter, opt::OptimizationState,
+                                            ir::IRCode, result::InferenceResult)
+                if !is_ipo_dataflow_analysis_profitable(result.ipo_effects)
+                    return false
+                end
+
+                @assert isempty(ir.new_nodes) "IRCode should be compacted before post-opt analysis"
+
+                sv = PostOptAnalysisState(result, ir)
+                scanner = BBScanner(ir)
+
+                completed_scan = scan!(ScanStmt(sv), scanner, true)
+
+                if !completed_scan
+                    # finish scanning for all_retpaths_consistent computation
+                    check_inconsistentcy!(sv, scanner)
+                    if !sv.all_retpaths_consistent
+                        # No longer any dataflow concerns, just scan the flags
+                        scan!(scanner, false) do inst::Instruction, ::Int, ::Int
+                            scan_non_dataflow_flags!(inst, sv)
+                            # bail out early if there are no possibilities to refine the effects
+                            if !any_refinable(sv)
+                                return nothing
+                            end
+                            return true
+                        end
+                    end
+                end
+
+                return refine_effects!(interp, opt, sv)
+            end
+  secondary_effects:
+    - effect: "Fixed def-use map population enables correct type refinement propagation in IR interpreter."
+      mechanism: |
+        ir_abstract_constant_propagation(interp, irsv)  [Compiler/src/ssair/irinterp.jl:318]
+          -> populate_def_use_map!(tpdum, scanner)  [Compiler/src/ssair/irinterp.jl:413]
+          -> for use in tpdum[val]  [Compiler/src/ssair/irinterp.jl:419]
+          -> append!(stmt_ip, tpdum[idx])  [Compiler/src/ssair/irinterp.jl:430]
+
+        Before the fix, userefs(inst) returned UseRefIterator with relevant=false (since
+        Instruction is not a recognized statement type), causing iteration to never
+        execute. The def-use map remained empty, breaking propagation of type refinements
+        through cycles in the IR.
+      downstream_surfaces:
+        - "IR interpreter type refinement (semi-concrete interpretation)"
+        - "Constant propagation through cyclic IR patterns"
+      likelihood: "high"
+      impact: "high"
+      evidence:
+        - source: "code"
+          path: "Compiler/src/ssair/irinterp.jl"
+          loc: "411-430"
+          url: "https://github.com/JuliaLang/julia/blob/860af1620f05c99760bc76dc5db9a7dbb43f500d/Compiler/src/ssair/irinterp.jl#L411-L430"
+          snippet: |
+            # Slow Path Phase 1.B: Assemble def-use map
+            complete!(tpdum); push!(scanner.bb_ip, 1)
+            populate_def_use_map!(tpdum, scanner)  # <-- Uses fixed function
+
+            # Slow Path Phase 2: Use def-use map to converge cycles.
+            for val in ssa_refined
+                for use in tpdum[val]  # <-- Would be empty without the fix
+                    if !(use in ssa_refined)
+                        push!(stmt_ip, use)
+                    end
+                end
+            end
+            while !isempty(stmt_ip)
+                idx = popfirst!(stmt_ip)
+                irsv.curridx = idx
+                inst = ir[SSAValue(idx)]
+                if reprocess_instruction!(interp, inst, idx, nothing, irsv)
+                    append!(stmt_ip, tpdum[idx])  # <-- Would be empty without the fix
+                end
+            end
+    - effect: "More reliable propagation of :consistent effects for calls with boundscheck arguments."
+      mechanism: |
+        ipo_dataflow_analysis!(interp, opt, ir, result)  [Compiler/src/optimize.jl:1001]
+          -> scan!(ScanStmt(sv), scanner, true)  [Compiler/src/optimize.jl:1012]
+          -> check_inconsistentcy!(sv, scanner)  [Compiler/src/optimize.jl:1016]
+            -> populate_def_use_map!(tpdum, scanner)  [Compiler/src/optimize.jl:960]
+
+        With statement-only operands, the def-use map correctly tracks SSA value uses.
+        The boundscheck argument (always last) is excluded from inconsistency propagation
+        during the scan phase but still counted for def-use tracking.
+      downstream_surfaces:
+        - "Base.infer_effects / Compiler.is_consistent"
+        - "Effect-driven optimizations (nothrow/terminates refinement)"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "Avoiding early scan exits ensures complete tpdum counts, stabilizing dataflow analyses."
+      mechanism: |
+        ScanStmt(inst, lstmt, bb)  [Compiler/src/optimize.jl:892]
+          now returns `true` for EnterNode  [line 898] instead of `nothing`
+          commented out early bail-out for any_refinable(sv)  [lines 944-948]
+
+        Previously, returning `nothing` from the scan callback would terminate iteration
+        early, leaving tpdum counts incomplete. This caused incorrect def-use edges in
+        check_inconsistentcy! when processing code with try/catch blocks or when effects
+        became unrefinable mid-scan.
+      downstream_surfaces:
+        - "IPO effect refinement (refine_effects!)"
+        - "Functions with try/catch blocks"
+      likelihood: "medium"
+      impact: "medium"
+  compatibility:
+    internal_api:
+      - field: "populate_def_use_map!(::TwoPhaseDefUseMap, ::BBScanner)"
+        change: "Uses userefs(inst[:stmt]) instead of userefs(inst), so only statement operands contribute to def-use edges."
+        affected_tools:
+          - tool: "Internal compiler passes"
+            usage: "check_inconsistentcy! and ir_abstract_constant_propagation rely on tpdum for propagation."
+    behavioral:
+      - change: "Effect consistency propagation for calls with boundscheck arguments now correctly excludes the boundscheck operand from inconsistency tainting."
+        affected_surfaces:
+          - "Base.infer_effects"
+          - "Compiler.is_consistent"
+      - change: "IR interpreter type refinement now correctly propagates through cycles due to fixed def-use map."
+        affected_surfaces:
+          - "Semi-concrete interpretation"
+          - "Constant propagation"
+  performance:
+    compile_time:
+      - "ESTIMATED: Slight increase in post-opt scan time because scan no longer bails out early; still O(n) in statements."
+      - "ESTIMATED: IR interpreter may perform more refinement iterations now that def-use map is populated correctly."
+    runtime:
+      - "ESTIMATED: More accurate effect refinement can enable existing optimizations. More precise type refinement may improve runtime for code with cycles."
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are localized to def-use map construction and post-optimization effect analysis."
+      - "No new IR forms introduced; behavior shifts are limited to consistency propagation and type refinement."
+      - "The fix corrects a clear bug where userefs(inst) was returning an empty iterator."
+  open_questions:
+    - "No dedicated regression test was added in this PR; should issue #56193 gain a targeted IR/effects test?"
+    - "Are there downstream packages relying on semi-concrete interpretation that might observe different behavior?"
+  recommendations:
+    - "Consider adding a targeted Compiler/test/effects.jl case that exercises boundscheck-argument inconsistency to lock in the fix."
+    - "Consider adding a test for ir_abstract_constant_propagation with cyclic IR to verify def-use map is populated."

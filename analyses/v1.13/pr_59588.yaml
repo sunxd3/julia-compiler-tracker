@@ -1,0 +1,343 @@
+schema_version: "1.0"
+
+pr:
+  number: 59588
+  title: "`split_rest` for `Tuple`: slighly improve inference"
+  url: "https://github.com/JuliaLang/julia/pull/59588"
+  author: "nsajko"
+  labels:
+    - "iteration"
+  merged_at: "2025-10-22T22:42:23Z"
+  merge_commit_sha: "e7feb14de0a105080180307517253d2dc2a58965"
+  pr_commit_sha: "bf95f5a9f77f09c74d514aed17da468595ee6ff1"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59588.diff"
+
+scope:
+  files_touched:
+    - "base/tuple.jl"
+    - "base/operators.jl"
+    - "test/tuple.jl"
+  components:
+    - "Base.tuple"
+    - "Base.operators"
+  pipeline_stages:
+    - "TypeInference"
+
+analysis:
+  intent:
+    summary: |
+      Introduce helper function `_split_tuple` as the core implementation for `split_rest`
+      on Tuples. This improves type inference in some cases because `_split_tuple`
+      requires `i::Int` (instead of accepting any type). Also reduces code duplication
+      by applying `_split_tuple` in the `Fix{N}` callable method.
+    issue_links: []
+
+  direct_changes:
+    - summary: "New function `_split_tuple` introduced with strict Int typing"
+      component: "base/tuple.jl"
+      evidence:
+        - source: "code"
+          path: "base/tuple.jl"
+          loc: "264"
+          url: "https://github.com/JuliaLang/julia/blob/e7feb14de0a105080180307517253d2dc2a58965/base/tuple.jl#L264"
+          snippet: |
+            @eval _split_tuple(t::Tuple, n::Int, i::Int=1) = ($(Expr(:meta, :aggressive_constprop)); (t[i:n], t[n+1:end]))
+
+    - summary: "`split_rest` for Tuple now delegates to `_split_tuple` with Int conversion"
+      component: "base/tuple.jl"
+      evidence:
+        - source: "code"
+          path: "base/tuple.jl"
+          loc: "266"
+          url: "https://github.com/JuliaLang/julia/blob/e7feb14de0a105080180307517253d2dc2a58965/base/tuple.jl#L266"
+          snippet: |
+            @eval split_rest(t::Tuple, n::Int, i=1) = ($(Expr(:meta, :aggressive_constprop)); _split_tuple(t, length(t)-n, Int(i)))
+        - source: "diff"
+          path: "base/tuple.jl"
+          loc: "264-266"
+          description: "Before vs After"
+          snippet: |
+            # BEFORE (single line):
+            @eval split_rest(t::Tuple, n::Int, i=1) = ($(Expr(:meta, :aggressive_constprop)); (t[i:end-n], t[end-n+1:end]))
+
+            # AFTER (two definitions):
+            @eval _split_tuple(t::Tuple, n::Int, i::Int=1) = ($(Expr(:meta, :aggressive_constprop)); (t[i:n], t[n+1:end]))
+            @eval split_rest(t::Tuple, n::Int, i=1) = ($(Expr(:meta, :aggressive_constprop)); _split_tuple(t, length(t)-n, Int(i)))
+
+    - summary: "`Fix{N}` callable now uses `_split_tuple` instead of inline tuple slicing"
+      component: "base/operators.jl"
+      evidence:
+        - source: "code"
+          path: "base/operators.jl"
+          loc: "1195-1199"
+          url: "https://github.com/JuliaLang/julia/blob/e7feb14de0a105080180307517253d2dc2a58965/base/operators.jl#L1195-L1199"
+          snippet: |
+            function (f::Fix{N})(args::Vararg{Any,M}; kws...) where {N,M}
+                M < N-1 && throw(ArgumentError(LazyString("expected at least ", N-1, " arguments to `Fix{", N, "}`, but got ", M)))
+                (left, right) = _split_tuple(args, N-1)
+                return f.f(left..., f.x, right...; kws...)
+            end
+        - source: "diff"
+          path: "base/operators.jl"
+          loc: "1197"
+          description: "Before vs After for Fix{N}"
+          snippet: |
+            # BEFORE:
+            return f.f(args[begin:begin+(N-2)]..., f.x, args[begin+(N-1):end]...; kws...)
+
+            # AFTER:
+            (left, right) = _split_tuple(args, N-1)
+            return f.f(left..., f.x, right...; kws...)
+
+    - summary: "New tests for `split_rest` return type inference"
+      component: "test/tuple.jl"
+      evidence:
+        - source: "test"
+          path: "test/tuple.jl"
+          loc: "818-839"
+          url: "https://github.com/JuliaLang/julia/blob/e7feb14de0a105080180307517253d2dc2a58965/test/tuple.jl#L818-L839"
+          snippet: |
+            @testset "`Base.split_rest(::Tuple, ::Vararg)` return type inference" begin
+                let f(t) = Base.split_rest(t, 3)
+                    tuple_types_of_length(n::Int) = (NTuple{n, Any}, NTuple{n}, NTuple{n, Float32})
+                    @testset "inferred return type must subtype `NTuple{2, Tuple}`" begin
+                        for T in (
+                            Tuple, Tuple{Vararg{Float32}},  # any length
+                            Tuple{Any, Vararg{Any}}, (Tuple{T, Vararg{T}} where {T}), Tuple{Float32, Vararg{Float32}},  # length greater than one
+                            tuple_types_of_length(5)...,  # length five
+                        )
+                            @test Base.infer_return_type(f, Tuple{T}) <: NTuple{2, Tuple}
+                            for S in (Tuple{T, Any, Any}, Tuple{T, Any}, Tuple{T, Int, Any}, Tuple{T, Int}, Tuple{T, Int, Int})
+                                @test Base.infer_return_type(Base.split_rest, S) <: NTuple{2, Tuple}
+                            end
+                        end
+                    end
+                    @testset "with exactly-known length: `5 == 2 + 3`" begin
+                        for T in tuple_types_of_length(5)
+                            @test Base.infer_return_type(f, Tuple{T}) <: Tuple{Tuple{Any, Any}, Tuple{Any, Any, Any}}
+                        end
+                    end
+                end
+            end
+
+  secondary_effects:
+    - effect: "Improved type inference for split_rest on Tuples"
+      mechanism: |
+        split_rest(t::Tuple, n::Int, i=1)  [tuple.jl:266]
+          calls _split_tuple(t, length(t)-n, Int(i))
+        -> _split_tuple(t::Tuple, n::Int, i::Int=1)  [tuple.jl:264]
+          enforces i::Int constraint at function boundary
+        -> Inference sees strictly-typed function signature
+          can derive more precise return type
+
+        Key insight: By factoring out the core logic into `_split_tuple` with `i::Int`,
+        inference no longer needs to handle the case where `i` might be a non-Int type.
+        The `Int(i)` conversion in `split_rest` ensures the type is narrowed before
+        entering the core computation.
+      downstream_surfaces:
+        - "Destructuring assignments with slurping (a, b..., c = tuple)"
+        - "Fix{N} partial application functions"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Simplified code path in Fix{N} callable"
+      mechanism: |
+        (f::Fix{N})(args::Vararg{Any,M})  [operators.jl:1195]
+          calls _split_tuple(args, N-1)  [operators.jl:1197]
+        -> _split_tuple splits args into (left, right) tuples
+        -> f.f(left..., f.x, right...; kws...)
+
+        Before: inline slicing with args[begin:begin+(N-2)] and args[begin+(N-1):end]
+        After: single _split_tuple call handles both slices
+
+        This deduplicates the tuple splitting pattern and may slightly improve
+        compile-time by reusing the same function instead of generating inline code.
+      downstream_surfaces:
+        - "All Fix{N} usage (Fix1, Fix2, and higher-arity Fix)"
+        - "Curried comparison functions (==(x), <(x), etc.)"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Note on semantic difference in _split_tuple vs old split_rest"
+      mechanism: |
+        The internal semantics of _split_tuple differ from the old inline split_rest:
+
+        OLD split_rest(t, n, i=1):
+          (t[i:end-n], t[end-n+1:end])
+          - Splits to leave last n elements in second tuple
+
+        NEW _split_tuple(t, n, i=1):
+          (t[i:n], t[n+1:end])
+          - Splits at position n (first n elements in first tuple)
+
+        The split_rest function compensates by computing length(t)-n before calling:
+          split_rest(t, n, i) = _split_tuple(t, length(t)-n, Int(i))
+
+        This means _split_tuple has simpler semantics (split at position n) while
+        split_rest maintains backward-compatible behavior (leave last n elements).
+      downstream_surfaces:
+        - "Internal implementation detail only"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Indirect inference improvement for NamedTuple destructuring"
+      mechanism: |
+        split_rest(t::NamedTuple{names}, n::Int, st...)  [namedtuple.jl:585]
+          calls split_rest(names, n, st...)  [namedtuple.jl:587]
+        -> split_rest(t::Tuple, n::Int, i=1)  [tuple.jl:266]
+          where `names` is a Tuple of Symbols
+        -> _split_tuple(names, length(names)-n, Int(i))  [tuple.jl:264]
+          benefits from stricter Int typing
+
+        Actual code path at namedtuple.jl:585-589:
+          @constprop :aggressive function split_rest(t::NamedTuple{names}, n::Int, st...) where {names}
+              _check_length_split_rest(length(t), n)
+              names_front, names_last_n = split_rest(names, n, st...)
+              return NamedTuple{names_front}(t), NamedTuple{names_last_n}(t)
+          end
+
+        The improved inference for Tuple.split_rest transitively benefits NamedTuple
+        destructuring since NamedTuple delegates to Tuple.split_rest for names splitting.
+      evidence:
+        - source: "code"
+          path: "base/namedtuple.jl"
+          loc: "585-589"
+          url: "https://github.com/JuliaLang/julia/blob/e7feb14de0a105080180307517253d2dc2a58965/base/namedtuple.jl#L585-L589"
+          snippet: |
+            @constprop :aggressive function split_rest(t::NamedTuple{names}, n::Int, st...) where {names}
+                _check_length_split_rest(length(t), n)
+                names_front, names_last_n = split_rest(names, n, st...)
+                return NamedTuple{names_front}(t), NamedTuple{names_last_n}(t)
+            end
+      downstream_surfaces:
+        - "NamedTuple slurping destructuring (a, b..., c = namedtuple)"
+        - "Lowered code from julia-syntax.scm for NamedTuple patterns"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "Lowering generates split_rest calls for slurping patterns"
+      mechanism: |
+        julia-syntax.scm:2466 generates split_rest calls for destructuring:
+          `(call (top split_rest) ,xx ,(- n i) ,@(if (eq? i 1) '() `(,st))) wrapfirst))`
+
+        For code like:
+          (a, b..., c) = tuple
+
+        The lowering produces (simplified):
+          (b_rest, _tail) = Base.split_rest(tuple, 1)
+          (a, b) = Base.indexed_iterate(b_rest, ...)
+          c = _tail[1]
+
+        With the new implementation, when inference analyzes split_rest calls from
+        lowered code, it can derive more precise types for the intermediate tuples,
+        leading to better type stability in complex destructuring patterns.
+      evidence:
+        - source: "code"
+          path: "src/julia-syntax.scm"
+          loc: "2462-2467"
+          url: "https://github.com/JuliaLang/julia/blob/e7feb14de0a105080180307517253d2dc2a58965/src/julia-syntax.scm#L2462-L2467"
+          snippet: |
+            (let ((tail (if (eventually-call? lhs) (gensy) (make-ssavalue))))
+              (cons (expand-forms
+                      (lower-tuple-assignment
+                        (list (cadr lhs-) tail)
+                        `(call (top split_rest) ,xx ,(- n i) ,@(if (eq? i 1) '() `(,st))) wrapfirst))
+                    (destructure- 1 (cdr lhss) tail (- n i) st end wrap)))
+      downstream_surfaces:
+        - "All slurping destructuring patterns in user code"
+        - "Compiler type inference for lowered destructuring IR"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "_split_tuple"
+        change: "New internal function added to Base"
+        affected_tools: []
+        notes: |
+          _split_tuple is not exported and prefixed with underscore, indicating it is
+          an internal implementation detail. However, packages that directly access
+          Base internals could potentially use it. The function signature is:
+          _split_tuple(t::Tuple, n::Int, i::Int=1) -> (t[i:n], t[n+1:end])
+      - field: "Base.split_rest(::Tuple, ...)"
+        change: "Implementation changed but API unchanged"
+        affected_tools:
+          - tool: "Any package calling Base.split_rest"
+            usage: "Public API; no changes needed"
+        notes: |
+          The public split_rest function signature is unchanged:
+            split_rest(t::Tuple, n::Int, i=1) -> (first_part, last_n)
+          Only the internal implementation now delegates to _split_tuple.
+    behavioral:
+      - aspect: "split_rest return values"
+        change: "No behavioral change - returns same values as before"
+        evidence: "Existing tests pass; new tests verify inference improvement"
+        notes: |
+          The refactoring maintains identical runtime behavior. The only change is
+          improved compile-time type inference in some cases.
+      - aspect: "Type inference precision"
+        change: "Return type inference may be more precise for edge cases"
+        evidence: |
+          Test at test/tuple.jl:818-839 verifies:
+            - infer_return_type(f, Tuple{T}) <: NTuple{2, Tuple}  # always a pair of tuples
+            - infer_return_type(f, Tuple{NTuple{5, Float32}}) <: Tuple{Tuple{Any, Any}, Tuple{Any, Any, Any}}
+        notes: |
+          The improvement is in compile-time type inference precision, not runtime behavior.
+          Code that relies on inferred types (e.g., for generated functions or specialization)
+          may see different (more precise) inferred types.
+
+  performance:
+    compile_time:
+      - aspect: "Type inference for split_rest"
+        change: "May improve inference precision for split_rest calls with non-literal index"
+        estimate: "ESTIMATED: negligible additional compile time"
+        notes: |
+          The _split_tuple function has a stricter signature (i::Int) which helps
+          inference narrow types. The Int(i) conversion adds a trivial compile-time
+          cost but enables more precise return type inference.
+    runtime:
+      - aspect: "Extra function call overhead"
+        change: "Adds one function call indirection from split_rest to _split_tuple"
+        estimate: "ESTIMATED: zero overhead after inlining"
+        notes: |
+          Both functions are marked with :aggressive_constprop via @eval. The extra
+          call should be fully inlined away in optimized code. No runtime performance
+          regression expected.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure refactoring with no behavioral changes"
+      - "Maintains full backward compatibility for public split_rest API"
+      - "New _split_tuple is internal implementation detail"
+      - "Comprehensive tests added to verify inference improvements"
+      - "Fix{N} change simplifies code without changing functionality"
+
+  open_questions:
+    - "Could further inference improvements be made by specializing _split_tuple for small N?"
+    - "Are there other places in Base that could benefit from using _split_tuple?"
+    - "Would similar type-narrowing patterns benefit other iteration functions?"
+
+  reviewer_notes: |
+    Independent analysis confirms the original assessment. Key additional findings:
+
+    1. **NamedTuple transitive benefit**: split_rest(::NamedTuple) delegates to
+       split_rest(::Tuple) for the names tuple, so improved inference benefits
+       NamedTuple destructuring indirectly.
+
+    2. **Mechanism verification**: The inference improvement comes from:
+       - OLD: `i=1` accepts any type, inference must consider all Integer subtypes
+       - NEW: `Int(i)` conversion before `_split_tuple(t, n, i::Int)` ensures
+         the core function always sees Int, enabling tighter return type bounds
+
+    3. **Tuple indexing path**: getindex(t::Tuple, r::AbstractUnitRange) at
+       base/range.jl:437 uses ntuple() for short ranges (<=10 elements), which
+       benefits from knowing i is Int for computing range bounds.
+
+    4. **Lowering integration verified**: julia-syntax.scm:2466 confirms split_rest
+       is emitted for slurping patterns, validating the downstream_surfaces claim.
+
+  recommendations:
+    - "No action needed for downstream packages - this is a transparent improvement"
+    - "Packages using split_rest may see slightly better inference in edge cases"
+    - "Fix{N} users (including Fix1, Fix2) benefit from cleaner internal implementation"

@@ -1,0 +1,635 @@
+schema_version: "1.0"
+
+pr:
+  number: 59565
+  title: "JuliaSyntax version bump and REPL tweaks"
+  url: "https://github.com/JuliaLang/julia/pull/59565"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59565.diff"
+  author: "mlechu"
+  labels:
+    - "dependencies"
+  merged_at: "2025-10-15T08:27:37Z"
+  merge_commit_sha: "8e0e45fa4577834330bc3324c7761caab7489494"
+  commit_structure:
+    - sha: "5704b727"
+      message: "JuliaSyntax version bump and REPL tweaks"
+      files: ["deps/JuliaSyntax.version", "deps/checksums/*", "stdlib/REPL/src/SyntaxUtil.jl", "stdlib/REPL/src/REPLCompletions.jl"]
+    - sha: "8e0e45fa"
+      message: "Bump JuliaSyntaxHighlighting"
+      files: ["stdlib/JuliaSyntaxHighlighting.version", "deps/checksums/*"]
+
+scope:
+  files_touched:
+    - "deps/JuliaSyntax.version"
+    - "deps/checksums/JuliaSyntax-*.tar.gz/md5"
+    - "deps/checksums/JuliaSyntax-*.tar.gz/sha512"
+    - "deps/checksums/JuliaSyntaxHighlighting-*.tar.gz/md5"
+    - "deps/checksums/JuliaSyntaxHighlighting-*.tar.gz/sha512"
+    - "stdlib/JuliaSyntaxHighlighting.version"
+    - "stdlib/REPL/src/REPLCompletions.jl"
+    - "stdlib/REPL/src/SyntaxUtil.jl"
+  components:
+    - "JuliaSyntax"
+    - "JuliaSyntaxHighlighting"
+    - "REPL"
+  pipeline_stages:
+    - "Parsing"
+
+analysis:
+  intent:
+    summary: |
+      Bumps the JuliaSyntax dependency to the latest dev version (99e975a726a82994de3f8e961e6fa8d39aed0d37)
+      required for JuliaLowering integration. This update brings breaking API changes in JuliaSyntax
+      that necessitate corresponding adaptations in the REPL completion code.
+
+      Key motivations:
+      1. JuliaLowering expects a specific JuliaSyntax version with new syntax tree structure
+      2. JuliaSyntaxHighlighting also needs to be bumped for compatibility (via JuliaLang/JuliaSyntaxHighlighting.jl#14)
+      3. The new JuliaSyntax version changes macro name representation in AST from a token kind
+         (K"MacroName") to a wrapper node kind (K"macro_name")
+    issue_links:
+      - "https://github.com/c42f/JuliaLowering.jl/pull/71"
+      - "https://github.com/JuliaLang/JuliaSyntaxHighlighting.jl/pull/14"
+
+  direct_changes:
+    - summary: "Bump JuliaSyntax from 46723f0 to 99e975a"
+      component: "deps/JuliaSyntax.version"
+      evidence:
+        - source: "diff"
+          path: "deps/JuliaSyntax.version"
+          loc: "1-4"
+          url: "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/deps/JuliaSyntax.version#L1-L4"
+          before: |
+            JULIASYNTAX_BRANCH = main
+            JULIASYNTAX_SHA1 = 46723f071d5b2efcb21ca6757788028afb91cc13
+          after: |
+            JULIASYNTAX_BRANCH = main
+            JULIASYNTAX_SHA1 = 99e975a726a82994de3f8e961e6fa8d39aed0d37
+
+    - summary: "Bump JuliaSyntaxHighlighting from c642041 to e34cc37"
+      component: "stdlib/JuliaSyntaxHighlighting.version"
+      evidence:
+        - source: "diff"
+          path: "stdlib/JuliaSyntaxHighlighting.version"
+          loc: "1-4"
+          url: "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib/JuliaSyntaxHighlighting.version#L1-L4"
+          before: |
+            JULIASYNTAXHIGHLIGHTING_BRANCH = main
+            JULIASYNTAXHIGHLIGHTING_SHA1 = c64204160b0f82f2ab002db9c39a25896999b8f1
+          after: |
+            JULIASYNTAXHIGHLIGHTING_BRANCH = main
+            JULIASYNTAXHIGHLIGHTING_SHA1 = e34cc37a7ab62db1e06152d8f2602bd2187fa473
+
+    - summary: "Change CursorData struct from position to byte_end"
+      component: "stdlib/REPL/src/SyntaxUtil.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/SyntaxUtil.jl"
+          loc: "14-21"
+          url: "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib/REPL/src/SyntaxUtil.jl#L14-L21"
+          snippet: |
+            struct CursorData <: AbstractSyntaxData
+                source::SourceFile
+                raw::GreenNode{SyntaxHead}
+                byte_end::Int
+                index::Int
+                index_nt::Int # nth non-trivia in parent
+                val::Any
+            end
+        - source: "diff"
+          path: "stdlib/REPL/src/SyntaxUtil.jl"
+          loc: "17"
+          notes: "Key field rename from position to byte_end"
+          before: |
+            position::Int
+          after: |
+            byte_end::Int
+
+    - summary: "Add char_first function and update char_range/char_last implementations"
+      component: "stdlib/REPL/src/SyntaxUtil.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/SyntaxUtil.jl"
+          loc: "71-73"
+          url: "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib/REPL/src/SyntaxUtil.jl#L71-L73"
+          snippet: |
+            char_range(node::CursorNode) = char_first(node):char_last(node)
+            char_first(node::CursorNode) = Int(node.byte_end) - Int(node.raw.span) + 1
+            char_last(node::CursorNode) = thisind(node.source, node.byte_end)
+        - source: "diff"
+          path: "stdlib/REPL/src/SyntaxUtil.jl"
+          loc: "71-73"
+          notes: "char_first is a new function; char_range/char_last refactored"
+          before: |
+            char_range(node) = node.position:char_last(node)
+            char_last(node) = thisind(node.source, node.position + span(node) - 1)
+          after: |
+            char_range(node::CursorNode) = char_first(node):char_last(node)
+            char_first(node::CursorNode) = Int(node.byte_end) - Int(node.raw.span) + 1
+            char_last(node::CursorNode) = thisind(node.source, node.byte_end)
+
+    - summary: "Update Base.Expr to use JuliaSyntax.to_expr"
+      component: "stdlib/REPL/src/SyntaxUtil.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/SyntaxUtil.jl"
+          loc: "68-69"
+          url: "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib/REPL/src/SyntaxUtil.jl#L68-L69"
+          snippet: |
+            Base.JuliaSyntax._expr_leaf_val(node::CursorNode, _...) = node.val
+            Base.Expr(node::CursorNode) = Base.JuliaSyntax.to_expr(node)
+        - source: "diff"
+          path: "stdlib/REPL/src/SyntaxUtil.jl"
+          loc: "68-69"
+          notes: "Simplified Expr conversion to use new JuliaSyntax API"
+          before: |
+            function Base.Expr(node::CursorNode)
+                (; filename, first_line) = node.source
+                src = SourceFile(node.source[byte_range(node)]; filename, first_line)
+                Expr(SyntaxNode(src, node.raw))
+            end
+          after: |
+            Base.JuliaSyntax._expr_leaf_val(node::CursorNode, _...) = node.val
+            Base.Expr(node::CursorNode) = Base.JuliaSyntax.to_expr(node)
+
+    - summary: "Update find_delim to use char_first instead of position"
+      component: "stdlib/REPL/src/SyntaxUtil.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/SyntaxUtil.jl"
+          loc: "98-107"
+          url: "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib/REPL/src/SyntaxUtil.jl#L98-L107"
+          snippet: |
+            function find_delim(node::CursorNode, left_kind::Kind, right_kind::Kind)
+                cs = children(node)
+                left = findfirst(c -> kind(c) == left_kind, cs)
+                left !== nothing || return nothing, nothing
+                right = findlast(c -> kind(c) == right_kind, cs)
+                closed = right !== nothing && right != left
+                right = closed ? thisind(node.source, char_first(cs[right]) - 1) : char_last(node)
+                left = nextind(node.source, char_last(cs[left]))
+                return left:right, closed
+            end
+        - source: "diff"
+          path: "stdlib/REPL/src/SyntaxUtil.jl"
+          loc: "104"
+          notes: "Changed from cs[right].position to char_first(cs[right])"
+          before: |
+            right = closed ? thisind(node.source, cs[right].position - 1) : char_last(node)
+          after: |
+            right = closed ? thisind(node.source, char_first(cs[right]) - 1) : char_last(node)
+
+    - summary: "Update REPLCompletions to import and use char_first"
+      component: "stdlib/REPL/src/REPLCompletions.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "18"
+          url: "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib/REPL/src/REPLCompletions.jl#L18"
+          snippet: |
+            using ..REPL.SyntaxUtil: CursorNode, find_parent, seek_pos, char_range, char_first, char_last, children_nt, find_delim
+        - source: "diff"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "18"
+          notes: "Added char_first to imports"
+          before: |
+            using ..REPL.SyntaxUtil: CursorNode, find_parent, seek_pos, char_range, char_last, children_nt, find_delim
+          after: |
+            using ..REPL.SyntaxUtil: CursorNode, find_parent, seek_pos, char_range, char_first, char_last, children_nt, find_delim
+
+    - summary: "Change CmdString completion to use char_first instead of position"
+      component: "stdlib/REPL/src/REPLCompletions.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1045-1048"
+          url: "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib/REPL/src/REPLCompletions.jl#L1045-L1048"
+          snippet: |
+            if (n = find_parent(cur, K"CmdString")) !== nothing
+                off = char_first(n) - 1
+                ret, r, success = shell_completions(string[char_range(n)], pos - off, hint, cmd_escape=true)
+                success && return ret, r .+ off, success
+            end
+        - source: "diff"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1046"
+          notes: "Changed from n.position to char_first(n)"
+          before: |
+            off = n.position - 1
+          after: |
+            off = char_first(n) - 1
+
+    - summary: "Update macro name handling from K\"MacroName\" to K\"macro_name\" parent check"
+      component: "stdlib/REPL/src/REPLCompletions.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1116-1119"
+          url: "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib/REPL/src/REPLCompletions.jl#L1116-L1119"
+          snippet: |
+            elseif cur.parent !== nothing && kind(cur.parent) === K"macro_name"
+                # Include the `@`
+                r = intersect(prevind(string, char_first(cur)):char_last(cur), 1:pos)
+                s = string[r]
+        - source: "diff"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1116-1119"
+          notes: "K\"MacroName\" token kind removed; now check parent is K\"macro_name\" node"
+          before: |
+            elseif kind(cur) == K"MacroName"
+                # Include the `@`
+                r = intersect(prevind(string, cur.position):char_last(cur), 1:pos)
+                s = string[r]
+          after: |
+            elseif cur.parent !== nothing && kind(cur.parent) === K"macro_name"
+                # Include the `@`
+                r = intersect(prevind(string, char_first(cur)):char_last(cur), 1:pos)
+                s = string[r]
+
+    - summary: "Add K\"macro_name\" handling in node_prefix"
+      component: "stdlib/REPL/src/REPLCompletions.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1212-1225"
+          url: "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib/REPL/src/REPLCompletions.jl#L1212-L1225"
+          snippet: |
+            function node_prefix(node::CursorNode, context_module::Module)
+                node.parent !== nothing || return nothing
+                p = node.parent
+                # In x.var"y", the parent is the "var" when the cursor is on "y".
+                kind(p) == K"var" && (p = p.parent)
+                kind(p) == K"macro_name" && (p = p.parent)
+
+                # expr.node => expr
+                if kind(p) == K"."
+                    n = children_nt(p)[1]
+                    # Don't use prefix if we are the value
+                    n !== node || return nothing
+                    return Expr(n)
+                end
+        - source: "diff"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1218"
+          notes: "Added macro_name parent traversal for correct prefix resolution"
+          before: |
+            (no macro_name handling)
+          after: |
+            kind(p) == K"macro_name" && (p = p.parent)
+        - source: "call_chain"
+          notes: |
+            Critical for dotted macro completion like "CompletionFoo.@foo":
+              completions(string, pos)  [REPLCompletions.jl:1000]
+                -> prefix = node_prefix(cur, context_module)  [line 1128]
+                -> node_prefix checks kind(p) == K"macro_name"  [line 1217]
+                -> If true, traverses to parent to get module prefix
+                -> complete_symbol!(suggestions, prefix, s, context_module)  [line 1153]
+            Without this fix, "CompletionFoo.@f" would not resolve to "@foobar" in
+            the CompletionFoo module.
+
+    - summary: "Fix find_ref_key to check for nothing before range comparison"
+      component: "stdlib/REPL/src/REPLCompletions.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1175-1183"
+          url: "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib/REPL/src/REPLCompletions.jl#L1175-L1183"
+          snippet: |
+            function find_ref_key(cur::CursorNode, pos::Int)
+                n = find_parent(cur, K"ref")
+                n !== nothing || return nothing, nothing, nothing
+                key, closed = find_delim(n, K"[", K"]")
+                if key === nothing || !(first(key) - 1 <= pos <= last(key))
+                    return nothing, nothing, nothing
+                end
+                return n, key, closed
+            end
+        - source: "diff"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1178-1182"
+          notes: "Fixed potential nil dereference when key is nothing"
+          before: |
+            first(key) - 1 <= pos <= last(key) || return nothing, nothing, nothing
+            n, key, closed
+          after: |
+            if key === nothing || !(first(key) - 1 <= pos <= last(key))
+                return nothing, nothing, nothing
+            end
+            return n, key, closed
+
+    - summary: "Change == to === for Kind comparisons (optimization)"
+      component: "stdlib/REPL/src/REPLCompletions.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1111"
+          url: "https://github.com/JuliaLang/julia/blob/8e0e45fa4577834330bc3324c7761caab7489494/stdlib/REPL/src/REPLCompletions.jl#L1111"
+          snippet: |
+            if cur.parent !== nothing && kind(cur.parent) === K"var"
+        - source: "diff"
+          path: "stdlib/REPL/src/REPLCompletions.jl"
+          loc: "1111,1145"
+          notes: "Changed == to === for Kind singleton comparisons"
+          before: |
+            kind(cur.parent) == K"var"
+            kind(n.parent) == K"using"
+          after: |
+            kind(cur.parent) === K"var"
+            kind(n.parent) === K"using"
+
+  secondary_effects:
+    - effect: "JuliaSyntax AST structure changes affect all AST consumers"
+      mechanism: |
+        The new JuliaSyntax version changes how macro names are represented:
+
+        OLD (pre-99e975a): Macro names used K"MacroName" as a token kind
+          @foo a b  =>  (macrocall foo::MacroName a b)
+
+        NEW (99e975a): Macro names wrapped in K"macro_name" node kind
+          @foo a b  =>  (macrocall (macro_name foo) a b)
+
+        This structural change means:
+          1. kind(node) no longer returns K"MacroName" for macro identifiers
+          2. Instead, the identifier is wrapped in a K"macro_name" parent node
+          3. Code checking kind(cur) == K"MacroName" must change to
+             checking kind(cur.parent) === K"macro_name"
+
+        Call chain affected in REPLCompletions:
+          completions()  [REPLCompletions.jl:999]
+            -> Symbol completion logic [REPLCompletions.jl:1110-1126]
+            -> previously: kind(cur) == K"MacroName"
+            -> now: kind(cur.parent) === K"macro_name"
+      downstream_surfaces:
+        - "Any code parsing JuliaSyntax AST and looking for macro names"
+        - "REPL tab completion for macros"
+        - "Code analysis tools using JuliaSyntax AST"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "CursorNode position field removal affects direct field access"
+      mechanism: |
+        The CursorData struct field change:
+          BEFORE: position::Int  - stored start byte position
+          AFTER:  byte_end::Int  - stores end byte position
+
+        This is an INTERNAL API change to the REPL's SyntaxUtil module.
+        Code that directly accessed node.position will fail with:
+          ERROR: type CursorData has no field position
+
+        To get the start position now:
+          OLD: node.position
+          NEW: char_first(node) = Int(node.byte_end) - Int(node.raw.span) + 1
+
+        The byte_end approach is likely more compatible with how JuliaSyntax
+        internally represents node spans, reducing coordinate translation overhead.
+      downstream_surfaces:
+        - "Internal REPL completion code"
+        - "Any code extending CursorNode behavior"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "Base.Expr conversion now uses JuliaSyntax.to_expr directly"
+      mechanism: |
+        Base.Expr(node::CursorNode)  [SyntaxUtil.jl:68-69]
+          BEFORE: Created new SourceFile, wrapped in SyntaxNode, then Expr()
+          AFTER: Directly calls Base.JuliaSyntax.to_expr(node)
+
+        This requires implementing _expr_leaf_val for CursorNode:
+          Base.JuliaSyntax._expr_leaf_val(node::CursorNode, _...) = node.val
+
+        The new approach is simpler and likely more efficient, but requires
+        that JuliaSyntax's to_expr API supports custom node types.
+      downstream_surfaces:
+        - "Expr conversion from CursorNode"
+        - "dict_eval in REPLCompletions"
+        - "node_prefix in REPLCompletions"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "find_delim now returns nothing when left delimiter not found"
+      mechanism: |
+        find_delim(node, left_kind, right_kind)  [SyntaxUtil.jl:98-107]
+          -> Searches for delimiters in node's children
+          -> Now returns (nothing, nothing) if left delimiter missing
+          -> Callers must check for nothing before accessing range
+
+        Complete call chain for find_delim callers:
+          1. find_ref_key(cur, pos)  [REPLCompletions.jl:1174-1182]
+               -> find_delim(n, K"[", K"]")
+               -> Updated to check: if key === nothing || !(first(key) - 1 <= pos <= last(key))
+               -> Called from completions() at line 1023 for Dict key completion
+
+          2. find_str(cur)  [REPLCompletions.jl:1186-1189]
+               -> find_delim(n, K"\"", K"\"")
+               -> Already returns (nothing, nothing) passthrough
+               -> Called from completions() at line 1054 for string path completion
+
+        This fixes a potential crash when bracket matching fails.
+      downstream_surfaces:
+        - "Dict key completion (find_ref_key)"
+        - "String literal completion (find_str)"
+        - "Any future completion using find_delim"
+      likelihood: "low"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "CursorData.position"
+        change: "Renamed to CursorData.byte_end; semantics changed from start to end position"
+        affected_tools:
+          - "Code directly accessing node.position - must use char_first(node) instead"
+      - field: "K\"MacroName\" token kind"
+        change: "Removed from JuliaSyntax; macro names now wrapped in K\"macro_name\" node"
+        affected_tools:
+          - "Code checking kind(node) == K\"MacroName\" - must check kind(node.parent) === K\"macro_name\""
+      - field: "Base.Expr(node::CursorNode)"
+        change: "Now uses JuliaSyntax.to_expr; requires _expr_leaf_val implementation"
+        affected_tools:
+          - "Custom CursorNode-like types extending SyntaxUtil"
+      - field: "char_first(node)"
+        change: "New INTERNAL function in SyntaxUtil (NOT exported - must be explicitly imported)"
+        affected_tools:
+          - "Code needing start position should import char_first or use char_range(node)[1]"
+        notes: |
+          CORRECTION: char_first is NOT exported. The SyntaxUtil export list is:
+            export CursorNode, char_range, char_last, children_nt, find_delim, seek_pos
+          REPLCompletions imports it explicitly via:
+            using ..REPL.SyntaxUtil: ..., char_first, ...
+    behavioral:
+      - item: "Macro name completion now checks parent node kind"
+        change: "Previously checked current node for K\"MacroName\", now checks parent for K\"macro_name\""
+        migration: "Update any code that pattern-matches on JuliaSyntax macro representation"
+
+  performance:
+    compile_time: []
+    runtime:
+      - item: "Kind comparison optimization with ==="
+        detail: |
+          ESTIMATED: Using === instead of == for Kind comparisons avoids method dispatch.
+          Kind is a struct wrapping an integer, so === is equivalent to comparing the
+          underlying integers directly, while == goes through the generic comparison
+          machinery.
+
+          Affected comparisons:
+            - kind(cur.parent) === K"var"  [REPLCompletions.jl:1111]
+            - kind(cur.parent) === K"macro_name"  [REPLCompletions.jl:1116]
+            - kind(n.parent) === K"using"  [REPLCompletions.jl:1145]
+
+          Impact: Negligible performance improvement in completion code path.
+          The change is primarily for correctness/style consistency.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Changes are compatibility adaptations for upstream JuliaSyntax version"
+      - "REPL completion is well-tested through interactive use"
+      - "The structural changes are internal to the REPL module"
+      - "JuliaSyntax version pinned to specific SHA, so no further API drift"
+      - "Find_ref_key fix addresses a potential crash condition"
+
+  downstream_impact:
+    packages: []
+    surfaces:
+      - "JuliaSyntax-based tooling that uses K\"MacroName\" kind"
+      - "Tools accessing JuliaSyntax AST for macro analysis"
+    notes: |
+      This PR primarily affects Julia's internal REPL completion code.
+      External packages using JuliaSyntax directly may need similar updates
+      if they rely on the old K"MacroName" token kind.
+
+      The K"MacroName" to K"macro_name" change is a JuliaSyntax upstream
+      structural change, not originated in this PR. This PR merely adapts
+      Julia's REPL to be compatible with the new JuliaSyntax version.
+
+      Packages that should check compatibility:
+      - JET.jl (if using JuliaSyntax for parsing)
+      - Any custom REPL extensions using SyntaxUtil
+      - Linting/formatting tools using JuliaSyntax AST
+
+  open_questions:
+    - "What are all the changes between JuliaSyntax 46723f0 and 99e975a?"
+    - "Does the new JuliaSyntax version affect JuliaLowering integration beyond this PR?"
+    - "Are there other K\"...Name\" token kinds that were similarly restructured?"
+
+  recommendations:
+    - "Tools using JuliaSyntax AST should check for K\"macro_name\" node kind instead of K\"MacroName\" token kind"
+    - "Use char_first(node) instead of node.position if extending CursorNode functionality"
+    - "Prefer === over == for Kind comparisons for consistency and slight performance benefit"
+    - "Always check find_delim return value for nothing before accessing range"
+
+classification:
+  type: "dependencies"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false
+
+changelog:
+  category: "REPL"
+  entry: |
+    Updated bundled JuliaSyntax to version 99e975a and JuliaSyntaxHighlighting
+    to version e34cc37 for JuliaLowering compatibility. REPL completion code
+    adapted for JuliaSyntax AST changes where macro names are now represented
+    as K"macro_name" wrapper nodes instead of K"MacroName" tokens ([#59565]).
+
+evidence_verification:
+  julia_repo_checked_out: true
+  commit_sha: "8e0e45fa4577834330bc3324c7761caab7489494"
+  files_examined:
+    - path: "stdlib/REPL/src/SyntaxUtil.jl"
+      verified: true
+      notes: "Core changes to CursorData struct and position handling"
+    - path: "stdlib/REPL/src/REPLCompletions.jl"
+      verified: true
+      notes: "Adapted for new JuliaSyntax API; K\"MacroName\" to K\"macro_name\" change"
+    - path: "deps/JuliaSyntax.version"
+      verified: true
+      notes: "SHA bump from 46723f0 to 99e975a"
+    - path: "stdlib/JuliaSyntaxHighlighting.version"
+      verified: true
+      notes: "SHA bump from c642041 to e34cc37"
+    - path: "JuliaSyntax/src/julia/kinds.jl"
+      verified: true
+      notes: "Confirmed K\"macro_name\" is a syntax node kind (line 1055), K\"StrMacroName\"/K\"CmdMacroName\" are token kinds"
+    - path: "JuliaSyntax/test/parser.jl"
+      verified: true
+      notes: "Test cases show macro_name wrapper node structure: @foo => (macrocall (macro_name foo) ...)"
+
+reviewer_notes:
+  independent_analysis_date: "2026-01-21"
+  second_review_date: "2026-01-21"
+  second_reviewer_method: |
+    Independently checked out merge commit 8e0e45fa4577834330bc3324c7761caab7489494,
+    examined actual source files, searched for callers using rg, and verified all
+    patterns mentioned in the original analysis.
+  corrections_made:
+    - issue: "char_first export status"
+      original: "Analysis stated char_first is 'New exported function from SyntaxUtil'"
+      corrected: "char_first is NOT exported - must be explicitly imported"
+      evidence: "SyntaxUtil.jl line 9: export CursorNode, char_range, char_last, children_nt, find_delim, seek_pos"
+  enhancements_added:
+    - "Added find_str to find_delim call chain (line 1186-1189)"
+    - "Added test evidence for macro completion behavior"
+    - "Clarified SyntaxUtil public API vs internal functions"
+  test_evidence:
+    - test_file: "stdlib/REPL/test/replcompletions.jl"
+      test_lines: "287-293"
+      description: "Macro completion test for issue #6424"
+      snippet: |
+        let s = "Main.CompletionFoo.@f"
+            c, r = test_complete(s)
+            @test "@foobar" in c
+            @test r == 20:21
+            @test s[r] == "@f"
+            @test !("foo" in c)
+        end
+      notes: |
+        This test verifies macro completion works correctly with the new
+        K"macro_name" parent node structure. The test completes "@f" to "@foobar"
+        in the CompletionFoo module scope.
+  additional_callers_searched:
+    - pattern: "char_first"
+      files_found: 2
+      notes: "Defined in SyntaxUtil.jl:72, used in REPLCompletions.jl and find_delim"
+    - pattern: "K\"MacroName\""
+      files_found: 0
+      notes: "No remaining uses in Julia stdlib - all migrated to K\"macro_name\" parent check"
+    - pattern: "K\"macro_name\""
+      files_found: 3
+      notes: "Used in REPLCompletions.jl:1116,1218 and throughout JuliaSyntax"
+    - pattern: "position.*CursorNode"
+      files_found: 0
+      notes: "No remaining direct .position access on CursorNode"
+  key_observations:
+    - |
+      The K"macro_name" is defined in JuliaSyntax/src/julia/kinds.jl:1055 as a SYNTAX
+      node kind (not a token). This is distinct from K"StrMacroName" and K"CmdMacroName"
+      which are still token kinds for string/command macro identifiers like r"..." and `cmd`...`.
+    - |
+      The JuliaSyntax test file (parser.jl) shows the expected AST structure:
+        "@foo a b" => "(macrocall (macro_name foo) a b)"
+        "A.@x y"   => "(macrocall (. A (macro_name x)) y)"
+      This confirms macro names are wrapped in (macro_name ...) nodes.
+    - |
+      The change from storing position (start) to byte_end in CursorData aligns with
+      JuliaSyntax's internal span representation. GreenNode stores span (length), not
+      position. Computing start = end - span + 1 is the natural derivation.
+    - |
+      The find_ref_key fix (checking key === nothing before range comparison) addresses
+      a latent bug where find_delim could return nothing for malformed input, causing
+      a crash when trying to call first(nothing).
+    - |
+      SECOND REVIEW OBSERVATION: The SyntaxUtil module has a clear separation between
+      public and internal APIs:
+        EXPORTED (public): CursorNode, char_range, char_last, children_nt, find_delim, seek_pos
+        INTERNAL (not exported): char_first, find_parent, _to_CursorNode, build_tree
+      The original analysis incorrectly stated char_first was exported.
+    - |
+      SECOND REVIEW OBSERVATION: The node_prefix function change at line 1217 is critical
+      for dotted macro access (e.g., "Module.@macro"). Without the macro_name parent
+      traversal, completion for "CompletionFoo.@foo" would fail to find the module prefix.
+      Call chain: completions() -> node_prefix(cur) -> checks kind(p) == K"macro_name"
+    - |
+      SECOND REVIEW OBSERVATION: The PR consists of two commits:
+        1. 5704b727: Main REPL changes for JuliaSyntax compatibility
+        2. 8e0e45fa: Separate JuliaSyntaxHighlighting bump
+      This two-commit structure allows independent bisection if issues arise.

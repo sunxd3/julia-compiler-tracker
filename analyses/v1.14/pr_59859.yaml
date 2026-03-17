@@ -1,0 +1,832 @@
+schema_version: "1.0"
+pr:
+  number: 59859
+  title: "bindings: Add native automatic re-export feature"
+  url: "https://github.com/JuliaLang/julia/pull/59859"
+  author: "Keno"
+  labels: []
+  merged_at: "2025-10-31T17:42:15Z"
+  merge_commit_sha: "fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59859.diff"
+
+scope:
+  files_touched:
+    - "base/experimental.jl"
+    - "base/module.jl"
+    - "base/runtime_internals.jl"
+    - "base/show.jl"
+    - "src/builtins.c"
+    - "src/gc-stock.c"
+    - "src/julia.h"
+    - "src/julia_internal.h"
+    - "src/module.c"
+    - "src/staticdata.c"
+    - "test/rebinding.jl"
+  components:
+    - "Core.Module"
+    - "Core.Binding"
+    - "Base.Experimental"
+  pipeline_stages:
+    - "ModuleSystem"
+    - "BindingResolution"
+    - "WorldAge"
+
+analysis:
+  intent:
+    summary: |
+      Implements native automatic re-export functionality similar to Reexport.jl, but integrated
+      into Julia's binding system. When a module uses `@reexport using SomeModule`, all exported
+      bindings from SomeModule become automatically exported from the using module. This native
+      implementation has two key advantages over the macro-based Reexport.jl approach:
+      1. Proper participation in binding resolution and world ages - if a new binding is Revise'd
+         into a re-exported module, it propagates correctly
+      2. Lazy allocation of re-exported bindings - better performance since bindings are only
+         materialized when needed
+    issue_links:
+      - "https://github.com/JuliaLang/Reexport.jl/issues/39"
+
+  direct_changes:
+    - summary: "Added @reexport macro in Base.Experimental"
+      component: "Base.Experimental"
+      evidence:
+        - source: "code"
+          path: "base/experimental.jl"
+          loc: "733-752"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/base/experimental.jl#L733-L752"
+          snippet: |
+            macro reexport(ex)
+                if !Meta.isexpr(ex, :using) || isempty(ex.args)
+                    error("@reexport must be used with a `using` statement, e.g., `@reexport using MyModule`")
+                end
+
+                # Check for `using Foo: x, y` syntax (not supported)
+                if any(arg -> Meta.isexpr(arg, :(:)), ex.args)
+                    error("@reexport does not support `using Module: names` syntax")
+                end
+
+                # Generate _eval_using calls for each module in the using statement
+                calls = Expr(:block)
+                for mod_path in ex.args
+                    push!(calls.args, :($(Core._eval_using)($(__module__), $(QuoteNode(mod_path)), $(Base.JL_MODULE_USING_REEXPORT))))
+                end
+                push!(calls.args, Expr(:latestworld))
+                push!(calls.args, :nothing)
+
+                return esc(calls)
+            end
+
+    - summary: "Added PARTITION_FLAG_IMPLICITLY_EXPORTED flag (0x80) for binding partitions"
+      component: "Core.Binding"
+      evidence:
+        - source: "code"
+          path: "src/julia.h"
+          loc: "768-770"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/src/julia.h#L768-L770"
+          snippet: |
+            // _IMPLICITLY_EXPORTED: This binding partition is implicitly exported via @reexport. Unlike _EXPORTED,
+            // this flag is set during implicit resolution and can be removed if the resolution changes.
+            static const uint8_t PARTITION_FLAG_IMPLICITLY_EXPORTED = 0x80;
+        - source: "code"
+          path: "base/runtime_internals.jl"
+          loc: "256"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/base/runtime_internals.jl#L256"
+          snippet: |
+            const PARTITION_FLAG_IMPLICITLY_EXPORTED = 0x80
+
+    - summary: "Added JL_MODULE_USING_REEXPORT flag (0x1) for module using entries"
+      component: "Core.Module"
+      evidence:
+        - source: "code"
+          path: "src/julia.h"
+          loc: "872-873"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/src/julia.h#L872-L873"
+          snippet: |
+            // Flags for _jl_module_using.flags
+            static const uint8_t JL_MODULE_USING_REEXPORT = 0x1;
+        - source: "code"
+          path: "base/runtime_internals.jl"
+          loc: "263"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/base/runtime_internals.jl#L263"
+          snippet: |
+            const JL_MODULE_USING_REEXPORT = 0x1
+
+    - summary: "Extended _jl_module_using struct with flags field (3 -> 4 pointers)"
+      component: "Core.Module"
+      evidence:
+        - source: "code"
+          path: "src/julia.h"
+          loc: "865-870"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/src/julia.h#L865-L870"
+          snippet: |
+            struct _jl_module_using {
+                jl_module_t *mod;
+                size_t min_world;
+                size_t max_world;
+                size_t flags;
+            };
+
+    - summary: "Added has_reexports field to jl_module_t struct"
+      component: "Core.Module"
+      evidence:
+        - source: "code"
+          path: "src/julia.h"
+          loc: "859-860"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/src/julia.h#L859-L860"
+          snippet: |
+            // Set if this module has any reexport usings (used to bypass fast-path in implicit resolution)
+            _Atomic(int8_t) has_reexports;
+
+    - summary: "Added should_be_reexported field to implicit_search_resolution struct"
+      component: "Core.Module"
+      evidence:
+        - source: "code"
+          path: "src/module.c"
+          loc: "74-87"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/src/module.c#L74-L87"
+          snippet: |
+            struct implicit_search_resolution {
+                enum jl_partition_kind ultimate_kind;
+                jl_value_t *binding_or_const;
+                size_t min_world;
+                size_t max_world;
+                int saw_cycle;
+                int should_be_reexported;  // Set if resolved through a using with JL_MODULE_USING_REEXPORT
+                //// Not semantic, but used for reflection.
+                // If non-null, the unique module from which this binding was imported
+                jl_module_t *debug_only_import_from;
+                // If non-null, the unique binding imported. For PARTITION_KIND_IMPLICIT_GLOBAL, always matches binding_or_const.
+                // Must have trust_cache = 0.
+                jl_binding_t *debug_only_ultimate_binding;
+            };
+
+    - summary: "Extended jl_module_using() to accept flags parameter"
+      component: "Core.Module"
+      evidence:
+        - source: "code"
+          path: "src/module.c"
+          loc: "1376-1454"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/src/module.c#L1376-L1454"
+          snippet: |
+            JL_DLLEXPORT void jl_module_using(jl_module_t *to, jl_module_t *from, size_t flags)
+            {
+                if (to == from)
+                    return;
+                check_safe_import_from(from);
+                JL_LOCK(&world_counter_lock);
+                JL_LOCK(&to->lock);
+
+                // Check if this module is already in the usings list
+                size_t existing_idx = (size_t)-1;
+                for (size_t i = 0; i < module_usings_length(to); i++) {
+                    if (from == module_usings_getmod(to, i)) {
+                        existing_idx = i;
+                        break;
+                    }
+                }
+
+                size_t new_world = jl_atomic_load_acquire(&jl_world_counter)+1;
+
+                if (existing_idx == (size_t)-1) {
+                    // Add new using entry
+                    struct _jl_module_using new_item = {
+                        .mod = from,
+                        .min_world = new_world,
+                        .max_world = ~(size_t)0,
+                        .flags = flags
+                    };
+                    arraylist_grow(&to->usings, sizeof(struct _jl_module_using)/sizeof(void*));
+                    memcpy(&to->usings.items[to->usings.len-4], &new_item, sizeof(struct _jl_module_using));
+                    jl_gc_wb(to, from);
+                } else {
+                    // Update existing entry to add new flags
+                    struct _jl_module_using *existing = module_usings_getidx(to, existing_idx);
+                    // Early out if reexport is already set (strongest form), or if all requested flags are already set
+                    if ((existing->flags & JL_MODULE_USING_REEXPORT) || (existing->flags & flags) == flags) {
+                        JL_UNLOCK(&to->lock);
+                        JL_UNLOCK(&world_counter_lock);
+                        return;
+                    }
+                    existing->flags |= flags;
+                }
+
+                // Set has_reexports flag if this is a reexport using
+                if (flags & JL_MODULE_USING_REEXPORT) {
+                    jl_atomic_store_relaxed(&to->has_reexports, 1);
+                }
+
+    - summary: "Added jl_bpart_is_exported() helper function to check both export flags"
+      component: "Core.Binding"
+      evidence:
+        - source: "code"
+          path: "src/julia_internal.h"
+          loc: "1035-1037"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/src/julia_internal.h#L1035-L1037"
+          snippet: |
+            STATIC_INLINE int jl_bpart_is_exported(uint8_t flags) JL_NOTSAFEPOINT {
+                return flags & (PARTITION_FLAG_EXPORTED | PARTITION_FLAG_IMPLICITLY_EXPORTED);
+            }
+
+    - summary: "Added _materialize_reexported_bindings() for reflection APIs"
+      component: "Core.Module"
+      evidence:
+        - source: "code"
+          path: "src/module.c"
+          loc: "2048-2091"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/src/module.c#L2048-L2091"
+          snippet: |
+            static void _materialize_reexported_bindings(jl_module_t *m, size_t world, jl_array_t *visited_modules)
+            {
+                size_t len = jl_array_len(visited_modules);
+                for (size_t i = 0; i < len; i++) {
+                    if (jl_array_ptr_ref(visited_modules, i) == (jl_value_t*)m)
+                        return;
+                }
+                jl_array_ptr_1d_push(visited_modules, (jl_value_t*)m);
+
+                JL_LOCK(&m->lock);
+                size_t usings_len = module_usings_length(m);
+                JL_UNLOCK(&m->lock);
+
+                for (size_t i = 0; i < usings_len; i++) {
+                    JL_LOCK(&m->lock);
+                    struct _jl_module_using data = *module_usings_getidx(m, i);
+                    JL_UNLOCK(&m->lock);
+
+                    if (data.min_world > world || data.max_world < world)
+                        continue;
+
+                    if (data.flags & JL_MODULE_USING_REEXPORT) {
+                        jl_module_t *from = data.mod;
+                        JL_GC_PROMISE_ROOTED(from);
+
+                        _materialize_reexported_bindings(from, world, visited_modules);
+
+                        jl_svec_t *table = jl_atomic_load_relaxed(&from->bindings);
+                        for (size_t j = 0; j < jl_svec_len(table); j++) {
+                            jl_binding_t *b = (jl_binding_t*)jl_svecref(table, j);
+                            if ((void*)b == jl_nothing)
+                                break;
+
+                            jl_binding_partition_t *frombpart = jl_get_binding_partition(b, world);
+                            if (jl_bpart_is_exported(frombpart->kind)) {
+                                jl_sym_t *var = b->globalref->name;
+                                jl_binding_t *tob = jl_get_module_binding(m, var, 1);
+                                jl_get_binding_partition(tob, world);  // Force implicit resolution
+                            }
+                            table = jl_atomic_load_relaxed(&from->bindings);
+                        }
+                    }
+                }
+            }
+
+    - summary: "Modified implicit resolution to propagate reexport flag through binding chain"
+      component: "Core.Module"
+      evidence:
+        - source: "code"
+          path: "src/module.c"
+          loc: "253-337"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/src/module.c#L253-L337"
+          snippet: |
+            jl_module_t *imp = data.mod;
+            uint8_t has_reexports = jl_atomic_load_relaxed(&imp->has_reexports);
+            JL_GC_PROMISE_ROOTED(imp);
+            jl_binding_t *tempb = jl_get_module_binding(imp, var, 0);
+            if (!tempb) {
+                // If the binding has never been allocated, it could not have been marked exported, so
+                // it is irrelevant for our resolution. We can move on.
+                // Exception: if this module has reexports, the binding might be reexported from another module,
+                // so we need to create the binding to trigger implicit resolution
+                if (!has_reexports)
+                    continue;
+                tempb = jl_get_module_binding(imp, var, 1);  // Create the binding
+            }
+
+            // ... later in the function ...
+
+            uint8_t is_any_exported = jl_bpart_is_exported(tempbpart_flags);
+            if (!is_any_exported && (tempbpart_valid || !has_reexports)) {
+                // Partition not exported - skip.
+                continue;
+            }
+
+            // ... later in the function ...
+
+            // If this using has the reexport flag, mark that the binding should be reexported
+            if (data.flags & JL_MODULE_USING_REEXPORT) {
+                imp_resolution.should_be_reexported = 1;
+            }
+
+    - summary: "Updated GC to handle new _jl_module_using struct size (3->4 pointers)"
+      component: "GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "2168-2171"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/src/gc-stock.c#L2168-L2171"
+          snippet: |
+            static_assert(sizeof(struct _jl_module_using) == 4*sizeof(void *), "Mismatch in _jl_module_using size");
+            static_assert(offsetof(struct _jl_module_using, mod) == 0, "Expected `mod` at the beginning of _jl_module_using");
+            gc_mark_objarray(ptls, obj_parent, (jl_value_t**)objary_begin, (jl_value_t**)objary_end, 4, nptr);
+
+    - summary: "Updated serialization for new _jl_module_using struct with flags"
+      component: "Serialization"
+      evidence:
+        - source: "code"
+          path: "src/staticdata.c"
+          loc: "1244-1280"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/src/staticdata.c#L1244-L1280"
+          snippet: |
+            newm_data->min_world = data->min_world;
+            newm_data->max_world = data->max_world;
+            newm_data->flags = data->flags;
+            if (s->incremental) {
+                if (data->max_world != ~(size_t)0)
+                    newm_data->max_world = 0;
+                newm_data->min_world = jl_require_world;
+            }
+            arraylist_push(&s->relocs_list, (void*)(reloc_offset + offsetof(jl_module_t, usings._space[4*i])));
+            // ...
+            write_uint(s->s, data->flags);
+            static_assert(sizeof(struct _jl_module_using) == 4*sizeof(void*), "_jl_module_using mismatch");
+
+    - summary: "Updated binding partition display to show re-exported status"
+      component: "Base.show"
+      evidence:
+        - source: "code"
+          path: "base/show.jl"
+          loc: "3328-3331"
+          url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/base/show.jl#L3328-L3331"
+          snippet: |
+            if (partition.kind & PARTITION_FLAG_IMPLICITLY_EXPORTED) != 0
+                first ? (first = false) : print(io, ",")
+                print(io, "re-exported")
+            end
+
+  secondary_effects:
+    - effect: "Reexported bindings propagate through world age changes via Revise"
+      mechanism: |
+        jl_resolve_implicit_import()  [module.c:212]
+          iterates through module usings
+          -> data.flags & JL_MODULE_USING_REEXPORT  [module.c:335]
+          -> sets imp_resolution.should_be_reexported = 1
+          -> jl_implicit_import_resolved()  [module.c:132]
+          -> if (resolution.should_be_reexported) new_kind |= PARTITION_FLAG_IMPLICITLY_EXPORTED  [module.c:136-137]
+
+        When a binding is added to source module via Core.eval():
+          Core.eval(Source1, :(s2() = "s2"; export s2))
+          -> new world age created
+          -> binding resolution in Reexporter1 recomputed for new world
+          -> should_be_reexported propagated through chain
+          -> User1.s2() resolves correctly
+      downstream_surfaces:
+        - "Revise.jl automatic reloading"
+        - "Dynamic method additions during REPL sessions"
+        - "Incremental precompilation with binding changes"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "names() and exported_names() materialize reexported bindings lazily"
+      mechanism: |
+        append_module_names()  [module.c:2093]
+          -> _materialize_reexported_bindings(m, world, visited_modules)  [module.c:2096-2100]
+          -> recursively visits modules with JL_MODULE_USING_REEXPORT flag
+          -> creates bindings via jl_get_module_binding(m, var, 1)
+          -> forces partition resolution via jl_get_binding_partition(tob, world)
+
+        append_exported_names()  [module.c:2122]
+          -> same materialization pattern  [module.c:2126-2130]
+          -> jl_bpart_is_exported(bpart->kind) checks both EXPORTED and IMPLICITLY_EXPORTED  [module.c:2139]
+
+        Call chain for names():
+          names(m)  [exports.jl:~20]
+          -> jl_module_names(m, ...)  [module.c:2144]
+          -> append_module_names(a, m, ...)  [module.c:2148]
+          -> _materialize_reexported_bindings() before iterating bindings
+      downstream_surfaces:
+        - "REPL tab completion"
+        - "names() function for module introspection"
+        - "IDE auto-completion"
+        - "Documentation generation tools"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "has_reexports flag enables fast-path bypass in implicit resolution"
+      mechanism: |
+        jl_resolve_implicit_import()  [module.c:212]
+          uint8_t has_reexports = jl_atomic_load_relaxed(&imp->has_reexports)  [module.c:254]
+
+          Fast path (when has_reexports == 0):
+            if (!tempb) continue;  [module.c:257-262]
+            -> no binding allocated, can't be exported, skip immediately
+
+          Slow path (when has_reexports == 1):
+            if (!tempb && has_reexports)
+              tempb = jl_get_module_binding(imp, var, 1)  [module.c:264]
+            -> must create binding to trigger implicit resolution for reexports
+
+          This optimization prevents unnecessary binding allocation in modules
+          that don't use reexport functionality.
+      downstream_surfaces:
+        - "Module loading performance"
+        - "Binding resolution performance"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Module using entries can have their flags upgraded without duplicating"
+      mechanism: |
+        jl_module_using()  [module.c:1376]
+          // Check if this module is already in the usings list
+          for (size_t i = 0; i < module_usings_length(to); i++) {
+              if (from == module_usings_getmod(to, i)) {
+                  existing_idx = i;
+                  break;
+              }
+          }
+
+          if (existing_idx != (size_t)-1) {
+              // Update existing entry to add new flags
+              existing->flags |= flags;  [module.c:1415]
+          }
+
+        This means:
+          using SomeModule        # adds entry with flags=0
+          @reexport using SomeModule  # upgrades existing entry to flags=1
+        Rather than adding duplicate entries.
+      downstream_surfaces:
+        - "Module loading semantics"
+        - "Incremental compilation correctness"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Binding invalidation tracks implicit export changes"
+      mechanism: |
+        jl_replace_binding_locked2()  [module.c:1757]
+          if ((jl_bpart_is_exported(old_bpart->kind) || jl_bpart_is_exported(kind)) && jl_require_world != ~(size_t)0) {
+              jl_atomic_store_release(&b->globalref->mod->export_set_changed_since_require_world, 1);
+          }
+
+        This ensures that changes to implicit export status properly trigger
+        invalidation tracking for incremental compilation.
+      downstream_surfaces:
+        - "Incremental precompilation correctness"
+        - "Package cache invalidation"
+      likelihood: "medium"
+      impact: "medium"
+
+    - effect: "jl_module_exports_p() now includes implicitly exported bindings"
+      mechanism: |
+        jl_module_exports_p()  [module.c:1540-1544]
+          jl_binding_t *b = jl_get_module_binding(m, var, 0);
+          jl_binding_partition_t *bpart = jl_get_binding_partition(b, jl_current_task->world_age);
+          return b && jl_bpart_is_exported(bpart->kind);
+
+        jl_bpart_is_exported()  [julia_internal.h:1032-1034]
+          return flags & (PARTITION_FLAG_EXPORTED | PARTITION_FLAG_IMPLICITLY_EXPORTED);
+
+        This powers the Julia-level Base.isexported() function:
+          isexported(m::Module, s::Symbol) = ccall(:jl_module_exports_p, ...)  [runtime_internals.jl:146]
+
+        This means reflection APIs that check if a binding is exported will
+        now return true for both explicitly exported and implicitly reexported bindings.
+      downstream_surfaces:
+        - "Base.isexported() function - now returns true for reexported bindings"
+        - "REPL docview module name display (checks isexported)"
+        - "Error suggestions in errorshow.jl (filters by isexported/ispublic)"
+        - "IDE plugins checking export status"
+        - "Linters checking public API"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Incremental compilation validates implicit bindings through export_set_changed tracking"
+      mechanism: |
+        all_usings_unchanged_implicit()  [staticdata.c:3741-3749]
+          for (size_t i = 0; unchanged_implicit && i < module_usings_length(mod); i++) {
+              jl_module_t *usee = module_usings_getmod(mod, i);
+              unchanged_implicit &= !jl_atomic_load_acquire(&usee->export_set_changed_since_require_world);
+          }
+
+        jl_validate_binding_partition()  [staticdata.c:3659-3739]
+          Called during package loading to validate cached bindings
+          if (!unchanged_implicit && jl_bkind_is_some_implicit(kind)) {
+              jl_update_loaded_bpart(b, bpart);  // Recompute implicit resolution
+          }
+
+        When a reexported module's exports change (including via PARTITION_FLAG_IMPLICITLY_EXPORTED),
+        the export_set_changed_since_require_world flag triggers revalidation of all implicit
+        bindings in dependent modules during incremental compilation loading.
+      downstream_surfaces:
+        - "Package precompilation correctness with dynamic exports"
+        - "Revise.jl binding updates across package boundaries"
+        - "Incremental sysimage loading"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "PARTITION_FAKE_KIND_IMPLICIT_RECOMPUTE path propagates reexport flag"
+      mechanism: |
+        jl_replace_binding_locked2()  [module.c:1739-1802]
+          if ((kind & PARTITION_MASK_KIND) == PARTITION_FAKE_KIND_IMPLICIT_RECOMPUTE) {
+              struct implicit_search_resolution resolution = jl_resolve_implicit_import(b, NULL, new_world, 0);
+              new_bpart->kind = resolution.ultimate_kind | (kind & PARTITION_MASK_FLAG);
+              if (resolution.should_be_reexported) {
+                  new_bpart->kind |= PARTITION_FLAG_IMPLICITLY_EXPORTED;  [module.c:1766-1768]
+              }
+          }
+
+        When bindings are replaced/invalidated, the implicit recompute path correctly
+        propagates the should_be_reexported flag, ensuring reexport status is maintained
+        across world age changes.
+      downstream_surfaces:
+        - "Binding invalidation correctness"
+        - "Method redefinition with reexported symbols"
+      likelihood: "medium"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - item: "jl_module_using() signature changed to accept flags parameter"
+        description: |
+          OLD: JL_DLLEXPORT void jl_module_using(jl_module_t *to, jl_module_t *from);
+          NEW: JL_DLLEXPORT void jl_module_using(jl_module_t *to, jl_module_t *from, size_t flags);
+
+          The C builtins layer handles the optional argument:
+            JL_NARGS(_using, 2, 3);
+            if (nargs == 3) { flags = jl_unbox_uint8(args[2]); }
+
+          Julia code uses: Core._using(to, from, flags) or Core._using(to, from) with flags=0
+        affected_tools:
+          - tool: "External C code calling jl_module_using"
+            usage: "Must add third argument (can be 0 for backward compatible behavior)"
+
+      - item: "_jl_module_using struct size changed from 3 to 4 pointers"
+        description: |
+          OLD: struct _jl_module_using { mod, min_world, max_world }  // 24 bytes
+          NEW: struct _jl_module_using { mod, min_world, max_world, flags }  // 32 bytes
+
+          This affects:
+          - module_usings_getidx() indexing: 3*i -> 4*i
+          - module_usings_length() calculation: len/3 -> len/4
+          - GC marking stride: gc_mark_objarray(..., 3, ...) -> gc_mark_objarray(..., 4, ...)
+          - Serialization: additional write_uint for flags field
+        affected_tools:
+          - tool: "Tools directly manipulating module.usings arraylist"
+            usage: "Must update stride calculations from 3 to 4"
+
+      - item: "New PARTITION_FLAG_IMPLICITLY_EXPORTED (0x80) binding partition flag"
+        description: |
+          A new flag is added to binding partition kind field.
+          Tools inspecting partition flags should be aware:
+            PARTITION_FLAG_EXPORTED          = 0x10  (existing)
+            PARTITION_FLAG_IMPLICITLY_EXPORTED = 0x80  (new)
+
+          Use jl_bpart_is_exported() to check for either export type.
+        affected_tools:
+          - tool: "JET.jl"
+            usage: "May inspect binding partition flags for analysis in src/abstractinterpret/"
+          - tool: "Cthulhu.jl"
+            usage: "May display binding export status in introspection output"
+
+      - item: "New has_reexports field in jl_module_t"
+        description: |
+          New atomic int8_t field: _Atomic(int8_t) has_reexports  [julia.h:860]
+
+          Set to 1 when a module executes @reexport using.
+          Used as optimization flag to skip binding creation in fast path.
+          Initialized to 0 in jl_new_module__()  [module.c:542]
+        affected_tools: []
+
+      - item: "jl_module_usings() does not expose reexport flags to Julia"
+        description: |
+          jl_module_usings()  [module.c:2001-2015] returns only module references,
+          not the flags field. The reexport status of a using entry is not currently
+          queryable from Julia code.
+
+          Julia code calling `Base.parentmodule` or similar introspection cannot
+          determine if a binding was reexported vs directly exported.
+        affected_tools:
+          - tool: "Reflection/introspection packages"
+            usage: "Cannot currently distinguish reexport from regular using at Julia level"
+
+    behavioral:
+      - item: "Reexported bindings are implicitly visible to using modules"
+        description: |
+          When module B does:
+            @reexport using A
+
+          Then module C doing:
+            using B
+
+          Can now access A's exported symbols through B, without B explicitly exporting them.
+
+          The key semantic difference from Reexport.jl macro:
+          - Reexport.jl: Creates explicit exports at macro expansion time
+          - Native @reexport: Creates implicit exports resolved lazily at access time
+
+          This means bindings added to A after B's @reexport will still propagate.
+        affected_tools:
+          - tool: "Reexport.jl"
+            usage: "Can be updated to use native functionality for better world age support"
+
+      - item: "Module name export behavior inherited from using"
+        description: |
+          Known limitation noted in PR description:
+          When doing @reexport using Foo, the module name Foo itself is also re-exported
+          (matching Reexport.jl behavior, see JuliaLang/Reexport.jl#39).
+
+          The PR author suggests this could be addressed separately by not exporting
+          module names from modules themselves, but this would be potentially breaking.
+        affected_tools: []
+
+  performance:
+    compile_time:
+      - item: "Lazy binding allocation reduces memory for unused reexports"
+        description: |
+          Reexported bindings are only materialized when accessed or when
+          names()/exported_names() is called.
+
+          OLD (Reexport.jl macro): All bindings created at macro expansion time
+          NEW (native @reexport): Bindings created on-demand during resolution
+
+          ESTIMATED: Memory savings proportional to number of unused reexported bindings.
+          For large packages with many exports, this could be significant.
+
+    runtime:
+      - item: "has_reexports flag adds branch in implicit resolution fast path"
+        description: |
+          jl_resolve_implicit_import() checks has_reexports flag:
+            if (!tempb) {
+              if (!has_reexports) continue;  // Fast path - skip
+              tempb = jl_get_module_binding(imp, var, 1);  // Slow path - create binding
+            }
+
+          For modules without reexports (has_reexports == 0):
+            - Single atomic load: jl_atomic_load_relaxed(&imp->has_reexports)
+            - Then fast skip if binding doesn't exist
+
+          For modules with reexports (has_reexports == 1):
+            - Must create binding to check if it would be reexported
+            - Additional implicit resolution recursion possible
+
+          ESTIMATED: Negligible overhead for non-reexport cases (~1 atomic load).
+          Potential slowdown for deep reexport chains, but bindings are cached.
+
+      - item: "_materialize_reexported_bindings traverses reexport chain for names()"
+        description: |
+          When calling names(m) on a module with reexports:
+            _materialize_reexported_bindings(m, world, visited_modules)
+
+          This recursively visits all reexport dependencies and creates bindings.
+          Uses visited_modules array to prevent infinite loops on cycles.
+
+          Implementation note [module.c:2050-2062]:
+            The function re-reads the bindings table after each binding iteration:
+              table = jl_atomic_load_relaxed(&from->bindings);
+            This handles potential concurrent modifications but adds overhead.
+
+          Cost: O(B * D) where B = total bindings across reexport chain, D = depth
+          Each binding requires:
+            - jl_get_module_binding() - O(1) hash lookup
+            - jl_get_binding_partition() - O(1) partition lookup or resolution
+            - Atomic load of bindings table after each binding
+
+          ESTIMATED: First names() call pays materialization cost.
+          Subsequent calls use cached bindings.
+          Deep reexport chains with many bindings may show measurable overhead.
+
+  risk:
+    level: "medium"
+    rationale:
+      - "Core module system change affecting binding resolution semantics"
+      - "Changes to internal struct layouts require coordinated updates across GC and serialization"
+      - "New flag in binding partitions affects tools inspecting binding state"
+      - "World age interaction adds complexity to incremental compilation"
+      - "Well-tested through rebinding.jl tests for core functionality"
+      - "Macro interface is experimental and explicitly marked as such"
+
+  open_questions:
+    - "Should there be a way to query which module originally exported a reexported binding?"
+    - "How does this interact with precompilation of packages using @reexport?"
+    - "Should the module name export behavior (Reexport.jl#39) be addressed in a follow-up?"
+    - "Are there edge cases with circular reexport chains that need additional testing?"
+    - "Should jl_module_usings() expose the flags field to allow Julia-level introspection of reexport status?"
+    - "What is the performance impact of _materialize_reexported_bindings for large reexport chains?"
+    - "How does the should_be_reexported propagation interact with deprecated bindings in the chain?"
+
+  recommendations:
+    - "Reexport.jl maintainers should evaluate using native functionality for better Revise.jl support"
+    - "Tools inspecting binding partition flags should use jl_bpart_is_exported() helper"
+    - "Code directly manipulating module.usings must update for 4-pointer stride"
+    - "Incremental compilation tests should verify reexport changes propagate correctly"
+    - "Documentation should clarify the difference between explicit export and implicit reexport"
+    - "Consider adding Julia-level API to query reexport status of bindings"
+    - "Monitor performance impact for packages with deep reexport hierarchies (e.g., umbrella packages)"
+
+  test_coverage:
+    - description: "Test dynamic export additions through reexport"
+      path: "test/rebinding.jl"
+      loc: "420-436"
+      url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/test/rebinding.jl#L420-L436"
+      snippet: |
+        # Test dynamic export additions through reexport
+        module Source1
+            export s1
+            s1() = "s1"
+        end
+        module Reexporter1
+            import ..@reexport
+            @reexport using ..Source1
+        end
+        module User1
+            using ..Reexporter1
+        end
+        @test (:s1,) ⊆ names(Reexporter1)
+        @test User1.s1() == "s1"
+        Core.eval(Source1, :(s2() = "s2"; export s2))
+        @test (:s1, :s2) ⊆ names(Reexporter1)
+        @test User1.s2() == "s2"
+
+    - description: "Test reexport syntax with multiple modules"
+      path: "test/rebinding.jl"
+      loc: "438-451"
+      url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/test/rebinding.jl#L438-L451"
+      snippet: |
+        # Test reexport syntax, multiple modules
+        module Source2
+            export s3
+            s3() = "s3"
+        end
+        module Reexporter2
+            import ..@reexport
+            @reexport using ..Source2, ..Source1
+        end
+        module User2
+            using ..Reexporter2
+        end
+        @test (:s1, :s3) ⊆ names(Reexporter2)
+        @test User2.s1() == "s1"
+        @test User2.s3() == "s3"
+
+    - description: "Test same name from different modules with mixed reexport/non-reexport"
+      path: "test/rebinding.jl"
+      loc: "453-471"
+      url: "https://github.com/JuliaLang/julia/blob/fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5/test/rebinding.jl#L453-L471"
+      snippet: |
+        # Test same name from different modules - one with reexport, one without
+        module Source3
+            export same_name
+            const same_name = 42
+        end
+        module Source4
+            export same_name
+            const same_name = 42
+        end
+        module Reexporter3
+            import ..@reexport
+            using ..Source4  # without reexport
+            @reexport using ..Source3
+        end
+        module User3
+            using ..Reexporter3
+        end
+        @test User3.same_name == 42
+
+  reviewer_enhancements:
+    reviewed_at: "2026-01-21"
+    methodology: |
+      Independent analysis performed by checking out merge commit fcdc9038e74c18d40f7ad5ecbfae8d08d92abad5
+      and tracing code paths through module.c, staticdata.c, julia_internal.h, and gc-stock.c.
+      Verified call chains using rg searches for all modified function and flag names.
+
+    additional_findings:
+      - finding: "Base.isexported() now returns true for reexported bindings"
+        evidence: |
+          isexported() in runtime_internals.jl calls jl_module_exports_p() which now uses
+          jl_bpart_is_exported() to check both PARTITION_FLAG_EXPORTED and PARTITION_FLAG_IMPLICITLY_EXPORTED.
+          This affects REPL docview display and error suggestions.
+
+      - finding: "Incremental compilation validation properly handles reexport changes"
+        evidence: |
+          all_usings_unchanged_implicit() in staticdata.c:3741-3749 checks export_set_changed_since_require_world
+          for all usings, triggering jl_validate_binding_partition() to recompute implicit bindings when
+          exports (including implicit exports) have changed.
+
+      - finding: "PARTITION_FAKE_KIND_IMPLICIT_RECOMPUTE path handles reexport flag"
+        evidence: |
+          jl_replace_binding_locked2() at module.c:1761-1768 properly propagates should_be_reexported
+          when recomputing implicit bindings, ensuring reexport status survives binding invalidation.
+
+      - finding: "jl_module_usings() does not expose flags field"
+        evidence: |
+          The function at module.c:2001-2015 only returns module references. Julia code cannot
+          currently introspect whether a using is a reexport using.
+
+      - finding: "_materialize_reexported_bindings has concurrent modification handling"
+        evidence: |
+          At module.c:2062, the bindings table is re-read after each binding iteration:
+            table = jl_atomic_load_relaxed(&from->bindings);
+          This handles concurrent modifications but adds per-binding overhead.
+
+    verification_status:
+      - "All direct_changes entries verified against source code"
+      - "All secondary_effects call chains traced with file:line references"
+      - "No additional secondary effects discovered beyond enhancements added"
+      - "Test coverage verified to match actual test file content"

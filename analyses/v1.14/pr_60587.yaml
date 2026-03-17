@@ -1,0 +1,179 @@
+schema_version: "1.0"
+pr:
+  number: 60587
+  title: "[JuliaLowering] Mark internal lowering bindings as is_internal"
+  url: "https://github.com/JuliaLang/julia/pull/60587"
+  author: "aviatesk"
+  labels:
+    - "compiler:lowering"
+    - "JuliaLowering"
+  merged_at: "2026-01-08T15:25:50Z"
+  merge_commit_sha: "c2647e99afdb598f64ce7859ed50761b61a5a9f3"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60587.diff"
+scope:
+  files_touched:
+    - "JuliaLowering/src/desugaring.jl"
+    - "JuliaLowering/src/scope_analysis.jl"
+  components:
+    - "JuliaLowering"
+  pipeline_stages:
+    - "Lowering"
+    - "ScopeAnalysis"
+analysis:
+  intent:
+    summary: "Mark keyword-function reflection locals as internal so tooling (e.g., language servers) can ignore compiler-generated bindings during scope analysis."
+    issue_links: []
+  direct_changes:
+    - summary: "Keyword-function desugaring now tags reflection-only local declarations with CompileHints(:is_internal, true)."
+      component: "JuliaLowering/src/desugaring.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/desugaring.jl"
+          loc: "2795-2801"
+          url: "https://github.com/JuliaLang/julia/blob/c2647e99afdb598f64ce7859ed50761b61a5a9f3/JuliaLowering/src/desugaring.jl#L2795-L2801"
+          snippet: |
+            if use_ssa_kw_temps
+                kw_val_stmts = SyntaxList(ctx)
+                for n in kw_names
+                    # If not using slots for the keyword argument values, still declare
+                    # them for reflection purposes.
+                    push!(kw_val_stmts, @ast ctx n [K"local"(meta=CompileHints(:is_internal, true)) n])
+                end
+                kw_val_vars = SyntaxList(ctx)
+    - summary: "Scope analysis treats local declarations carrying :is_internal metadata as internal bindings by bypassing maybe_declare_in_scope! and forcing declare_in_scope!(; is_internal=true)."
+      component: "JuliaLowering/src/scope_analysis.jl"
+      evidence:
+        - source: "code"
+          path: "JuliaLowering/src/scope_analysis.jl"
+          loc: "192-201"
+          url: "https://github.com/JuliaLang/julia/blob/c2647e99afdb598f64ce7859ed50761b61a5a9f3/JuliaLowering/src/scope_analysis.jl#L192-L201"
+          snippet: |
+            function _find_scope_decls!(ctx, scope, ex)
+                k = kind(ex)
+                if k === K"local" && kind(ex[1]) === K"Identifier"
+                    var_k = getmeta(ex, :is_destructured_arg, false) ?
+                        :destructured_arg : :local
+                    if getmeta(ex, :is_internal, false)
+                        declare_in_scope!(ctx, scope, ex[1], var_k; is_internal=true)
+                    else
+                        maybe_declare_in_scope!(ctx, scope, ex[1], var_k)
+                    end
+  secondary_effects:
+    - effect: "@locals extension skips keyword-reflection locals marked internal, reducing noise for tooling that inspects local variable tables."
+      mechanism: |
+        keyword_function_defs(...)  [desugaring.jl:2795-2801]
+          emits K"local" with CompileHints(:is_internal, true)
+        -> _find_scope_decls!(ctx, scope, ex)  [scope_analysis.jl:192-201]
+          detects :is_internal metadata and calls declare_in_scope!(; is_internal=true)
+        -> @locals extension in scope analysis  [scope_analysis.jl:440-454]
+          filters binfo.is_internal when building locals dictionary
+      downstream_surfaces:
+        - "@locals macro expansion (Base.@locals in lowering IR)"
+        - "Tooling that consumes BindingInfo tables from JuliaLowering"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api:
+      - field: "BindingInfo.is_internal"
+        change: "Now set for keyword-function reflection locals created during desugaring; consumers should filter these if they previously expected only user-defined locals."
+        affected_tools:
+          - tool: "JuliaLowering @locals extension"
+            usage: "Filters internal bindings when constructing locals dictionary in scope analysis."
+        evidence:
+          - source: "code"
+            path: "JuliaLowering/src/desugaring.jl"
+            loc: "2795-2801"
+            url: "https://github.com/JuliaLang/julia/blob/c2647e99afdb598f64ce7859ed50761b61a5a9f3/JuliaLowering/src/desugaring.jl#L2795-L2801"
+            snippet: |
+              if use_ssa_kw_temps
+                  kw_val_stmts = SyntaxList(ctx)
+                  for n in kw_names
+                      # If not using slots for the keyword argument values, still declare
+                      # them for reflection purposes.
+                      push!(kw_val_stmts, @ast ctx n [K"local"(meta=CompileHints(:is_internal, true)) n])
+                  end
+                  kw_val_vars = SyntaxList(ctx)
+          - source: "code"
+            path: "JuliaLowering/src/scope_analysis.jl"
+            loc: "440-454"
+            url: "https://github.com/JuliaLang/julia/blob/c2647e99afdb598f64ce7859ed50761b61a5a9f3/JuliaLowering/src/scope_analysis.jl#L440-L454"
+            snippet: |
+              for sid in ctx.scope_stack
+                  for id in values(ctx.scopes[sid].vars)
+                      binfo = get_binding(ctx, id)
+                      if binfo.kind == :global || binfo.is_internal
+                          continue
+                      end
+                      binding = binding_ex(ctx, id)
+                      push!(stmts, @ast ctx ex [K"if"
+                          [K"isdefined" binding]
+                          [K"call"
+                              "setindex!"::K"top"
+                              locals_dict
+                              binding
+                              binfo.name::K"Symbol"
+                          ]
+                      ])
+    behavioral:
+      - change: "@locals results omit compiler-internal keyword reflection bindings (treated like globals)."
+        evidence:
+          - source: "test"
+            path: "JuliaLowering/test/scopes_ir.jl"
+            loc: "171-187"
+            url: "https://github.com/JuliaLang/julia/blob/c2647e99afdb598f64ce7859ed50761b61a5a9f3/JuliaLowering/test/scopes_ir.jl#L171-L187"
+            snippet: |
+              # @locals with local and global
+              begin
+                  global x
+                  local y
+                  @locals
+              end
+              #---------------------
+              1   (newvar slot₁/y)
+              2   (call core.declare_global TestMod :x false)
+              3   latestworld
+              4   (call core.apply_type top.Dict core.Symbol core.Any)
+              5   (call %₄)
+              6   (isdefined slot₁/y)
+              7   (gotoifnot %₆ label₁₀)
+              8   slot₁/y
+              9   (call top.setindex! %₅ %₈ :y)
+              10  (return %₅)
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: one extra metadata check in _find_scope_decls! when encountering local declarations; negligible (<1% of lowering time)."
+    runtime:
+      - impact: "No runtime codegen changes; metadata only affects scope tables and @locals output during lowering."
+  risk:
+    level: "low"
+    rationale:
+      - "Change is limited to metadata propagation and scope table filtering in JuliaLowering; no changes to runtime semantics or codegen."
+      - "Behavioral impact confined to tooling that inspects locals or binding info."
+  open_questions:
+    - "No targeted tests cover keyword-function reflection locals in @locals; consider adding a regression test for keyword functions and Base.@locals output."
+  recommendations:
+    - "Tooling that inspects BindingInfo or @locals output should ignore bindings with is_internal=true (especially keyword-function reflection locals)."
+  additional_evidence:
+    rg_callers:
+      source: "rg"
+      path: "JuliaLowering/src"
+      loc: "rg -n \"is_internal\" JuliaLowering/src"
+      snippet: |
+        JuliaLowering/src/bindings.jl
+        13:    is_internal::Bool         # True for internal bindings generated by the compiler
+        32:                     is_internal::Bool = false,
+        43:                is_internal, is_ambiguous_local, is_nospecialize, is_read,
+        57:    binfo.is_internal        && print(io, ", is_internal=true")
+        127:                                 is_ssa=true, is_internal=true))
+        135:    b = _new_binding(ctx, nameref, name, kind; is_internal=true, kws...)
+        146:        ctx, nameref, name, :global; is_internal=true, mod=mod, kws...))
+
+        JuliaLowering/src/scope_analysis.jl
+        197:        if getmeta(ex, :is_internal, false)
+        198:            declare_in_scope!(ctx, scope, ex[1], var_k; is_internal=true)
+        443:                    if binfo.kind == :global || binfo.is_internal
+
+        JuliaLowering/src/desugaring.jl
+        2800:            push!(kw_val_stmts, @ast ctx n [K"local"(meta=CompileHints(:is_internal, true)) n])
+  references:
+    - "PR body notes that only keyword-function bindings remain internal after clarifying struct-local bindings can appear in user code."

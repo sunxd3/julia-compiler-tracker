@@ -1,0 +1,412 @@
+schema_version: "1.0"
+
+pr:
+  number: 59824
+  title: "force inline `pow_fast`"
+  url: "https://github.com/JuliaLang/julia/pull/59824"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59824.diff"
+  author: "KristofferC"
+  labels:
+    - "performance"
+    - "maths"
+  merged_at: "2025-10-13T14:58:07Z"
+  merge_commit_sha: "354c575fe5f3fdf0d669e942edeaa4e0278a234a"
+
+scope:
+  files_touched:
+    - "base/fastmath.jl"
+  components:
+    - "FastMath"
+    - "Base"
+  pipeline_stages:
+    - "Inlining"
+    - "Codegen"
+
+analysis:
+  intent:
+    summary: |
+      Fixes performance regression #59804 where @fastmath expressions involving integer
+      powers (e.g., x^2) became dramatically slower in Julia 1.12 compared to 1.11.
+      The regression was caused by PR #54512 which modified pow_fast to handle large
+      integer exponents but inadvertently prevented inlining, blocking LLVM's ability
+      to optimize constant powers to simple multiplications.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59804"
+      - "https://github.com/JuliaLang/julia/pull/54512"
+
+  direct_changes:
+    - summary: "Add @inline annotation to pow_fast(::Float64, ::Integer)"
+      component: "FastMath"
+      evidence:
+        - source: "diff"
+          path: "base/fastmath.jl"
+          loc: "300-303"
+          url: "https://github.com/JuliaLang/julia/blob/354c575fe5f3fdf0d669e942edeaa4e0278a234a/base/fastmath.jl#L300-L303"
+          snippet: |
+            @inline function pow_fast(x::Float64, y::Integer)
+                z = y % Int32
+                z == y ? pow_fast(x, z) : x^y
+            end
+          before: |
+            function pow_fast(x::Float64, y::Integer)
+                z = y % Int32
+                z == y ? pow_fast(x, z) : x^y
+            end
+          after: |
+            @inline function pow_fast(x::Float64, y::Integer)
+                z = y % Int32
+                z == y ? pow_fast(x, z) : x^y
+            end
+
+  secondary_effects:
+    - effect: "Restores LLVM powi intrinsic optimization for Float64 constant integer powers"
+      mechanism: |
+        Call chain for @fastmath x^2 with Float64 x (literal power):
+
+        1. @fastmath macro [fastmath.jl:105-110] transforms x^2 to:
+           Base.FastMath.pow_fast(x, Val(2))
+
+        2. For FloatTypes, line 306 takes precedence over line 307:
+           pow_fast(x::FloatTypes, ::Val{p}) where {p} = pow_fast(x, p)  [fastmath.jl:306]
+           This calls pow_fast(x::Float64, 2::Int)
+
+        3. pow_fast(x::Float64, y::Integer) [fastmath.jl:300-303] (NOW WITH @inline):
+           z = y % Int32       # z = Int32(2)
+           z == y ? pow_fast(x, z) : x^y   # calls pow_fast(x, Int32(2))
+
+        4. pow_fast(x::Float64, y::Int32) [fastmath.jl:305] calls LLVM intrinsic:
+           ccall("llvm.powi.f64.i32", llvmcall, Float64, (Float64, Int32), x, y)
+
+        5. LLVM sees llvm.powi.f64.i32 with constant exponent 2, applies strength reduction:
+           llvm.powi(x, 2) -> fmul x, x
+
+        For non-literal integer exponents (e.g., @fastmath x^n where n is a variable):
+
+        1. @fastmath macro [fastmath.jl:59] transforms x^n to:
+           Base.FastMath.pow_fast(x, n)
+
+        2. pow_fast(x::Float64, y::Integer) [fastmath.jl:300-303] checks range:
+           z = y % Int32
+           z == y ? pow_fast(x, z) : x^y
+
+        3. pow_fast(x::Float64, y::Int32) [fastmath.jl:305] calls LLVM intrinsic:
+           ccall("llvm.powi.f64.i32", llvmcall, Float64, (Float64, Int32), x, y)
+
+        Without @inline on the Integer dispatch, the compiler treats the function as
+        opaque and cannot see through to the llvm.powi intrinsic, preventing LLVM's
+        strength reduction optimizations.
+      downstream_surfaces:
+        - "Any @fastmath code using Float64 integer exponentiation (x^n)"
+        - "Scientific computing code relying on fast power operations"
+        - "Performance-sensitive numerical loops with Float64"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "Enables constant propagation through fastmath power operations"
+      mechanism: |
+        When the compiler can inline pow_fast(::Float64, ::Integer):
+
+        1. The modulo operation (y % Int32) is evaluated at compile time for constant y
+        2. The conditional (z == y) is resolved at compile time
+        3. The subsequent pow_fast(x, z::Int32) call is inlined
+        4. The llvm.powi intrinsic with constant exponent is optimized by LLVM
+        5. For small constants, LLVM reduces to simple multiplications
+
+        Example: @fastmath x^2 with Float64 x
+        Before fix: function call overhead (~7ns per call)
+        After fix: compiled to single fmul instruction (~1.5ns)
+      downstream_surfaces:
+        - "Type inference sees through the call chain"
+        - "LLVM optimization passes can apply strength reduction"
+      likelihood: "high"
+      impact: "high"
+
+    - effect: "INCOMPLETE FIX: Float32 and Float16 still had regression after this PR"
+      mechanism: |
+        This PR only fixed Float64. Float32 and Float16 still experienced the same
+        regression because their code paths differ:
+
+        Float32 path after this PR (STILL SLOW):
+        1. pow_fast(x::Float32, y::Integer) = x^y  [fastmath.jl:304]
+           This has NO @inline annotation and delegates to standard ^
+
+        2. ^(x::Float32, n::Integer) [special/pow.jl:79-88] uses:
+           pow_body(x, n) which calls power_by_squaring (generic loop, not LLVM intrinsic)
+
+        Float32 lacks the LLVM powi intrinsic optimization that Float64 has:
+        - Float64: pow_fast(x::Float64, y::Int32) = ccall("llvm.powi.f64.i32", ...)
+        - Float32: No equivalent llvm.powi.f32.i32 method existed
+
+        This was discovered in issue #60639 and fixed in PR #60640 which added:
+        - pow_fast(x::Float32, y::Int32) = ccall("llvm.powi.f32.i32", ...)
+        - pow_fast(x::Float16, y::Integer) using Float32 intermediate
+
+        Code generation comparison (post-PR 59824, pre-PR 60640):
+
+        Float64 @fastmath x^2:
+          fmul double  # <-- optimal, single instruction
+
+        Float32 @fastmath x^2:
+          fpext float to double           # <-- type promotion
+          call power_by_squaring          # <-- function call
+          fptrunc double to float         # <-- type truncation
+      downstream_surfaces:
+        - "Float32 @fastmath code (graphics, games, ML)"
+        - "Float16 @fastmath code (half-precision ML)"
+        - "Mixed-precision scientific computing"
+      likelihood: "high"
+      impact: "high"
+      related_pr: "https://github.com/JuliaLang/julia/pull/60640"
+      related_issue: "https://github.com/JuliaLang/julia/issues/60639"
+
+  compatibility:
+    internal_api: []
+    behavioral:
+      - impact: "No semantic change - only performance improvement"
+        affected: "@fastmath expressions with integer powers"
+        note: "Computed values are identical; only execution speed changes"
+
+  performance:
+    compile_time:
+      - impact: "Negligible increase"
+        detail: |
+          Additional inlining of small function (3 lines) into call sites.
+          ESTIMATED: <0.1% increase in compile time for affected code.
+    runtime:
+      - impact: "Major improvement for @fastmath power operations"
+        detail: |
+          MEASURED (from issue #59804):
+
+          Test function:
+            @fastmath function norm_me_fast(V)
+                return sqrt(V[1]^2 + V[2]^2 + V[3]^2)
+            end
+
+          Julia 1.11 (before regression): 1.500 ns
+          Julia 1.12 (with regression):   6.958 ns  (4.6x slower)
+          Julia 1.12 (with fix):          1.500 ns  (restored)
+
+          Loop test (1000 iterations):
+            @fastmath function norm_me_fast_ntimes(V, n)
+                y = 0.0
+                for i = 1:n
+                    y += norm_me_fast(V)
+                end
+                return y
+            end
+
+          Julia 1.11: 381 ns
+          Julia 1.12 (with regression): 8,181 ns  (21x slower)
+          Julia 1.12 (with fix): 381 ns  (restored)
+        benchmark_source: "https://github.com/JuliaLang/julia/issues/59804"
+
+  risk:
+    level: "low"
+    rationale:
+      - "Purely an inlining hint - no semantic changes to computation"
+      - "Restores behavior that existed in Julia 1.11"
+      - "The @inline annotation is a compiler hint, not a guarantee"
+      - "Other pow_fast methods already use @inline (e.g., fastmath.jl:307)"
+      - "No new code paths or logic changes"
+
+  downstream_impact:
+    packages:
+      - name: "StaticArrays.jl"
+        impact: "Performance improvement for @fastmath operations on Float64 static arrays"
+        action_required: false
+        note: "Float32 StaticArrays still affected until PR #60640"
+      - name: "ForwardDiff.jl"
+        impact: "Performance improvement for Float64 @fastmath power operations in differentiation"
+        action_required: false
+      - name: "DifferentialEquations.jl"
+        impact: "Performance improvement for Float64 @fastmath in ODE solvers"
+        action_required: false
+      - name: "Flux.jl / Lux.jl"
+        impact: "Float32-heavy ML code still slow after this PR"
+        action_required: false
+        note: "Requires PR #60640 for full benefit since ML often uses Float32"
+    surfaces:
+      - "@fastmath macro users (Float64 only after this PR)"
+      - "pow_fast function (internal API)"
+    notes: |
+      This fix only restores Float64 performance. Float32 and Float16 users still
+      experience the regression until PR #60640 is also applied. This is important
+      for ML workloads which commonly use Float32 for memory/performance tradeoffs.
+
+  open_questions:
+    - "Why was the Float32/Float16 case not addressed in this PR? Likely oversight given the different code paths."
+    - "Should pow_fast(x::FloatTypes, ::Val{p}) at line 306 also have @inline? Currently relies on being a trivial single-expression function."
+
+  recommendations:
+    - "No action required by downstream package maintainers for Float64 code"
+    - "Packages seeing unexplained slowdowns with @fastmath in Julia 1.12 before this fix should upgrade"
+    - "IMPORTANT: Users of Float32/Float16 with @fastmath should also apply PR #60640 or use Julia >= 1.12.x (where that fix is included)"
+    - "Consider similar @inline annotations for other performance-critical fastmath functions if similar regressions are discovered"
+    - "The disparity between Float64 (using llvm.powi) and Float32/Float16 (falling back to power_by_squaring) should have been noticed during this fix"
+
+  test_coverage:
+    existing_tests:
+      - path: "test/fastmath.jl"
+        loc: "227-229"
+        url: "https://github.com/JuliaLang/julia/blob/354c575fe5f3fdf0d669e942edeaa4e0278a234a/test/fastmath.jl#L227-L229"
+        snippet: |
+          @test @fastmath(third^3) ≈ third^3
+          @test @fastmath(chalf^3) ≈ chalf^3
+      - path: "test/fastmath.jl"
+        loc: "281"
+        url: "https://github.com/JuliaLang/julia/blob/354c575fe5f3fdf0d669e942edeaa4e0278a234a/test/fastmath.jl#L281"
+        snippet: |
+          @test @fastmath(2^-2) == @fastmath(2.0^-2) == 0.25
+      - path: "test/fastmath.jl"
+        loc: "287-295"
+        url: "https://github.com/JuliaLang/julia/blob/354c575fe5f3fdf0d669e942edeaa4e0278a234a/test/fastmath.jl#L287-L295"
+        snippet: |
+          @test @fastmath(2^-9223372036854775807) === 0.0
+          @test_throws DomainError @fastmath(2^-9223372036854775809)
+          @test @fastmath(1^-9223372036854775807) isa Float64
+          @test @fastmath(1^-9223372036854775809) isa Int
+    new_tests: []
+    notes: |
+      No new tests were added since the change only affects performance, not correctness.
+      Existing tests verify that @fastmath power operations produce correct results.
+      The regression was a performance issue, not a correctness issue.
+
+  code_context:
+    pow_fast_methods:
+      - signature: "@inline pow_fast(x::Float64, y::Integer)"
+        path: "base/fastmath.jl"
+        loc: "300-303"
+        purpose: "Dispatch for Float64 with any Integer exponent, converts to Int32 if possible"
+        url: "https://github.com/JuliaLang/julia/blob/354c575fe5f3fdf0d669e942edeaa4e0278a234a/base/fastmath.jl#L300-L303"
+        changed_by_pr: true
+        snippet: |
+          @inline function pow_fast(x::Float64, y::Integer)
+              z = y % Int32
+              z == y ? pow_fast(x, z) : x^y
+          end
+      - signature: "pow_fast(x::Float32, y::Integer)"
+        path: "base/fastmath.jl"
+        loc: "304"
+        purpose: "Float32 with Integer delegates to standard power (NO @inline, NO powi)"
+        url: "https://github.com/JuliaLang/julia/blob/354c575fe5f3fdf0d669e942edeaa4e0278a234a/base/fastmath.jl#L304"
+        changed_by_pr: false
+        note: "This method was NOT changed and remains slow - fixed in PR #60640"
+        snippet: |
+          pow_fast(x::Float32, y::Integer) = x^y
+      - signature: "pow_fast(x::Float64, y::Int32)"
+        path: "base/fastmath.jl"
+        loc: "305"
+        purpose: "Float64 with Int32 uses LLVM powi intrinsic"
+        url: "https://github.com/JuliaLang/julia/blob/354c575fe5f3fdf0d669e942edeaa4e0278a234a/base/fastmath.jl#L305"
+        changed_by_pr: false
+        note: "Key optimization method - Float32 lacked an equivalent until PR #60640"
+        snippet: |
+          pow_fast(x::Float64, y::Int32) = ccall("llvm.powi.f64.i32", llvmcall, Float64, (Float64, Int32), x, y)
+      - signature: "pow_fast(x::FloatTypes, ::Val{p})"
+        path: "base/fastmath.jl"
+        loc: "306"
+        purpose: "Val dispatch for literal powers on FloatTypes - delegates to integer dispatch"
+        url: "https://github.com/JuliaLang/julia/blob/354c575fe5f3fdf0d669e942edeaa4e0278a234a/base/fastmath.jl#L306"
+        changed_by_pr: false
+        note: "More specific than line 307 for FloatTypes, so takes precedence in dispatch"
+        snippet: |
+          pow_fast(x::FloatTypes, ::Val{p}) where {p} = pow_fast(x, p)
+      - signature: "@inline pow_fast(x, v::Val)"
+        path: "base/fastmath.jl"
+        loc: "307"
+        purpose: "Generic Val dispatch delegates to Base.literal_pow for non-FloatTypes"
+        url: "https://github.com/JuliaLang/julia/blob/354c575fe5f3fdf0d669e942edeaa4e0278a234a/base/fastmath.jl#L307"
+        changed_by_pr: false
+        snippet: |
+          @inline pow_fast(x, v::Val) = Base.literal_pow(^, x, v)
+
+    float32_fallback_path:
+      description: |
+        The Float32 path after this PR still fell back to power_by_squaring:
+
+        pow_fast(x::Float32, y::Integer) = x^y  [fastmath.jl:304]
+          -> ^(x::Float32, n::Integer)  [special/pow.jl:79-88]
+          -> pow_body(x, n)  [special/pow.jl:108-112]
+          -> power_by_squaring(widen(x), n)  [intfuncs.jl:364-407]
+
+        This path:
+        1. Widens Float32 to Float64 (type promotion overhead)
+        2. Uses generic loop-based power_by_squaring
+        3. Truncates result back to Float32
+        4. Cannot benefit from LLVM strength reduction
+      evidence:
+        - source: "code"
+          path: "base/special/pow.jl"
+          loc: "108-112"
+          url: "https://github.com/JuliaLang/julia/blob/354c575fe5f3fdf0d669e942edeaa4e0278a234a/base/special/pow.jl#L108-L112"
+          snippet: |
+            @inline function pow_body(x::Union{Float16, Float32}, n::Int32)
+                n == -2 && return (i=inv(x); i*i)
+                n == 3 && return x*x*x
+                n < 0 && return oftype(x, Base.power_by_squaring(inv(widen(x)), -n))
+                return oftype(x, Base.power_by_squaring(widen(x), n))
+            end
+
+classification:
+  type: "performance"
+  compiler_relevant: true
+  breaking_change: false
+  requires_downstream_action: false
+
+changelog:
+  category: "Performance"
+  entry: |
+    Fixed @fastmath performance regression for Float64 integer power operations (x^n).
+    The pow_fast(::Float64, ::Integer) function is now properly inlined, allowing
+    LLVM to optimize constant powers to simple multiplications. This restores
+    Julia 1.11 performance for Float64 @fastmath code using powers like x^2, x^3, etc.
+    Speedup: up to 21x for loop-intensive fastmath power operations.
+
+    NOTE: This fix is incomplete - Float32 and Float16 still have the regression.
+    See PR #60640 for the complete fix covering all float types.
+  downstream_impact: "Positive for Float64 users; Float32/Float16 still regressed"
+  action_required: "None for Float64 users; Float32/Float16 users need PR #60640"
+  related_prs:
+    - number: 60640
+      title: "Fix @fastmath x^2 inlining regression for Float32 and Float16"
+      url: "https://github.com/JuliaLang/julia/pull/60640"
+      relationship: "Follow-up fix for Float32/Float16"
+    - number: 54512
+      title: "Original PR that introduced the regression"
+      url: "https://github.com/JuliaLang/julia/pull/54512"
+      relationship: "Root cause of the regression"
+
+reviewer_notes:
+  reviewer: "Second analyst (independent review)"
+  date: "2026-01-22"
+  methodology: |
+    1. Cloned Julia repository and checked out merge commit 354c575fe5
+    2. Read full source context of base/fastmath.jl (lines 300-310)
+    3. Traced dispatch paths for Float64 vs Float32 pow_fast methods
+    4. Searched for all pow_fast callers using rg
+    5. Discovered follow-up PR #60640 from git log
+    6. Verified Float32 fallback path through special/pow.jl and intfuncs.jl
+  key_findings:
+    - finding: "Incomplete fix - Float32/Float16 regression persisted"
+      evidence: |
+        git log --oneline base/fastmath.jl shows PR #60640 merged after this PR
+        to fix Float32/Float16. The issue #60639 confirms the regression was
+        discovered in Float32 code after this PR was merged.
+    - finding: "Call chain correction for literal powers"
+      evidence: |
+        The original analysis stated pow_fast(x, v::Val) at line 307 handles
+        literal powers. However, for FloatTypes, line 306 has higher dispatch
+        precedence: pow_fast(x::FloatTypes, ::Val{p}) = pow_fast(x, p)
+    - finding: "Float32 lacks LLVM powi intrinsic"
+      evidence: |
+        rg "llvm.powi" base/fastmath.jl shows only Float64 has the intrinsic:
+        pow_fast(x::Float64, y::Int32) = ccall("llvm.powi.f64.i32", ...)
+        Float32 method (line 304) falls back to x^y -> power_by_squaring
+  enhancements_made:
+    - "Added secondary effect documenting incomplete fix for Float32/Float16"
+    - "Added references to follow-up PR #60640 and issue #60639"
+    - "Corrected call chain for literal powers (line 306 precedence)"
+    - "Added code_context.float32_fallback_path with traced evidence"
+    - "Updated downstream_impact to clarify Float64-only benefit"
+    - "Added open questions about why Float32 was missed"
+    - "Updated recommendations for Float32/Float16 users"

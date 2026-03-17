@@ -1,0 +1,243 @@
+schema_version: "1.0"
+pr:
+  number: 59802
+  title: "Add note about `@threads` threadpool"
+  url: "https://github.com/JuliaLang/julia/pull/59802"
+  author: "IanButterworth"
+  labels:
+    - "docs"
+    - "multithreading"
+    - "backport 1.10"
+  merged_at: "2025-10-11T11:02:25Z"
+  merge_commit_sha: "f35407f97528d2f61b4dcc8ff47a05b649504c0f"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59802.diff"
+scope:
+  files_touched:
+    - "base/threadingconstructs.jl"
+  components:
+    - "Base.Threads"
+    - "Documentation"
+  pipeline_stages:
+    - "None (documentation only)"
+analysis:
+  intent:
+    summary: "Document that `@threads` always schedules tasks on the `:default` threadpool, not the `:interactive` threadpool, even when called from the main thread or an interactive task. This addresses user confusion about threadpool behavior."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59798"
+  direct_changes:
+    - summary: "Added paragraph explaining @threads uses the :default threadpool exclusively"
+      component: "base/threadingconstructs.jl (@threads docstring)"
+      evidence:
+        - source: "code"
+          path: "base/threadingconstructs.jl"
+          loc: "290-293"
+          url: "https://github.com/JuliaLang/julia/blob/f35407f97528d2f61b4dcc8ff47a05b649504c0f/base/threadingconstructs.jl#L290-L293"
+          snippet: |
+            Tasks spawned by `@threads` are scheduled on the `:default` threadpool. This means that
+            `@threads` will not use threads from the `:interactive` threadpool, even if called from
+            the main thread or from a task in the interactive pool. The `:default` threadpool is
+            intended for compute-intensive parallel workloads.
+    - summary: "Added cross-reference to threadpools manual chapter"
+      component: "base/threadingconstructs.jl (@threads docstring)"
+      evidence:
+        - source: "code"
+          path: "base/threadingconstructs.jl"
+          loc: "295-297"
+          url: "https://github.com/JuliaLang/julia/blob/f35407f97528d2f61b4dcc8ff47a05b649504c0f/base/threadingconstructs.jl#L295-L297"
+          snippet: |
+            See also: [`@spawn`](@ref Threads.@spawn) and
+            `pmap` in [`Distributed`](@ref man-distributed).
+            For more information on threadpools, see the chapter on [threadpools](@ref man-threadpools).
+  secondary_effects:
+    - effect: "Users will understand that @threads only uses :default pool threads, clarifying behavior when mixing interactive and compute tasks"
+      mechanism: |
+        User reads @threads docstring via help system or documentation
+          -> Sees explicit statement about :default threadpool
+          -> Understands that interactive pool threads (e.g., main thread) won't participate
+          -> Can make informed decisions about thread allocation with -t flag
+        Call chain trace for all @threads scheduler modes:
+          :dynamic/:default -> _threadsfor() [line 200]
+            -> threading_run(threadsfor_fun, false) [line 213]
+            -> ccall(:jl_set_task_threadpoolid, ..., _sym_to_tpid(:default)) [line 184]
+          :static -> _threadsfor() [line 200]
+            -> threading_run(threadsfor_fun, true) [line 217]
+            -> ccall(:jl_set_task_tid, ..., tid_offset + i-1) [line 180]
+              where tid_offset = threadpoolsize(:interactive) [line 174]
+              (assigns to default pool threads by index offset)
+          :greedy -> greedy_func() [line 223]
+            -> Channel{...}(spawn=true) [line 225]
+            -> Channel constructor defaults threadpool=:default when spawn=true [channels.jl:143]
+      downstream_surfaces:
+        - "Documentation discovery"
+        - "User education on threadpool semantics"
+      likelihood: "high"
+      impact: "low"
+    - effect: "Clarifies main thread behavior - main thread is :interactive and will not participate in @threads work"
+      mechanism: |
+        From doc/src/manual/multi-threading.md (man-threadpools section):
+          "julia> threadpool() # the main thread is in the interactive thread pool
+           :interactive"
+        Combined with the new docstring text:
+          "@threads will not use threads from the :interactive threadpool,
+           even if called from the main thread"
+        Users starting Julia with e.g. `-t auto` or `-t 3,1` now understand:
+          -> Main thread (threadid 1) is in :interactive pool
+          -> @threads spawns work only to :default pool threads
+          -> Main thread will NOT participate in @threads loop iterations
+      downstream_surfaces:
+        - "User mental model of threading"
+        - "Thread configuration decisions"
+      likelihood: "high"
+      impact: "low"
+    - effect: "Backport to Julia 1.10 ensures consistent documentation across versions"
+      mechanism: |
+        PR labeled 'backport 1.10' indicates this documentation will be:
+          -> Backported to release-1.10 branch
+          -> Included in future 1.10.x patch releases
+          -> Available to users on LTS version
+      downstream_surfaces:
+        - "Documentation consistency"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral: []
+  performance:
+    compile_time: []
+    runtime: []
+  risk:
+    level: "low"
+    rationale:
+      - "Documentation-only change with no code modifications"
+      - "No semantic changes to any function behavior"
+      - "No changes to compiler, inference, or optimization"
+      - "Simply documents existing behavior (threading_run already hardcodes :default pool)"
+  open_questions: []
+  recommendations:
+    - "No action required for downstream packages - this is purely a documentation improvement"
+    - "Users who need tasks on the interactive pool should use @spawn :interactive instead of @threads"
+    - "When configuring Julia threads, note that @threads will never use -t auto:N interactive threads"
+code_verification:
+  implementation_confirms_docs: true
+  implementation_evidence:
+    - source: "code"
+      path: "base/threadingconstructs.jl"
+      loc: "171-198"
+      url: "https://github.com/JuliaLang/julia/blob/f35407f97528d2f61b4dcc8ff47a05b649504c0f/base/threadingconstructs.jl#L171-L198"
+      note: "threading_run function handles both :static and :dynamic/:default modes"
+      snippet: |
+        function threading_run(fun, static)
+            ccall(:jl_enter_threaded_region, Cvoid, ())
+            n = threadpoolsize()
+            tid_offset = threadpoolsize(:interactive)
+            tasks = Vector{Task}(undef, n)
+            for i = 1:n
+                t = Task(() -> fun(i)) # pass in tid
+                t.sticky = static
+                if static
+                    ccall(:jl_set_task_tid, Cint, (Any, Cint), t, tid_offset + i-1)
+                else
+                    # TODO: this should be the current pool (except interactive) if there
+                    # are ever more than two pools.
+                    _result = ccall(:jl_set_task_threadpoolid, Cint, (Any, Int8), t, _sym_to_tpid(:default))
+                    @assert _result == 1
+                end
+                tasks[i] = t
+                schedule(t)
+            end
+    - source: "code"
+      path: "base/threadingconstructs.jl"
+      loc: "223-237"
+      url: "https://github.com/JuliaLang/julia/blob/f35407f97528d2f61b4dcc8ff47a05b649504c0f/base/threadingconstructs.jl#L223-L237"
+      note: ":greedy scheduler uses Channel with spawn=true which defaults to :default threadpool"
+      snippet: |
+        function greedy_func(itr, lidx, lbody)
+            quote
+                let c = Channel{eltype($itr)}(threadpoolsize(), spawn=true) do ch
+                    for item in $itr
+                        put!(ch, item)
+                    end
+                end
+                function threadsfor_fun(tid)
+                    for item in c
+                        local $(esc(lidx)) = item
+                        $(esc(lbody))
+                    end
+                end
+                end
+            end
+        end
+    - source: "code"
+      path: "base/channels.jl"
+      loc: "139-157"
+      url: "https://github.com/JuliaLang/julia/blob/f35407f97528d2f61b4dcc8ff47a05b649504c0f/base/channels.jl#L139-L157"
+      note: "Channel constructor confirms spawn=true defaults to :default threadpool"
+      snippet: |
+        function Channel{T}(func::Function, size=0; taskref=nothing, spawn=false, threadpool=nothing) where T
+            chnl = Channel{T}(size)
+            task = Task(() -> func(chnl))
+            if threadpool === nothing
+                threadpool = :default
+            else
+                spawn = true
+            end
+            task.sticky = !spawn
+            bind(chnl, task)
+            if spawn
+                Threads._spawn_set_thrpool(task, threadpool)
+                schedule(task) # start it on (potentially) another thread
+            else
+                yield(task) # immediately start it, yielding the current thread
+            end
+            isa(taskref, Ref{Task}) && (taskref[] = task)
+            return chnl
+        end
+    - summary: |
+        All @threads scheduler modes consistently use the :default threadpool:
+        - :dynamic/:default: calls ccall(:jl_set_task_threadpoolid, ..., _sym_to_tpid(:default))
+        - :static: sets thread IDs starting at tid_offset (skipping interactive threads)
+        - :greedy: uses Channel(spawn=true) which defaults threadpool to :default
+        This confirms the documented behavior is accurate across all scheduling options.
+reviewer_notes:
+  independent_verification: true
+  verification_date: "2026-01-21"
+  verification_method: |
+    - Checked out merge commit f35407f97528d2f61b4dcc8ff47a05b649504c0f
+    - Read full base/threadingconstructs.jl (541 lines) to understand context
+    - Read base/channels.jl to trace :greedy scheduler behavior
+    - Verified linked issue #59798 to understand user confusion
+    - Cross-referenced doc/src/manual/multi-threading.md for threadpools documentation
+  original_analysis_quality: "high"
+  enhancements_made:
+    - "Added call chain traces for all three scheduler modes (:dynamic, :static, :greedy)"
+    - "Added evidence for :greedy scheduler using Channel(spawn=true) -> :default pool"
+    - "Added secondary effect about main thread being :interactive"
+    - "Expanded implementation evidence with Channel constructor code showing spawn=true default"
+  additional_findings:
+    - finding: "The :greedy scheduler path was not traced in the original analysis"
+      evidence: |
+        greedy_func() at line 223-237 creates a Channel with spawn=true:
+          Channel{eltype($itr)}(threadpoolsize(), spawn=true)
+        The Channel constructor (channels.jl:139-157) defaults to :default when spawn=true:
+          if threadpool === nothing
+              threadpool = :default
+    - finding: "The static scheduler assigns threads by index offset, not threadpool ID"
+      evidence: |
+        threading_run() at line 180 uses:
+          ccall(:jl_set_task_tid, Cint, (Any, Cint), t, tid_offset + i-1)
+        Where tid_offset = threadpoolsize(:interactive), effectively skipping
+        interactive threads and landing in the :default pool range.
+    - finding: "The main thread is documented as :interactive in manual"
+      evidence: |
+        doc/src/manual/multi-threading.md line 138-139:
+          julia> threadpool() # the main thread is in the interactive thread pool
+          :interactive
+        This clarifies why the documentation change is important: users calling
+        @threads from the main thread might expect the main thread to participate.
+  confidence: "high"
+  conclusion: |
+    This is a well-scoped documentation-only PR that accurately documents existing behavior.
+    The original analysis was thorough for a docs-only PR. My independent verification
+    confirmed all claims and added tracing for the :greedy scheduler path which was
+    not explicitly covered in the original analysis. No behavioral changes, no code
+    modifications - purely a documentation improvement with zero risk.

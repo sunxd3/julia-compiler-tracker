@@ -1,0 +1,548 @@
+schema_version: "1.0"
+pr:
+  number: 60400
+  title: "syntax-versioning: Define behavior in scripts and REPL"
+  url: "https://github.com/JuliaLang/julia/pull/60400"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60400.diff"
+  author: "Keno"
+  labels: []
+  merged_at: "2025-12-25T17:54:49Z"
+  merge_commit_sha: "f467548ad76163aa0c5aa25376fcd5918b4ac8ee"
+
+scope:
+  files_touched:
+    - "base/client.jl"
+    - "base/experimental.jl"
+    - "base/initdefs.jl"
+    - "base/loading.jl"
+    - "base/show.jl"
+    - "doc/src/manual/code-loading.md"
+    - "stdlib/REPL/src/REPL.jl"
+    - "stdlib/REPL/src/precompile.jl"
+    - "stdlib/REPL/test/repl.jl"
+    - "test/loading.jl"
+    - "test/testhelpers/print_syntax_version.jl"
+  components:
+    - "Base"
+    - "REPL"
+    - "Loading"
+  pipeline_stages:
+    - "Parsing"
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Defines syntax versioning behavior for scripts and REPL. When code is evaluated in Main
+      (via -e flag, script execution, or REPL), the syntax version is now determined from
+      the active project's Project.toml. Uses ScopedValue-based latching mechanism to read
+      the syntax version at startup and before each REPL prompt.
+
+      From the PR description: "This PR implements a ScopedValue-based latching mechanism that
+      reads the syntax version: 1) At startup, 2) For every REPL prompt. Ordinary ScopedValue
+      behavior determines what happens for e.g. tasks (i.e. a task started from one REPL prompt
+      will continue using that prompt's syntax version for e.g. include's), even if the active
+      project changes in the meanwhile."
+    issue_links: []
+
+  direct_changes:
+    - summary: "Add ScopedValue-based main_parser for Main module syntax versioning"
+      component: "base/client.jl"
+      evidence:
+        - source: "code"
+          path: "base/client.jl"
+          loc: "555-558"
+          url: "https://github.com/JuliaLang/julia/blob/f467548ad76163aa0c5aa25376fcd5918b4ac8ee/base/client.jl#L555-L558"
+          snippet: |
+            const main_parser = Base.ScopedValues.ScopedValue{Any}(Core._parse)
+            function _internal_julia_parse(args...)
+                main_parser[](args...)
+            end
+
+    - summary: "Latch syntax version at startup using ScopedValues.with"
+      component: "base/client.jl"
+      evidence:
+        - source: "code"
+          path: "base/client.jl"
+          loc: "575-585"
+          url: "https://github.com/JuliaLang/julia/blob/f467548ad76163aa0c5aa25376fcd5918b4ac8ee/base/client.jl#L575-L585"
+          snippet: |
+            function _start()
+                empty!(ARGS)
+                append!(ARGS, Core.ARGS)
+                # clear any postoutput hooks that were saved in the sysimage
+                empty!(Base.postoutput_hooks)
+                local ret = 0
+                # `--project` has been processed at this point - latch the active project's syntax
+                # version and use it for `-L`, `argfile`, etc. If launched, the REPL will re-evaluate
+                # at each prompt.
+                @Base.ScopedValues.with MainInclude.main_parser=>parser_for_active_project() try
+                    repl_was_requested = exec_options(JLOptions())
+
+    - summary: "Pass mod=Main when parsing -e and -E command line arguments"
+      component: "base/client.jl"
+      evidence:
+        - source: "code"
+          path: "base/client.jl"
+          loc: "308-313"
+          url: "https://github.com/JuliaLang/julia/blob/f467548ad76163aa0c5aa25376fcd5918b4ac8ee/base/client.jl#L308-L313"
+          snippet: |
+            for (cmd, arg) in cmds
+                if cmd == 'e'
+                    Core.eval(Main, parse_input_line(arg; mod=Main))
+                elseif cmd == 'E'
+                    invokelatest(show, Core.eval(Main, parse_input_line(arg; mod=Main)))
+                    println()
+
+    - summary: "Move VersionedParse from Experimental to Base.loading and add parser_for_active_project()"
+      component: "base/loading.jl"
+      evidence:
+        - source: "code"
+          path: "base/loading.jl"
+          loc: "991-1016"
+          url: "https://github.com/JuliaLang/julia/blob/f467548ad76163aa0c5aa25376fcd5918b4ac8ee/base/loading.jl#L991-L1016"
+          snippet: |
+            struct VersionedParse
+                ver::VersionNumber
+            end
+
+            function (vp::VersionedParse)(code, filename::String, lineno::Int, offset::Int, options::Symbol)
+                if !isdefined(Base, :JuliaSyntax)
+                    if vp.ver === VERSION
+                        return Core._parse
+                    end
+                    error("JuliaSyntax module is required for syntax version $(vp.ver), but it is not loaded.")
+                end
+                Base.JuliaSyntax.core_parser_hook(code, filename, lineno, offset, options; syntax_version=vp.ver)
+            end
+
+            function parser_for_active_project()
+                project = active_project()
+                sv = VERSION
+                if project !== nothing && isfile(project)
+                    try
+                        sv = project_get_syntax_version(parsed_toml(project))
+                    catch e
+                        @warn "Failed to read project $project - defaulting to latest syntax. err=$e"
+                    end
+                end
+                VersionedParse(sv)
+            end
+
+    - summary: "Add init_named_env! to auto-populate syntax version when creating new named environments"
+      component: "base/initdefs.jl"
+      evidence:
+        - source: "code"
+          path: "base/initdefs.jl"
+          loc: "274-285"
+          url: "https://github.com/JuliaLang/julia/blob/f467548ad76163aa0c5aa25376fcd5918b4ac8ee/base/initdefs.jl#L274-L285"
+          snippet: |
+            function init_named_env!(path)
+                try
+                    mkpath(dirname(path))
+                    open(path, "w") do io
+                        print(io, "syntax.julia_version = \"",VERSION,"\"")
+                    end
+                    return path
+                catch e
+                    @warn "Failed to initialize named environment at $path: $e"
+                    return nothing
+                end
+            end
+
+    - summary: "load_path_expand now calls init_named_env! for new named environments"
+      component: "base/initdefs.jl"
+      evidence:
+        - source: "code"
+          path: "base/initdefs.jl"
+          loc: "322-324"
+          url: "https://github.com/JuliaLang/julia/blob/f467548ad76163aa0c5aa25376fcd5918b4ac8ee/base/initdefs.jl#L322-L324"
+          snippet: |
+            isempty(DEPOT_PATH) && return nothing
+            new_named_env_path = abspath(DEPOT_PATH[1], "environments", name, project_names[end])
+            return init_named_env!(new_named_env_path)
+
+    - summary: "REPL re-latches syntax version at each prompt via parse_repl_input_line"
+      component: "stdlib/REPL/src/REPL.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/REPL.jl"
+          loc: "1124-1131"
+          url: "https://github.com/JuliaLang/julia/blob/f467548ad76163aa0c5aa25376fcd5918b4ac8ee/stdlib/REPL/src/REPL.jl#L1124-L1131"
+          snippet: |
+            function parse_repl_input_line(line::String, repl; kwargs...)
+                # N.B.: This re-latches the syntax version for `Main`. If `Base.active_module` is not `Main`,
+                # then this does not affect the parser used for that module. We could probably skip this step
+                # in that case, but let's just be consistent on the off chance that the active module tries
+                # to `include(Main, ...)` or similar.
+                @Base.ScopedValues.with Base.MainInclude.main_parser=>Base.parser_for_active_project() Base.parse_input_line(line;
+                    mod=Base.active_module(repl), kwargs...)
+            end
+
+    - summary: "Handle new 4-argument module expression form in show.jl"
+      component: "base/show.jl"
+      evidence:
+        - source: "code"
+          path: "base/show.jl"
+          loc: "2184-2191"
+          url: "https://github.com/JuliaLang/julia/blob/f467548ad76163aa0c5aa25376fcd5918b4ac8ee/base/show.jl#L2184-L2191"
+          snippet: |
+            elseif head === :module && nargs==4 && isa(args[1],VersionNumber) && isa(args[2],Bool)
+                # New 4-argument form: (version, baremodule_flag, name, body)
+                show_block(IOContext(io, beginsym=>false), args[2] ? :module : :baremodule, args[3], args[4], indent, quote_level)
+                print(io, "end")
+            elseif head === :module && nargs==3 && isa(args[1],Bool)
+                # Old 3-argument form: (baremodule_flag, name, body)
+                show_block(IOContext(io, beginsym=>false), args[1] ? :module : :baremodule, args[2], args[3], indent, quote_level)
+                print(io, "end")
+
+    - summary: "Add precompile hint for ScopedValue iteration (REPL performance)"
+      component: "stdlib/REPL/src/precompile.jl"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/precompile.jl"
+          loc: "206"
+          url: "https://github.com/JuliaLang/julia/blob/f467548ad76163aa0c5aa25376fcd5918b4ac8ee/stdlib/REPL/src/precompile.jl#L206"
+          snippet: |
+            precompile(Tuple{typeof(Base.HashArrayMappedTries.next), Base.HashArrayMappedTries.HashState{Base.ScopedValues.ScopedValue{Any}}})
+
+  secondary_effects:
+    - effect: "Tasks inherit parent's syntax version via ScopedValue semantics"
+      mechanism: |
+        ScopedValue automatically propagates to spawned tasks. When a task is started from a REPL prompt,
+        it inherits that prompt's syntax version for any `include` calls:
+
+        MainInclude.main_parser::ScopedValue{Any}  [client.jl:555]
+          -> @with main_parser=>parser_for_active_project()  [client.jl:584, REPL.jl:1129]
+          -> Task spawn inherits scoped value  [scopedvalues.jl:66 "Dynamic scopes are propagated across tasks"]
+          -> include() in task uses inherited parser via parser_for_module(Main) [meta.jl:308-312]
+            -> getglobal(Main, :_internal_julia_parse) [meta.jl:311]
+            -> MainInclude._internal_julia_parse -> main_parser[] [client.jl:556-558]
+      downstream_surfaces:
+        - "Concurrent include() operations in spawned tasks"
+        - "async/spawn blocks in REPL"
+        - "@async begin include(Main, ...) end"
+      likelihood: medium
+      impact: low
+
+    - effect: "set_active_project in script does NOT change syntax version"
+      mechanism: |
+        The syntax version is latched once at startup before exec_options runs:
+
+        _start()  [client.jl:575]
+          -> @with MainInclude.main_parser=>parser_for_active_project()  [client.jl:584]
+            -> exec_options()  [client.jl:585]
+              -> load_julia_startup()  [client.jl:294]
+                -> include(Main, startup.jl)  [client.jl:383-385]
+              -> include(Main, PROGRAM_FILE)  [client.jl:344]
+
+        Since the scoped value is already bound when the script runs, calling
+        Base.set_active_project() mid-script only affects the ACTIVE_PROJECT[] Ref,
+        not the scoped main_parser value.
+
+        This is explicitly documented in code-loading.md:
+        "In particular, a manual set_active_project in a script will not change the syntax
+        versioned used for the rest of the script."
+      downstream_surfaces:
+        - "Scripts that dynamically switch projects"
+        - "Build tools that change active project during execution"
+        - "Test harnesses that switch projects mid-run"
+      likelihood: medium
+      impact: medium
+
+    - effect: "New named environments are auto-initialized with current Julia's syntax version"
+      mechanism: |
+        load_path_expand()  [initdefs.jl:290]
+          checks if named env exists in DEPOT_PATH  [initdefs.jl:314-320]
+          if not found, creates new:  [initdefs.jl:322-324]
+            new_named_env_path = abspath(DEPOT_PATH[1], "environments", name, project_names[end])
+            -> init_named_env!(new_named_env_path)
+              -> writes "syntax.julia_version = \"VERSION\"" to Project.toml
+
+        From PR description: "This adjusts the creation of named environments to implicitly record
+        the syntax version of the julia process that created the named environment."
+      downstream_surfaces:
+        - "First-time Julia users getting @v1.x environment"
+        - "Named environments created via --project=@name"
+      likelihood: high
+      impact: low
+
+    - effect: "Parser resolution path change for Main module"
+      mechanism: |
+        Previously (before this PR):
+          parser_for_module(Main)  [meta.jl:308-312]
+            -> getglobal(Main, :_internal_julia_parse) OR Core._parse
+            -> Main did not define _internal_julia_parse, so Core._parse was used
+
+        Now for Main:
+          parser_for_module(Main)  [meta.jl:308-312]
+            -> isdefined(Main, :_internal_julia_parse) returns true (via MainInclude export)
+            -> getglobal(Main, :_internal_julia_parse)
+              -> MainInclude._internal_julia_parse  [client.jl:556-558]
+              -> main_parser[]  (reads ScopedValue)
+              -> returns VersionedParse from parser_for_active_project()
+
+        The _internal_julia_parse in MainInclude now delegates to a ScopedValue
+        rather than being a constant.
+      downstream_surfaces:
+        - "Meta.parse with mod=Main"
+        - "Meta.parseall with mod=Main"
+        - "eval(Main, parse(...))"
+        - "include(Main, ...)"
+        - "include_string(Main, ...)"
+      likelihood: high
+      impact: low
+
+    - effect: "Fallback REPL does NOT re-latch syntax version per prompt"
+      mechanism: |
+        The standard REPL uses parse_repl_input_line() which re-latches main_parser at each prompt.
+        However, the fallback REPL (run_fallback_repl) does NOT call parse_repl_input_line:
+
+        run_fallback_repl()  [client.jl:442-481]
+          -> parse_input_line(line; mod=Main)  [client.jl:446, 469]
+          -> Does NOT use @Base.ScopedValues.with
+
+        This means the fallback REPL will use the syntax version that was latched at startup
+        and will not pick up changes from set_active_project between prompts.
+
+        The fallback REPL is used when:
+        - JULIA_FALLBACK_REPL=true environment variable is set
+        - REPL stdlib fails to load [client.jl:525-532]
+      downstream_surfaces:
+        - "Julia sessions with JULIA_FALLBACK_REPL=true"
+        - "Degraded Julia sessions when REPL stdlib unavailable"
+      likelihood: low
+      impact: low
+
+    - effect: "active_module != Main edge case in REPL"
+      mechanism: |
+        The parse_repl_input_line function comment explicitly notes:
+
+        "N.B.: This re-latches the syntax version for `Main`. If `Base.active_module` is not `Main`,
+        then this does not affect the parser used for that module."
+
+        parse_repl_input_line()  [REPL.jl:1124-1131]
+          -> @with Base.MainInclude.main_parser=>...  # only affects Main
+          -> Base.parse_input_line(line; mod=Base.active_module(repl))  # uses active module
+
+        If a user has called REPL.activate(SomeModule), then:
+        - The ScopedValue is still set for Main's parser
+        - But parse_input_line uses mod=SomeModule
+        - SomeModule's parser is looked up via parser_for_module(SomeModule)
+        - This bypasses the main_parser ScopedValue entirely
+      downstream_surfaces:
+        - "REPL sessions with non-Main active module via REPL.activate()"
+        - "Custom REPL modes that change active_module"
+      likelihood: low
+      impact: low
+
+    - effect: "Startup files inherit latched syntax version"
+      mechanism: |
+        The startup files (~/.julia/config/startup.jl) are loaded INSIDE the ScopedValue scope:
+
+        _start()  [client.jl:575]
+          -> @with MainInclude.main_parser=>parser_for_active_project()  [client.jl:584]
+            -> exec_options()  [client.jl:585]
+              -> load_julia_startup()  [client.jl:294]
+                -> include(Main, global_file)  [client.jl:383]
+                -> include(Main, local_file)  [client.jl:385]
+
+        This means startup files use the syntax version from --project, not the default.
+      downstream_surfaces:
+        - "User startup.jl files"
+        - "Global startup.jl in SYSCONFDIR"
+      likelihood: medium
+      impact: low
+
+  compatibility:
+    internal_api:
+      - field: "Base.MainInclude.main_parser"
+        change: "New exported ScopedValue{Any} that controls Main module's parser"
+        affected_tools:
+          - tool: "REPL frontends"
+            usage: "Should use @Base.ScopedValues.with to set syntax version before parsing"
+          - tool: "IDE language servers (VS Code Julia, etc.)"
+            usage: "May need to set main_parser when evaluating in Main context"
+          - tool: "Jupyter IJulia kernel"
+            usage: "Should follow parse_repl_input_line pattern for per-cell syntax versioning"
+
+      - field: "Base.MainInclude._internal_julia_parse"
+        change: "Now delegates to ScopedValue instead of being a static binding"
+        affected_tools:
+          - tool: "Custom REPLs"
+            usage: "Can rely on the ScopedValue mechanism or override directly"
+          - tool: "Tools that monkey-patch _internal_julia_parse"
+            usage: "Will need to account for ScopedValue semantics"
+
+      - field: "Base.VersionedParse"
+        change: "Moved from Base.Experimental to Base module (base/loading.jl:991)"
+        affected_tools:
+          - tool: "Experimental.set_syntax_version"
+            usage: "Now uses Base.VersionedParse(ver) instead of local VersionedParse"
+          - tool: "Direct VersionedParse users"
+            usage: "Import path changed from Base.Experimental.VersionedParse to Base.VersionedParse"
+
+      - field: "Base.parser_for_active_project()"
+        change: "New public function that returns a VersionedParse for active project"
+        affected_tools:
+          - tool: "Any frontend wanting to match Julia's project-based syntax versioning"
+            usage: "Call parser_for_active_project() to get appropriate parser"
+
+      - field: "Base.init_named_env!(path)"
+        change: "New function that creates a Project.toml with syntax.julia_version"
+        affected_tools:
+          - tool: "Pkg.jl environment management"
+            usage: "May want to use this when creating new environments"
+
+    behavioral:
+      - change: |
+          Scripts and -e/-E commands now respect active project's syntax.julia_version.
+          Previously, Main always used the current Julia version's syntax.
+        surfaces:
+          - "julia -e 'code' --project=@some-project"
+          - "julia script.jl --project=@old-version"
+          - "julia -L preload.jl script.jl --project=..."
+        migration: |
+          If scripts rely on latest syntax but run with an older project,
+          either update the project's syntax.julia_version or use
+          Experimental.@set_syntax_version in the script.
+
+      - change: |
+          New named environments (e.g., @v1.14) are auto-initialized with a
+          Project.toml containing syntax.julia_version set to the current VERSION.
+        surfaces:
+          - "julia --project=@v1.14 (first time on new Julia version)"
+          - "julia --project=@custom-name"
+        migration: |
+          No migration needed. This is additive behavior that ensures new environments
+          have an explicit syntax version rather than defaulting to current.
+
+  performance:
+    compile_time:
+      - impact: |
+          O(1) TOML read per REPL prompt or startup to determine syntax version.
+          Uses cached parsed_toml() so repeated reads are fast.
+          ESTIMATED: <1ms overhead per prompt in typical usage.
+    runtime:
+      - impact: |
+          ScopedValue lookup adds minimal overhead to parsing.
+          main_parser[] lookup is O(1) hash table access via Core.current_scope().
+          ESTIMATED: negligible impact on execution time.
+
+          A precompile hint was added for ScopedValue iteration:
+          precompile(Tuple{typeof(Base.HashArrayMappedTries.next),
+                          Base.HashArrayMappedTries.HashState{Base.ScopedValues.ScopedValue{Any}}})
+          This ensures first REPL prompt is fast.
+
+  risk:
+    level: low
+    rationale:
+      - "Semantic change is intentional and documented in code-loading.md"
+      - "Backward compatible for users who don't use syntax.julia_version"
+      - "Existing package loading mechanism unchanged"
+      - "Tests verify both -e and script modes respect project syntax version"
+      - "REPL test confirms dynamic switching works correctly"
+      - "Fallback REPL edge case has low impact (rarely used)"
+
+  test_coverage:
+    - description: "REPL syntax version switching"
+      path: "stdlib/REPL/test/repl.jl"
+      loc: "2043-2094"
+      behavior: |
+        Creates two projects with syntax.julia_version = "1.13" and "1.14".
+        Verifies REPL picks up 1.13 initially, then after set_active_project,
+        the next prompt uses 1.14. Uses (Base.Experimental.@VERSION).syntax to check.
+      snippet: |
+        @testset "REPL syntax version switching" begin
+            mktempdir() do tmpdir
+                proj1 = joinpath(tmpdir, "proj1")
+                proj2 = joinpath(tmpdir, "proj2")
+                mkpath(proj1)
+                mkpath(proj2)
+                write(joinpath(proj1, "Project.toml"), "syntax.julia_version = \"1.13\"\n")
+                write(joinpath(proj2, "Project.toml"), "syntax.julia_version = \"1.14\"\n")
+                found_113 = found_114 = false
+
+                old_active_project = Base.ACTIVE_PROJECT[]
+                try
+                    Base.set_active_project(joinpath(proj1, "Project.toml"))
+                    fake_repl() do stdin_write, stdout_read, repl
+                        # ... tests check v"1.13" then switch and check v"1.14"
+                    end
+                finally
+                    Base.set_active_project(old_active_project)
+                end
+                @test found_113
+                @test found_114
+            end
+        end
+
+    - description: "Command-line (-e) syntax version"
+      path: "test/loading.jl"
+      loc: "1921-1922"
+      behavior: |
+        Tests that -e execution respects the --project's syntax version by spawning
+        separate Julia processes with different projects.
+      snippet: |
+        @test parse(VersionNumber, read(`$(Base.julia_cmd()) --project=$(joinpath(explicit_env, "VersionedDep1")) -e 'print((Base.Experimental.@VERSION).syntax)'`, String)) == v"1.13"
+        @test parse(VersionNumber, read(`$(Base.julia_cmd()) --project=$(joinpath(explicit_env, "VersionedDep2")) -e 'print((Base.Experimental.@VERSION).syntax)'`, String)) == v"1.14"
+
+    - description: "Script syntax version"
+      path: "test/loading.jl"
+      loc: "1924-1926"
+      behavior: |
+        Tests that script execution respects the --project's syntax version by running
+        a helper script (print_syntax_version.jl) with different projects.
+      snippet: |
+        syntax_version_script = joinpath(@__DIR__, "testhelpers", "print_syntax_version.jl")
+        @test parse(VersionNumber, read(`$(Base.julia_cmd()) --project=$(joinpath(explicit_env, "VersionedDep1")) $syntax_version_script`, String)) == v"1.13"
+        @test parse(VersionNumber, read(`$(Base.julia_cmd()) --project=$(joinpath(explicit_env, "VersionedDep2")) $syntax_version_script`, String)) == v"1.14"
+
+    - description: "Test helper script"
+      path: "test/testhelpers/print_syntax_version.jl"
+      loc: "1"
+      behavior: "Simple script that prints the current syntax version"
+      snippet: |
+        print((Base.Experimental.@VERSION).syntax)
+
+  test_coverage_gaps:
+    - description: "Fallback REPL syntax version behavior"
+      missing: |
+        No tests verify the fallback REPL (run_fallback_repl) behavior with syntax versioning.
+        The fallback REPL does not re-latch syntax version per prompt, but this is not tested.
+    - description: "Task inheritance of syntax version"
+      missing: |
+        No tests verify that spawned tasks inherit the parent's syntax version via ScopedValue.
+        The mechanism relies on ScopedValue's documented task propagation behavior.
+    - description: "Startup file syntax version"
+      missing: |
+        No tests verify that startup.jl files use the latched syntax version from --project.
+
+  open_questions:
+    - "Should versioned environments like @v1.13 auto-set syntax.julia_version=1.13?"
+    - "Should set_active_project trigger re-latching of syntax version in running script?"
+    - "Should the fallback REPL also re-latch syntax version per prompt for consistency?"
+
+  recommendations:
+    - "Custom REPL frontends should follow the parse_repl_input_line pattern using @Base.ScopedValues.with"
+    - "Build tools calling eval in Main should consider using @with main_parser=>parser_for_active_project()"
+    - "Projects that want latest syntax should explicitly set syntax.julia_version = current Julia version"
+    - "IDE language servers should check parser_for_active_project() when evaluating in Main context"
+    - "If testing syntax versioning, ensure tests run in separate Julia processes (as the test suite does)"
+
+  reviewer_notes: |
+    Independent analysis verified all claims against actual source code at merge commit f467548ad7.
+
+    Key findings from second review:
+    1. All line numbers and code snippets verified as accurate
+    2. The merge_commit_sha was incomplete (now full SHA: f467548ad76163aa0c5aa25376fcd5918b4ac8ee)
+    3. Added secondary effect: Fallback REPL does not re-latch per prompt (edge case)
+    4. Added secondary effect: active_module != Main edge case explicitly noted in code comment
+    5. Added secondary effect: Startup files inherit latched syntax version
+    6. Added direct change: precompile hint for ScopedValue iteration
+    7. Added test coverage gaps section identifying untested scenarios
+    8. Enhanced mechanism traces with more complete call chains and file:line references
+    9. Expanded compatibility section with more specific tool impacts
+
+    The PR is well-implemented with clear intent, good test coverage for main paths,
+    and explicit documentation of edge cases in code comments.

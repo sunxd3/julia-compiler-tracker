@@ -1,0 +1,536 @@
+schema_version: "1.0"
+
+pr:
+  number: 59035
+  title: "Add --target-sanitize=(memory|thread|address)"
+  url: "https://github.com/JuliaLang/julia/pull/59035"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59035.diff"
+  author: "xal-0"
+  labels:
+    - "building"
+  merged_at: "2025-11-10T19:58:54Z"
+  merge_commit_sha: "9a186c2e58745e49cbba8b44f5e3995f894ab062"
+
+scope:
+  files_touched:
+    - "base/options.jl"
+    - "base/reflection.jl"
+    - "src/aotcompile.cpp"
+    - "src/codegen.cpp"
+    - "src/init.c"
+    - "src/jitlayers.cpp"
+    - "src/jitlayers.h"
+    - "src/jloptions.c"
+    - "src/jloptions.h"
+    - "src/julia.h"
+    - "src/pipeline.cpp"
+  components:
+    - "Codegen"
+    - "BuildSystem"
+    - "Runtime"
+  pipeline_stages:
+    - "Codegen"
+    - "Optimization"
+
+analysis:
+  intent:
+    summary: |
+      Adds hidden command-line options `--target-sanitize=(memory|thread|address)` to enable
+      LLVM sanitizer instrumentation passes for ahead-of-time (AOT) compiled code without
+      requiring the entire Julia runtime to be built with sanitizers. In conjunction with
+      PR #59033, this allows building a ThreadSanitizer-enabled Julia in minutes rather than hours.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/pull/59033"
+
+  direct_changes:
+    - summary: "Add --target-sanitize CLI option for AOT code generation"
+      component: "jloptions"
+      evidence:
+        - source: "code"
+          path: "src/jloptions.h"
+          loc: "77-79"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/src/jloptions.h#L77-L79"
+          snippet: |
+            int8_t target_sanitize_memory;
+            int8_t target_sanitize_thread;
+            int8_t target_sanitize_address;
+        - source: "code"
+          path: "src/jloptions.c"
+          loc: "1110-1118"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/src/jloptions.c#L1110-L1118"
+          snippet: |
+            case opt_target_sanitize:
+                if (!strcmp(optarg, "memory"))
+                    jl_options.target_sanitize_memory = 1;
+                else if (!strcmp(optarg, "thread"))
+                    jl_options.target_sanitize_thread = 1;
+                else if (!strcmp(optarg, "address"))
+                    jl_options.target_sanitize_address = 1;
+                else
+                    jl_errorf("julia: invalid argument to --target-sanitize={memory|thread|address} (%s)", optarg);
+                break;
+
+    - summary: "Extend jl_cgparams_t struct with sanitizer flags"
+      component: "CodegenParams"
+      evidence:
+        - source: "code"
+          path: "src/julia.h"
+          loc: "2662-2666"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/src/julia.h#L2662-L2666"
+          snippet: |
+            // These options control the sanitizer passes and are used to AOT compile instrumented sysimages
+            int sanitize_memory;
+            int sanitize_thread;
+            int sanitize_address;
+        - source: "code"
+          path: "base/reflection.jl"
+          loc: "173-199"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/base/reflection.jl#L173-L199"
+          snippet: |
+            """
+            When enabled, run the MemorySanitizer pass.
+            """
+            sanitize_memory::Cint
+            """
+            When enabled, run the ThreadSanitizer pass.
+            """
+            sanitize_thread::Cint
+            """
+            When enabled, run the AddressSanitizer pass.
+            """
+            sanitize_address::Cint
+
+            function CodegenParams(; track_allocations::Bool=true, code_coverage::Bool=true,
+                           prefer_specsig::Bool=false,
+                           gnu_pubnames::Bool=true, debug_info_kind::Cint = default_debug_info_kind(),
+                           debug_info_level::Cint = Cint(JLOptions().debug_level), safepoint_on_entry::Bool=true,
+                           gcstack_arg::Bool=true, use_jlplt::Bool=true, force_emit_all::Bool=false,
+                           sanitize_memory::Bool=false, sanitize_thread::Bool=false, sanitize_address::Bool=false)
+                return new(
+                    Cint(track_allocations), Cint(code_coverage),
+                    Cint(prefer_specsig),
+                    Cint(gnu_pubnames), debug_info_kind,
+                    debug_info_level, Cint(safepoint_on_entry),
+                    Cint(gcstack_arg), Cint(use_jlplt), Cint(force_emit_all),
+                    Cint(sanitize_memory), Cint(sanitize_thread), Cint(sanitize_address))
+            end
+
+    - summary: "Extend OptimizationOptions with sanitizer flags for LLVM pass pipeline"
+      component: "NewPM"
+      evidence:
+        - source: "code"
+          path: "src/jitlayers.h"
+          loc: "87-89"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/src/jitlayers.h#L87-L89"
+          snippet: |
+            bool sanitize_memory;
+            bool sanitize_thread;
+            bool sanitize_address;
+        - source: "code"
+          path: "src/jitlayers.h"
+          loc: "105-127"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/src/jitlayers.h#L105-L127"
+          snippet: |
+            #ifdef _COMPILER_MSAN_ENABLED_
+                    bool sanitize_memory=true,
+            #else
+                    bool sanitize_memory=false,
+            #endif
+            #ifdef _COMPILER_TSAN_ENABLED_
+                    bool sanitize_thread=true,
+            #else
+                    bool sanitize_thread=false,
+            #endif
+            #ifdef _COMPILER_ASAN_ENABLED_
+                    bool sanitize_address=true
+            #else
+                    bool sanitize_address=false
+            #endif
+            ) JL_NOTSAFEPOINT {
+                    return {lower_intrinsics, dump_native, external_use, llvm_only,
+                            always_inline, enable_early_simplifications,
+                            enable_early_optimizations, enable_scalar_optimizations,
+                            enable_loop_optimizations, enable_vector_pipeline,
+                            remove_ni, cleanup, warn_missed_transformations,
+                            sanitize_memory, sanitize_thread, sanitize_address};
+                }
+
+    - summary: "Change jl_init_function signature from Triple to jl_codegen_params_t"
+      component: "Codegen"
+      evidence:
+        - source: "code"
+          path: "src/jitlayers.h"
+          loc: "353"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/src/jitlayers.h#L353"
+          snippet: |
+            void jl_init_function(Function *F, const jl_codegen_params_t &params) JL_NOTSAFEPOINT;
+        - source: "code"
+          path: "src/codegen.cpp"
+          loc: "3029-3057"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/src/codegen.cpp#L3029-L3057"
+          snippet: |
+            void jl_init_function(Function *F, const jl_codegen_params_t &params) JL_NOTSAFEPOINT
+            {
+                auto &TT = params.TargetTriple;
+                // set any attributes that *must* be set on all functions
+                AttrBuilder attr(F->getContext());
+                if (TT.isOSWindows() && TT.getArch() == Triple::x86) {
+                    attr.addStackAlignmentAttr(16);
+                }
+                if (TT.isOSWindows() && TT.getArch() == Triple::x86_64) {
+                    attr.addUWTableAttr(llvm::UWTableKind::Default);
+                }
+                attr.addAttribute("frame-pointer", "all");
+                if (!TT.isOSWindows() && !JL_FEAT_TEST(params, sanitize_address)) {
+                    attr.addAttribute("probe-stack", "inline-asm");
+                }
+                if (JL_FEAT_TEST(params, sanitize_address))
+                    attr.addAttribute(Attribute::SanitizeAddress);
+                if (JL_FEAT_TEST(params, sanitize_memory))
+                    attr.addAttribute(Attribute::SanitizeMemory);
+                F->addFnAttrs(attr);
+            }
+        - source: "code"
+          path: "src/cgutils.cpp"
+          loc: "144"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/src/cgutils.cpp#L144"
+          snippet: |
+            #define JL_FEAT_TEST(ctx, feature) ((ctx).params->feature)
+
+    - summary: "Refactor addSanitizerPasses to use runtime options instead of compile-time macros"
+      component: "pipeline"
+      evidence:
+        - source: "code"
+          path: "src/pipeline.cpp"
+          loc: "99-165"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/src/pipeline.cpp#L99-L165"
+          snippet: |
+            static void addSanitizerPasses(ModulePassManager &MPM, OptimizationLevel O, const OptimizationOptions &options) JL_NOTSAFEPOINT {
+                if (options.sanitize_memory) {
+                    auto MSanPass = [&](bool CompileKernel) JL_NOTSAFEPOINT {
+                        MemorySanitizerOptions options;
+                        MPM.addPass(MemorySanitizerPass(options));
+                        FunctionPassManager FPM;
+                        if (O != OptimizationLevel::O0) {
+                            FPM.addPass(EarlyCSEPass());
+                        }
+                        MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
+                    };
+                    MSanPass(false);
+                }
+
+                if (options.sanitize_thread) {
+                    MPM.addPass(ModuleThreadSanitizerPass());
+                    MPM.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
+                }
+
+                if (options.sanitize_address) {
+                    auto ASanPass = [&](bool CompileKernel) JL_NOTSAFEPOINT {
+                        MPM.addPass(AddressSanitizerPass(AddressSanitizerOptions(), true, false));
+                    };
+                    ASanPass(false);
+                }
+            }
+
+    - summary: "Wire sanitizer options through AOT compilation path"
+      component: "aotcompile"
+      evidence:
+        - source: "code"
+          path: "src/aotcompile.cpp"
+          loc: "806-809"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/src/aotcompile.cpp#L806-L809"
+          snippet: |
+            jl_cgparams_t target_cgparams = *cgparams;
+            target_cgparams.sanitize_memory = jl_options.target_sanitize_memory;
+            target_cgparams.sanitize_thread = jl_options.target_sanitize_thread;
+            target_cgparams.sanitize_address = jl_options.target_sanitize_address;
+        - source: "code"
+          path: "src/aotcompile.cpp"
+          loc: "1609-1613"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/src/aotcompile.cpp#L1609-L1613"
+          snippet: |
+            auto options = OptimizationOptions::defaults(true, true);
+            options.sanitize_memory = jl_options.target_sanitize_memory;
+            options.sanitize_thread = jl_options.target_sanitize_thread;
+            options.sanitize_address = jl_options.target_sanitize_address;
+            NewPM optimizer{std::move(PMTM), getOptLevel(jl_options.opt_level), options};
+
+    - summary: "Add sanitizer options to parseJuliaPipelineOptions for LLVM pass pipeline control"
+      component: "pipeline"
+      evidence:
+        - source: "code"
+          path: "src/pipeline.cpp"
+          loc: "810-873"
+          url: "https://github.com/JuliaLang/julia/blob/9a186c2e58745e49cbba8b44f5e3995f894ab062/src/pipeline.cpp#L810-L873"
+          snippet: |
+            static std::optional<std::pair<OptimizationLevel, OptimizationOptions>> parseJuliaPipelineOptions(StringRef name) {
+                if (name.consume_front("julia")) {
+                    auto O = OptimizationLevel::O2;
+                    auto options = OptimizationOptions::defaults();
+                    if (!name.empty() && (!name.consume_front("<") || !name.consume_back(">"))) {
+                        assert(false && "Expected pass options to be enclosed in <>!");
+                    }
+                    std::map<StringRef, bool*> option_pointers = {
+            #define OPTION(name) {#name, &options.name}
+                        OPTION(lower_intrinsics),
+                        OPTION(dump_native),
+                        OPTION(external_use),
+                        OPTION(llvm_only),
+                        OPTION(always_inline),
+                        OPTION(enable_early_simplifications),
+                        OPTION(enable_early_optimizations),
+                        OPTION(enable_scalar_optimizations),
+                        OPTION(enable_loop_optimizations),
+                        OPTION(enable_vector_pipeline),
+                        OPTION(remove_ni),
+                        OPTION(cleanup),
+                        OPTION(warn_missed_transformations),
+                        OPTION(sanitize_memory),
+                        OPTION(sanitize_thread),
+                        OPTION(sanitize_address),
+            #undef OPTION
+                    };
+
+  secondary_effects:
+    - effect: "JIT code instrumentation controlled separately from AOT"
+      mechanism: |
+        JIT code uses OptimizationOptions::defaults() which derives sanitizer flags from
+        compile-time macros (_COMPILER_MSAN_ENABLED_, _COMPILER_TSAN_ENABLED_, _COMPILER_ASAN_ENABLED_).
+        AOT code can override these via command-line flags.
+
+        Call chain:
+          jl_emit_native_impl() [aotcompile.cpp:804]
+            -> creates target_cgparams with jl_options.target_sanitize_* flags
+          add_output_impl() [aotcompile.cpp:1609]
+            -> OptimizationOptions::defaults() then overrides with jl_options.target_sanitize_*
+            -> NewPM constructor stores options
+          buildCleanupPipeline() [pipeline.cpp:607]
+            -> addSanitizerPasses(MPM, O, options)
+            -> conditionally adds MSan/TSan/ASan passes based on options
+      downstream_surfaces:
+        - "System image compilation"
+        - "PackageCompiler.jl"
+        - "StaticCompiler.jl"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "LLVM function attributes set based on sanitizer options"
+      mechanism: |
+        jl_init_function() now reads sanitizer flags from jl_codegen_params_t::params
+        and sets LLVM function attributes accordingly:
+
+        jl_init_function(F, params) [codegen.cpp:3029]
+          -> JL_FEAT_TEST(params, sanitize_address) expands to params.params->sanitize_address
+          -> if true: adds Attribute::SanitizeAddress to function
+          -> if true: skips "probe-stack" attribute (conflicts with ASAN)
+          -> JL_FEAT_TEST(params, sanitize_memory) -> Attribute::SanitizeMemory
+
+        This ensures all generated functions are properly marked for sanitizer instrumentation.
+
+        All 15+ call sites updated including:
+          - get_oc_function [codegen.cpp:6568] - OpaqueClosure generation
+          - emit_modifyhelper [codegen.cpp:7090] - atomic modify helpers
+          - emit_tojlinvoke [codegen.cpp:7153] - invoke wrappers
+          - gen_cfun_wrapper [codegen.cpp:7654] - C function wrappers
+          - gen_invoke_wrapper [codegen.cpp:8136] - invoke wrappers
+          - jl_analyze_workqueue [jitlayers.cpp:488] - JIT work queue
+      downstream_surfaces:
+        - "All LLVM function generation"
+        - "Opaque closures"
+        - "Generated functions"
+        - "C wrappers"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "JLOptions struct layout change affects FFI"
+      mechanism: |
+        New fields added to jl_options_t (jloptions.h:77-79):
+          int8_t target_sanitize_memory;
+          int8_t target_sanitize_thread;
+          int8_t target_sanitize_address;
+
+        Corresponding Julia struct JLOptions (base/options.jl:70-72) updated.
+        Any code accessing JLOptions via FFI must account for new layout.
+      downstream_surfaces:
+        - "FFI code reading JLOptions"
+        - "Embedding API users"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "code_native and code_llvm respect sanitizer options via CodegenParams"
+      mechanism: |
+        jl_get_llvmf_defn_impl() [aotcompile.cpp:2634-2638] propagates sanitizer options:
+
+          auto opts = OptimizationOptions::defaults();
+          opts.sanitize_memory = params.sanitize_memory;
+          opts.sanitize_thread = params.sanitize_thread;
+          opts.sanitize_address = params.sanitize_address;
+          NewPM PM{jl_ExecutionEngine->cloneTargetMachine(), getOptLevel(jl_options.opt_level), opts};
+
+        This means @code_native and @code_llvm will apply sanitizer passes when
+        called with CodegenParams that have sanitizer flags enabled.
+      downstream_surfaces:
+        - "@code_native output"
+        - "@code_llvm output"
+        - "Debugging and inspection tools"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "LLVM pass pipeline options now include sanitizer controls"
+      mechanism: |
+        parseJuliaPipelineOptions() [pipeline.cpp:817-835] registers sanitizer options:
+
+          std::map<StringRef, bool*> option_pointers = {
+              OPTION(sanitize_memory),
+              OPTION(sanitize_thread),
+              OPTION(sanitize_address),
+          };
+
+        This allows passing sanitizer options via LLVM pass pipeline strings:
+          julia<sanitize_thread>      - enable thread sanitizer
+          julia<no_sanitize_memory>   - disable memory sanitizer
+          julia<level=3;sanitize_address> - O3 with address sanitizer
+      downstream_surfaces:
+        - "Custom LLVM pass pipelines"
+        - "Advanced compiler tooling"
+      likelihood: "low"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "jl_init_function signature"
+        change: "Changed from (Function*, const Triple&) to (Function*, const jl_codegen_params_t&)"
+        affected_tools:
+          - tool: "Internal codegen callers"
+            usage: "All 15+ call sites in codegen.cpp, jitlayers.cpp, aotcompile.cpp updated"
+      - field: "jl_cgparams_t struct"
+        change: "Added sanitize_memory, sanitize_thread, sanitize_address int fields"
+        affected_tools:
+          - tool: "PackageCompiler.jl"
+            usage: "May construct CodegenParams; new fields have sensible defaults (false)"
+          - tool: "Custom embedding"
+            usage: "Users who construct jl_cgparams_t directly may need to initialize new fields"
+          - tool: "GPUCompiler.jl"
+            usage: "May use CodegenParams for GPU code generation; new fields default to false"
+      - field: "OptimizationOptions struct"
+        change: "Added sanitize_memory, sanitize_thread, sanitize_address bool fields"
+        affected_tools:
+          - tool: "LLVM pass pipeline customization"
+            usage: "Internal; defaults use compile-time detection"
+      - field: "JLOptions/jl_options_t struct"
+        change: "Added target_sanitize_memory, target_sanitize_thread, target_sanitize_address int8_t fields"
+        affected_tools:
+          - tool: "FFI code reading options"
+            usage: "Struct layout changed; must be recompiled against new headers"
+      - field: "compare_cgparams function"
+        change: "POTENTIAL BUG: Function at cgutils.cpp:4669-4681 does NOT compare sanitizer fields"
+        affected_tools:
+          - tool: "Code caching validation"
+            usage: |
+              compare_cgparams is used at codegen.cpp:10139 to verify that functions
+              compiled with custom cgparams are not cached. Missing sanitizer field
+              comparisons could theoretically cause false positives if different
+              sanitizer configs are used. Current implementation:
+                static int compare_cgparams(const jl_cgparams_t *a, const jl_cgparams_t *b) {
+                    return
+                           (a->track_allocations == b->track_allocations) &&
+                           (a->code_coverage == b->code_coverage) &&
+                           (a->prefer_specsig == b->prefer_specsig) &&
+                           (a->gnu_pubnames == b->gnu_pubnames) &&
+                           (a->debug_info_kind == b->debug_info_kind) &&
+                           (a->safepoint_on_entry == b->safepoint_on_entry) &&
+                           (a->gcstack_arg == b->gcstack_arg) &&
+                           (a->use_jlplt == b->use_jlplt) &&
+                           (a->force_emit_all == b->force_emit_all);
+                }
+              Missing: sanitize_memory, sanitize_thread, sanitize_address comparisons.
+
+    behavioral:
+      - change: "Sanitizer passes previously controlled only by compile-time macros"
+        impact: "Now can be enabled at runtime for AOT compilation"
+        migration: "Use --target-sanitize=thread|memory|address with --output-* flags"
+
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: <1% overhead when sanitizers disabled"
+        rationale: |
+          Additional conditional checks in addSanitizerPasses() and jl_init_function(),
+          but branches are predictable (sanitizer flags typically all false).
+      - impact: "Significant overhead when sanitizers enabled"
+        rationale: |
+          MSan, TSan, ASan passes perform substantial code instrumentation.
+          For TSan: ~2-5x code size increase, complex instrumentation logic.
+          For ASan: adds red zones, shadow memory checks.
+          For MSan: tracks uninitialized memory through shadow values.
+
+    runtime:
+      - impact: "No change when sanitizers disabled"
+        rationale: "Code paths unchanged for normal builds"
+      - impact: "Significant overhead when sanitizers enabled"
+        rationale: |
+          TSan: 5-15x slowdown typical for data race detection
+          ASan: 2x memory usage, ~2x slowdown for bounds checking
+          MSan: 2-3x slowdown for uninitialized memory tracking
+
+          These are expected costs of sanitizer instrumentation.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Options are hidden (not in main help), targeting advanced users"
+      - "JIT code behavior unchanged unless Julia built with sanitizers"
+      - "AOT sanitization is opt-in via explicit command-line flag"
+      - "All call sites for jl_init_function updated consistently"
+      - "Default behavior preserved: sanitizers disabled by default"
+    potential_issues:
+      - issue: "compare_cgparams missing sanitizer field comparisons"
+        severity: "low"
+        explanation: |
+          The compare_cgparams function does not include sanitizer fields in its
+          comparison. This could theoretically allow incorrect caching behavior
+          if functions are compiled with different sanitizer options. However,
+          the function is only used in debug assertions and normal usage patterns
+          would not trigger this edge case.
+
+  open_questions:
+    - "Does using --target-sanitize require runtime libraries (compiler-rt) to be available at execution time?"
+    - "Can multiple sanitizers be enabled simultaneously, and if so, are there conflicts?"
+    - "Should there be validation that sanitized sysimage runs on sanitizer-enabled runtime?"
+    - "Should compare_cgparams be updated to include sanitizer fields for completeness?"
+
+  recommendations:
+    - "Document in manual that --target-sanitize is for building sanitized sysimages"
+    - "Add CI job that builds and tests sanitized sysimage to catch regressions"
+    - "Consider adding runtime check that warns if sanitized code runs on non-sanitized runtime"
+    - "Downstream packages using CodegenParams should verify new fields don't affect their usage"
+    - "Consider updating compare_cgparams to include sanitizer fields for consistency"
+    - "Document the new parseJuliaPipelineOptions sanitizer options for advanced users"
+
+reviewer_notes:
+  independent_analysis_date: "2026-01-21"
+  additional_findings:
+    - finding: "compare_cgparams omission identified"
+      description: |
+        The compare_cgparams function at cgutils.cpp:4669-4681 does not compare the new
+        sanitizer fields (sanitize_memory, sanitize_thread, sanitize_address). This was
+        not updated when the fields were added to jl_cgparams_t. While this is used in
+        debug assertions only, it represents an inconsistency.
+      evidence_location: "cgutils.cpp:4669-4681"
+    - finding: "parseJuliaPipelineOptions exposure documented"
+      description: |
+        The analysis now includes that parseJuliaPipelineOptions at pipeline.cpp:810-873
+        exposes sanitizer options via the LLVM pass pipeline option parsing mechanism,
+        allowing advanced users to control sanitizers at a finer level.
+      evidence_location: "pipeline.cpp:817-835"
+    - finding: "code_native/code_llvm propagation documented"
+      description: |
+        Added documentation that jl_get_llvmf_defn_impl propagates sanitizer options
+        to OptimizationOptions, meaning inspection tools like @code_native and @code_llvm
+        will respect sanitizer settings when passed via CodegenParams.
+      evidence_location: "aotcompile.cpp:2634-2638"
+    - finding: "Complete jl_init_function caller analysis"
+      description: |
+        Identified all 15+ call sites for jl_init_function including OpaqueClosure
+        generation (get_oc_function), atomic modify helpers (emit_modifyhelper),
+        and C wrapper generation (gen_cfun_wrapper).
+      evidence_location: "codegen.cpp, jitlayers.cpp, aotcompile.cpp"

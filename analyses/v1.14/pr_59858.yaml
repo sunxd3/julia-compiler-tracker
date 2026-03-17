@@ -1,0 +1,366 @@
+schema_version: "1.0"
+pr:
+  number: 59858
+  title: "Madvise Transparent Huge Pages for large allocations"
+  url: "https://github.com/JuliaLang/julia/pull/59858"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59858.diff"
+  author: "artemsolod"
+  labels:
+    - "performance"
+    - "arrays"
+  merged_at: "2025-12-02T21:40:17Z"
+  merge_commit_sha: "97d9feda204656491a7be26e0a83b0e149c97662"
+
+scope:
+  files_touched:
+    - "src/gc-common.h"
+    - "src/gc-stock.c"
+    - "src/init.c"
+    - "src/jl_exported_funcs.inc"
+    - "src/julia.h"
+    - "src/julia_internal.h"
+    - "src/sys.c"
+  components:
+    - "Runtime.GC"
+    - "Runtime.System"
+    - "Runtime.Init"
+  pipeline_stages:
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Enable Transparent Huge Pages (THP) for large memory allocations on Linux systems
+      to improve memory access performance for large arrays. Based on numpy implementation.
+      Targets issue #56521 for improving array allocation performance.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/56521"
+
+  direct_changes:
+    - summary: "Add jl_gethugepagesize() function to detect THP size on Linux"
+      component: "Runtime.System"
+      evidence:
+        - source: "code"
+          path: "src/sys.c"
+          loc: "614-647"
+          url: "https://github.com/JuliaLang/julia/blob/97d9feda204656491a7be26e0a83b0e149c97662/src/sys.c#L614-L647"
+          snippet: |
+            JL_DLLEXPORT long jl_gethugepagesize(void) JL_NOTSAFEPOINT
+            {
+            #if defined(_OS_LINUX_)
+                long detected = 0;
+                FILE *f = fopen("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size", "r");
+                if (f) {
+                    unsigned long long size = 0;
+                    if (fscanf(f, "%llu", &size) == 1 && size > 0) {
+                        detected = (long)size;
+                    }
+                    fclose(f);
+                }
+                if (detected == 0) {
+                    f = fopen("/proc/meminfo", "r");
+                    if (f) {
+                        char line[256];
+                        while (fgets(line, sizeof(line), f)) {
+                            unsigned long long kb = 0;
+                            if (sscanf(line, "Hugepagesize:%llu kB", &kb) == 1 && kb > 0) {
+                                detected = (long)(kb * 1024ULL);
+                                break;
+                            }
+                        }
+                        fclose(f);
+                    }
+                }
+                if (detected == 0) {
+                    detected = 2 * 1024 * 1024; // 2 MiB fallback
+                }
+                return detected;
+            #else
+                return 0;
+            #endif
+            }
+
+    - summary: "Add jl_hugepage_size global variable and initialize at startup"
+      component: "Runtime.Init"
+      evidence:
+        - source: "code"
+          path: "src/init.c"
+          loc: "51"
+          url: "https://github.com/JuliaLang/julia/blob/97d9feda204656491a7be26e0a83b0e149c97662/src/init.c#L51"
+          snippet: |
+            JL_DLLEXPORT size_t jl_hugepage_size;
+        - source: "code"
+          path: "src/init.c"
+          loc: "703"
+          url: "https://github.com/JuliaLang/julia/blob/97d9feda204656491a7be26e0a83b0e149c97662/src/init.c#L703"
+          snippet: |
+            jl_hugepage_size = (size_t)jl_gethugepagesize();
+
+    - summary: "Add MADV_HUGEPAGE compatibility define for older kernels"
+      component: "Runtime.GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-common.h"
+          loc: "10-12"
+          url: "https://github.com/JuliaLang/julia/blob/97d9feda204656491a7be26e0a83b0e149c97662/src/gc-common.h#L10-L12"
+          snippet: |
+            #ifndef MADV_HUGEPAGE
+            #define MADV_HUGEPAGE 14 //  Compatibility for kernels < 2.6.38 (as in numpy implementation)
+            #endif
+
+    - summary: "Add malloc_page_align macro for page-aligned allocations"
+      component: "Runtime.GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-common.h"
+          loc: "140"
+          url: "https://github.com/JuliaLang/julia/blob/97d9feda204656491a7be26e0a83b0e149c97662/src/gc-common.h#L140"
+          snippet: |
+            #define malloc_page_align(sz) jl_malloc_aligned(sz, jl_getpagesize())
+
+    - summary: "Modify jl_gc_managed_malloc to use THP for large allocations"
+      component: "Runtime.GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "3827-3842"
+          url: "https://github.com/JuliaLang/julia/blob/97d9feda204656491a7be26e0a83b0e149c97662/src/gc-stock.c#L3827-L3842"
+          snippet: |
+            #ifdef MADV_HUGEPAGE
+                void *b = NULL;
+                if (allocsz >= 1u<<18u) {
+                    b = malloc_page_align(allocsz);
+                    if (jl_hugepage_size > 0) {
+                        size_t leftover = jl_hugepage_size - (allocsz % jl_hugepage_size);
+                        if ((leftover <= allocsz / 4) || (leftover == jl_hugepage_size))  // limit fragmentation
+                            madvise(b, allocsz, MADV_HUGEPAGE);
+                    }
+                }
+                else {
+                    b = malloc_cache_align(allocsz);
+                }
+            #else
+                void *b = malloc_cache_align(allocsz);
+            #endif
+
+    - summary: "Export jl_gethugepagesize as public API"
+      component: "Runtime.System"
+      evidence:
+        - source: "code"
+          path: "src/julia.h"
+          loc: "2060"
+          url: "https://github.com/JuliaLang/julia/blob/97d9feda204656491a7be26e0a83b0e149c97662/src/julia.h#L2060"
+          snippet: |
+            JL_DLLEXPORT long jl_gethugepagesize(void) JL_NOTSAFEPOINT;
+        - source: "code"
+          path: "src/jl_exported_funcs.inc"
+          loc: "185"
+          url: "https://github.com/JuliaLang/julia/blob/97d9feda204656491a7be26e0a83b0e149c97662/src/jl_exported_funcs.inc#L185"
+          snippet: |
+            XX(jl_gethugepagesize) \
+
+  secondary_effects:
+    - effect: "Large array allocations (>= 256 KiB) use page-aligned memory"
+      mechanism: |
+        jl_gc_managed_malloc() [gc-stock.c:3815]
+          checks if allocsz >= 1u<<18u (262144 = 256 KiB)
+          -> malloc_page_align(allocsz) [gc-common.h:140]
+          -> jl_malloc_aligned(sz, jl_getpagesize()) [gc-common.h:108-118]
+          -> posix_memalign(&ptr, align, sz)
+
+        Memory is aligned to page boundary instead of cache line boundary.
+      downstream_surfaces:
+        - "GenericMemory allocations (Memory{T})"
+        - "Large array backing buffers"
+        - "String allocations above 256 KiB"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Kernel may promote large allocations to transparent huge pages"
+      mechanism: |
+        After page-aligned allocation in jl_gc_managed_malloc():
+          if (jl_hugepage_size > 0)
+            leftover = jl_hugepage_size - (allocsz % jl_hugepage_size)
+            if ((leftover <= allocsz / 4) || (leftover == jl_hugepage_size))
+              madvise(b, allocsz, MADV_HUGEPAGE)
+
+        The fragmentation heuristic limits THP use to allocations where:
+        1. The allocation exactly fits huge pages (leftover == jl_hugepage_size), OR
+        2. The wasted space is at most 25% of the allocation (leftover <= allocsz / 4)
+
+        This advisory hint allows the kernel to back the memory with 2 MiB pages
+        instead of 4 KiB pages, reducing TLB misses for sequential access patterns.
+      downstream_surfaces:
+        - "Large array operations (fill, copy, map)"
+        - "Linear algebra operations on large matrices"
+        - "Data loading into large buffers"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Memory profiling tools may observe different allocation patterns"
+      mechanism: |
+        jl_gc_managed_malloc() call chain:
+          _new_genericmemory_() [genericmemory.c:55-73]
+            -> jl_alloc_genericmemory_unchecked() [genericmemory.c:30-53]
+              -> jl_gc_managed_malloc(nbytes) [genericmemory.c:38]
+
+        Large allocations now have page alignment rather than cache-line alignment,
+        which changes the actual allocation size and alignment observed by memory
+        profilers and allocation tracking tools.
+      downstream_surfaces:
+        - "Memory profiling tools"
+        - "Allocation tracking utilities"
+        - "jl_gc_managed_malloc callers"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "MMTk GC backend does not implement THP optimization"
+      mechanism: |
+        jl_gc_managed_malloc() in gc-mmtk.c [gc-mmtk.c:1053-1083]:
+          void *b = malloc_cache_align(allocsz);
+
+        The MMTk backend uses the original malloc_cache_align() and does not
+        include the MADV_HUGEPAGE optimization. This means users of the MMTk
+        GC will not benefit from this performance improvement.
+      downstream_surfaces:
+        - "MMTk GC users"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Big Julia object allocations do NOT benefit from THP"
+      mechanism: |
+        jl_gc_big_alloc_inner() [gc-stock.c:427-456] handles allocation of Julia
+        objects larger than GC_MAX_SZCLASS (~2KB):
+          bigval_t *v = (bigval_t*)malloc_cache_align(allocsz);
+
+        This function was NOT modified to use THP. Only GenericMemory data buffers
+        (which go through jl_gc_managed_malloc) get the THP treatment.
+
+        Call chain for large objects (non-array):
+          jl_gc_big_alloc() [gc-stock.c:460]
+            -> jl_gc_big_alloc_inner() [gc-stock.c:427]
+              -> malloc_cache_align(allocsz) [gc-stock.c:437]
+
+        This means large Julia structs, tuples, or other non-array allocations
+        do not benefit from THP, only large arrays and Memory objects do.
+      downstream_surfaces:
+        - "Large immutable structs"
+        - "Large tuples"
+        - "Any non-array object larger than ~2KB"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "macOS and Windows do not benefit from THP optimization"
+      mechanism: |
+        jl_gethugepagesize() [sys.c:614-647] returns 0 on non-Linux systems:
+          #if defined(_OS_LINUX_)
+              // ... detection logic ...
+              return detected;
+          #else
+              return 0;
+          #endif
+
+        When jl_hugepage_size == 0, the madvise call is skipped [gc-stock.c:3831]:
+          if (jl_hugepage_size > 0) {
+              // ... madvise logic ...
+          }
+
+        Additionally, MADV_HUGEPAGE is only defined on non-Windows systems
+        (via gc-common.h inside #ifndef _OS_WINDOWS_), so Windows uses the
+        fallback malloc_cache_align path entirely.
+      downstream_surfaces:
+        - "macOS users"
+        - "Windows users"
+        - "FreeBSD users"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "jl_hugepage_size"
+        change: "New global variable added (extern JL_DLLEXPORT size_t)"
+        affected_tools: ["FFI callers that read global memory stats"]
+      - field: "jl_gethugepagesize"
+        change: "New exported function (JL_DLLEXPORT long jl_gethugepagesize(void))"
+        affected_tools: ["C extensions that need to query system page info"]
+    behavioral:
+      - summary: "No semantic changes to Julia code behavior"
+        details: |
+          This is a pure performance optimization. Array values, semantics,
+          and observable behavior remain identical. Only memory access latency
+          characteristics change for large allocations on Linux systems.
+      - summary: "Memory alignment changes for large allocations"
+        details: |
+          Previously: Large allocations aligned to JL_CACHE_BYTE_ALIGNMENT (64 bytes)
+          Now: Large allocations (>= 256 KiB) aligned to page size (typically 4 KiB)
+
+          Page alignment (4096 bytes) is actually STRONGER than cache-line alignment
+          (64 bytes) - any address divisible by 4096 is also divisible by 64.
+          This change has no negative impact on alignment guarantees.
+
+  performance:
+    compile_time:
+      - summary: "No compile-time impact"
+        details: "This change only affects runtime memory allocation, not compilation."
+    runtime:
+      - summary: "MEASURED: ~2x speedup for large array fill operations"
+        details: |
+          From PR benchmark (Memory{Int} of 1M elements = 7.633 MiB):
+          - Before: 0.003431 seconds
+          - After:  0.001464 seconds
+
+          Speedup primarily from reduced TLB misses during sequential memory access.
+          Benefit depends on:
+          1. Allocation size (must be >= 256 KiB)
+          2. Access pattern (sequential/strided access benefits most)
+          3. System THP configuration (must be enabled: "always" or "madvise")
+          4. Kernel version and memory pressure
+      - summary: "ESTIMATED: Small overhead for THP detection at startup"
+        details: |
+          jl_gethugepagesize() reads from /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+          or /proc/meminfo during Julia initialization. This is a one-time cost of
+          approximately 1-2 file reads (< 1ms typically).
+      - summary: "ESTIMATED: Small allocation overhead for page alignment"
+        details: |
+          For large allocations, page alignment may allocate slightly more memory
+          than cache-line alignment. Worst case: up to (page_size - cache_line_size)
+          = (4096 - 64) = 4032 bytes additional per large allocation.
+
+          This overhead is negligible for the target allocation sizes (>= 256 KiB).
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure performance optimization with no semantic changes"
+      - "Uses well-established MADV_HUGEPAGE mechanism (same approach as numpy)"
+      - "Conservative fragmentation heuristic limits THP use to beneficial cases"
+      - "Falls back gracefully on non-Linux systems (jl_hugepage_size = 0)"
+      - "Falls back gracefully on systems without THP support"
+      - "Code is conditionally compiled with #ifdef MADV_HUGEPAGE"
+
+  open_questions:
+    - "Should the 256 KiB threshold be configurable via Julia options?"
+    - "Should MMTk GC backend also implement THP optimization?"
+    - "What is the impact on systems with THP set to 'never' mode?"
+    - "Does the page alignment change affect GC behavior for large object tracking?"
+    - "Should jl_gc_big_alloc_inner also use THP for large non-array objects?"
+    - "No tests were added for this feature - how is correctness verified?"
+    - "Could macOS benefit from a similar optimization using VM_FLAGS_SUPERPAGE_SIZE_2MB?"
+
+  recommendations:
+    - "Downstream packages with large array workloads should verify THP is enabled on target systems"
+    - "Performance-sensitive applications should check /sys/kernel/mm/transparent_hugepage/enabled"
+    - "Memory profiling tools should be aware of the alignment change for large allocations"
+    - "Consider exposing jl_gethugepagesize() to Julia level for user introspection"
+    - "Linux systems should have THP enabled (madvise or always mode) to benefit from this optimization"
+    - "Packages using large non-array objects (large structs, tuples) will not see THP benefits"
+
+  reviewer_notes:
+    verified_by: "Independent review"
+    verification_date: "2026-01-21"
+    changes_made:
+      - "Corrected line numbers: init.c 721->703, gc-common.h 141->140, gc-stock.c 3874->3827, julia.h 2069->2060, jl_exported_funcs.inc 184->185"
+      - "Added secondary effect: jl_gc_big_alloc_inner does not use THP (large non-array objects excluded)"
+      - "Added secondary effect: macOS/Windows/FreeBSD do not benefit from this optimization"
+      - "Added open questions about potential macOS support and missing tests"
+      - "Enhanced recommendations for downstream package maintainers"

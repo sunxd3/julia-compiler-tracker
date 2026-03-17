@@ -1,0 +1,524 @@
+schema_version: "1.0"
+pr:
+  number: 55671
+  title: "change call scheme for `any` and `all` for `AbstractArray`"
+  url: "https://github.com/JuliaLang/julia/pull/55671"
+  author: "matthias314"
+  labels:
+    - "arrays"
+    - "fold"
+  merged_at: "2026-01-06T15:39:58Z"
+  merge_commit_sha: "fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8"
+  diff_url: "https://github.com/JuliaLang/julia/pull/55671.diff"
+
+scope:
+  files_touched:
+    - "base/reducedim.jl"
+  components:
+    - "Base reduction functions"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      This PR simplifies the call scheme for `any` and `all` on AbstractArray, making
+      three changes:
+
+      1. `any(a)` now transforms to `any(identity, a)` instead of calling 2-argument
+         `_any(a, dims)`. This means custom AbstractArray types only need to define
+         the 2-argument `any(f, a)` method, and the 1-argument version works automatically.
+
+      2. The type constraint `f::Function` on the predicate is removed, allowing any
+         callable (functors, Fix1/Fix2, closures, etc.) to be used directly.
+
+      3. The explicit 2-argument `_any(a, ::Colon)` and `_all(a, ::Colon)` methods are
+         removed since they are covered by the for-loop generated methods at line 1009.
+
+    issue_links: []
+
+  direct_changes:
+    - summary: "Simplify any(a::AbstractArray) to call any(identity, a)"
+      component: "Base reduction functions"
+      evidence:
+        - source: "code"
+          path: "base/reducedim.jl"
+          loc: "992"
+          url: "https://github.com/JuliaLang/julia/blob/fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8/base/reducedim.jl#L992"
+          snippet: |
+            any(a::AbstractArray; kw...) = any(identity, a; kw...)
+        - source: "diff"
+          path: "base/reducedim.jl"
+          loc: "989 (old)"
+          url: "https://github.com/JuliaLang/julia/pull/55671/files"
+          snippet: |
+            # BEFORE:
+            any(a::AbstractArray; dims::D=:) where {D} = _any(a, dims)
+            # AFTER:
+            any(a::AbstractArray; kw...) = any(identity, a; kw...)
+
+    - summary: "Remove Function type constraint on predicate f"
+      component: "Base reduction functions"
+      evidence:
+        - source: "code"
+          path: "base/reducedim.jl"
+          loc: "993"
+          url: "https://github.com/JuliaLang/julia/blob/fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8/base/reducedim.jl#L993"
+          snippet: |
+            any(f, a::AbstractArray; dims::D=:) where D = _any(f, a, dims)
+        - source: "diff"
+          path: "base/reducedim.jl"
+          loc: "990 (old)"
+          url: "https://github.com/JuliaLang/julia/pull/55671/files"
+          snippet: |
+            # BEFORE:
+            any(f::Function, a::AbstractArray; dims::D=:) where {D} = _any(f, a, dims)
+            # AFTER:
+            any(f, a::AbstractArray; dims::D=:) where D = _any(f, a, dims)
+
+    - summary: "Simplify all(a::AbstractArray) to call all(identity, a)"
+      component: "Base reduction functions"
+      evidence:
+        - source: "code"
+          path: "base/reducedim.jl"
+          loc: "994"
+          url: "https://github.com/JuliaLang/julia/blob/fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8/base/reducedim.jl#L994"
+          snippet: |
+            all(a::AbstractArray; kw...) = all(identity, a; kw...)
+        - source: "diff"
+          path: "base/reducedim.jl"
+          loc: "992 (old)"
+          url: "https://github.com/JuliaLang/julia/pull/55671/files"
+          snippet: |
+            # BEFORE:
+            all(a::AbstractArray; dims::D=:) where {D} = _all(a, dims)
+            # AFTER:
+            all(a::AbstractArray; kw...) = all(identity, a; kw...)
+
+    - summary: "Remove Function type constraint on predicate f for all"
+      component: "Base reduction functions"
+      evidence:
+        - source: "code"
+          path: "base/reducedim.jl"
+          loc: "995"
+          url: "https://github.com/JuliaLang/julia/blob/fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8/base/reducedim.jl#L995"
+          snippet: |
+            all(f, a::AbstractArray; dims::D=:) where D = _all(f, a, dims)
+        - source: "diff"
+          path: "base/reducedim.jl"
+          loc: "993 (old)"
+          url: "https://github.com/JuliaLang/julia/pull/55671/files"
+          snippet: |
+            # BEFORE:
+            all(f::Function, a::AbstractArray; dims::D=:) where {D} = _all(f, a, dims)
+            # AFTER:
+            all(f, a::AbstractArray; dims::D=:) where D = _all(f, a, dims)
+
+    - summary: "Remove redundant _any(a, ::Colon) and _all(a, ::Colon) methods"
+      component: "Base reduction functions"
+      evidence:
+        - source: "diff"
+          path: "base/reducedim.jl"
+          loc: "991, 994 (old)"
+          url: "https://github.com/JuliaLang/julia/pull/55671/files"
+          snippet: |
+            # REMOVED:
+            _any(a, ::Colon)                           = _any(identity, a, :)
+            _all(a, ::Colon)                           = _all(identity, a, :)
+
+            # These are now covered by the for-loop generated method at line 1009:
+            $(_fname)(A, dims::D; kw...) where {D} = $(_fname)(identity, A, dims; kw...)
+
+  secondary_effects:
+    - effect: "Easier custom AbstractArray implementation for any/all"
+      mechanism: |
+        Previously, custom AbstractArray types needed to define both:
+          any(a::MyArray)
+          any(f, a::MyArray)
+
+        Now only the 2-argument form is needed:
+          any(f, a::MyArray)
+
+        The 1-argument any(a::MyArray) automatically dispatches to any(identity, a),
+        which calls the user's 2-argument definition.
+
+        Call chain (after PR):
+          any(a::AbstractArray; kw...)  [reducedim.jl:992]
+            -> any(identity, a; kw...)
+            -> any(f, a::AbstractArray; dims::D=:)  [reducedim.jl:993]
+            -> _any(f, a, dims)
+            -> mapreduce(f, or_any, a; dims=dims, kw...)  [reducedim.jl:1010]
+      downstream_surfaces:
+        - "Custom AbstractArray types implementing any/all"
+        - "Sparse arrays, GPU arrays, distributed arrays"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Any callable now works as predicate (not just Function)"
+      mechanism: |
+        The old signature restricted f to Function type:
+          any(f::Function, a::AbstractArray; dims::D=:)
+
+        The new signature accepts any callable:
+          any(f, a::AbstractArray; dims::D=:)
+
+        This allows direct use of:
+        - Functor structs with call method defined
+        - Base.Fix1 and Base.Fix2 (e.g., ==(1), <(5))
+        - Any object with a call method
+
+        Previously, these worked via the generic iterator fallback any(f, itr) in
+        anyall.jl:115, but now they correctly dispatch to the optimized array path.
+      downstream_surfaces:
+        - "Code using Fix1/Fix2 predicates with any/all on arrays"
+        - "Code using functor structs as predicates"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "Keyword argument forwarding via kw..."
+      mechanism: |
+        The 1-argument form now uses kw... instead of dims::D=:
+          any(a::AbstractArray; kw...) = any(identity, a; kw...)
+
+        This forwards all keyword arguments to the 2-argument form, providing
+        flexibility for any additional keyword arguments that might be added
+        to reduction functions in the future.
+      downstream_surfaces:
+        - "Future extensibility of any/all keyword arguments"
+      likelihood: "low"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "_any(a, ::Colon) and _all(a, ::Colon)"
+        change: "Methods removed, functionality covered by for-loop generated methods"
+        affected_tools: []
+        impact: "none"
+        rationale: |
+          These were internal methods (underscore prefix indicates internal).
+          The functionality is preserved via the for-loop generated methods:
+            _any(A, dims::D; kw...) = _any(identity, A, dims; kw...)
+
+    behavioral:
+      - area: "Type dispatch for predicate argument"
+        change: "f::Function constraint removed, now accepts any callable"
+        impact: "low"
+        rationale: |
+          This is a relaxation of constraints, not a tightening. All code that
+          worked before still works. Additional code (using functors, Fix1/Fix2)
+          now also works with the optimized array path.
+
+      - area: "Method dispatch path for 1-argument any/all"
+        change: "Now dispatches through any(identity, a) instead of _any(a, dims)"
+        impact: "low"
+        rationale: |
+          The observable behavior is identical. The intermediate dispatch path
+          changed but the final result (calling mapreduce with or_any/and_all)
+          is the same.
+
+  performance:
+    compile_time:
+      - description: "No compile-time impact"
+        impact: "none"
+        rationale: "This is a method signature change in Base, not a compiler modification"
+
+    runtime:
+      - description: "Possible minor overhead from extra dispatch for 1-arg form"
+        impact: "negligible"
+        measurement: "ESTIMATED"
+        rationale: |
+          The 1-argument form now has one extra dispatch step:
+            any(a) -> any(identity, a) -> _any(identity, a, :) -> mapreduce(...)
+
+          Previously:
+            any(a) -> _any(a, :) -> _any(identity, a, :) -> mapreduce(...)
+
+          The number of dispatch steps is actually the same. The compiler
+          should inline these trivial wrapper methods effectively.
+
+      - description: "Functors/Fix1/Fix2 now use optimized array path"
+        impact: "positive"
+        measurement: "ESTIMATED"
+        rationale: |
+          Previously, any(functor, array) would match the generic iterator
+          fallback any(f, itr) in anyall.jl, which uses a simple loop.
+          Now it matches the AbstractArray method and uses the optimized
+          mapreduce path which can take advantage of array-specific
+          optimizations (SIMD, fast linear indexing, etc.).
+
+  downstream_package_impact:
+    - package: "Custom AbstractArray implementations"
+      impact: "positive"
+      rationale: |
+        Custom array types now only need to implement the 2-argument any(f, a)
+        method, and the 1-argument version automatically works. This simplifies
+        the implementation burden for package authors.
+
+    - package: "Turing.jl, Enzyme.jl, GPUCompiler, JET"
+      impact: "none"
+      rationale: |
+        This PR modifies only the public API dispatch for any/all on AbstractArray.
+        It does not touch:
+        - Type inference or abstract interpretation
+        - SSA IR or optimization passes
+        - Codegen or runtime internals
+        - OpaqueClosure or generated functions
+        - World age or method invalidation
+        - Any compiler internal APIs
+
+        The change is purely at the method dispatch level for reduction functions.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Pure API simplification with no semantic changes"
+      - "Relaxes constraints rather than adding new ones"
+      - "All existing code continues to work"
+      - "No compiler internals modified"
+      - "Change is small and localized (4 additions, 6 deletions)"
+      - "Well-tested reduction functions path unchanged"
+
+  open_questions:
+    - "Are there any downstream packages that explicitly match on the f::Function signature and might have method ambiguities?"
+
+  recommendations:
+    - "No action needed for downstream compiler-related packages"
+    - "Custom AbstractArray implementations may simplify their any/all definitions to only the 2-argument form"
+
+  notes:
+    not_compiler_pr: |
+      This PR is a method dispatch simplification for any/all on AbstractArray.
+      It does NOT affect:
+      - Type inference (abstractinterpretation.jl)
+      - SSA IR or optimization passes
+      - Codegen or runtime behavior of compiled code
+      - OpaqueClosure or generated functions
+      - World age or method invalidation
+      - Any compiler internal APIs
+
+      The PR only modifies how any/all dispatch to _any/_all for AbstractArray,
+      and removes an unnecessary type constraint on the predicate argument.
+
+independent_review:
+  reviewer: "Second analyst"
+  date: "2026-01-21"
+
+  verification:
+    claims_verified:
+      - claim: "Line numbers 992-995 contain the any/all changes"
+        status: "verified"
+        evidence: |
+          Confirmed in base/reducedim.jl:992-995:
+            any(a::AbstractArray; kw...) = any(identity, a; kw...)
+            any(f, a::AbstractArray; dims::D=:) where D = _any(f, a, dims)
+            all(a::AbstractArray; kw...) = all(identity, a; kw...)
+            all(f, a::AbstractArray; dims::D=:) where D = _all(f, a, dims)
+
+      - claim: "For-loop generated methods at line 1009 cover removed _any/_all methods"
+        status: "verified"
+        evidence: |
+          Confirmed at base/reducedim.jl:1009:
+            $(_fname)(A, dims::D; kw...) where {D} = $(_fname)(identity, A, dims; kw...)
+          This is generated for :any and :all in the for-loop starting at line 997.
+
+      - claim: "Actual PR commit SHA"
+        status: "corrected"
+        evidence: |
+          The merge commit is fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8, but the actual
+          change commit is b4c69a3117e59d4afc8f5c8015400498c03300f4 authored by matthias314.
+
+  additional_findings:
+    - finding: "Documentation mismatch in docstrings"
+      severity: "minor"
+      evidence:
+        - source: "code"
+          path: "base/reducedim.jl"
+          loc: "874"
+          url: "https://github.com/JuliaLang/julia/blob/fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8/base/reducedim.jl#L874"
+          snippet: |
+            all(::Function, ::AbstractArray; dims)
+        - source: "code"
+          path: "base/reducedim.jl"
+          loc: "948"
+          url: "https://github.com/JuliaLang/julia/blob/fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8/base/reducedim.jl#L948"
+          snippet: |
+            any(::Function, ::AbstractArray; dims)
+      explanation: |
+        The docstrings at lines 874 and 948 still show `::Function` as the predicate
+        type, but the actual implementation at lines 993 and 995 no longer has this
+        type constraint. This documentation is now inconsistent with the implementation.
+        Users reading the docstrings may incorrectly believe only Function types are
+        accepted when in fact any callable now works.
+
+    - finding: "BitArray specializations remain correctly dispatched"
+      severity: "none"
+      evidence:
+        - source: "code"
+          path: "base/bitarray.jl"
+          loc: "1712-1732"
+          url: "https://github.com/JuliaLang/julia/blob/fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8/base/bitarray.jl#L1712-L1732"
+          snippet: |
+            function all(B::BitArray)
+                isempty(B) && return true
+                Bc = B.chunks
+                @inbounds begin
+                    for i = 1:length(Bc)-1
+                        Bc[i] == _msk64 || return false
+                    end
+                    Bc[end] == _msk_end(B) || return false
+                end
+                return true
+            end
+
+            function any(B::BitArray)
+                isempty(B) && return false
+                Bc = B.chunks
+                @inbounds begin
+                    for i = 1:length(Bc)
+                        Bc[i] == 0 || return true
+                    end
+                end
+                return false
+            end
+      explanation: |
+        BitArray has specialized chunk-based implementations for any() and all()
+        that operate on 64-bit chunks for efficiency. These methods take only the
+        BitArray argument (no predicate f) and are more specific than the new
+        AbstractArray methods. The dispatch remains correct:
+          any(B::BitArray)  [bitarray.jl:1724] - handles 1-arg BitArray
+          any(a::AbstractArray; kw...)  [reducedim.jl:992] - handles other AbstractArray
+
+    - finding: "Tuple specializations do not cause ambiguity"
+      severity: "none"
+      evidence:
+        - source: "code"
+          path: "base/anyall.jl"
+          loc: "152-157"
+          url: "https://github.com/JuliaLang/julia/blob/fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8/base/anyall.jl#L152-L157"
+          snippet: |
+            function any(f, itr::Tuple)
+                if itr isa NTuple || length(itr) > 32
+                    return _any(f, itr, :)
+                end
+                _any_tuple(f, false, itr...)
+            end
+      explanation: |
+        Tuple is not a subtype of AbstractArray, so the Tuple specializations in
+        anyall.jl do not create method ambiguity with the new AbstractArray methods.
+        The dispatch is clean:
+          any(f, itr::Tuple)  [anyall.jl:152] - for Tuples
+          any(f, a::AbstractArray; dims::D=:)  [reducedim.jl:993] - for AbstractArray
+
+    - finding: "Existing test for callable structs covers only iterator path"
+      severity: "informational"
+      evidence:
+        - source: "test"
+          path: "test/reduce.jl"
+          loc: "535-541"
+          url: "https://github.com/JuliaLang/julia/blob/fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8/test/reduce.jl#L535-L541"
+          snippet: |
+            # any and all with callable structs
+
+            struct SomeCallable end
+            (::SomeCallable)(x) = true
+
+            @test @inferred any(SomeCallable(), 1:10)
+            @test @inferred all(SomeCallable(), 1:10)
+      explanation: |
+        The existing test uses a Range (1:10) which is an AbstractArray, but ranges
+        may have their own optimizations. No test was added specifically to verify
+        that callable structs work with plain Array or other AbstractArray types
+        via the new relaxed signature. The tests pass because ranges are AbstractArrays
+        and the new signature `any(f, a::AbstractArray)` now accepts SomeCallable().
+
+    - finding: "Related PR 55669 defines in() in terms of any()"
+      severity: "informational"
+      evidence:
+        - source: "git log"
+          snippet: |
+            0254afcf8c define generic `in` in terms of `any` (#55669)
+      explanation: |
+        PR 55669 is a related change that defines generic `in` using `any`. This
+        shows PR 55671 is part of a larger effort to simplify and unify the
+        reduction function API. The two PRs together enable patterns like:
+          any(in((1,2,3)), array)  # uses Fix2 from in((1,2,3))
+
+    - finding: "Tests use Fix2 with any/all on Tuples"
+      severity: "informational"
+      evidence:
+        - source: "test"
+          path: "test/reduce.jl"
+          loc: "746-772"
+          url: "https://github.com/JuliaLang/julia/blob/fd29ae1b9dc6e6a1a08f4eb097b9c85827eb22a8/test/reduce.jl#L746-L772"
+          snippet: |
+            @testset "concrete eval `[any|all](f, itr::Tuple)`" begin
+                intf = in((1,2,3)); Intf = typeof(intf)
+                symf = in((:one,:two,:three)); Symf = typeof(symf)
+                @test Core.Compiler.is_foldable(Base.infer_effects(intf, (Int,)))
+                @test Core.Compiler.is_foldable(Base.infer_effects(symf, (Symbol,)))
+                @test Core.Compiler.is_foldable(Base.infer_effects(all, (Intf,Tuple{Int,Int,Int})))
+                @test Core.Compiler.is_foldable(Base.infer_effects(any, (Symf,Tuple{Symbol,Symbol,Symbol})))
+                @test Base.return_types() do
+                    Val(all(in((1,2,3)), (1,2,3)))
+                end |> only == Val{true}
+      explanation: |
+        These tests verify that `in((1,2,3))` (which creates a Fix2) works with
+        any/all on Tuples and is foldable by the compiler. The PR extends this
+        pattern to work efficiently with AbstractArray as well.
+
+  call_chain_trace:
+    description: "Complete dispatch path for any() on Array after PR"
+    trace: |
+      # For any(arr) where arr::Vector{Bool}:
+      any(a::AbstractArray; kw...)  [reducedim.jl:992]
+        -> any(identity, a; kw...)
+        -> any(f, a::AbstractArray; dims::D=:)  [reducedim.jl:993]  # f=identity, dims=:
+        -> _any(f, a, dims)  [reducedim.jl:993]  # calls _any(identity, arr, :)
+        -> _any(f, A, dims::D; kw...) where {D}  [reducedim.jl:1010, generated]
+        -> mapreduce(f, or_any, A; dims=dims, kw...)  [reducedim.jl:1010]
+
+      # For any(pred, arr) where pred is a callable struct:
+      any(f, a::AbstractArray; dims::D=:) where D  [reducedim.jl:993]  # f=pred
+        -> _any(f, a, dims)  # calls _any(pred, arr, :)
+        -> _any(f, A, dims::D; kw...) where {D}  [reducedim.jl:1010, generated]
+        -> mapreduce(pred, or_any, A; dims=dims, kw...)  [reducedim.jl:1010]
+
+      # For any(arr) where arr::BitArray (specialized):
+      any(B::BitArray)  [bitarray.jl:1724]  # more specific, wins dispatch
+        -> chunk-based loop over B.chunks
+
+  method_ambiguity_analysis:
+    status: "no issues found"
+    explanation: |
+      Searched for potential ambiguities with the new relaxed signature:
+
+      1. BitArray methods (bitarray.jl:1712-1732):
+         - any(B::BitArray) and all(B::BitArray) are more specific
+         - No ambiguity because BitArray <: AbstractArray but the BitArray
+           methods take no predicate argument
+
+      2. Tuple methods (anyall.jl:152, 238):
+         - any(f, itr::Tuple) and all(f, itr::Tuple)
+         - No ambiguity because Tuple is not <: AbstractArray
+
+      3. Generic iterator fallback (anyall.jl:115, 202):
+         - any(f, itr) and all(f, itr)
+         - AbstractArray methods are more specific and win dispatch
+
+      4. Downstream packages:
+         - Packages that define `any(f::Function, a::MyArray)` may need to
+           update their signatures to match, but this should not cause
+           runtime errors (the Base method may simply win dispatch instead).
+
+  recommendations:
+    - "Consider updating docstrings at reducedim.jl:874 and 948 to remove ::Function type annotation"
+    - "Consider adding a test specifically for callable structs with plain Array (not just Range)"
+    - "No action needed for Turing.jl, Enzyme.jl, GPUCompiler, or JET"
+
+  confidence: "high"
+  rationale: |
+    - Verified all line numbers against actual source code
+    - Confirmed the actual diff via git show b4c69a3117
+    - Traced complete dispatch paths for multiple scenarios
+    - Searched for potential method ambiguities across Base
+    - Found minor documentation inconsistency but no functional issues
+    - BitArray and Tuple specializations confirmed to work correctly

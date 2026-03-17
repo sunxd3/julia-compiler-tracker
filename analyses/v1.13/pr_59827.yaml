@@ -1,0 +1,233 @@
+schema_version: "1.0"
+pr:
+  number: 59827
+  title: "set the `auto_refresh_time_delay` to 0 on Windows as well"
+  url: "https://github.com/JuliaLang/julia/pull/59827"
+  author: "KristofferC"
+  labels:
+    - "system:windows"
+    - "REPL"
+  merged_at: "2025-10-14T14:19:24Z"
+  merge_commit_sha: "73a99f1434d366b8b4eeb3919906aa17343c2682"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59827.diff"
+
+scope:
+  files_touched:
+    - "stdlib/REPL/src/options.jl"
+  components:
+    - "REPL"
+  pipeline_stages:
+    - "Runtime"  # REPL is runtime user interaction, not part of compiler pipeline
+
+analysis:
+  intent:
+    summary: |
+      Reverts the Windows-specific auto_refresh_time_delay introduced in PR #39538.
+      The original delay (0.05s) was added to reduce screen tearing during rapid input
+      on Windows consoles, but is no longer beneficial. With bracketed paste support
+      enabled (PR #59825), the delay is unnecessary and actually harmful, causing visual
+      glitches when holding keys and slowing down paste operations.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59788"
+      - "https://github.com/JuliaLang/julia/pull/39538"
+      - "https://github.com/JuliaLang/julia/pull/59825"
+
+  direct_changes:
+    - summary: "Remove Windows-specific auto_refresh_time_delay value, use 0.0 for all platforms"
+      component: "REPL/options.jl"
+      evidence:
+        - source: "diff"
+          path: "stdlib/REPL/src/options.jl"
+          loc: "50"
+          url: "https://github.com/JuliaLang/julia/blob/73a99f1434d366b8b4eeb3919906aa17343c2682/stdlib/REPL/src/options.jl#L50"
+          snippet: |
+            # BEFORE:
+            auto_refresh_time_delay = Sys.iswindows() ? 0.05 : 0.0,
+
+            # AFTER:
+            auto_refresh_time_delay = 0.0, # this no longer seems beneficial
+        - source: "code"
+          path: "stdlib/REPL/src/options.jl"
+          loc: "28-30"
+          url: "https://github.com/JuliaLang/julia/blob/73a99f1434d366b8b4eeb3919906aa17343c2682/stdlib/REPL/src/options.jl#L28-L30"
+          snippet: |
+            # refresh after time delay
+            auto_refresh_time_delay::Float64
+
+  secondary_effects:
+    - effect: "Immediate REPL line refresh on Windows during character insertion"
+      mechanism: |
+        edit_insert(s::PromptState, c::StringLike) in LineEdit.jl [line 960]
+          reads options(s).auto_refresh_time_delay into variable `after` [line 994]
+          -> computes delayup = !eof(buf) || old_wait [line 1001]
+          -> when after == 0 (i.e., 0.0) and delayup is true:
+               the condition at line 1002 evaluates !(after == 0 && delayup) as false
+               so falls through to line 1007: elseif after == 0
+               calls refresh_line(s) immediately [line 1008]
+               sets delayup = false [line 1009]
+          -> when after > 0 (e.g., 0.05):
+               enters the else branch at line 1010
+               a spinner character is displayed [lines 1011-1016]
+               a Timer is created: s.refresh_wait = Timer(after) [lines 1023-1027]
+               refresh_line(s) is deferred until timer fires
+
+        With delay=0.0, refresh_line() is called synchronously for each character,
+        eliminating the visual lag when holding keys in the middle of text.
+      downstream_surfaces:
+        - "Windows REPL user experience"
+        - "Paste performance on Windows"
+      likelihood: "high"
+      impact: "medium"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "994-1009"
+          url: "https://github.com/JuliaLang/julia/blob/73a99f1434d366b8b4eeb3919906aa17343c2682/stdlib/REPL/src/LineEdit.jl#L994-L1009"
+          snippet: |
+            after = options(s).auto_refresh_time_delay
+            termbuf = terminal(s)
+            w = width(termbuf)
+            offset = s.ias.curs_row == 1 || s.indent < 0 ?
+                sizeof(prompt_string(s.p.prompt)::String) : s.indent
+            offset += position(buf) - beginofline(buf) # size of current line
+            spinner = '\0'
+            delayup = !eof(buf) || old_wait
+            if offset + textwidth(str) <= w && !(after == 0 && delayup)
+                # Avoid full update when appending characters to the end
+                # and an update of curs_row isn't necessary (conservatively estimated)
+                write(termbuf, str)
+                spinner = ' ' # temporarily clear under the cursor
+            elseif after == 0
+                refresh_line(s)
+                delayup = false
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "1010-1027"
+          url: "https://github.com/JuliaLang/julia/blob/73a99f1434d366b8b4eeb3919906aa17343c2682/stdlib/REPL/src/LineEdit.jl#L1010-L1027"
+          snippet: |
+            else # render a spinner for each key press
+                if old_wait || length(str) != 1
+                    spinner = spin_seq[mod1(position(buf) - w, length(spin_seq))]
+                else
+                    spinner = str[end]
+                end
+                delayup = true
+            end
+            if delayup
+                if spinner != '\0'
+                    write(termbuf, spinner)
+                    cmove_left(termbuf)
+                end
+                s.refresh_wait = Timer(after) do t
+                    s.refresh_wait === t || return
+                    s.refresh_wait = nothing
+                    refresh_line(s)
+                end
+            end
+
+    - effect: "Improved paste performance on Windows"
+      mechanism: |
+        With auto_refresh_time_delay=0.0, pasting large functions is faster because
+        the deferred refresh mechanism is bypassed. Testing showed:
+        - 0.0 delay: 1500-line paste took 29 seconds
+        - 0.05 delay: 1500-line paste took 36 seconds (24% slower)
+
+        The Timer-based refresh coalescing that was meant to optimize rapid input
+        actually introduced overhead for bulk paste operations.
+      downstream_surfaces:
+        - "Windows REPL paste operations"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Resolution of visual glitch when holding keys"
+      mechanism: |
+        Issue #59788 reported that holding a key in the middle of input on Windows
+        didn't shift characters to the right until the key was released. This was
+        caused by the 50ms refresh delay - characters were buffered but the screen
+        wasn't updated until the delay expired.
+
+        With delay=0.0, each character insertion triggers immediate refresh,
+        providing real-time visual feedback.
+      downstream_surfaces:
+        - "Windows REPL interactive editing"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "Spinner animation no longer appears on Windows"
+      mechanism: |
+        The spin_seq constant defines spinner characters that were displayed during
+        the refresh delay period. With delay=0.0, the spinner branch is never taken
+        because the condition at line 1007 (elseif after == 0) catches the case first
+        and calls refresh_line immediately.
+
+        spin_seq = ("...", "...", "...", "...")  # Unicode spinner characters
+
+        This visual indicator is no longer relevant when refresh is immediate.
+      downstream_surfaces:
+        - "Windows REPL visual feedback"
+      likelihood: "high"
+      impact: "low"
+      evidence:
+        - source: "code"
+          path: "stdlib/REPL/src/LineEdit.jl"
+          loc: "1032"
+          url: "https://github.com/JuliaLang/julia/blob/73a99f1434d366b8b4eeb3919906aa17343c2682/stdlib/REPL/src/LineEdit.jl#L1032"
+          snippet: |
+            const spin_seq = ("\u22ef", "\u22f1", "\u22ee", "\u22f0")
+
+  compatibility:
+    internal_api: []  # No internal API changes
+    behavioral:
+      - change: "REPL refresh timing on Windows changes from 50ms delay to immediate"
+        impact: "low"
+        details: |
+          User-visible behavior change: characters now appear immediately during
+          rapid typing/key-holding instead of being batched. This is a UX improvement.
+      - change: "PromptState.refresh_wait field no longer used on Windows"
+        impact: "low"
+        details: |
+          The refresh_wait::Union{Timer,Nothing} field in PromptState [LineEdit.jl:117]
+          will remain nothing during normal operation on Windows, as Timers are only
+          created when auto_refresh_time_delay > 0. No API change, just behavioral.
+
+  performance:
+    compile_time: []  # No compile-time impact - this is runtime REPL behavior
+    runtime:
+      - aspect: "REPL paste speed on Windows"
+        impact: "positive"
+        details: |
+          MEASURED: Pasting 1500-line function
+          - Before (0.05s delay): 36 seconds
+          - After (0.0s delay): 29 seconds
+          Improvement: ~19% faster paste operations
+      - aspect: "REPL display refresh frequency"
+        impact: "neutral"
+        details: |
+          More frequent screen refreshes during rapid input, but this matches
+          the existing behavior on non-Windows platforms and is negligible overhead.
+      - aspect: "Timer object allocation"
+        impact: "positive"
+        details: |
+          ESTIMATED: With delay=0.0, Timer objects are not allocated during character
+          insertion. Previously each keystroke (except at end of line) allocated a Timer.
+          Minor GC pressure reduction during rapid input.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Single-line change to a default parameter value"
+      - "Reverts to behavior that already exists on non-Windows platforms"
+      - "Thoroughly tested with paste operations showing performance improvement"
+      - "Fixes a known user-reported bug (#59788)"
+      - "Complementary to PR #59825 which enables bracketed paste on Windows"
+
+  open_questions: []
+
+  recommendations:
+    - "No action needed for downstream packages - this is REPL-specific behavior"
+    - "Windows users will see improved interactive editing experience automatically"
+    - "Users who relied on spinner animation during rapid typing will no longer see it"
+
+# Note: This PR affects the REPL stdlib, not the compiler pipeline.
+# It is included in compiler_prs.json likely due to filtering criteria,
+# but has no impact on type inference, code generation, or optimization.

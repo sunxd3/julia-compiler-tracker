@@ -1,0 +1,483 @@
+schema_version: "1.0"
+
+pr:
+  number: 59459
+  title: "Make Base.Cartesian public"
+  url: "https://github.com/JuliaLang/julia/pull/59459"
+  author: "LilithHafner"
+  labels:
+    - "design"
+    - "reverted"
+  merged_at: "2025-10-09T18:06:36Z"
+  merge_commit_sha: "9ce3dd3b4113b0d43a09fdd89187eb2991e307f2"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59459.diff"
+  status: "merged_then_reverted"
+  revert_pr: 59799
+  revert_commit_sha: "33b1435"
+
+scope:
+  files_touched:
+    - "base/public.jl"
+  components:
+    - "Base.public_declarations"
+  pipeline_stages:
+    - "API_surface"
+
+analysis:
+  intent:
+    summary: |
+      Promote Base.Cartesian module from internal to public API status.
+      The module provides metaprogramming macros for N-dimensional array
+      operations that are already widely used in the ecosystem (2,400+
+      public repositories on GitHub according to JuliaHub).
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/58378"
+
+  direct_changes:
+    - summary: "Add Cartesian module to public modules list in base/public.jl"
+      component: "Base.public_declarations"
+      evidence:
+        - source: "diff"
+          path: "base/public.jl"
+          loc: "3-7"
+          url: "https://github.com/JuliaLang/julia/pull/59459/files"
+          snippet: |
+            public
+            # Modules
+            +    Cartesian,
+                Checked,
+                Filesystem,
+                Order,
+
+    - summary: "Cartesian module exports 10 metaprogramming macros for N-dimensional operations"
+      component: "Base.Cartesian"
+      evidence:
+        - source: "code"
+          path: "base/cartesian.jl"
+          loc: "1-6"
+          url: "https://github.com/JuliaLang/julia/blob/master/base/cartesian.jl#L1-L6"
+          snippet: |
+            # This file is a part of Julia. License is MIT: https://julialang.org/license
+
+            module Cartesian
+
+            export @nloops, @nref, @ncall, @ncallkw, @nexprs, @nextract, @nall, @nany, @ntuple, @nif
+
+  secondary_effects:
+    - effect: "Public API commitment for Cartesian macros"
+      mechanism: |
+        The `public` keyword in Julia (introduced in 1.11) marks symbols as
+        part of the public API without exporting them. This means:
+        1. Base.ispublic(Base, :Cartesian) returns true
+        2. Downstream packages can use Base.Cartesian.@nexprs etc. without
+           relying on internal/undocumented API
+        3. Julia maintainers commit to stability of these macros
+      downstream_surfaces:
+        - "Any package using Base.Cartesian macros"
+        - "JuliaHub shows 2,400+ repos using @nexprs"
+        - "base/broadcast.jl uses Cartesian internally"
+        - "base/combinatorics.jl uses @nexprs"
+      likelihood: "high"
+      impact: "low"
+
+    - effect: "Test failure due to missing module-level docstring"
+      mechanism: |
+        The Cartesian module lacks a module-level docstring. When made public,
+        Docs.undocumented_names(Base) includes :Cartesian.
+
+        The test at test/misc.jl:1621-1625 verifies that all public names
+        in Base are either documented or in an allowed list:
+
+          @testset "Base docstrings" begin
+              undoc = Docs.undocumented_names(Base)
+              @test_broken isempty(undoc)
+              @test isempty(setdiff(undoc, [:BufferStream, :CanonicalIndexError, ...]))
+          end
+
+        Since :Cartesian was not in the allowed list, the test failed with:
+          setdiff(undoc, allowed_list) contained :Cartesian
+
+        Root cause: base/cartesian.jl starts with "module Cartesian" without a
+        preceding docstring. Individual macros have docstrings, but the module
+        itself does not.
+      downstream_surfaces:
+        - "test/misc.jl Base docstrings test"
+      likelihood: "high"
+      impact: "high"
+      evidence:
+        - source: "code"
+          path: "test/misc.jl"
+          loc: "1621-1625"
+          url: "https://github.com/JuliaLang/julia/blob/master/test/misc.jl#L1621-L1625"
+          snippet: |
+            @testset "Base docstrings" begin
+                undoc = Docs.undocumented_names(Base)
+                @test_broken isempty(undoc)
+                @test isempty(setdiff(undoc, [:BufferStream, :CanonicalIndexError, :CapturedException, :Filesystem, :IOServer, :InvalidStateException, :Order, :PipeEndpoint, :ScopedValues, :Sort, :TTY, :AtomicMemoryRef, :Exception, :GenericMemoryRef, :GlobalRef, :IO, :LineNumberNode, :MemoryRef, :Method, :SegmentationFault, :TypeVar, :arrayref, :arrayset, :arraysize, :const_arrayref]))
+            end
+
+    - effect: "No semantic or behavioral changes to macro functionality"
+      mechanism: |
+        The PR only modifies public API visibility, not the implementation.
+        The Cartesian module code in base/cartesian.jl is unchanged.
+        Macros like @nexprs, @nloops continue to work identically.
+      downstream_surfaces:
+        - "All existing Cartesian macro users"
+      likelihood: "high"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "Base.ispublic(Base, :Cartesian)"
+        change: "Returns true instead of false after this PR"
+        affected_tools:
+          - tool: "Documentation generators"
+            usage: "May now include Cartesian in public API docs"
+          - tool: "Docs.undocumented_names"
+            usage: "Will include :Cartesian if module lacks docstring"
+          - tool: "Static analyzers"
+            usage: "May treat Cartesian usage as stable API"
+
+    behavioral:
+      - summary: "No behavioral changes to any macro functionality"
+        details: |
+          All 10 exported macros from Cartesian (@nloops, @nref, @ncall,
+          @ncallkw, @nexprs, @nextract, @nall, @nany, @ntuple, @nif)
+          continue to work identically. The change is purely about API
+          visibility and stability commitment.
+
+  performance:
+    compile_time:
+      - summary: "No compile-time impact"
+        details: |
+          The public declaration is processed once at Julia startup when
+          loading Base. Adding one symbol to the public list has negligible
+          cost (O(1) hash table insertion).
+        estimate: "ESTIMATED: <0.001% impact"
+
+    runtime:
+      - summary: "No runtime impact"
+        details: |
+          Public declarations are purely metadata. They do not affect
+          code generation, type inference, or runtime behavior.
+        estimate: "MEASURED: Zero runtime impact"
+
+  downstream_package_impact:
+    - package: "General ecosystem"
+      description: |
+        Packages already using Base.Cartesian macros (2,400+ on JuliaHub)
+        would benefit from official API stability guarantees. No code changes
+        required.
+      api_affected:
+        - "@nexprs - most commonly used"
+        - "@nloops - nested loop generation"
+        - "@nref - array reference expressions"
+        - "@ncall - function call expressions"
+        - "@ntuple - tuple generation"
+      migration_required: false
+
+    - package: "Turing.jl / DynamicPPL.jl"
+      description: |
+        If using Cartesian macros for performance-critical array operations,
+        would now have stable API guarantee.
+      api_affected: []
+      migration_required: false
+
+    - package: "Enzyme.jl"
+      description: |
+        Enzyme works at LLVM level, does not interact with Julia macro
+        metaprogramming. No impact expected.
+      api_affected: []
+      migration_required: false
+
+    - package: "GPUCompiler.jl"
+      description: |
+        GPU compilation operates on lowered IR. Cartesian macros expand
+        at parse time before GPU compilation. No impact expected.
+      api_affected: []
+      migration_required: false
+
+  reversion_details:
+    reverted: true
+    revert_pr: 59799
+    revert_pr_url: "https://github.com/JuliaLang/julia/pull/59799"
+    revert_commit: "33b1435"
+    revert_reason: |
+      CI test failure in test/misc.jl "Base docstrings" testset.
+
+      Root cause: The Cartesian module lacks a module-level docstring.
+      When Cartesian was made public, Docs.undocumented_names(Base) included
+      :Cartesian. The test at test/misc.jl:1621-1625 has an allowlist of
+      known undocumented public symbols. Since :Cartesian was not in this
+      list, the test failed:
+
+        @test isempty(setdiff(undoc, [allowed_symbols...]))
+
+      This test ensures all public APIs are documented or explicitly tracked
+      as technical debt.
+    fix_required: |
+      To re-land this PR, one of two fixes is needed:
+
+      Option 1: Add :Cartesian to the allowlist in test/misc.jl:1624
+        @test isempty(setdiff(undoc, [:BufferStream, ..., :Cartesian, ...]))
+
+      Option 2: Add a module-level docstring to base/cartesian.jl
+        \"\"\"
+            Cartesian
+
+        The Cartesian module provides macros for generating repetitive code
+        patterns for N-dimensional array operations. See the devdocs for
+        detailed documentation.
+        \"\"\"
+        module Cartesian
+
+      Option 2 is preferred as it improves documentation quality.
+    implications: |
+      Base.Cartesian remains internal/undocumented API for now.
+      Downstream packages should continue using it with the understanding
+      that it's stable in practice but not officially public.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Single-line change adding module to public list"
+      - "No code changes to Cartesian module itself"
+      - "No semantic or behavioral changes"
+      - "Widely used in ecosystem, effectively stable since Julia 1.0"
+      - "Test failure was due to missing documentation, not functional issues"
+
+  open_questions:
+    - "Will the PR be re-attempted with a module docstring added?"
+    - "Should individual macros be made public instead of entire module?"
+    - "Is there a reason the module documentation in doc/src/devdocs/cartesian.md is not sufficient?"
+
+  recommendations:
+    - "Re-land PR with a module-level docstring added to base/cartesian.jl"
+    - "Alternatively, add :Cartesian to the allowlist in test/misc.jl"
+    - "Downstream packages can continue using Base.Cartesian with confidence"
+    - "The macros have been stable since Julia 1.0 despite being internal"
+    - "Existing documentation at doc/src/devdocs/cartesian.md is comprehensive"
+
+# Detailed Test Failure Analysis
+test_failure_analysis:
+  failing_test:
+    file: "test/misc.jl"
+    testset: "Base docstrings"
+    line_range: "1621-1625"
+    url: "https://github.com/JuliaLang/julia/blob/master/test/misc.jl#L1621-L1625"
+
+  mechanism: |
+    Docs.undocumented_names(Base) at base/docs/Docs.jl:884-889 returns
+    all public names without docstrings:
+
+      function undocumented_names(mod::Module; private::Bool=false)
+          filter!(names(mod; all=true)) do sym
+              !hasdoc(mod, sym) && !startswith(string(sym), '#') &&
+                  (private || Base.ispublic(mod, sym))
+          end
+      end
+
+    When Cartesian is made public:
+    1. Base.ispublic(Base, :Cartesian) returns true
+    2. hasdoc(Base, :Cartesian) returns false (no module docstring)
+    3. :Cartesian is included in undocumented_names(Base)
+    4. setdiff(undoc, allowed_list) is non-empty
+    5. Test fails
+
+  current_allowlist: |
+    [:BufferStream, :CanonicalIndexError, :CapturedException, :Filesystem,
+     :IOServer, :InvalidStateException, :Order, :PipeEndpoint, :ScopedValues,
+     :Sort, :TTY, :AtomicMemoryRef, :Exception, :GenericMemoryRef, :GlobalRef,
+     :IO, :LineNumberNode, :MemoryRef, :Method, :SegmentationFault, :TypeVar,
+     :arrayref, :arrayset, :arraysize, :const_arrayref]
+
+  note: |
+    Other public modules like :Filesystem, :Order, :ScopedValues, :Sort are
+    already in the allowlist. Adding :Cartesian would follow the same pattern
+    for modules that are public but lack module-level docstrings.
+
+# Existing Documentation
+existing_documentation:
+  location: "doc/src/devdocs/cartesian.md"
+  url: "https://github.com/JuliaLang/julia/blob/master/doc/src/devdocs/cartesian.md"
+  contents: |
+    The documentation at doc/src/devdocs/cartesian.md provides comprehensive
+    coverage of the Cartesian module including:
+    - Principles of usage
+    - Basic usage examples
+    - Anonymous-function expressions as macro arguments
+    - Complete macro reference for all 10 exported macros
+
+    However, this documentation is in the devdocs section (for internal
+    development) rather than the main manual, and the module itself lacks
+    a docstring that Julia's reflection can detect.
+
+  macro_docstrings: |
+    All 10 exported macros have inline docstrings in base/cartesian.jl:
+    - @nloops: lines 9-37
+    - @nref: lines 73-88
+    - @ncall: lines 90-110
+    - @ncallkw: lines 112-138
+    - @nexprs: lines 140-159
+    - @nextract: lines 161-187
+    - @nall: lines 189-204
+    - @nany: lines 206-220
+    - @ntuple: lines 222-231
+    - @nif: lines 233-259
+
+# Cartesian Module API Reference
+cartesian_api:
+  exported_macros:
+    - name: "@nloops"
+      signature: "@nloops N itersym rangeexpr bodyexpr"
+      description: "Generate N nested loops with iteration variable prefix"
+      example: |
+        @nloops 2 i A begin
+            s += @nref 2 A i
+        end
+        # Generates:
+        # for i_2 = axes(A, 2)
+        #     for i_1 = axes(A, 1)
+        #         s += A[i_1, i_2]
+        #     end
+        # end
+
+    - name: "@nref"
+      signature: "@nref N A indexexpr"
+      description: "Generate array reference expression A[i_1, i_2, ...]"
+      example: |
+        @nref 3 A i  # generates A[i_1, i_2, i_3]
+
+    - name: "@ncall"
+      signature: "@ncall N f sym..."
+      description: "Generate function call with N arguments"
+      example: |
+        @ncall 3 func a  # generates func(a_1, a_2, a_3)
+
+    - name: "@ncallkw"
+      signature: "@ncallkw N f kw sym..."
+      description: "Generate function call with keyword arguments"
+      example: |
+        @ncallkw 2 f (; a=0, b) x  # generates f(; a=0, b, x_1, x_2)
+
+    - name: "@nexprs"
+      signature: "@nexprs N expr"
+      description: "Generate N expressions using anonymous function template"
+      example: |
+        @nexprs 4 i -> y[i] = A[i+j]
+        # Generates:
+        # y[1] = A[1 + j]
+        # y[2] = A[2 + j]
+        # y[3] = A[3 + j]
+        # y[4] = A[4 + j]
+
+    - name: "@nextract"
+      signature: "@nextract N esym isym"
+      description: "Extract N values into separate variables"
+      example: |
+        @nextract 2 x y  # generates x_1 = y[1]; x_2 = y[2]
+
+    - name: "@nall"
+      signature: "@nall N criterion"
+      description: "Generate AND expression checking N conditions"
+      example: |
+        @nall 3 d->(i_d > 1)  # generates (i_1 > 1 && i_2 > 1 && i_3 > 1)
+
+    - name: "@nany"
+      signature: "@nany N criterion"
+      description: "Generate OR expression checking N conditions"
+      example: |
+        @nany 3 d->(i_d > 1)  # generates (i_1 > 1 || i_2 > 1 || i_3 > 1)
+
+    - name: "@ntuple"
+      signature: "@ntuple N expr"
+      description: "Generate N-tuple"
+      example: |
+        @ntuple 2 i  # generates (i_1, i_2)
+        @ntuple 2 k->k+1  # generates (2, 3)
+
+    - name: "@nif"
+      signature: "@nif N conditionexpr expr [elseexpr]"
+      description: "Generate if-elseif-else chain"
+      example: |
+        @nif 3 d->(i_d >= size(A,d)) d->(error("Dim ", d)) d->println("OK")
+        # Generates:
+        # if i_1 > size(A, 1)
+        #     error("Dim ", 1)
+        # elseif i_2 > size(A, 2)
+        #     error("Dim ", 2)
+        # else
+        #     println("OK")
+        # end
+
+# Internal implementation details
+implementation_notes:
+  variable_naming_convention: |
+    The Cartesian macros use a special naming convention where dimension
+    indices are appended to symbol names with underscores:
+    - itersym = :i with dim = 3 -> :i_3
+    - This enables the "slightly silly but extremely useful API" mentioned
+      in the PR description where @nexprs 10 i -> x_i = i creates x_1
+      through x_10 automatically.
+
+  key_internal_functions:
+    - name: "inlineanonymous"
+      location: "base/cartesian.jl:264-279"
+      purpose: "Substitute dimension value into anonymous function expression"
+      evidence:
+        snippet: |
+          function inlineanonymous(ex::Expr, val)
+              if ex.head !== :->
+                  throw(ArgumentError("not an anonymous function"))
+              end
+              if !isa(ex.args[1], Symbol)
+                  throw(ArgumentError("not a single-argument anonymous function"))
+              end
+              sym = ex.args[1]::Symbol
+              ex = ex.args[2]::Expr
+              exout = lreplace(ex, sym, val)
+              exout = poplinenum(exout)
+              exprresolve(exout)
+          end
+
+    - name: "lreplace"
+      location: "base/cartesian.jl:287-342"
+      purpose: "Replace symbol patterns like :i_d with concrete values like :i_3"
+
+    - name: "exprresolve"
+      location: "base/cartesian.jl:432-468"
+      purpose: "Constant-fold arithmetic and conditionals in generated expressions"
+
+  usage_in_base:
+    - file: "base/broadcast.jl"
+      line: 10
+      usage: "using .Base.Cartesian"
+      url: "https://github.com/JuliaLang/julia/blob/master/base/broadcast.jl#L10"
+
+    - file: "base/combinatorics.jl"
+      line: 51
+      usage: "Base.Cartesian.@nexprs $N i -> acc_{i} = op(acc_{i-1}, i)"
+      url: "https://github.com/JuliaLang/julia/blob/master/base/combinatorics.jl#L51"
+
+    - file: "base/Base.jl"
+      line: 59
+      usage: "using .Cartesian"
+      url: "https://github.com/JuliaLang/julia/blob/master/base/Base.jl#L59"
+
+# Review metadata
+review_metadata:
+  reviewed_by: "independent_analysis"
+  review_date: "2026-01-21"
+  findings_summary: |
+    This review identified the specific root cause of the test failure that
+    caused the PR to be reverted: the Cartesian module lacks a module-level
+    docstring, causing Docs.undocumented_names(Base) to include :Cartesian,
+    which fails the test at test/misc.jl:1621-1625.
+
+    The fix is straightforward: either add :Cartesian to the allowlist of
+    known undocumented symbols, or (preferably) add a module-level docstring
+    to base/cartesian.jl. The latter is preferred as it improves documentation.
+
+    This PR represents a low-risk API visibility change with no functional
+    impact on any code. The Cartesian macros have been stable since Julia 1.0
+    and are already widely used in the ecosystem.

@@ -1,0 +1,371 @@
+schema_version: "1.0"
+
+pr:
+  number: 60324
+  title: "added a few assertions in the GC to document a lock-free list invariant in code"
+  url: "https://github.com/JuliaLang/julia/pull/60324"
+  diff_url: "https://github.com/JuliaLang/julia/pull/60324.diff"
+  author: "d-netto"
+  labels:
+    - "GC"
+  merged_at: "2025-12-05T19:03:50Z"
+  merge_commit_sha: "033d877c4ca8b30e2a491a4905587381e89f2a5d"
+
+scope:
+  files_touched:
+    - "src/gc-stock.c"
+    - "src/gc-stock.h"
+  components:
+    - "GC"
+    - "Runtime"
+  pipeline_stages:
+    - "Runtime"
+
+analysis:
+  intent:
+    summary: |
+      Documents a critical safety invariant for Julia's lock-free page stack implementation
+      used in the garbage collector. The invariant states that when popping nodes from a
+      lock-free stack, they must never be pushed back to the same stack within the same
+      operation. This prevents ABA problems in the simplified lock-free implementation.
+
+      As the author notes in the PR body: "I believe it's a good idea to document this
+      property in code with an assertion, since it's a tricky invariant that makes it
+      safe to use our current lock-free list implementation."
+    issue_links: []
+
+  direct_changes:
+    - summary: "Add assertion documenting lock-free stack invariant in gc_sweep_prescan()"
+      component: "GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "1198-1200"
+          url: "https://github.com/JuliaLang/julia/blob/033d877c4ca8b30e2a491a4905587381e89f2a5d/src/gc-stock.c#L1198-L1200"
+          snippet: |
+            assert((&global_page_pool_lazily_freed != &tmp) &&
+                "Cannot push back to the same stack we are popping from; see invariant of lock-free stack");
+            push_lf_back_nosync(&tmp, pg);
+
+    - summary: "Add assertion documenting lock-free stack invariant in gc_sweep_pool_parallel()"
+      component: "GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "1284-1286"
+          url: "https://github.com/JuliaLang/julia/blob/033d877c4ca8b30e2a491a4905587381e89f2a5d/src/gc-stock.c#L1284-L1286"
+          snippet: |
+            assert((&ptls2->gc_tls.page_metadata_allocd != dest) &&
+                "Cannot push back to the same stack we are popping from; see invariant of lock-free stack");
+            // failed steal attempt
+
+    - summary: "Add two assertions documenting lock-free stack invariant in gc_free_pages()"
+      component: "GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "1333-1336"
+          url: "https://github.com/JuliaLang/julia/blob/033d877c4ca8b30e2a491a4905587381e89f2a5d/src/gc-stock.c#L1333-L1336"
+          snippet: |
+            assert((&global_page_pool_lazily_freed != &tmp) &&
+                "Cannot push back to the same stack we are popping from; see invariant of lock-free stack");
+            push_lf_back(&tmp, pg);
+            continue;
+        - source: "code"
+          path: "src/gc-stock.c"
+          loc: "1354-1356"
+          url: "https://github.com/JuliaLang/julia/blob/033d877c4ca8b30e2a491a4905587381e89f2a5d/src/gc-stock.c#L1354-L1356"
+          snippet: |
+            assert((&global_page_pool_lazily_freed != &tmp) &&
+                "Cannot push back to the same stack we are popping from; see invariant of lock-free stack");
+            push_lf_back(&global_page_pool_lazily_freed, pg);
+
+    - summary: "Fix typo in comment: 'sentine' -> 'sentinel'"
+      component: "GC"
+      evidence:
+        - source: "code"
+          path: "src/gc-stock.h"
+          loc: "73"
+          url: "https://github.com/JuliaLang/julia/blob/033d877c4ca8b30e2a491a4905587381e89f2a5d/src/gc-stock.h#L73"
+          snippet: |
+            GC_empty_chunk = 0, // sentinel value representing no chunk
+
+  lock_free_stack_context:
+    description: |
+      Julia's GC uses a simplified lock-free stack for managing page metadata. This
+      implementation deliberately omits ABA-prevention mechanisms for performance.
+      Safety is maintained through usage invariants documented in gc-stock.h.
+    invariants:
+      - source: "code"
+        path: "src/gc-stock.h"
+        loc: "140-159"
+        url: "https://github.com/JuliaLang/julia/blob/033d877c4ca8b30e2a491a4905587381e89f2a5d/src/gc-stock.h#L140-L159"
+        snippet: |
+          /*
+           * Simple lock-free stack implementation for `jl_gc_page_stack_t`.
+           *
+           * NOTE: This is not a general-purpose lock-free stack. It does not implement
+           * any ABA-prevention mechanism. For our specific use case, this is acceptable,
+           * because we avoid the pathological concurrent push/pop sequences on the same
+           * list node that could trigger the ABA problem.
+           *
+           * Safety invariants for this simple lock-free stack:
+           *
+           * 1. If a node is popped from the stack by a mutator thread, it will never
+           *    be pushed back onto the same stack within the same GC epoch
+           *    (i.e., the time window between two consecutive GCs).
+           *
+           * 2. If a node is popped by a GC thread, it will never be pushed back onto
+           *    the same stack.
+           *
+           * These invariants ensure safe usage of this simplified lock-free stack
+           * without requiring ABA prevention.
+           */
+    stack_implementations:
+      - name: "push_lf_back_nosync"
+        description: "Non-synchronized push using relaxed atomics only"
+        loc: "gc-stock.h:161-166"
+      - name: "push_lf_back"
+        description: "Thread-safe push using CAS loop"
+        loc: "gc-stock.h:168-178"
+      - name: "try_pop_lf_back"
+        description: "Thread-safe bounded-retry pop (up to 1024 attempts)"
+        loc: "gc-stock.h:180-193"
+      - name: "pop_lf_back_nosync"
+        description: "Non-synchronized pop using relaxed atomics only"
+        loc: "gc-stock.h:195-203"
+      - name: "pop_lf_back"
+        description: "Thread-safe unbounded-retry pop"
+        loc: "gc-stock.h:206-217"
+
+  assertion_analysis:
+    description: |
+      The assertions added are "structurally true" - they compare addresses that
+      are always different by construction (global variables vs local stack variables,
+      or thread-local storage vs scratch space). They serve primarily as documentation
+      and guards against future incorrect code modifications.
+
+    assertions:
+      - location: "gc_sweep_prescan line 1198"
+        pop_source: "ptls2->gc_tls.page_metadata_allocd (thread-local)"
+        push_destination: "tmp (local stack variable)"
+        assertion_checks: "&global_page_pool_lazily_freed != &tmp"
+        observation: |
+          Note: The assertion compares against global_page_pool_lazily_freed, not
+          the actual pop source (page_metadata_allocd). This is a defensive check
+          that guards against potential code changes, not a direct verification
+          of the immediate pop/push pair.
+
+      - location: "gc_sweep_pool_parallel line 1284"
+        pop_source: "ptls2->gc_tls.page_metadata_allocd (thread-local)"
+        push_destination: "allocd_scratch[ptls2->tid].stack (scratch space)"
+        assertion_checks: "&ptls2->gc_tls.page_metadata_allocd != dest"
+        observation: |
+          This assertion directly verifies the pop source and push destination
+          are different. The dest (allocd_scratch) is always a separate allocation
+          from the TLS page_metadata_allocd.
+
+      - location: "gc_free_pages line 1333"
+        pop_source: "global_page_pool_lazily_freed (global)"
+        push_destination: "tmp (local stack variable)"
+        assertion_checks: "&global_page_pool_lazily_freed != &tmp"
+        observation: "Direct verification that pop source and push destination differ."
+
+      - location: "gc_free_pages line 1354"
+        pop_source: "tmp (local stack variable)"
+        push_destination: "global_page_pool_lazily_freed (global)"
+        assertion_checks: "&global_page_pool_lazily_freed != &tmp"
+        observation: |
+          This is the second phase where pages are transferred from tmp back to
+          global_page_pool_lazily_freed. The assertion correctly verifies
+          these are different stacks.
+
+  page_lifecycle_analysis:
+    description: |
+      Pages in gc_free_pages() can return to their original stack
+      (global_page_pool_lazily_freed) through an intermediate stack (tmp). This is
+      valid because each individual push/pop pair operates on different stacks,
+      avoiding the ABA problem in each atomic operation:
+
+      Phase 1: Pop from global_page_pool_lazily_freed, push to tmp
+      Phase 2: Pop from tmp, push to global_page_pool_lazily_freed
+
+      The invariant is preserved because no single CAS operation involves pushing
+      back to the same stack it just popped from.
+    flow:
+      - step: 1
+        operation: "pop_lf_back(&global_page_pool_lazily_freed)"
+        description: "Pop page from global lazily-freed pool"
+      - step: 2
+        operation: "push_lf_back(&tmp, pg)"
+        description: "Push to local temp stack (different from pop source, OK)"
+      - step: 3
+        operation: "pop_lf_back(&tmp)"
+        description: "Pop from local temp stack"
+      - step: 4
+        operation: "push_lf_back(&global_page_pool_lazily_freed, pg)"
+        description: "Push to global pool (different from pop source tmp, OK)"
+
+  functions_with_assertions:
+    - function: "gc_sweep_prescan"
+      description: |
+        Prescans pages to determine if parallel sweeping is worthwhile. Pops pages
+        from ptls2->gc_tls.page_metadata_allocd and pushes to local tmp stack.
+      call_chain: |
+        gc_sweep_wake_all_pages() [gc-stock.c:1222]
+          -> gc_sweep_prescan(ptls, new_gc_allocd_scratch) [gc-stock.c:1224]
+            -> pop_lf_back_nosync(&ptls2->gc_tls.page_metadata_allocd) [gc-stock.c:1179]
+            -> push_lf_back_nosync(&tmp, pg) [gc-stock.c:1200]
+              # ASSERTION: &global_page_pool_lazily_freed != &tmp
+
+    - function: "gc_sweep_pool_parallel"
+      description: |
+        Parallel page sweeping by multiple GC threads. Each thread steals pages
+        from other threads' page_metadata_allocd and sweeps them.
+      call_chain: |
+        gc_sweep_pool() [gc-stock.c:1362]
+          -> gc_sweep_pool_parallel(ptls) [gc-stock.c:1414]
+            -> try_pop_lf_back(&ptls2->gc_tls.page_metadata_allocd) [gc-stock.c:1283]
+            -> gc_sweep_pool_page(&serializer, dest, pg) [gc-stock.c:1290]
+              # ASSERTION: &ptls2->gc_tls.page_metadata_allocd != dest
+
+    - function: "gc_free_pages"
+      description: |
+        Frees pages via madvise that were lazily marked for freeing. Pops from
+        global_page_pool_lazily_freed and either keeps pages in a temp stack or
+        actually frees them based on memory pressure.
+      call_chain: |
+        gc_free_pages() [gc-stock.c:1320]
+          -> pop_lf_back(&global_page_pool_lazily_freed) [gc-stock.c:1326]
+          -> push_lf_back(&tmp, pg) [gc-stock.c:1335]
+            # ASSERTION 1: &global_page_pool_lazily_freed != &tmp (for keeping pages)
+          -> pop_lf_back(&tmp) [gc-stock.c:1350]
+          -> push_lf_back(&global_page_pool_lazily_freed, pg) [gc-stock.c:1356]
+            # ASSERTION 2: &global_page_pool_lazily_freed != &tmp (for concurrent mode)
+
+  additional_coverage_analysis:
+    description: |
+      Lock-free stack operations also occur in gc-pages.c without assertions, but
+      the usage there naturally maintains the invariant because pages are popped
+      and returned (not pushed back to the same stack).
+    gc_pages_operations:
+      - location: "gc-pages.c:111"
+        code: "meta = pop_lf_back(&global_page_pool_lazily_freed);"
+        usage: "Page is returned to caller, never pushed back to lazily_freed"
+      - location: "gc-pages.c:119"
+        code: "meta = pop_lf_back(&global_page_pool_clean);"
+        usage: "Page is returned to caller, never pushed back to clean"
+      - location: "gc-pages.c:126"
+        code: "meta = pop_lf_back(&global_page_pool_freed);"
+        usage: "Page is returned to caller, never pushed back to freed"
+      - location: "gc-pages.c:135"
+        code: "meta = pop_lf_back(&global_page_pool_clean);"
+        usage: "Page is returned to caller, never pushed back to clean"
+      - location: "gc-pages.c:153"
+        code: "push_lf_back(&global_page_pool_clean, pg);"
+        usage: "Pushes newly allocated pages, not ones that were popped"
+    observation: |
+      The gc-pages.c usage maintains the invariant naturally because jl_gc_alloc_page()
+      pops pages and returns them to callers (not back to the same stack). New pages
+      created in the mapping loop are pushed to global_page_pool_clean, but these are
+      freshly allocated, not pages that were just popped.
+
+  secondary_effects:
+    - effect: "No runtime behavior change in release builds"
+      mechanism: |
+        Assertions are compiled out in release builds (when NDEBUG is defined).
+        These assertions only fire in debug builds, serving as documentation and
+        catching violations during development/testing.
+      downstream_surfaces:
+        - "Debug builds of Julia"
+        - "CI test runs with assertions enabled"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "Improved debuggability for GC issues"
+      mechanism: |
+        When assertions are enabled, any violation of the lock-free stack invariant
+        will immediately trigger an assertion failure with a descriptive message,
+        rather than causing subtle ABA-related memory corruption later.
+      downstream_surfaces:
+        - "Julia developers debugging GC issues"
+        - "Contributors modifying GC code"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "Defense against future incorrect modifications"
+      mechanism: |
+        The assertions serve as guards against future code changes that might
+        inadvertently violate the lock-free stack invariant. A developer adding
+        new stack operations would be immediately alerted if they created a
+        push-back-to-same-stack pattern.
+      downstream_surfaces:
+        - "Future GC development"
+        - "Code review assistance"
+      likelihood: "medium"
+      impact: "low"
+
+  compatibility:
+    internal_api: []
+    behavioral: []
+
+  performance:
+    compile_time: []
+    runtime:
+      - description: |
+          ESTIMATED: Zero overhead in release builds where assertions are disabled.
+          In debug builds, adds 4 pointer comparisons per sweep cycle, which is
+          negligible compared to the cost of sweeping itself. Each comparison is
+          O(1) - just comparing two pointer values.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Assertions only execute in debug builds, no production impact"
+      - "No changes to actual GC logic or data structures"
+      - "Code has been reviewed by Julia GC maintainers"
+      - "Typo fix in comment is trivial"
+      - "All assertions are structurally true by construction (compare distinct memory regions)"
+
+  open_questions:
+    - question: |
+        The assertion in gc_sweep_prescan compares against global_page_pool_lazily_freed,
+        but the actual pop source is page_metadata_allocd. Is this intentional defensive
+        coding or a potential oversight in assertion placement?
+      context: |
+        The assertion at line 1198 checks (&global_page_pool_lazily_freed != &tmp) but
+        the pop at line 1179 is from ptls2->gc_tls.page_metadata_allocd. A more direct
+        assertion would check (&ptls2->gc_tls.page_metadata_allocd != &tmp).
+
+  recommendations:
+    - "This PR is purely documentation/debugging focused with no downstream impact"
+    - "The documented invariant is valuable for future GC development and debugging"
+    - "PR author notes that a proper ABA-prevention mechanism may be added in the long term"
+    - "Consider adding similar assertions to gc-pages.c operations for completeness, though the invariant is naturally maintained there"
+
+downstream_impact:
+  summary: |
+    This PR has no impact on downstream packages. It adds debug assertions to
+    document an internal GC invariant and fixes a typo. The assertions are
+    compiled out in release builds.
+
+  affected_packages: []
+
+  migration_required: false
+  migration_notes: []
+
+reviewer_notes:
+  reviewed_by: "Second analyst (independent review)"
+  review_date: "2026-01-21"
+  enhancements_made:
+    - "Added detailed assertion_analysis section explaining why each assertion is structurally true"
+    - "Added page_lifecycle_analysis showing how pages can return to original stack through intermediates"
+    - "Added additional_coverage_analysis documenting gc-pages.c usage patterns"
+    - "Added open_questions section noting potential assertion placement observation"
+    - "Enhanced functions_with_assertions with more precise call chains"
+    - "Added stack_implementations listing in lock_free_stack_context"
+  validation:
+    - "Verified all assertions by reading full source context in gc-stock.c"
+    - "Traced lock-free stack usage across gc-stock.c and gc-pages.c"
+    - "Confirmed assertions compare distinct memory regions (global vs local vs TLS)"
+    - "Verified the intermediate stack pattern in gc_free_pages preserves invariant"

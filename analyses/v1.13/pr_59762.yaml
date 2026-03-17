@@ -1,0 +1,219 @@
+schema_version: "1.0"
+pr:
+  number: 59762
+  title: "Allow globalref on lhs of op="
+  url: "https://github.com/JuliaLang/julia/pull/59762"
+  author: "mlechu"
+  labels:
+    - "compiler:lowering"
+  merged_at: "2025-10-07T15:46:42Z"
+  merge_commit_sha: "fcac942f179a2e36e52fbcc2fa4e4db48fe0321f"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59762.diff"
+scope:
+  files_touched:
+    - "src/julia-syntax.scm"
+    - "test/syntax.jl"
+  components:
+    - "Lowering"
+  pipeline_stages:
+    - "Lowering"
+    - "Syntax expansion"
+analysis:
+  intent:
+    summary: "Fix syntax error when using compound assignment operators (+=, -=, etc.) with global variable references in macros. The lowering check incorrectly rejected globalref as an invalid LHS for op= expressions."
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/59008"
+  direct_changes:
+    - summary: "Add 'globalref' to the allowlist of valid LHS forms for compound assignment operators in expand-update-operator."
+      component: "Lowering (julia-syntax.scm)"
+      evidence:
+        - source: "code"
+          path: "src/julia-syntax.scm"
+          loc: "1907-1911"
+          url: "https://github.com/JuliaLang/julia/blob/fcac942f179a2e36e52fbcc2fa4e4db48fe0321f/src/julia-syntax.scm#L1907-L1911"
+          snippet: |
+            (else
+             (if (and (pair? lhs) (eq? op= '=)
+                      (not (memq (car lhs) '(|.| globalref tuple vcat ncat typed_hcat typed_vcat typed_ncat))))
+                 (error (string "invalid assignment location \"" (deparse lhs) "\"")))
+             (expand-update-operator- op op= lhs rhs declT))))
+        - source: "diff"
+          path: "src/julia-syntax.scm"
+          loc: "1909"
+          url: "https://github.com/JuliaLang/julia/blob/fcac942f179a2e36e52fbcc2fa4e4db48fe0321f/src/julia-syntax.scm#L1909"
+          snippet: |
+            # BEFORE:
+            (not (memq (car lhs) '(|.| tuple vcat ncat typed_hcat typed_vcat typed_ncat)))
+            # AFTER:
+            (not (memq (car lhs) '(|.| globalref tuple vcat ncat typed_hcat typed_vcat typed_ncat)))
+    - summary: "Add regression test verifying compound assignment with global variable in macro works correctly."
+      component: "Tests"
+      evidence:
+        - source: "test"
+          path: "test/syntax.jl"
+          loc: "2605-2612"
+          url: "https://github.com/JuliaLang/julia/blob/fcac942f179a2e36e52fbcc2fa4e4db48fe0321f/test/syntax.jl#L2605-L2612"
+          snippet: |
+            module M59008 # dotop with global LHS in macro
+            using Test
+            global a = 1
+            macro counter()
+                :(a += 1)
+            end
+            @test @counter() === 2 === a
+            end
+  secondary_effects:
+    - effect: "Macros that emit compound assignments to global variables now lower correctly without syntax errors."
+      mechanism: |
+        Macro hygiene in macroexpand.scm creates globalrefs for unbound symbols [macroexpand.scm:391-395]:
+          (define (resolve-expansion-vars- e env m lno parent-scope inarg)
+            (cond ...
+                  ((symbol? e)
+                   (let ((a (assq e env)))
+                     (if a (cdr a)
+                         (if m `(globalref ,m ,e)  ; <-- symbol becomes (globalref module symbol)
+                             e))))
+
+        When macro returns :(a += 1), after expansion the AST becomes:
+          (+= (globalref M59008 a) 1)
+
+        Call chain during lowering:
+          lower-update-op(e)  [julia-syntax.scm:1913-1920]
+            (expand-forms
+             (let ((str (string (car e))))
+               (expand-update-operator
+                (symbol (string.sub str 0 (- (length str) 1)))
+                (if (= (string.char str 0) #\.) '.= '=)  ; op= is '=' for += or '.=' for .+=
+                (cadr e)
+                (caddr e))))
+            -> expand-update-operator(+, =, (globalref M59008 a), 1)  [julia-syntax.scm:1892]
+            -> (else branch) checks if lhs head is in allowlist  [julia-syntax.scm:1908-1909]
+            -> Previously: 'globalref' not in list -> error "invalid assignment location"
+            -> After fix: 'globalref' in list -> passes through to expand-update-operator-
+            -> expand-update-operator-(+, =, (globalref M59008 a), 1, ())  [julia-syntax.scm:1852]
+            -> Returns: (block (= (globalref M59008 a) (call + (globalref M59008 a) 1)))
+
+        Later in closure conversion, convert-assignment handles globalref [julia-syntax.scm:3767-3768]:
+          ((globalref? var)
+           (convert-global-assignment var rhs0 globals lam toplevel-pure))
+
+        Finally in codegen emit-assignment-or-setglobal [julia-syntax.scm:4727-4731]:
+          (cond ((and (globalref? lhs) (eq? op '=))
+                 (emit `(call (core setglobal!) ,(cadr lhs) (inert ,(caddr lhs)) ,rhs)))
+      downstream_surfaces:
+        - "Macro-generated code with global compound assignments"
+        - "Code using @macroexpand with global variables"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "All broadcast compound assignment operators (.+=, .-=, etc.) were also affected and are now fixed."
+      mechanism: |
+        All compound assignment operators (30+ variants) go through lower-update-op [julia-syntax.scm:2842-2872]:
+          '+=     lower-update-op
+          '-=     lower-update-op
+          '.*=    lower-update-op
+          './=    lower-update-op
+          '|.+=|  lower-update-op
+          '|.-=|  lower-update-op
+          ... (and many more)
+
+        The op= parameter in expand-update-operator is set to '.=' for broadcast operators:
+          (if (= (string.char str 0) #\.) '.= '=)  [julia-syntax.scm:1918]
+
+        However, the early check in expand-update-operator only fires when op= is '=' [line 1908]:
+          (if (and (pair? lhs) (eq? op= '=) ...)
+
+        This means broadcast assignments (.+=) were NOT blocked by this check, but would have
+        been caught later in convert-assignment if globalref wasn't handled there. Since
+        convert-assignment already handles globalref correctly, broadcast assignments to
+        globalrefs already worked. Only regular compound assignments (+=, -=) were broken.
+      downstream_surfaces:
+        - "Regular compound assignments to globalrefs in macros"
+      likelihood: "high"
+      impact: "low"
+    - effect: "No change to how globalref assignments are ultimately compiled - setglobal! was already emitted for globalref LHS in emit-assignment-or-setglobal."
+      mechanism: |
+        emit-assignment-or-setglobal already handled globalref correctly [julia-syntax.scm:4727-4736]:
+          (define (emit-assignment-or-setglobal lhs rhs (op '=))
+            ;; (= (globalref _ _) _)     => setglobal!
+            ;; (const (globalref _ _) _) => declare_const
+            (cond ((and (globalref? lhs) (eq? op '=))
+                   (emit `(call (core setglobal!) ,(cadr lhs) (inert ,(caddr lhs)) ,rhs)))
+                  ((and (globalref? lhs) (eq? op 'const))
+                   (emit `(call (core declare_const) ,(cadr lhs) (inert ,(caddr lhs)) ,rhs)))
+                  (else
+                   (assert (eq? op '=))
+                   (emit `(= ,lhs ,rhs)))))
+
+        The fix merely allows globalref to reach this existing correct handler.
+      downstream_surfaces:
+        - "Global variable assignment codegen"
+      likelihood: "high"
+      impact: "low"
+  compatibility:
+    internal_api: []
+    behavioral:
+      - change: "Code that previously threw 'syntax: invalid assignment location' for globalref compound assignments now compiles successfully."
+        evidence:
+          - source: "issue"
+            path: "https://github.com/JuliaLang/julia/issues/59008"
+            snippet: |
+              # Before fix - ERROR:
+              count = 0
+              macro counter(f)
+                  :(begin
+                      global count += 1
+                      println(count)
+                      $f
+                  end)
+              end
+              @counter cos(1.1)
+              # ERROR: syntax: invalid assignment location "Main.count" around REPL[34]:3
+
+              # After fix - WORKS:
+              @counter cos(1.1)
+              # prints: 1
+              # returns: 0.4535961...
+          - source: "test"
+            path: "test/syntax.jl"
+            loc: "3833-3834"
+            url: "https://github.com/JuliaLang/julia/blob/fcac942f179a2e36e52fbcc2fa4e4db48fe0321f/test/syntax.jl#L3833-L3834"
+            snippet: |
+              # Note: simple globalref assignments already worked via @eval:
+              # GlobalRef is allowed for same-module assignment and declares the binding
+              @eval try_to_create_binding2() = ($(GlobalRef(Foreign54607, :foo2)) = 2)
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: negligible - single memq check with one additional symbol in allowlist."
+        evidence:
+          - source: "code"
+            path: "src/julia-syntax.scm"
+            loc: "1909"
+            snippet: |
+              (not (memq (car lhs) '(|.| globalref tuple vcat ncat typed_hcat typed_vcat typed_ncat)))
+    runtime:
+      - impact: "No runtime impact - lowering produces identical code for globalref assignments."
+  risk:
+    level: "low"
+    rationale:
+      - "Minimal change: adds one symbol to an allowlist in lowering"
+      - "No new code paths - globalref LHS was already correctly handled in emit-assignment-or-setglobal"
+      - "Only affects cases that previously errored, so no behavior change for working code"
+      - "Regression test added to lock in the fix"
+      - "PR author noted: 'This check isn't actually necessary since we check the lhs again when re-expanding the assignment'"
+  open_questions:
+    - question: "The PR body mentions deleting the check entirely would make 'some error messages worse' - which error messages would be affected?"
+      answer: |
+        The early check in expand-update-operator (line 1908-1910) provides better error messages
+        because it catches invalid forms BEFORE they are transformed by expand-update-operator-.
+        If removed, invalid forms would pass through and be caught later in convert-assignment
+        [julia-syntax.scm:3771-3772]:
+          (else
+           (error (string "invalid assignment location \"" (deparse var) "\"")))
+
+        At that point, the expression has been transformed from "(op= lhs rhs)" to
+        "(= lhs (call op lhs rhs))", so error messages would show the transformed form
+        rather than the original user expression. The early check preserves better error context.
+  recommendations:
+    - "No action needed for downstream packages - this is a pure bug fix that enables previously-broken syntax."
+    - "Packages using macro-generated compound assignments to globals should work correctly on Julia versions with this fix."
+    - "Note: Simple globalref assignments (without compound operators) already worked via @eval, only compound assignments like += were broken."

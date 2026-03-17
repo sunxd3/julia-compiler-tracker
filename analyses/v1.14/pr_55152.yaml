@@ -1,0 +1,466 @@
+schema_version: "1.0"
+
+pr:
+  number: 55152
+  title: "make codepoint(c) work for overlong chars"
+  url: "https://github.com/JuliaLang/julia/pull/55152"
+  diff_url: "https://github.com/JuliaLang/julia/pull/55152.diff"
+  author: "stevengj"
+  labels:
+    - "unicode"
+  merged_at: "2025-11-23T16:30:50Z"
+  merge_commit_sha: "7a8cbd4b7cfd0b7c3d62c2a4c58b07d177582351"
+
+scope:
+  files_touched:
+    - "base/char.jl"
+    - "base/public.jl"
+    - "doc/src/base/strings.md"
+    - "test/char.jl"
+    - "NEWS.md"
+  components:
+    - "Base"
+    - "Unicode/Character handling"
+  pipeline_stages: []
+
+analysis:
+  intent:
+    summary: |
+      Makes `codepoint(c)` succeed for overlong UTF-8 encodings, which previously
+      threw an `InvalidCharError`. This change enables proper handling of non-malformed
+      but overlong character sequences. Additionally declares `Base.ismalformed`,
+      `Base.isoverlong`, and `Base.show_invalid` as `public` (but not exported) APIs
+      with proper documentation.
+
+      The motivation comes from issues #54343 and #54393 where character classification
+      functions like `isuppercase()` failed for overlong encodings because they
+      internally called `codepoint()` which threw an error. Now these functions
+      work correctly for any non-malformed character.
+    issue_links:
+      - "https://github.com/JuliaLang/julia/issues/54343"
+      - "https://github.com/JuliaLang/julia/issues/54393"
+
+  direct_changes:
+    - summary: "Remove is_overlong_enc check from UInt32(c::Char) conversion"
+      component: "Base/char.jl"
+      evidence:
+        - source: "code"
+          path: "base/char.jl"
+          loc: "158-171"
+          url: "https://github.com/JuliaLang/julia/blob/7a8cbd4b7cfd0b7c3d62c2a4c58b07d177582351/base/char.jl#L158-L171"
+          snippet: |
+            @constprop :aggressive function UInt32(c::Char)
+                # TODO: use optimized inline LLVM
+                u = bitcast(UInt32, c)
+                u < 0x80000000 && return u >> 24
+                l1 = leading_ones(u)
+                t0 = trailing_zeros(u) & 56
+                (l1 == 1) | (8l1 + t0 > 32) |
+                (((u & 0x00c0c0c0) ⊻ 0x00808080) >> t0 != 0) &&
+                    throw_invalid_char(c)
+                u &= 0xffffffff >> l1
+                u >>= t0
+                ((u & 0x0000007f) >> 0) | ((u & 0x00007f00) >> 2) |
+                ((u & 0x007f0000) >> 4) | ((u & 0x7f000000) >> 6)
+            end
+        - source: "diff"
+          path: "base/char.jl"
+          loc: "164-166"
+          notes: "Key change - removed is_overlong_enc from validation"
+          before: |
+            (l1 == 1) | (8l1 + t0 > 32) |
+            ((((u & 0x00c0c0c0) ⊻ 0x00808080) >> t0 != 0) | is_overlong_enc(u)) &&
+                throw_invalid_char(c)
+          after: |
+            (l1 == 1) | (8l1 + t0 > 32) |
+            (((u & 0x00c0c0c0) ⊻ 0x00808080) >> t0 != 0) &&
+                throw_invalid_char(c)
+
+    - summary: "Simplify decode_overlong to delegate to codepoint"
+      component: "Base/char.jl"
+      evidence:
+        - source: "code"
+          path: "base/char.jl"
+          loc: "173-188"
+          url: "https://github.com/JuliaLang/julia/blob/7a8cbd4b7cfd0b7c3d62c2a4c58b07d177582351/base/char.jl#L173-L188"
+          snippet: |
+            """
+                decode_overlong(c::AbstractChar)::Integer
+
+            When [`isoverlong(c)`](@ref) is `true`, `decode_overlong(c)` returns
+            the Unicode codepoint value of `c`.   Deprecated in favor of
+            `codepoint(c)`.
+
+            !!! compat "Julia 1.12"
+                In Julia 1.12 or later, `decode_overlong(c)` simply calls
+                `codepoint(c)`, which should now work for overlong encodings.
+                `AbstractChar` implementations that support overlong encodings
+                should implement `Base.decode_overlong` on older releases.
+            """
+            function decode_overlong end
+
+            @constprop :aggressive decode_overlong(c::AbstractChar) = codepoint(c)
+
+    - summary: "Declare ismalformed, isoverlong, show_invalid as public APIs"
+      component: "Base/public.jl"
+      evidence:
+        - source: "code"
+          path: "base/public.jl"
+          loc: "115-119"
+          url: "https://github.com/JuliaLang/julia/blob/7a8cbd4b7cfd0b7c3d62c2a4c58b07d177582351/base/public.jl#L115-L119"
+          snippet: |
+            # Chars
+                ismalformed,
+                isoverlong,
+                show_invalid,
+
+    - summary: "Update ismalformed docstring with enhanced semantics"
+      component: "Base/char.jl"
+      evidence:
+        - source: "code"
+          path: "base/char.jl"
+          loc: "129-146"
+          url: "https://github.com/JuliaLang/julia/blob/7a8cbd4b7cfd0b7c3d62c2a4c58b07d177582351/base/char.jl#L129-L146"
+          snippet: |
+            """
+                ismalformed(c::AbstractChar)::Bool
+
+            Return `true` if `c` represents malformed (non-codepoint / mis-encoded) data according to the
+            encoding used by `c`. Defaults to `false` for non-`Char` types.
+
+            Any *non*-malformed `c` can be mapped to an integer codepoint
+            by [`codepoint(c)`](@ref); this includes codepoints that are
+            not valid Unicode characters ([`isvalid(c)`](@ref) is `false`).
+            For example, well-formed characters can include invalid Unicode
+            codepoints like `'\\U110000'`, unpaired surrogates such as `'\\ud800'`,
+            and can also include overlong encodings ([`Base.isoverlong`](@ref)).
+            Malformed data, in contrast, cannot be decoded to a codepoint
+            (`codepoint` will throw an exception).
+
+            See also [`Base.show_invalid`](@ref).
+            """
+            ismalformed(c::AbstractChar) = false
+
+    - summary: "Update codepoint docstring for Julia 1.12 compat"
+      component: "Base/char.jl"
+      evidence:
+        - source: "code"
+          path: "base/char.jl"
+          loc: "80-98"
+          url: "https://github.com/JuliaLang/julia/blob/7a8cbd4b7cfd0b7c3d62c2a4c58b07d177582351/base/char.jl#L80-L98"
+          snippet: |
+            """
+                codepoint(c::AbstractChar)::Integer
+
+            Return the Unicode codepoint (an unsigned integer) corresponding
+            to the character `c` (or throw an exception if `c` represents
+            a malformed character). For `Char`, this is a `UInt32` value, but
+            `AbstractChar` types that represent only a subset of Unicode may
+            return a different-sized integer (e.g. `UInt8`).
+
+            Should succeed for any non-malformed character, i.e. when
+            [`Base.ismalformed(c)`](@ref) returns `false`.   This includes
+            invalid Unicode characters (such as unpaired surrogates)
+            and overlong encodings.
+
+            !!! compat "Julia 1.12"
+                Prior to Julia 1.12, `codepoint(c)` fails for overlong encodings (when
+                [`Base.isoverlong(c)`](@ref) is `true`), and `Base.decode_overlong(c)` was needed.
+            """
+            function codepoint end
+
+    - summary: "Add tests for overlong, non-malformed chars"
+      component: "test/char.jl"
+      evidence:
+        - source: "code"
+          path: "test/char.jl"
+          loc: "360-367"
+          url: "https://github.com/JuliaLang/julia/blob/7a8cbd4b7cfd0b7c3d62c2a4c58b07d177582351/test/char.jl#L360-L367"
+          snippet: |
+            @testset "overlong, non-malformed chars" begin
+                c = ['\xc0\xa0', '\xf0\x8e\x80\x80']
+                @test all(Base.isoverlong, c)
+                @test !any(Base.ismalformed, c)
+                @test repr("text/plain", c[1]) == "'\\xc0\\xa0': [overlong] ASCII/Unicode U+0020 (category Zs: Separator, space)"
+                @test codepoint.(c) == [0x20, 0xE000]
+                @test isuppercase(c[1]) == isuppercase(c[2]) == false # issue #54343
+            end
+
+  secondary_effects:
+    - effect: "Character classification functions now work for overlong encodings"
+      mechanism: |
+        isuppercase(c) and islowercase(c)  [base/strings/unicode.jl:403,428]
+          -> both check ismalformed(c) first
+          -> then call UInt32(c) for utf8proc functions
+          -> UInt32(c) now succeeds for overlong encodings
+          -> character classification returns correct result
+
+        Previously, UInt32(c::Char) threw InvalidCharError for overlong sequences.
+        Now it successfully decodes the codepoint, enabling downstream functions
+        to work correctly.
+      downstream_surfaces:
+        - "isuppercase(c)"
+        - "islowercase(c)"
+        - "Unicode category functions"
+        - "Any function calling codepoint() or UInt32(c) on chars"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "category_code and all dependent functions now work for overlong encodings"
+      mechanism: |
+        category_code(c::AbstractChar)  [base/strings/unicode.jl:362-364]
+          -> checks !ismalformed(c), which is true for overlong
+          -> then calls category_code(UInt32(c))
+          -> UInt32(c) now succeeds for overlong encodings
+
+        Call chain from category_code to downstream functions:
+          category_code(c)  [unicode.jl:362]
+            -> isletter(c)  [unicode.jl:488] via UTF8PROC_CATEGORY_LU <= category_code(c)
+            -> isnumeric(c) [unicode.jl:515] via UTF8PROC_CATEGORY_ND <= category_code(c)
+            -> ispunct(c)   [unicode.jl:560] via UTF8PROC_CATEGORY_PC <= category_code(c)
+            -> isspace(c)   [unicode.jl:586-588] via category_code(c) == UTF8PROC_CATEGORY_ZS
+            -> isprint(c)   [unicode.jl:604] via UTF8PROC_CATEGORY_LU <= category_code(c)
+            -> iscased(c)   [unicode.jl:438-442] via cat = category_code(c)
+            -> isassigned(c)[unicode.jl:379] via category_code(c)
+      downstream_surfaces:
+        - "isletter(c)"
+        - "isnumeric(c)"
+        - "ispunct(c)"
+        - "isspace(c)"
+        - "isprint(c)"
+        - "iscased(c)"
+        - "isassigned(c)"
+        - "category_abbrev(c)"
+        - "category_string(c)"
+      likelihood: "high"
+      impact: "medium"
+
+    - effect: "isgraphemebreak functions now work for overlong encodings"
+      mechanism: |
+        isgraphemebreak(c1, c2)  [base/strings/unicode.jl:801-803]
+          -> checks ismalformed(c1) || ismalformed(c2), returns true if either malformed
+          -> for non-malformed (including overlong), calls ccall with UInt32(c1), UInt32(c2)
+          -> UInt32(c) now succeeds for overlong encodings
+
+        isgraphemebreak!(state, c1, c2)  [base/strings/unicode.jl:808-815]
+          -> same pattern: checks ismalformed first, then ccall with UInt32 conversion
+
+        Used by GraphemeIterator in length() and iterate() methods.
+      downstream_surfaces:
+        - "isgraphemebreak(c1, c2)"
+        - "isgraphemebreak!(state, c1, c2)"
+        - "graphemes(s) iteration"
+        - "titlecase(s) word breaking"
+      likelihood: "medium"
+      impact: "low"
+
+    - effect: "textwidth function uses is_overlong_enc directly for conservative width"
+      mechanism: |
+        textwidth(c::Char)  [base/strings/unicode.jl:267-275]
+          -> checks (ismalformed(c) || is_overlong_enc(u))
+          -> returns 1 for overlong chars (conservative approach)
+          -> This behavior is UNCHANGED - is_overlong_enc is still used here
+
+        Note: is_overlong_enc is NOT removed from Base; it is only removed from
+        the UInt32(c::Char) validation path. textwidth still uses it directly
+        to avoid calling utf8proc_charwidth on overlong encodings.
+      downstream_surfaces:
+        - "textwidth(c)"
+        - "String width calculations"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "escape_string preserves special handling for overlong characters"
+      mechanism: |
+        escape_string(io, s, esc)  [base/strings/io.jl:443-454]
+          -> explicitly checks !isoverlong(c) && !ismalformed(c) before UInt32(c)
+          -> for overlong/malformed, uses bswap(reinterpret(UInt32, c)) to output raw bytes
+          -> This is CORRECT and UNCHANGED - escape_string was already safe
+
+        Relevant code path:
+          elseif !isoverlong(c) && !ismalformed(c)  [io.jl:443]
+            # calls UInt32(c) for normal chars
+          else # malformed or overlong  [io.jl:448]
+            u = bswap(reinterpret(UInt32, c)::UInt32)
+            # outputs raw bytes without UInt32 conversion
+      downstream_surfaces:
+        - "escape_string()"
+        - "repr() on strings with overlong chars"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "isascii(c::AbstractChar) generic fallback now works for custom overlong types"
+      mechanism: |
+        isascii(c::Char)  [base/strings/basic.jl:618]
+          -> uses bswap(reinterpret(UInt32, c)) < 0x80
+          -> does NOT call UInt32(c), so was never affected
+
+        isascii(c::AbstractChar)  [base/strings/basic.jl:620]
+          -> uses UInt32(c) < 0x80
+          -> for custom AbstractChar types that support overlong, this now works
+
+        Note: For built-in Char, isascii was never affected because it uses
+        reinterpret, not UInt32(c). Only custom AbstractChar subtypes with
+        overlong support would see a difference.
+      downstream_surfaces:
+        - "isascii(c) for custom AbstractChar types"
+      likelihood: "low"
+      impact: "low"
+
+    - effect: "AbstractChar subtype implementations may need update"
+      mechanism: |
+        Custom AbstractChar types that support overlong encodings should now
+        implement codepoint() to handle them directly, rather than requiring
+        users to call decode_overlong(). The decode_overlong() function is
+        effectively deprecated in favor of codepoint().
+      downstream_surfaces:
+        - "Custom AbstractChar implementations"
+      likelihood: "low"
+      impact: "low"
+
+  compatibility:
+    internal_api:
+      - field: "Base.decode_overlong"
+        change: "Now simply delegates to codepoint(c); effectively deprecated"
+        affected_tools:
+          - "Code that explicitly called decode_overlong() - should switch to codepoint()"
+      - field: "Base.ismalformed, Base.isoverlong, Base.show_invalid"
+        change: "Now declared as `public` APIs (but still not exported)"
+        affected_tools:
+          - "Code can now rely on these as stable public APIs"
+    behavioral:
+      - item: "codepoint(c) no longer throws for overlong encodings"
+        change: "Returns decoded codepoint instead of throwing InvalidCharError"
+        migration: "Code that caught InvalidCharError from codepoint() may need adjustment"
+
+  performance:
+    compile_time: []
+    runtime:
+      - item: "Slight speedup for UInt32(c::Char) on all multi-byte characters"
+        detail: |
+          ESTIMATED: Removing the is_overlong_enc(u) check from UInt32(c::Char)
+          eliminates the following operations for every multi-byte character conversion:
+
+          Removed check (from char.jl:119):
+            is_overlong_enc(u) = (u >> 24 == 0xc0) | (u >> 24 == 0xc1) | (u >> 21 == 0x0704) | (u >> 20 == 0x0f08)
+
+          This is:
+            - 4 right-shift operations (>> 24, >> 24, >> 21, >> 20)
+            - 4 equality comparisons
+            - 3 OR (|) operations
+            - 1 additional OR with the malformed check result
+
+          The check was performed AFTER the ASCII fast path (u < 0x80000000), so it
+          only affected multi-byte UTF-8 characters. For strings with many non-ASCII
+          characters (e.g., CJK text, mathematical symbols), this provides a small
+          but consistent speedup.
+
+          Impact: <1% improvement for typical string processing; more noticeable
+          for character-intensive operations on non-ASCII text.
+
+  risk:
+    level: "low"
+    rationale:
+      - "Removes an error case - strictly more permissive, not breaking existing working code"
+      - "Backwards compatible since code that worked before continues to work"
+      - "Only code catching InvalidCharError from overlong chars might behave differently"
+      - "Tests verify the new behavior for specific overlong sequences"
+      - "Well-documented compat note for Julia 1.12"
+
+  downstream_impact:
+    packages: []
+    surfaces:
+      - "Character handling code that deals with potentially malformed input"
+      - "String processing libraries"
+      - "Unicode normalization/validation tools"
+    notes: |
+      This PR has POSITIVE impact on downstream packages. Code that previously
+      failed when encountering overlong UTF-8 sequences (e.g., in file parsing
+      or network data) will now handle them gracefully.
+
+      The key behavior change:
+      - BEFORE: codepoint('\xc0\xa0') -> throws InvalidCharError
+      - AFTER:  codepoint('\xc0\xa0') -> 0x20 (the decoded space character)
+
+      Packages that work with character data from external sources (files, networks)
+      benefit from this more robust handling of non-standard encodings.
+
+  open_questions:
+    - "Should decode_overlong be formally deprecated with a deprecation warning?"
+
+  recommendations:
+    - "Update code that explicitly calls decode_overlong() to use codepoint() instead"
+    - "If catching InvalidCharError, consider whether overlong sequences should now succeed"
+    - "For new AbstractChar implementations, implement codepoint() to handle overlong if supported"
+
+classification:
+  type: "behavioral"
+  compiler_relevant: false
+  breaking_change: false
+  requires_downstream_action: false
+
+changelog:
+  category: "Standard library"
+  entry: |
+    `codepoint(c)` now succeeds for overlong UTF-8 encodings, returning the
+    decoded codepoint. Previously it threw an error, requiring use of
+    `Base.decode_overlong(c)`. `Base.ismalformed`, `Base.isoverlong`, and
+    `Base.show_invalid` are now declared as `public` APIs (but not exported).
+    This fixes issues where character classification functions like `isuppercase()`
+    failed for overlong encodings ([#55152]).
+
+evidence_verification:
+  julia_repo_checked_out: true
+  commit_sha: "7a8cbd4b7cfd0b7c3d62c2a4c58b07d177582351"
+  files_examined:
+    - path: "base/char.jl"
+      verified: true
+      notes: "Core changes to UInt32(c::Char) and decode_overlong"
+    - path: "base/public.jl"
+      verified: true
+      notes: "Added ismalformed, isoverlong, show_invalid to public"
+    - path: "base/strings/unicode.jl"
+      verified: true
+      notes: "Checked callers of ismalformed and is_overlong_enc; verified textwidth still uses is_overlong_enc directly"
+    - path: "base/strings/io.jl"
+      verified: true
+      notes: "Verified escape_string correctly handles overlong via explicit check before UInt32 conversion"
+    - path: "base/strings/basic.jl"
+      verified: true
+      notes: "Verified isascii(c::Char) uses reinterpret not UInt32; generic fallback isascii(c::AbstractChar) uses UInt32"
+    - path: "test/char.jl"
+      verified: true
+      notes: "New tests for overlong non-malformed chars; modified test_overlong to use codepoint()"
+
+reviewer_notes:
+  independent_analysis_date: "2026-01-21"
+  additional_callers_searched:
+    - pattern: "codepoint"
+      files_found: 10
+      notes: "Verified all callers in base/ benefit from change"
+    - pattern: "UInt32(c)"
+      files_found: 6
+      notes: "Key callers in unicode.jl, basic.jl, io.jl examined"
+    - pattern: "is_overlong_enc"
+      files_found: 3
+      notes: "Still used in char.jl:119 (definition), char.jl:123 (isoverlong), unicode.jl:273 (textwidth)"
+    - pattern: "InvalidCharError"
+      files_found: 2
+      notes: "Only thrown from char.jl:166; caught in test/char.jl:250"
+  key_observations:
+    - |
+      The test file shows both malformed-overlong and non-malformed-overlong cases:
+      - test/char.jl:345-358: Tests MALFORMED overlong chars (e.g., '\xc0' alone) - these still throw
+      - test/char.jl:360-367: Tests NON-MALFORMED overlong chars (e.g., '\xc0\xa0') - these now succeed
+      The distinction is crucial: overlong != malformed. Overlong sequences that are
+      structurally valid UTF-8 (correct continuation bytes) are now accepted.
+    - |
+      The change to test_overlong() helper [char.jl:246-256] demonstrates the new behavior:
+      BEFORE: if isvalid(c) then test Int(c) == n
+      AFTER:  if !Base.ismalformed(c) then test Int(c) == n == codepoint(c)
+      This shows codepoint() is now expected to work for non-malformed overlong.
+    - |
+      The is_overlong_enc function is intentionally KEPT in Base (not removed) because:
+      1. textwidth() needs it to return conservative width=1 for overlong chars
+      2. isoverlong() uses it to detect overlong sequences
+      Only the validation check in UInt32(c::Char) was removed.

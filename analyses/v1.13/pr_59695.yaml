@@ -1,0 +1,333 @@
+schema_version: "1.0"
+pr:
+  number: 59695
+  title: "Mmap fix on system with 64k pagesize."
+  url: "https://github.com/JuliaLang/julia/pull/59695"
+  author: "green-br"
+  labels: []
+  merged_at: "2025-10-16T13:55:16Z"
+  merge_commit_sha: "c0b62335dc4ee52151ffdc89350de7881c984db5"
+  diff_url: "https://github.com/JuliaLang/julia/pull/59695.diff"
+scope:
+  files_touched:
+    - "base/sysinfo.jl"
+    - "stdlib/Mmap/src/Mmap.jl"
+    - "stdlib/Mmap/test/runtests.jl"
+  components:
+    - "Base.Sys"
+    - "Mmap"
+  pipeline_stages: []
+analysis:
+  intent:
+    summary: "Fix Mmap failures on systems with non-standard page sizes (e.g., 64KB on ARM/Linux) by moving PAGESIZE computation from build-time const to runtime-initialized global."
+    issue_links: []
+    quoted_from_pr: |
+      Not sure if this is the best approach but seemed to allow Mmap test to pass.
+      Seems the pagesize was being set to value at build-time rather than being
+      re-evaluated at runtime. Running Mmap tests on system with 64k pagesize,
+      Mmap would still think its on a system with 4k pagesize and therefore fail.
+  direct_changes:
+    - summary: "Add new runtime-initialized global Sys.PAGESIZE that queries the OS page size via ccall at Julia initialization time, replacing the build-time const in Mmap.jl."
+      component: "Base.Sys"
+      evidence:
+        - source: "code"
+          path: "base/sysinfo.jl"
+          loc: "148-153"
+          url: "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/base/sysinfo.jl#L148-L153"
+          snippet: |
+            """
+                Sys.PAGESIZE::Clong
+
+            A number providing the pagesize of the given OS.  Common values being 4kb or 64kb on Linux.
+            """
+            global PAGESIZE::Clong
+        - source: "code"
+          path: "base/sysinfo.jl"
+          loc: "155-176"
+          url: "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/base/sysinfo.jl#L155-L176"
+          snippet: |
+            function __init__()
+                env_threads = nothing
+                if haskey(ENV, "JULIA_CPU_THREADS")
+                    env_threads = ENV["JULIA_CPU_THREADS"]
+                end
+                global CPU_THREADS = if env_threads !== nothing
+                    env_threads = tryparse(Int, env_threads)
+                    if env_threads === nothing || env_threads <= 0
+                        env_threads = Int(ccall(:jl_cpu_threads, Int32, ()))
+                        Core.print(Core.stderr, "WARNING: couldn't parse `JULIA_CPU_THREADS` environment variable. Defaulting Sys.CPU_THREADS to $env_threads.\n")
+                    end
+                    env_threads
+                else
+                    Int(ccall(:jl_cpu_threads, Int32, ()))
+                end
+                global SC_CLK_TCK = ccall(:jl_SC_CLK_TCK, Clong, ())
+                global CPU_NAME = ccall(:jl_get_cpu_name, Ref{String}, ())
+                global JIT = ccall(:jl_get_JIT, Ref{String}, ())
+                global PAGESIZE = Int(Sys.isunix() ? ccall(:jl_getpagesize, Clong, ()) : ccall(:jl_getallocationgranularity, Clong, ()))
+                __init_build()
+                nothing
+            end
+        - source: "code"
+          path: "base/sysinfo.jl"
+          loc: "8-17"
+          url: "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/base/sysinfo.jl#L8-L17"
+          snippet: |
+            export BINDIR,
+                   STDLIB,
+                   CPU_THREADS,
+                   CPU_NAME,
+                   WORD_SIZE,
+                   ARCH,
+                   MACHINE,
+                   KERNEL,
+                   JIT,
+                   PAGESIZE,
+    - summary: "Remove const PAGESIZE from Mmap.jl and import the runtime-initialized Sys.PAGESIZE instead."
+      component: "Mmap"
+      evidence:
+        - source: "code"
+          path: "stdlib/Mmap/src/Mmap.jl"
+          loc: "6-11"
+          url: "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/stdlib/Mmap/src/Mmap.jl#L6-L11"
+          snippet: |
+            module Mmap
+
+            import Base: OS_HANDLE, INVALID_OS_HANDLE
+            using Base.Sys: PAGESIZE
+
+            export mmap
+    - summary: "Add seek(s, 0) in test to reset file position before mmap call, fixing test behavior on systems with larger page sizes."
+      component: "Mmap.Test"
+      evidence:
+        - source: "test"
+          path: "stdlib/Mmap/test/runtests.jl"
+          loc: "269-275"
+          url: "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/stdlib/Mmap/test/runtests.jl#L269-L275"
+          snippet: |
+            seek(s, 0)
+            A3 = mmap(s, Matrix{Int}, (m,n), convert(Int64, 2*sizeof(Int)))
+            @test A == A3
+            seek(s, 0)
+            A4 = mmap(s, Matrix{Int}, (m,150), convert(Int64, (2+150*m)*sizeof(Int)))
+            @test A[:, 151:end] == A4
+            close(s)
+  secondary_effects:
+    - effect: "Mmap operations now correctly use the runtime page size on systems where the build-time and runtime page sizes differ (e.g., cross-compiled binaries or systems with non-standard page sizes like 64KB ARM)."
+      mechanism: |
+        Previous (broken) flow:
+          Mmap.jl module load -> const PAGESIZE = ccall(:jl_getpagesize, ...) [build-time constant]
+          -> embedded in sysimage at build time
+          -> wrong value when running on system with different page size
+
+        New (fixed) flow:
+          Julia startup -> Sys.__init__() [sysinfo.jl:155]
+            -> global PAGESIZE = ccall(:jl_getpagesize, ...) [line 173]
+            -> queries sysconf(_SC_PAGESIZE) on Unix [sys.c:589]
+            -> or GetSystemInfo().dwAllocationGranularity on Windows [sys.c:597-604]
+          Mmap.jl module load -> using Base.Sys: PAGESIZE [line 9]
+            -> imports runtime-initialized value
+          mmap() call [Mmap.jl:187-265]
+            -> uses correct PAGESIZE for offset alignment [line 207]
+            -> offset_page::Int64 = div(offset, PAGESIZE) * PAGESIZE
+      downstream_surfaces:
+        - "Mmap.mmap() offset calculations"
+        - "Mmap.sync!() offset alignment"
+        - "Mmap.madvise!() offset alignment"
+        - "Any package using Mmap on non-4KB page size systems"
+      likelihood: "high"
+      impact: "high"
+    - effect: "Sys.PAGESIZE is now a public exported API, allowing packages to query the OS page size at runtime."
+      mechanism: |
+        export PAGESIZE [sysinfo.jl:17]
+          -> Sys.PAGESIZE becomes publicly accessible
+          -> documented with docstring [sysinfo.jl:148-152]
+        Packages can now use:
+          using Base.Sys: PAGESIZE
+          or
+          Sys.PAGESIZE
+        to get the runtime page size value.
+      downstream_surfaces:
+        - "Public API addition: Sys.PAGESIZE"
+        - "Packages needing page-aligned allocations"
+        - "Memory-mapped I/O libraries"
+        - "FFI code dealing with mmap/VirtualAlloc"
+      likelihood: "high"
+      impact: "low"
+    - effect: "SharedArrays indirectly benefits from this fix since it uses Mmap.mmap() internally for file-backed shared arrays."
+      mechanism: |
+        SharedArrays.jl [stdlib/SharedArrays/src/SharedArrays.jl:8]
+          -> using Mmap
+        SharedArray file constructor [SharedArrays.jl:209-211]
+          -> func_mmap = mode -> open(filename, mode) do io
+                 mmap(io, Array{T,N}, dims, offset; shared=true)
+             end
+        This path uses PAGESIZE for offset alignment, now correctly runtime-determined.
+      downstream_surfaces:
+        - "SharedArrays file-backed constructor"
+        - "Distributed computing with memory-mapped files"
+      likelihood: "high"
+      impact: "medium"
+    - effect: "All four PAGESIZE usage sites in Mmap.jl now use the correct runtime value."
+      mechanism: |
+        PAGESIZE usage call chain in Mmap.jl:
+
+        1. mmap() bounds check [Mmap.jl:202]
+           len < typemax(Int) - PAGESIZE || throw(ArgumentError(...))
+           -> ensures requested size doesn't overflow when adding page alignment
+
+        2. mmap() offset alignment [Mmap.jl:207]
+           offset_page::Int64 = div(offset, PAGESIZE) * PAGESIZE
+           -> rounds offset down to page boundary for mmap syscall
+
+        3. sync!() pointer alignment [Mmap.jl:367]
+           offset = rem(UInt(ptr), PAGESIZE)
+           ptr = ptr - offset
+           -> aligns pointer to page boundary for msync syscall
+
+        4. madvise!() pointer alignment [Mmap.jl:430]
+           offset = rem(UInt(ptr), PAGESIZE)
+           ptr = ptr - offset
+           -> aligns pointer to page boundary for madvise syscall
+      downstream_surfaces:
+        - "mmap() offset parameter handling"
+        - "sync!() flush operations"
+        - "madvise!() memory hints"
+      likelihood: "high"
+      impact: "high"
+  compatibility:
+    public_api:
+      - summary: "New public export Sys.PAGESIZE::Clong providing the OS page size at runtime."
+        evidence:
+          - source: "code"
+            path: "base/sysinfo.jl"
+            loc: "17"
+            url: "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/base/sysinfo.jl#L17"
+            snippet: "PAGESIZE,"
+    internal_api:
+      - summary: "Mmap.PAGESIZE is removed as a module-local const; code directly referencing Mmap.PAGESIZE (if any existed) should use Sys.PAGESIZE instead."
+        evidence:
+          - source: "code"
+            path: "stdlib/Mmap/src/Mmap.jl"
+            loc: "9"
+            url: "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/stdlib/Mmap/src/Mmap.jl#L9"
+            snippet: "using Base.Sys: PAGESIZE"
+    behavioral:
+      - summary: "PAGESIZE is now evaluated at runtime instead of build time, fixing correctness on systems with non-4KB pages but potentially changing behavior for code that assumed build-time evaluation."
+        evidence:
+          - source: "code"
+            path: "base/sysinfo.jl"
+            loc: "173"
+            url: "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/base/sysinfo.jl#L173"
+            snippet: |
+              global PAGESIZE = Int(Sys.isunix() ? ccall(:jl_getpagesize, Clong, ()) : ccall(:jl_getallocationgranularity, Clong, ()))
+  c_runtime_context:
+    - summary: "The C runtime already queries page size at startup via jl_page_size, ensuring consistency between C and Julia levels."
+      evidence:
+        - source: "code"
+          path: "src/init.c"
+          loc: "703"
+          url: "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/src/init.c#L703"
+          snippet: "jl_page_size = jl_getpagesize();"
+    - summary: "On Unix, jl_getpagesize() calls sysconf(_SC_PAGESIZE) directly each time (no caching)."
+      evidence:
+        - source: "code"
+          path: "src/sys.c"
+          loc: "587-592"
+          url: "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/src/sys.c#L587-L592"
+          snippet: |
+            JL_DLLEXPORT long jl_getpagesize(void)
+            {
+                long page_size = sysconf(_SC_PAGESIZE);
+                assert(page_size != -1);
+                return page_size;
+            }
+    - summary: "On Windows, jl_getpagesize() caches the result from GetSystemInfo() for efficiency."
+      evidence:
+        - source: "code"
+          path: "src/sys.c"
+          loc: "575-585"
+          url: "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/src/sys.c#L575-L585"
+          snippet: |
+            #ifdef _OS_WINDOWS_
+            static long cachedPagesize = 0;
+            JL_DLLEXPORT long jl_getpagesize(void)
+            {
+                if (!cachedPagesize) {
+                    SYSTEM_INFO systemInfo;
+                    GetSystemInfo (&systemInfo);
+                    cachedPagesize = systemInfo.dwPageSize;
+                }
+                return cachedPagesize;
+            }
+    - summary: "Windows uses dwAllocationGranularity (64KB) for mmap, not dwPageSize (4KB), because VirtualAlloc requires 64KB alignment."
+      evidence:
+        - source: "code"
+          path: "src/sys.c"
+          loc: "595-605"
+          url: "https://github.com/JuliaLang/julia/blob/c0b62335dc4ee52151ffdc89350de7881c984db5/src/sys.c#L595-L605"
+          snippet: |
+            #ifdef _OS_WINDOWS_
+            static long cachedAllocationGranularity = 0;
+            JL_DLLEXPORT long jl_getallocationgranularity(void) JL_NOTSAFEPOINT
+            {
+                if (!cachedAllocationGranularity) {
+                    SYSTEM_INFO systemInfo;
+                    GetSystemInfo (&systemInfo);
+                    cachedAllocationGranularity = systemInfo.dwAllocationGranularity;
+                }
+                return cachedAllocationGranularity;
+            }
+  performance:
+    compile_time:
+      - impact: "ESTIMATED: negligible; one additional ccall during Julia initialization."
+    runtime:
+      - impact: "ESTIMATED: none; Sys.PAGESIZE is computed once at startup and reused. The value is accessed via a global variable read, same cost as before."
+  tests:
+    changed_files:
+      - "stdlib/Mmap/test/runtests.jl"
+    new_behavior_assertions:
+      - "seek(s, 0) added before A4 mmap to ensure correct file position (line 272)"
+    test_fix_rationale: |
+      The seek(s, 0) addition at line 272 fixes a test that was likely passing by accident
+      on 4KB page systems. Without resetting the file position, the test would read m and n,
+      advancing the position, then mmap with an explicit offset. On systems with larger page
+      sizes (64KB), the implicit current position could cause issues with offset calculations.
+      The fix ensures consistent behavior regardless of page size.
+    coverage_gaps:
+      - "No explicit test for cross-page-size scenarios (e.g., running 64KB-page system with binary built on 4KB-page system)"
+      - "No test verifying Sys.PAGESIZE matches expected system value"
+      - "No CI testing on ARM64 with 64KB page configuration"
+  risk:
+    level: "low"
+    rationale:
+      - "Change is a correctness fix for systems with non-standard page sizes."
+      - "The modification is straightforward: moving a ccall from const initialization to __init__()."
+      - "PAGESIZE is used only for offset alignment calculations in Mmap, not for security-critical operations."
+      - "Existing tests pass; new seek() added to fix test reliability."
+      - "The C functions jl_getpagesize() and jl_getallocationgranularity() are already well-tested and used elsewhere in Julia runtime."
+      - "The C runtime already queries jl_page_size at startup (init.c:703), so this change makes Julia-level consistent with C-level."
+  open_questions:
+    - "Should there be explicit tests for 64KB page size systems in CI?"
+    - "Are there other build-time constants in Julia that should be evaluated at runtime for cross-platform correctness?"
+    - "Should Sys.PAGESIZE be documented to clarify it returns allocation granularity on Windows (which differs from actual page size)?"
+  recommendations:
+    - "Downstream packages using Mmap should benefit automatically from this fix without code changes."
+    - "Packages that had workarounds for 64KB page size issues can remove those workarounds."
+    - "Consider adding CI testing on ARM systems with 64KB pages to catch similar issues in the future."
+    - "Any code that directly accessed the old Mmap module-local PAGESIZE (if such code existed) should switch to using Sys.PAGESIZE."
+    - "SharedArrays users on ARM64 with 64KB pages should see improved reliability with file-backed shared arrays."
+reviewer_notes:
+  independent_analysis_additions:
+    - "Added complete PAGESIZE usage site trace in Mmap.jl (4 locations: lines 202, 207, 367, 430)"
+    - "Added SharedArrays indirect dependency via Mmap.mmap() call chain"
+    - "Added C runtime context section documenting jl_page_size initialization in init.c and sys.c implementation details"
+    - "Added Windows page size vs allocation granularity distinction (dwPageSize=4KB vs dwAllocationGranularity=64KB)"
+    - "Enhanced test fix rationale explaining why seek(s, 0) was needed"
+    - "Verified C-level caching mechanism on Windows for both page size and allocation granularity"
+  verification_method: |
+    1. Checked out merge commit c0b62335dc4ee52151ffdc89350de7881c984db5
+    2. Read full source files: sysinfo.jl, Mmap.jl, sys.c, init.c
+    3. Searched for all PAGESIZE usages with rg
+    4. Traced SharedArrays dependency through Mmap import
+    5. Verified C-level implementation matches Julia-level usage
