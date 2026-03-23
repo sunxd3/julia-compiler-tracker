@@ -1,5 +1,5 @@
 ---
-name: julia-changelog
+name: compiler-changelog
 description: Generate and update compiler changelogs for Julia releases by scanning merged PRs in the Julia repo. Use when the user asks to build, update, or extend a compiler changelog for a Julia version.
 ---
 
